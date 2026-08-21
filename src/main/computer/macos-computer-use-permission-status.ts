@@ -12,6 +12,10 @@ import {
   resolveMacOSComputerUseAppPath,
   resolveMacOSComputerUseExecutablePath
 } from './macos-native-provider-paths'
+import {
+  formatMacOSComputerUseHelperUnavailableReason,
+  getMacOSComputerUseHelperCompatibility
+} from './macos-computer-use-helper-compatibility'
 import { RuntimeClientError } from './runtime-client-error'
 import { stopMacOSPermissionStatusHelper } from './macos-computer-use-permission-status-cleanup'
 
@@ -69,6 +73,10 @@ export function resolveComputerUseHelperUnavailableReason(): string | null {
   }
   if (!resolveMacOSComputerUseExecutablePath()) {
     return `${helperAppPath}/Contents/MacOS/orca-computer-use-macos was not found`
+  }
+  const compatibility = getMacOSComputerUseHelperCompatibility(helperAppPath)
+  if (compatibility && !compatibility.compatible) {
+    return formatMacOSComputerUseHelperUnavailableReason(compatibility)
   }
   return null
 }
