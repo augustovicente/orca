@@ -867,6 +867,7 @@ const ORCA_CLI_BROWSER_REFERENCE_MARKDOWN = [
   "- Without `--page`, a command goes to the worktree's current tab. That stays the agent's tab while it has had a command in the last 20 seconds or so, even after the user picks another (`tab current` reports it too), then moves to the user's pick.",
   "- After `ORCA tab switch`, pass the new page's `browserPageId`.",
   "- Browser commands default to the current worktree. `--page` reaches the page in any worktree unless you also pass `--worktree <selector>`. Use `--worktree all` only intentionally.",
+  "- `tab list` shows every tab in the tab bar. After a restart, tabs the user has not opened report `loaded: false`; `tab switch` or any `--page` command loads one in the background without changing the user's visible tab.",
   "- Use typed tab commands (`ORCA tab list/create/close/switch`), not `ORCA exec --command \"tab ...\"`, so Orca keeps UI state synchronized.",
   "- Use `ORCA set device` or `ORCA viewport --mobile`, not `ORCA exec --command \"set device ...\"`, so the page also gets touch input and `pointer: coarse`. Each page load (reload, `goto`, link click) resets it, so run it again after navigating.",
   "- Prefer `wait --text`, `--url`, `--selector`, or `--load` after async page changes instead of bare timeouts.",
