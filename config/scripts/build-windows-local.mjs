@@ -11,15 +11,18 @@ export function getLocalBuildIdentity() {
 if (process.argv[1] && resolve(process.argv[1]) === resolve(import.meta.filename)) {
   const identity = getLocalBuildIdentity()
   console.log(`[build:windows] local update version ${identity.version}`)
-  execSync('pnpm exec electron-builder --config config/electron-builder.config.cjs --win', {
-    env: {
-      ...process.env,
-      ORCA_APP_NAME: 'contadorca',
-      ORCA_APP_ID: 'com.contadorca.app',
-      ORCA_BUILD_COMMIT: identity.commit,
-      ORCA_LOCAL_BUILD_VERSION: identity.version
-    },
-    stdio: 'inherit',
-    shell: true
-  })
+  execSync(
+    'pnpm exec electron-builder --config config/electron-builder.config.cjs --win --publish never',
+    {
+      env: {
+        ...process.env,
+        ORCA_APP_NAME: 'contadorca',
+        ORCA_APP_ID: 'com.contadorca.app',
+        ORCA_BUILD_COMMIT: identity.commit,
+        ORCA_LOCAL_BUILD_VERSION: identity.version
+      },
+      stdio: 'inherit',
+      shell: true
+    }
+  )
 }
