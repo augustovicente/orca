@@ -34,6 +34,7 @@ import {
 } from './mobile-file-preview-editability'
 import { filePreviewStyles as styles } from './mobile-file-preview-styles'
 import { mobileMarkdownFileLink } from './mobile-markdown-file-link'
+import { mobilePdfHandoffMime } from './mobile-pdf-handoff'
 import { useMobileFilePreviewBack } from './use-mobile-file-preview-back'
 
 type Props = {
@@ -126,6 +127,15 @@ function MobileFilePreviewDocument({ route }: Props) {
   }, [savedContent])
 
   const loadPreview = useCallback(async () => {
+    if (previewParams) {
+      const previewPath =
+        previewParams.source === 'terminalArtifact'
+          ? (previewParams.absolutePath ?? '')
+          : (previewParams.relativePath ?? '')
+      if (mobilePdfHandoffMime(previewPath)) {
+        return
+      }
+    }
     const revision = ++previewLoadRevisionRef.current
     const loadSourceKey = previewSourceKey
     const loadSource = previewSourceRef.current

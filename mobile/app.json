@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Orca",
+    "name": "Orca Dev",
     "slug": "orca-mobile",
     "version": "0.0.60",
     "orientation": "default",
@@ -89,8 +89,7 @@
       "allowBackup": false,
       "permissions": ["RECORD_AUDIO", "MODIFY_AUDIO_SETTINGS"],
       "package": "com.stably.orca.mobile",
-      "versionCode": 24,
-      "googleServicesFile": "./google-services.json"
+      "versionCode": 24
     },
     "plugins": [
       "expo-router",
@@ -142,6 +141,13 @@
           }
         }
       ]
-    ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "01bb4838-815e-473e-8eaa-09cfd7879170"
+      }
+    },
+    "owner": "gutotrosla"
   }
 }

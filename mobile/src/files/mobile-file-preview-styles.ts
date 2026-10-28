@@ -55,6 +55,15 @@ export const filePreviewStyles = themedStyleSheet(() => ({
     fontSize: typography.bodySize,
     textAlign: 'center'
   },
+  pdfOpenButton: {
+    minHeight: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radii.button,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.borderSubtle,
+    paddingHorizontal: spacing.lg
+  },
   errorText: {
     color: colors.statusRed,
     fontSize: typography.bodySize,

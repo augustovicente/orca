@@ -13,6 +13,8 @@ import {
 import { normalizeSourceControlGroupOrder } from '../../../shared/source-control-group-order'
 import { normalizeProjectGroups } from '../../../shared/project-groups'
 import { normalizeDisabledTuiAgents } from '../../../shared/tui-agent-selection'
+import { loadWhitelabelProfile, applyWhitelabelSeed } from '../../whitelabel/whitelabel-seed'
+import { join } from 'node:path'
 import { hasUnsupportedTuiAgentArgs } from '../../../shared/tui-agent-launch-defaults'
 import { normalizeTerminalCursorStyleDefault } from '../../../shared/terminal-cursor-style-settings'
 import { normalizeTerminalLineHeight } from '../../../shared/terminal-line-height-settings'
@@ -70,6 +72,19 @@ export function prepareLoadedProfileSettings(
   defaults: PersistedState,
   markNeedsSave: () => void
 ): PreparedLoadedProfileSettings {
+  // Whitelabel seed: apply profile overrides once per profile version (no-op when absent).
+  const resourcesPath =
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: Electron injects resourcesPath at runtime.
+    (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath ??
+    join(process.cwd(), 'resources')
+  const profile = loadWhitelabelProfile(resourcesPath)
+  if (profile && parsed.settings) {
+    const seeded = applyWhitelabelSeed(parsed.settings, profile)
+    if (seeded.applied) {
+      parsed.settings = seeded.settings
+      markNeedsSave()
+    }
+  }
   const migratedPortugueseUiLanguage = migratePortugueseUiLanguageOnLoad(parsed.settings)
   if (
     parsed.settings?.uiLanguage !== migratedPortugueseUiLanguage.uiLanguage ||

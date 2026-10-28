@@ -34,13 +34,14 @@ export const MOBILE_WEB_PAGE_ROUTES = [
     pathname: '/h/[hostId]/files/[worktreeId]',
     grants: ['navigate', 'storage', 'externalLink', 'haptics', 'native.clipboard.write'],
     // Older shells cannot open PDFs; the preview asks for an app update instead.
-    optionalGrants: ['native.pdf.view']
+    // The preview hop keeps this document, so a PDF hand-off needs the verb here as well.
+    optionalGrants: ['native.pdf.view', 'native.file.share']
   },
   // Preview itself uses Markdown externalLink and Source Copy clipboard; explorer inherits same grants for in-document hop.
   {
     pathname: '/h/[hostId]/files/preview/[worktreeId]',
     grants: ['navigate', 'storage', 'externalLink', 'haptics', 'native.clipboard.write'],
-    optionalGrants: ['native.pdf.view']
+    optionalGrants: ['native.pdf.view', 'native.file.share']
   },
   // Hub grants cover Back/review navigation, shared storage, PR link openers and conflict-command Copy.
   // Keep pr/history Redirects native: listing them would leave page session bound to pathname redirect already left; native replaces into hub once.
@@ -76,6 +77,7 @@ export const MOBILE_WEB_PAGE_ROUTES = [
       'native.audio.stop'
     ],
     // Optional media.name preserves attachment on older shells by falling back to filename derived from type.
-    optionalGrants: ['externalNavigation', 'native.media.name', 'native.pdf.view']
+    // file.share covers the dock's PDF preview hop, which stays inside this document.
+    optionalGrants: ['externalNavigation', 'native.media.name', 'native.pdf.view', 'native.file.share']
   }
 ]

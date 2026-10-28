@@ -12,10 +12,8 @@ export function useMobileSessionFileActions(scope: MobileSessionTerminalSendActi
     hostId,
     worktreeId,
     routeWorktreeName,
-    isFloatingWorkspaceRoute,
     client,
     sessionTabsRef,
-    terminalLinkOpenMode,
     activeSessionTabIdRef,
     terminalCwdRef,
     activeHandleRef,
@@ -89,21 +87,14 @@ export function useMobileSessionFileActions(scope: MobileSessionTerminalSendActi
     onResumedTerminal: switchTab
   })
 
-  const handleTerminalOpenUrl = useCallback(
-    (handle: string, url: string) => {
-      if (handle !== activeHandleRef.current) {
-        return
-      }
-      // Why: browser.tabCreate resolves a real worktree, which the floating
-      // sentinel doesn't have — open taps in the phone browser instead.
-      if (terminalLinkOpenMode === 'phone-browser' || isFloatingWorkspaceRoute) {
-        openExternalLink(url)
-        return
-      }
-      void handleCreateBrowserRef.current?.(url)
-    },
-    [terminalLinkOpenMode, isFloatingWorkspaceRoute]
-  )
+  const handleTerminalOpenUrl = useCallback((handle: string, url: string) => {
+    if (handle !== activeHandleRef.current) {
+      return
+    }
+    // Why: terminal links should open in the phone's system browser rather
+    // than the Orca embedded browser or the paired desktop browser.
+    openExternalLink(url)
+  }, [])
   return {
     handleFileTap,
     handleNativeChatFileTap,

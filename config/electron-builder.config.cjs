@@ -102,7 +102,8 @@ const devChannelRepo = isHourlyChannel
     : isAdhocChannel
       ? 'orca-adhoc'
       : null
-const appId = 'com.stablyai.orca'
+const appId = process.env.ORCA_APP_ID || 'com.contadorca.app'
+const productName = process.env.ORCA_APP_NAME || 'contadorca'
 const featureWallResources = {
   from: 'resources/onboarding/feature-wall',
   to: 'onboarding/feature-wall'
@@ -236,8 +237,8 @@ const ORCA_MAC_TEAM_ID = '6CX3WHS9HZ'
 /** @type {import('electron-builder').Configuration} */
 module.exports = {
   appId,
-  productName: 'Orca',
-  protocols: [{ name: 'Orca', schemes: ['orca'] }],
+  productName,
+  protocols: [{ name: 'contadorca', schemes: ['orca'] }],
   toolsets: { appimage: '1.0.3' },
   ...(devChannelBuildVersion
     ? { extraMetadata: { version: devChannelBuildVersion } }

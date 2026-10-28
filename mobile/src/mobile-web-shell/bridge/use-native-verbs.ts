@@ -19,8 +19,10 @@ import {
 import {
   clipboardReadResultSchema,
   clipboardWriteResultSchema,
+  fileShareResultSchema,
   pdfViewResultSchema,
   type BridgeClipboardMime,
+  type BridgeFileShareParams,
   type BridgeNativeVerb,
   type BridgePdfOpenParams
 } from './bridge-native-verbs'
@@ -34,12 +36,15 @@ export type NativeVerbs = {
   // Require pick/read/release together; swallowed release refusal would retain every staged file until TTL and exhaust eight handles. Clipboard image availability uses the same complete path.
   canPickMedia: boolean
   canNameMedia: boolean
+  // The shell pulls the file and opens the OS viewer; the page can do neither from a WebView.
+  canShareFile: boolean
   writeClipboardText: (value: string) => Promise<boolean>
   readClipboardText: () => Promise<string>
   pickMedia: (source: BridgeMediaSource, multiple: boolean) => Promise<readonly BridgeMediaItem[]>
   readMedia: (handle: string, offset: number, length: number) => Promise<BridgeMediaChunk>
   releaseMedia: (handle: string) => Promise<boolean>
   nameMedia: (handle: string) => Promise<string | null>
+  shareFile: (params: BridgeFileShareParams) => Promise<boolean>
   startAudio: (sampleRate: number) => Promise<z.infer<typeof audioStartResultSchema>>
   readAudio: (maxBytes: number) => Promise<BridgeAudioChunk>
   // Stop carries final ring audio; stopped:false is normal after a repeated stop or an OS-ended capture.
@@ -141,6 +146,7 @@ export function useNativeVerbs(): NativeVerbs {
       canPickMedia:
         has('native.media.pick') && has('native.media.read') && has('native.media.release'),
       canNameMedia: has('native.media.name'),
+      canShareFile: has('native.file.share'),
       writeClipboardText: async (value) =>
         (await call('native.clipboard.write', { mime, value }, clipboardWriteResultSchema)).written,
       readClipboardText: async () =>
@@ -153,6 +159,8 @@ export function useNativeVerbs(): NativeVerbs {
         (await call('native.media.release', { handle }, mediaReleaseResultSchema)).released,
       nameMedia: async (handle) =>
         (await call('native.media.name', { handle }, mediaNameResultSchema)).name,
+      shareFile: async (params) =>
+        (await call('native.file.share', params, fileShareResultSchema)).shared,
       startAudio: (sampleRate) =>
         call('native.audio.start', { sampleRate }, audioStartResultSchema),
       readAudio: (maxBytes) => call('native.audio.read', { maxBytes }, audioReadResultSchema),

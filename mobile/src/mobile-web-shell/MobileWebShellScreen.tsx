@@ -20,6 +20,7 @@ import { cancelledShellNavigationTarget } from './cancelled-navigation-target'
 import { playPageHaptic } from './page-haptics'
 import { useMobileWebShellBridge } from './use-mobile-web-shell-bridge'
 import type { MobileWebShellRuntime } from './mobile-web-shell-runtime'
+import { useHostClient } from '../transport/host-client-hooks'
 import { useKeyboardOcclusion } from '../platform/keyboard-occlusion'
 import { useNativeDeviceVerbs } from '../platform/use-native-device-verbs'
 import { useNativePdfViewer } from '../platform/native-pdf-view'
@@ -123,7 +124,11 @@ export function MobileWebShellScreen({
     readWorkspaceKey
   } = usePageHostSnapshot(hostId, route.pathname, ownsHostArea)
   // Create the media registry before the bridge; its staged files must belong to this page session.
-  const serveDeviceVerb = useNativeDeviceVerbs(state.kind === 'ready' ? state.sessionId : null)
+  const { client } = useHostClient(hostId)
+  const serveDeviceVerb = useNativeDeviceVerbs(
+    state.kind === 'ready' ? state.sessionId : null,
+    client
+  )
   const servePdfView = useNativePdfViewer(hostId, state.kind === 'ready' ? state.sessionId : null)
   const serveNativeVerb = (verb: BridgeNativeVerb, params: unknown): Promise<unknown> =>
     verb === 'native.storage.read'

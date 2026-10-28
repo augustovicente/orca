@@ -215,7 +215,7 @@ export async function saveHostDockWidth(width: number): Promise<void> {
 export type MobileTerminalLinkOpenMode = 'orca-browser' | 'phone-browser'
 
 const TERMINAL_LINK_OPEN_MODE_KEY = 'orca:terminalLinkOpenMode'
-export const DEFAULT_TERMINAL_LINK_OPEN_MODE: MobileTerminalLinkOpenMode = 'orca-browser'
+export const DEFAULT_TERMINAL_LINK_OPEN_MODE: MobileTerminalLinkOpenMode = 'phone-browser'
 let terminalLinkWriteBarrier: Promise<void> | null = null
 
 export async function loadTerminalLinkOpenMode(): Promise<MobileTerminalLinkOpenMode> {

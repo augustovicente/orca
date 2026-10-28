@@ -1,4 +1,6 @@
 import { MobileFileMediaPreview } from './MobileFileMediaPreview'
+import { MobilePdfHandoff } from './MobilePdfHandoff'
+import { mobilePdfHandoffMime } from './mobile-pdf-handoff'
 import type { MobileFilePreviewRpcSender } from './mobile-file-preview-operations'
 import { ActivityIndicator, Image, ScrollView, Text, View } from 'react-native'
 import { colors } from '../theme/mobile-theme'
@@ -34,6 +36,14 @@ type Props = {
 export function MobileFilePreviewBody({ preview, ...options }: Props) {
   useMobileColorScheme()
   const t = useMobileTranslation()
+  if (mobilePdfHandoffMime(options.relativePath)) {
+    const media = {
+      worktreeId: options.worktreeId ?? '',
+      relativePath: options.relativePath,
+      mimeType: 'application/pdf'
+    }
+    return <MobilePdfHandoff media={media} title={options.title} />
+  }
   if (preview.status === 'loading') {
     return (
       <View style={styles.state}>
