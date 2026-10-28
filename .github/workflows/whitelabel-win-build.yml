@@ -31,6 +31,8 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - uses: ./.github/actions/install-mobile-dependencies
+
       - name: Build app
         run: pnpm build:release
 
