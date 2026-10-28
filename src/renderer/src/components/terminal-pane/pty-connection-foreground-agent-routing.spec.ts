@@ -98,6 +98,8 @@ export function registerPtyConnectionForegroundAgentRoutingTests(): void {
 
       connectPanePty(pane as never, manager as never, deps as never)
 
+      await flushAsyncTicks()
+      expect(capturedDataCallback.current).not.toBeNull()
       capturedDataCallback.current?.('\x1b]133;D;130\x07thebr ~/repo $ ')
       await flushAsyncTicks()
 

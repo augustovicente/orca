@@ -1,20 +1,16 @@
+import { attachTerminalResidentPresentation } from './terminal-resident-presentation'
+import { captureNotificationTransportOwner } from '@/attention/notification-subject-owner'
 import { isRemoteRuntimePtyId } from '../../../../../shared/remote-runtime-pty-id'
 import { makePaneKey } from '../../../../../shared/stable-pane-id'
 import { useAppStore } from '@/store'
 import { safeFit } from '@/lib/pane-manager/pane-tree-ops'
 import { bindPanePtyId, getFitOverrideForPty } from '@/lib/pane-manager/mobile-fit-overrides'
-import { inspectRuntimeTerminalProcess } from '@/runtime/runtime-terminal-inspection'
-import { isFreshNonDoneAgentStatus } from '../../../../../shared/agent-status-types'
 import { isCtrlCKeyEvent, isPlainEscapeKeyEvent } from '../agent-interrupt-inference'
-import { createAgentCompletionCoordinator } from '../agent-completion-coordinator'
-import { dispatchAgentHookTerminalLifecycle } from '../agent-hook-terminal-lifecycle'
-import { resolveCompatibleAgentTypeForOwner } from '../../../../../shared/agent-title-owner'
-import { registerTerminalSideEffectFactConsumer } from '../terminal-side-effect-facts-handler'
-
-import { isAgentTaskCompleteTrackingEnabled } from './agent-task-complete-settings'
-import { isAgentProcessInspectionCostly } from '../agent-process-inspection-cost'
-import { isRemoteExecutionHostPtyId } from '../../../../../shared/remote-execution-host-pty-id'
-import { retireLiveAgentRowOnConfirmedProcessExit } from './confirmed-process-exit-row-retire'
+import {
+  admitRemoteTerminalSemanticResident,
+  admitLegacyTerminalSemanticResident,
+  registerTerminalSideEffectFactConsumer
+} from '../terminal-side-effect-facts-handler'
 
 import type { ConnectPanePtySession } from './connect-pane-pty-session'
 
@@ -108,12 +104,55 @@ export function installTerminalKeydownFit(session: ConnectPanePtySession): void 
     ptyId: string,
     remoteOutputPaused = false
   ): void => {
-    if ((!session.mainSideEffectAuthority && !remoteOutputPaused) || session.disposed) {
+    if (session.disposed) {
       return
+    }
+    session.semanticPolicy.bindPty(ptyId, session.remotePtyIncarnationId ?? null)
+    const binding = {
+      paneKey: session.cacheKey,
+      tabId: session.deps.tabId,
+      worktreeId: session.deps.worktreeId,
+      cwd: session.deps.cwd,
+      startup: session.paneStartup,
+      initialTitle: session.getCurrentTerminalTitle() ?? undefined,
+      launchToken: session.launchToken,
+      runtimeEnvironmentId: session.runtimeEnvironmentId,
+      workspaceOwner: captureNotificationTransportOwner(session.transport)
+    }
+    const services = {
+      setCacheTimerStartedAt: session.deps.setCacheTimerStartedAt,
+      markTerminalBell: session.deps.markTerminalBell,
+      dispatchNotification: session.deps.dispatchNotification
+    }
+    if (
+      !session.mainSideEffectAuthority &&
+      session.runtimeEnvironmentId === null &&
+      !isRemoteRuntimePtyId(ptyId)
+    ) {
+      admitLegacyTerminalSemanticResident({
+        ptyId,
+        incarnationId: session.remotePtyIncarnationId,
+        binding,
+        byteSource: true,
+        services,
+        policy: session.semanticPolicy
+      })
+    }
+    if (isRemoteRuntimePtyId(ptyId)) {
+      void admitRemoteTerminalSemanticResident({
+        ptyId,
+        binding,
+        byteSource: true,
+        services,
+        policy: session.semanticPolicy
+      })
     }
     session.unregisterSideEffectFactConsumer?.()
     session.unregisterSideEffectFactConsumer = registerTerminalSideEffectFactConsumer({
       ptyId,
+      binding,
+      services,
+      policy: session.semanticPolicy,
       callbacks: {
         onTitleChange: session.onTitleChange,
         onBell: session.onBell,
@@ -148,6 +187,7 @@ export function installTerminalKeydownFit(session: ConnectPanePtySession): void 
             }
           : {})
       },
+      onResident: (resident) => attachTerminalResidentPresentation(session, resident),
       restoreTitleOnRegister: true
     })
   }
@@ -167,91 +207,4 @@ export function installTerminalKeydownFit(session: ConnectPanePtySession): void 
     delete session.pane.container.dataset.ptyId
     delete session.pane.container.dataset.ptyRecoveryState
   }
-
-  session.agentCompletionCoordinator = createAgentCompletionCoordinator({
-    paneKey: session.cacheKey,
-    statusLane: 'pty',
-    getPtyId: () => session.transport.getPtyId(),
-    isRemotePtyId: isRemoteExecutionHostPtyId,
-    getExpectedIncarnationId: () => session.remotePtyIncarnationId ?? null,
-    inspectProcess: inspectRuntimeTerminalProcess,
-    dispatchHookLifecycle: (payload) =>
-      dispatchAgentHookTerminalLifecycle(session.cacheKey, payload),
-    shouldSuppressProcessReplacementCompletion: (_exited, replacement) => {
-      const currentStatus = useAppStore.getState().agentStatusByPaneKey[session.cacheKey]
-      const currentAgentForReplacement = resolveCompatibleAgentTypeForOwner(
-        currentStatus?.agentType,
-        replacement.agent
-      )
-      return (
-        isFreshNonDoneAgentStatus(currentStatus) && currentAgentForReplacement === replacement.agent
-      )
-    },
-    shouldSuppressConfirmedProcessExitCompletion: (exited) => {
-      const currentStatus = useAppStore.getState().agentStatusByPaneKey[session.cacheKey]
-      const currentAgentForExited = resolveCompatibleAgentTypeForOwner(
-        currentStatus?.agentType,
-        exited.agent
-      )
-      // Why: a replacement hook can lead process visibility by one cadence;
-      // only a different known active owner can veto confirmed old-process exit.
-      return Boolean(
-        isFreshNonDoneAgentStatus(currentStatus) &&
-        currentStatus.agentType &&
-        currentStatus.agentType !== 'unknown' &&
-        currentAgentForExited !== exited.agent
-      )
-    },
-    // Why: the pane's only re-derivation of a process read where the shell emits no command marks.
-    onForegroundAgentExited: (exited) => {
-      session.paneForegroundAgentTracker?.onProcessExitConfirmed(exited)
-      // Why: not behind the tracker's process-read guard, so hook-identified panes retire too.
-      retireLiveAgentRowOnConfirmedProcessExit(session, exited)
-    },
-    dispatchCompletion: (title, meta) => {
-      if (meta?.source === 'process-exit') {
-        session.clearSuppressedTitleSideEffects()
-      }
-      if (meta?.terminalIdleConfirmed === true) {
-        // Why: an agent can crash before its done hook; confirmed process death
-        // must still restore cursor and native Windows Kitty keyboard modes.
-        const currentAgentStatus = useAppStore.getState().agentStatusByPaneKey[session.cacheKey]
-        if (!isFreshNonDoneAgentStatus(currentAgentStatus)) {
-          session.setFocusReportSuppressionForAgentCompletion(title, meta.agentStatus?.agentType)
-        }
-        session.queueAgentIdleTerminalModeReset()
-      }
-      session.scheduleAgentTaskCompleteNotification(title, {
-        allowDoneDetailAfterGrace: meta?.quietedHookDone,
-        ...(meta?.source === 'process-exit' ? { agentCompletionSource: meta.source } : {}),
-        ...(meta?.agentStatus ? { agentStatusSnapshot: meta.agentStatus } : {})
-      })
-    },
-    dispatchAttention: (title, meta) =>
-      session.scheduleAgentTaskCompleteNotification(title, {
-        agentStatusSnapshot: meta.agentStatus
-      }),
-    shouldPollProcessCadence: () => {
-      const ptyId = session.transport.getPtyId()
-      if (isRemoteExecutionHostPtyId(ptyId)) {
-        return false
-      }
-      return isAgentTaskCompleteTrackingEnabled() && session.deps.isVisibleRef.current
-    },
-    shouldPollNoEvidenceProcessCadence: () => {
-      const ptyId = session.transport.getPtyId()
-      return !isRemoteExecutionHostPtyId(ptyId)
-    },
-    isProcessInspectionCostly: () =>
-      isAgentProcessInspectionCostly(navigator.userAgent, session.transport.getPtyId()),
-    isLive: () => {
-      if (session.disposed) {
-        return false
-      }
-      if (session.transport.getPtyId()) {
-        return true
-      }
-      return (useAppStore.getState().ptyIdsByTabId[session.deps.tabId] ?? []).length > 0
-    }
-  })
 }

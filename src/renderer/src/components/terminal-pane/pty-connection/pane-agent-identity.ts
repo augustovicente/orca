@@ -1,3 +1,4 @@
+import type { AgentStatusEntry } from '../../../../../shared/agent-status-types'
 import type { TerminalForegroundServices } from './terminal-foreground-services'
 import { dismissRetainedProgramResult } from '@/lib/program-status/result-retention'
 import { isRetainedProgramResult } from '@/lib/program-status/row'
@@ -183,15 +184,16 @@ export function createTerminalForegroundPolicy(services: TerminalForegroundServi
   // (remote PTYs, kill switch off) or as a main-derived pty:sideEffect fact —
   // routing both through this handler keeps the drop/interrupt semantics
   // identical across authority modes.
-  const handleCommandFinished = (bestEffortExitCode: number | null): void => {
+  const finishCapturedCommand = (
+    bestEffortExitCode: number | null,
+    entry: AgentStatusEntry | undefined
+  ): void => {
     services.clearCommandInferredPaneAgentAfterPtySideEffects()
     visibleForegroundSamplePending = false
     const shouldDeferStatusDrop = paneForegroundAgentTracker.onCommandFinished()
     // Why: the finished command may have moved HEAD or the index (e.g.
     // `git checkout`); nudge git UI now instead of waiting for a poll.
     dispatchTerminalCommandFinishedEvent(services.worktreeId, bestEffortExitCode)
-    const state = useAppStore.getState()
-    const entry = state.agentStatusByPaneKey[services.paneKey]
     const inferenceResult = services.flushPendingInterruptInference()
     const dropStatus = (): void => {
       if (inferenceResult === true) {
@@ -223,6 +225,8 @@ export function createTerminalForegroundPolicy(services: TerminalForegroundServi
     deferredConfirmedShellReconcile = null
     dropStatus()
   }
+  const handleCommandFinished = (exitCode: number | null): void =>
+    finishCapturedCommand(exitCode, useAppStore.getState().agentStatusByPaneKey[services.paneKey])
   const sampleVisiblePaneForegroundAgent = (forceRoutingConfirmation = false): void => {
     if (!services.isVisible() || visibleForegroundSamplePending || visibleForegroundSampleSettled) {
       return
@@ -337,6 +341,7 @@ export function createTerminalForegroundPolicy(services: TerminalForegroundServi
     isForegroundTrackingAllowed,
     paneForegroundAgentTracker,
     handleCommandFinished,
+    finishCapturedCommand,
     sampleVisiblePaneForegroundAgent,
     startAcceptedInferredCommand,
     requestKnownWindowsShiftEnterReconfirmation,

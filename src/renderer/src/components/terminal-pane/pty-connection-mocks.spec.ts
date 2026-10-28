@@ -120,15 +120,85 @@ vi.mock('react', async (importOriginal) => {
   }
 })
 
-vi.mock('./pty-transport', () => ({
-  createIpcPtyTransport: vi.fn((options: Record<string, unknown>) => takeMockTransport(options))
+async function transportMockFactory() {
+  return (options: Record<string, unknown>): MockTransport => {
+    const transport = takeMockTransport(options)
+    let boundPtyId: string | null = transport.getPtyId()
+    const getPolicy = () => {
+      const ptyId = boundPtyId ?? transport.getPtyId()
+      return ptyId
+        ? globalThis.terminalConnectionTestDelivery?.getResident(ptyId)?.policy
+        : undefined
+    }
+    // Parsed callback injections represent the physical source in these pane suites.
+    const forward = <Args extends unknown[]>(
+      name: string,
+      select: (policy: NonNullable<ReturnType<typeof getPolicy>>) => (...args: Args) => unknown
+    ) => {
+      const original = options[name]
+      if (typeof original !== 'function') {
+        return
+      }
+      options[name] = (...args: Args) => {
+        const policy = getPolicy()
+        return policy ? select(policy)(...args) : original(...args)
+      }
+    }
+    forward('onTitleChange', (policy) => policy.callbacks.onTitleChange)
+    forward('onBell', (policy) => policy.callbacks.onBell)
+    forward('onAgentBecameIdle', (policy) => policy.callbacks.onAgentBecameIdle)
+    forward('onAgentBecameWorking', (policy) => policy.callbacks.onAgentBecameWorking)
+    forward('onAgentExited', (policy) => policy.callbacks.onAgentExited)
+    forward('onAgentStatus', (policy) => policy.callbacks.onAgentStatus)
+    const onSpawn = options.onPtySpawn
+    if (typeof onSpawn === 'function') {
+      options.onPtySpawn = (ptyId: string) => {
+        boundPtyId = ptyId
+        return onSpawn(ptyId)
+      }
+    }
+    const connect = transport.connect.getMockImplementation()
+    let rawEndSeq = 0
+    transport.connect.mockImplementation(async (opts) => {
+      const callbacks = opts.callbacks
+      const onData = callbacks?.onData
+      if (callbacks && onData) {
+        callbacks.onData = (data, meta) => {
+          rawEndSeq = meta?.seq ?? rawEndSeq + data.length
+          meta ??= { seq: rawEndSeq, rawLength: data.length }
+          if (typeof options.onRawData === 'function') {
+            options.onRawData(data, meta)
+          }
+          onData(data, meta)
+          const ptyId = boundPtyId ?? transport.getPtyId()
+          if (ptyId) {
+            for (const sidecar of globalThis.terminalConnectionTestDelivery?.sidecars.get(ptyId) ??
+              []) {
+              sidecar(data, meta)
+            }
+          }
+        }
+      }
+      const result = await connect?.(opts)
+      boundPtyId = typeof result === 'string' ? result : (result?.id ?? transport.getPtyId())
+      return result
+    })
+    return transport
+  }
+}
+
+vi.mock('./pty-transport', async () => ({
+  createIpcPtyTransport: vi.fn(await transportMockFactory())
 }))
 
-vi.mock('./remote-runtime-pty-transport', () => ({
-  createRemoteRuntimePtyTransport: vi.fn(
-    (_environmentId: string, options: Record<string, unknown>) => takeMockTransport(options)
-  )
-}))
+vi.mock('./remote-runtime-pty-transport', async () => {
+  const create = await transportMockFactory()
+  return {
+    createRemoteRuntimePtyTransport: vi.fn(
+      (_environmentId: string, options: Record<string, unknown>) => create(options)
+    )
+  }
+})
 
 // Only the eager-buffer read is replaced; the remaining dispatcher stays real.
 vi.mock('./pty-dispatcher', async (importOriginal) => {

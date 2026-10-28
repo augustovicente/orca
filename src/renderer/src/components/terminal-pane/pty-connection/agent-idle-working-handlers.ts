@@ -13,36 +13,6 @@ import { settleTerminalPaneRecovery } from '../terminal-pane-recovery'
 import type { ConnectPanePtySession } from './connect-pane-pty-session'
 
 export function installAgentIdleWorkingHandlers(session: ConnectPanePtySession): void {
-  session.onAgentBecameWorking = (): void => {
-    session.suppressNativeWindowsIdleCodexFocusReports = false
-    session.clearSuppressedTitleSideEffects()
-    if (session.syncAgentTaskCompleteTrackingEnabled()) {
-      session.requiresFreshWorkingForAgentTaskCompleteNotification = false
-      session.agentCompletionCoordinator.observeTitleWorking()
-    }
-    // Why: a new API call refreshes the prompt-cache TTL, so clear any running
-    // countdown. The timer will restart when the agent becomes idle again.
-    session.deps.setCacheTimerStartedAt(session.cacheKey, null)
-    session.clearPendingAgentTaskCompleteNotification()
-    if (session.pendingTerminalBellNotification) {
-      session.scheduleTerminalBellNotification()
-    }
-  }
-  session.onAgentExited = (): void => {
-    // Why: eligibility can disappear transiently during reconnect, but a
-    // confirmed shell-title transition is authoritative for native-chat exit.
-    session.deps.onAgentExitedRef.current(session.pane.leafId)
-    session.clearSuppressedTitleSideEffects()
-    session.clearCommandInferredPaneAgent()
-    session.requestKnownWindowsShiftEnterReconfirmation()
-    // Why: when the terminal title reverts to a plain shell (e.g., "bash", "zsh"),
-    // the agent has exited. Clear any running cache timer so the sidebar doesn't
-    // show a stale countdown for a tab that no longer has an active Claude session.
-    session.deps.setCacheTimerStartedAt(session.cacheKey, null)
-    session.clearTitleOnlyInterruptTimer()
-    // Why: title reversion alone is not process death. The process/PTY tracker
-    // owns removing agent rows when the TUI actually exits.
-  }
   // Why: inject ORCA_PANE_KEY so global Claude/Codex hooks can attribute their
   // callbacks to the correct Orca pane without resolving worktrees from cwd.
   // The key matches the `${tabId}:${leafId}` composite used for cacheTimerByKey

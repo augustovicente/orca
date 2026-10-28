@@ -21,7 +21,6 @@ import {
   isAgentSessionSurfaceBinding
 } from '../../shared/agent-session-host-authority'
 import { type DaemonRequest, TerminalAttachCanceledError } from './types'
-import { isTerminalSubscriptionId } from '../../shared/terminal-transient-observation'
 
 type CreateOrAttachRequest = Extract<DaemonRequest, { type: 'createOrAttach' }>
 
@@ -72,16 +71,8 @@ export class DaemonTerminalAdmission {
       throw new Error('Daemon client connection is incomplete; reconnect')
     }
     const payload = request.payload
-    const transients = payload.transients
+    const snapshots = payload.terminalState === true && client.terminalState === true
     const streamSocket = client.streamSocket
-    if (
-      transients &&
-      (transients.streamId !== client.transientStreamId ||
-        !isTerminalSubscriptionId(transients.streamId) ||
-        !isTerminalSubscriptionId(transients.subscriptionId))
-    ) {
-      throw new Error('Terminal observation stream changed; reconnect')
-    }
     const attachOnly = payload.attachOnly === true
     if (!attachOnly && this.options.endpoint.hasLostOwnership()) {
       this.options.requestEndpointRetirement()
@@ -94,8 +85,7 @@ export class DaemonTerminalAdmission {
     const isCurrentStream = (): boolean =>
       this.options.connections.get(clientId) === client &&
       client.authenticatedPairEstablished &&
-      client.streamSocket === streamSocket &&
-      (!transients || client.transientStreamId === transients.streamId)
+      client.streamSocket === streamSocket
     const streamClient = this.createStreamClient(clientId, () => routedSessionId, isCurrentStream)
     try {
       if (
@@ -157,15 +147,10 @@ export class DaemonTerminalAdmission {
           if (!isCurrentStream()) {
             return null
           }
-          if (!transients) {
+          if (!snapshots) {
             return
           }
-          const commit = this.options.streamDataBatcher.prepareTransients(
-            clientId,
-            sessionId,
-            transients.subscriptionId,
-            transients.streamId
-          )
+          const commit = this.options.streamDataBatcher.prepareTransients(clientId, sessionId)
           if (!commit) {
             return null
           }
@@ -224,11 +209,7 @@ export class DaemonTerminalAdmission {
       pid: result.pid,
       shellState: result.shellState,
       incarnationId: result.incarnationId,
-      ...(streamClient.transients && transients
-        ? {
-            transients: { ...transients, sessionId: routedSessionId }
-          }
-        : {}),
+      ...(streamClient.transients && snapshots ? { terminalState: true } : {}),
       ...(result.launchAgent ? { launchAgent: result.launchAgent } : {}),
       wslDistro: result.wslDistro,
       ...(result.historySeeded !== undefined ? { historySeeded: result.historySeeded } : {}),

@@ -1,4 +1,5 @@
 /** Singleton PTY event dispatcher and eager buffer helpers, split out from pty-transport.ts. */
+import { observeTerminalSemanticResidentExit } from './terminal-side-effect-facts-handler'
 import { TERMINAL_SCROLLBACK_SESSION_BUFFER_BYTE_LIMIT } from '../../../../shared/terminal-scrollback-limits'
 import {
   clearProcessedPtyCharTotal,
@@ -13,7 +14,7 @@ import {
   drainPreHandlerPtyData,
   drainPreHandlerPtyExit
 } from './pty-pre-handler-buffer'
-import { deliverPtyExitToHandlers } from './pty-exit-delivery'
+import { deliverPtyExitToHandlers, type PtyExitSidecarContext } from './pty-exit-delivery'
 import {
   clearReceivedPtyCharTotal,
   isPtyPushDeliveryBlackholed,
@@ -62,7 +63,7 @@ export type PtyDataMeta = {
 /** Per-PTY replay handlers on a dedicated pty:replay channel so the renderer can engage the replay guard and suppress xterm auto-replies. */
 const ptyExitSidecars = new Map<
   string,
-  Set<(code: number, context: { hadPrimary: boolean }) => void>
+  Set<(code: number, context: PtyExitSidecarContext) => void>
 >()
 export const ptyWriteUnavailableHandlers = new Map<string, () => void>()
 let ptyDispatcherAttached = false
@@ -184,6 +185,7 @@ function attachPtySecondaryPushListeners(unsubscribes: (() => void)[]): void {
   )
   unsubscribes.push(
     window.api.pty.onExit((payload) => {
+      observeTerminalSemanticResidentExit(payload.id, payload.code, payload.incarnationId)
       if (payload.preserveRendererBinding === true) {
         // Why: host-initiated remote sleep has no requester transaction in this renderer; classify its ordered exit before pane cleanup runs.
         markCommittedPtyShutdowns([payload.id])
@@ -228,7 +230,7 @@ function attachPtySecondaryPushListeners(unsubscribes: (() => void)[]): void {
 
 export function subscribeToPtyExit(
   ptyId: string,
-  watcher: (code: number, context: { hadPrimary: boolean }) => void
+  watcher: (code: number, context: PtyExitSidecarContext) => void
 ): () => void {
   ensurePtyDispatcher()
   let set = ptyExitSidecars.get(ptyId)

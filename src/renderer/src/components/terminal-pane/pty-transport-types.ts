@@ -314,6 +314,8 @@ export type IpcPtyTransportOptions = {
   terminalColorQueryReplies?: TerminalOscColorQueryReplyColors
   telemetry?: EventProps<'agent_started'>
   onPtyExit?: (ptyId: string, exitCode?: number) => void
+  /** Live source bytes before display-only status stripping; replay remains presentation-only. */
+  onRawData?: (data: string, meta?: PtyDataMeta) => void
   onTitleChange?: (title: string, rawTitle: string) => void
   onPtySpawn?: (ptyId: string) => void
   /** Asked when a fresh spawn resolves after this transport was destroyed: true keeps the PTY for

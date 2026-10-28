@@ -5,6 +5,8 @@ import {
   discardPreHandlerPtyState
 } from './pty-pre-handler-buffer'
 
+export type PtyExitSidecarContext = { hadPrimary: boolean; incarnationId?: string }
+
 type PtyExitDelivery = {
   ptyId: string
   code: number
@@ -13,7 +15,7 @@ type PtyExitDelivery = {
   /** Main stopped this PTY so a new process could take its pane. */
   replacedByRestart?: boolean
   primary?: (code: number) => void
-  sidecars: readonly ((code: number, context: { hadPrimary: boolean }) => void)[]
+  sidecars: readonly ((code: number, context: PtyExitSidecarContext) => void)[]
 }
 
 // Why scoped to one delivery: consumers read it synchronously while main's label is in hand, so
@@ -66,7 +68,10 @@ function deliverClassifiedPtyExit(delivery: PtyExitDelivery): void {
 
   for (const sidecar of delivery.sidecars) {
     try {
-      sidecar(delivery.code, { hadPrimary: delivery.primary !== undefined })
+      sidecar(delivery.code, {
+        hadPrimary: delivery.primary !== undefined,
+        ...(delivery.incarnationId ? { incarnationId: delivery.incarnationId } : {})
+      })
     } catch (error) {
       if (!hasError) {
         firstError = error

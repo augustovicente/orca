@@ -13,24 +13,11 @@ import {
   isLocalNativeWindowsConpty,
   resolveWindowsShellOverride
 } from '@/lib/pane-manager/windows-pty-compatibility'
-import { createCommandCodeOutputStatusDetector } from '../../../../../shared/command-code-output-status'
-import { readInFlightCommandCodeTurn } from '../parked-terminal-command-status'
 import { getExecutionHostIdForWorktree } from '@/lib/worktree-runtime-owner'
 import { CLIENT_PLATFORM } from '@/lib/new-workspace'
-import { resolveAgentStatusTerminalTitle } from '@/lib/agent-status-terminal-title'
-import {
-  normalizeCompatibleAgentTitleForOwner,
-  resolveCompatibleAgentTypeForOwner
-} from '../../../../../shared/agent-title-owner'
 import { isMainTerminalSideEffectAuthorityForPty } from '../terminal-side-effect-facts-handler'
 import { isRendererHiddenPtyDeliveryGateEnabled } from '../terminal-hidden-delivery-gate'
-import {
-  markRendererOwnedAgentStatusWrite,
-  registerRendererOwnedAgentStatusPane
-} from '../renderer-owned-agent-status-registry'
-
 import { resolveLatestAgentDoneStartedAt } from './agent-done-started-at'
-import { rendererAgentStatusObservations } from '@/lib/renderer-agent-status-observations'
 import {
   createTerminalInputEchoDelay,
   noteTerminalInputAwaitingEcho
@@ -114,76 +101,6 @@ export function installPaneHostCapabilityFlags(session: ConnectPanePtySession): 
         })
       : undefined
   session.shouldOwnAgentStatusInRenderer = session.runtimeEnvironmentId !== null
-  // Why: the host also mirrors agent status for this pane through tabs.
-  // Claiming here (decided once at transport creation, like the side-effect
-  // authority below) lets the mirror keep this renderer's byte-derived status
-  // instead of overwriting/deleting it on every republication.
-  session.releaseRendererOwnedAgentStatusPane =
-    session.runtimeEnvironmentId !== null
-      ? registerRendererOwnedAgentStatusPane(session.cacheKey, session.runtimeEnvironmentId)
-      : null
-  session.handleRendererOwnedAgentStatus = (payload): void => {
-    const currentState = useAppStore.getState()
-    const routing = session.resolveCurrentAgentStatusRouting()
-    if (!routing) {
-      return
-    }
-    const title = currentState.runtimePaneTitlesByTabId?.[session.deps.tabId]?.[session.pane.id]
-    const authoritativePaneAgent = session.getAuthoritativePaneAgent()
-    const agentType = resolveCompatibleAgentTypeForOwner(payload.agentType, authoritativePaneAgent)
-    const statusPayload = agentType === payload.agentType ? payload : { ...payload, agentType }
-    const observedStatusPayload = {
-      ...statusPayload,
-      observation: rendererAgentStatusObservations.observe(session.cacheKey, {
-        origin: 'osc',
-        observedAt: Date.now(),
-        kind: 'snapshot'
-      })
-    }
-    const resolvedStatusTitle = resolveAgentStatusTerminalTitle(statusPayload, title)
-    const statusTitle = resolvedStatusTitle
-      ? normalizeCompatibleAgentTitleForOwner(
-          resolvedStatusTitle,
-          agentType ?? authoritativePaneAgent
-        )
-      : resolvedStatusTitle
-    // Why: proves the claim — only a pane that really produced byte-derived
-    // status may fence the host mirror out of its store key.
-    markRendererOwnedAgentStatusWrite(session.cacheKey)
-    if (session.launchToken) {
-      currentState.setAgentStatus(
-        session.cacheKey,
-        observedStatusPayload,
-        statusTitle,
-        undefined,
-        routing,
-        {
-          launchToken: session.launchToken
-        }
-      )
-    } else {
-      currentState.setAgentStatus(
-        session.cacheKey,
-        observedStatusPayload,
-        statusTitle,
-        undefined,
-        routing
-      )
-    }
-    if (payload.state === 'working' && session.syncAgentTaskCompleteTrackingEnabled()) {
-      session.requiresFreshWorkingForAgentTaskCompleteNotification = false
-    }
-    const storedStatus = useAppStore.getState().agentStatusByPaneKey[session.cacheKey]
-    const notificationPayload =
-      typeof storedStatus?.stateStartedAt === 'number'
-        ? { ...statusPayload, stateStartedAt: storedStatus.stateStartedAt }
-        : statusPayload
-    // Why: hook lifecycle owns deferred side effects even when alerts are disabled.
-    session.agentCompletionCoordinator.observeHookStatus(notificationPayload)
-    if (payload.state === 'working' && session.pendingTerminalBellNotification) {
-      session.scheduleTerminalBellNotification()
-    }
-  }
   // Why: when main holds side-effect authority for this PTY's bytes, the
   // transport must NOT register title/bell/agent byte parsers — the
   // pty:sideEffect fact consumer below is the single policy consumer.
@@ -206,20 +123,6 @@ export function installPaneHostCapabilityFlags(session: ConnectPanePtySession): 
   // mark (a fact can outrun the pty:data task that sets it).
   session.isHiddenDeliveryGateManagedPty = (ptyId: string | null): ptyId is string =>
     session.hiddenDeliveryGateActive && Boolean(ptyId) && !isRemoteRuntimePtyId(ptyId)
-  // Why (byte-parser mode only): with main authority the Command Code scrape
-  // runs in main's per-PTY tracker and arrives as command-code facts; running
-  // the byte detector too would double-drive the seed/settle policy above.
-  session.commandCodeOutputStatusDetector = session.mainSideEffectAuthority
-    ? null
-    : createCommandCodeOutputStatusDetector({
-        startupCommand: session.paneStartup?.command,
-        // Why the seed: a reveal remount recreates this detector long past the banner
-        // (and with no startup command); a turn parked mid-flight must still arm the
-        // scrape so its return to the idle composer completes the row.
-        inFlightTurn: readInFlightCommandCodeTurn(session.cacheKey),
-        onWorking: session.seedCommandCodeOutputWorkingStatus,
-        onDone: session.scheduleCommandCodeOutputDoneStatus
-      })
   session.shouldDeliverStartupViaTerminalPaste = session.paneStartup?.delivery === 'terminal-paste'
   session.hadExistingPaneTransportAtConnect = session.deps.paneTransportsRef.current.size > 0
   session.lastTerminalInputAt = Number.NEGATIVE_INFINITY

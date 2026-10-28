@@ -163,9 +163,6 @@ export function installSessionReconcileDispose(session: ConnectPanePtySession): 
       if (!currentPaneTransport || currentPaneTransport === session.transport) {
         session.deps.onPtyErrorClearedRef?.current?.(session.pane.id)
       }
-      // Why: a detached client stops observing the pane's bytes, so it must cede
-      // agent-status authority back to the host on the next mirrored snapshot.
-      session.releaseRendererOwnedAgentStatusPane?.()
       // Why: a stalled xterm replay may never reach its finally; release live-frame credit when this renderer no longer owns the stream.
       const queue = session.deferredReattachLiveData
       session.deferredReattachLiveData = null
@@ -203,13 +200,10 @@ export function installSessionReconcileDispose(session: ConnectPanePtySession): 
           capture: true
         })
       }
-      session.clearPendingTerminalInputIntent()
-      session.pendingTerminalInputWrite = null
-      session.interruptInference.dispose()
-      session.clearTitleOnlyInterruptTimer()
-      // Why release, not cancel: the pending settle belongs to the turn, not to
-      // this pane — a park mid-settle hands it to the parked watcher instead.
-      session.releaseCommandCodeDoneSettleExecutor()
+      session.detachSemanticPresentation?.()
+      if (!session.semanticResident) {
+        session.semanticPolicy.dispose()
+      }
       if (session.shiftEnterReconfirmTimer !== null) {
         clearTimeout(session.shiftEnterReconfirmTimer)
         session.shiftEnterReconfirmTimer = null
@@ -225,11 +219,6 @@ export function installSessionReconcileDispose(session: ConnectPanePtySession): 
       }
       session.cleanupStartupDraftPasteTimers()
       session.releaseUnattemptedStartupDraftPasteDelivery()
-      session.unregisterAgentHookTerminalLifecycle()
-      session.clearSuppressedTitleSideEffects()
-      session.clearPendingAgentTaskCompleteNotification()
-      session.pendingTerminalBellNotification = false
-      session.clearTerminalBellNotificationTimer()
       session.clearReattachIdleAgentCursorResetTimer()
       session.cleanupHiddenOutputRestoreDeferredRetry()
       session.cleanupHiddenOutputRestoreForegroundDeadline()
@@ -244,10 +233,6 @@ export function installSessionReconcileDispose(session: ConnectPanePtySession): 
       session.clearPanePtyFitBinding()
       discardTerminalOutput(session.pane.terminal)
       session.unregisterE2ePtyDataInjection()
-      if (session.agentTaskCompleteSettingsUnsubscribe !== null) {
-        session.agentTaskCompleteSettingsUnsubscribe()
-        session.agentTaskCompleteSettingsUnsubscribe = null
-      }
       if (session.unsubscribeWindowsDoneTerminalModeReset !== null) {
         session.unsubscribeWindowsDoneTerminalModeReset()
         session.unsubscribeWindowsDoneTerminalModeReset = null
@@ -274,12 +259,6 @@ export function installSessionReconcileDispose(session: ConnectPanePtySession): 
         cancelAnimationFrame(session.pendingGeometryReportRaf)
         session.pendingGeometryReportRaf = null
       }
-      session.commandLifecycle.dispose()
-      session.deferredCommandFinishedStatusDrop = null
-      session.visibleForegroundSamplePending = false
-      session.visibleForegroundSampleSettled = false
-      session.paneForegroundAgentTracker.dispose()
-      session.agentCompletionCoordinator.dispose()
     }
   }
 }

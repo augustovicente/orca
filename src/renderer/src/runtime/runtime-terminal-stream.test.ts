@@ -119,12 +119,12 @@ describe('remote runtime terminal data subscriptions', () => {
       encodeTerminalStreamFrame({
         opcode: TerminalStreamOpcode.Output,
         streamId: subscribePayload!.streamId,
-        seq: 1,
+        seq: 4,
         payload: encodeTerminalStreamText('live')
       })
     )
 
-    expect(watcher).toHaveBeenCalledWith('live')
+    expect(watcher).toHaveBeenCalledWith('live', { seq: 4, rawLength: 4 })
     await vi.waitFor(() =>
       expect(
         sendBinary.mock.calls
@@ -236,7 +236,7 @@ describe('remote runtime terminal data subscriptions', () => {
         payload: encodeTerminalStreamText('live')
       })
     )
-    expect(watcher).toHaveBeenCalledWith('live')
+    expect(watcher).toHaveBeenCalledWith('live', { seq: 4, rawLength: 4 })
     dispose()
   })
 

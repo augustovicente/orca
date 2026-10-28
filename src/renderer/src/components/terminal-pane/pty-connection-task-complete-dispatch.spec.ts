@@ -283,7 +283,7 @@ export function registerPtyConnectionTaskCompleteDispatchTests(): void {
           agentType: 'omp',
           observation: expect.objectContaining({ origin: 'osc', kind: 'snapshot' })
         },
-        '\u280b OMP',
+        'OMP: tmp',
         undefined,
         { connectionId: null }
       )
@@ -305,7 +305,7 @@ export function registerPtyConnectionTaskCompleteDispatchTests(): void {
           agentType: 'omp',
           observation: expect.objectContaining({ origin: 'osc', kind: 'snapshot' })
         },
-        '\u280b OMP',
+        'OMP: tmp',
         undefined,
         { connectionId: null }
       )

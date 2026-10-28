@@ -1,0 +1,158 @@
+import { useAppStore } from '@/store'
+import { dispatchTerminalNotification } from './use-notification-dispatch'
+import type { TerminalResidentBinding, TerminalResidentServices } from './terminal-resident-binding'
+import type { TerminalResidentPolicyContext } from './terminal-resident-policy-context'
+import type { TerminalResidentPolicy } from './terminal-resident-registry'
+import type { TerminalResidentLegacySource } from './terminal-resident-legacy-source'
+import type { createTerminalResidentStatusCallbacks } from './terminal-resident-attention-callbacks'
+import { parseRemoteRuntimePtyId } from '../../../../shared/remote-runtime-pty-id'
+import { captureNotificationTransportOwner } from '@/attention/notification-subject-owner'
+import type { TerminalResidentPresentation } from './terminal-resident-binding'
+import type { AgentInterruptInputIntent } from '../../../../shared/agent-interrupt-intent'
+import { isPassiveTerminalInputReport } from './terminal-passive-input-report'
+import type { PtyTransport } from './pty-transport-types'
+import type { PtyDataMeta } from './pty-dispatcher'
+import type {
+  TerminalSnapshotEffect,
+  TerminalTransientCurrent
+} from '../../../../shared/terminal-transient-observation'
+
+type SnapshotCallbacks = Pick<
+  TerminalResidentPolicy,
+  'restoreCurrent' | 'applyEffect' | 'observePrLink'
+>
+
+export function terminalResidentLegacyCallbacks(
+  context: TerminalResidentPolicyContext,
+  callbacks: SnapshotCallbacks
+): ConstructorParameters<typeof TerminalResidentLegacySource>[1] {
+  const { isLive } = context
+  const { restoreCurrent, applyEffect, observePrLink } = callbacks
+  return {
+    restoreCurrent: (current, first, complete) => {
+      if (isLive() && !context.identity?.runtimeId) {
+        restoreCurrent(current, first, complete)
+      }
+    },
+    applyEffect: (effect, current) => {
+      if (!isLive() || context.identity?.runtimeId) {
+        return
+      }
+      if (effect.fact.kind === 'command-finished') {
+        context.foreground.handleCommandFinished(effect.fact.exitCode)
+      } else {
+        applyEffect(effect, current)
+      }
+    },
+    observePrLink: (url) => {
+      if (isLive() && !context.identity?.runtimeId) {
+        observePrLink(url)
+      }
+    },
+    dispose: () => {}
+  }
+}
+
+export function createTerminalResidentPolicyMethods(
+  context: TerminalResidentPolicyContext,
+  methods: SnapshotCallbacks & {
+    bindPty: (ptyId: string, incarnationId: string | null, runtimeId?: string | null) => boolean
+    callbacks: ReturnType<typeof createTerminalResidentStatusCallbacks>
+    legacySource: TerminalResidentLegacySource
+  }
+) {
+  const { binding, getPtyId, isLive } = context
+  const { bindPty, callbacks, restoreCurrent, legacySource, applyEffect, observePrLink } = methods
+  return {
+    callbacks,
+    acceptInput(data: string, intent: AgentInterruptInputIntent | null = null): void {
+      if (!isLive() || isPassiveTerminalInputReport(data)) {
+        return
+      }
+      context.acceptedInputGeneration += 1
+      context.shellInput.observeAcceptedShellCommandInput(data)
+      context.input.observeAcceptedTerminalInput(data, intent)
+    },
+    binding,
+    bindPty,
+    attachTransport(value: PtyTransport): void {
+      if (!context.identity) {
+        context.transport = value
+      }
+      context.workspaceOwner = captureNotificationTransportOwner(value)
+    },
+    getPtyId,
+    isLive,
+    owner: context.owner,
+    shellInput: context.shellInput,
+    input: context.input,
+    foreground: context.foreground,
+    completion: context.completion,
+    notification: context.notification,
+    commandCode: context.commandCode,
+    attachPresentation(port: TerminalResidentPresentation): () => void {
+      context.presentation = port
+      context.displayPaneId = port.paneId
+      if (context.currentTitle !== null && context.currentTitle !== binding.initialTitle) {
+        port.showTitle(context.currentTitle, context.currentTitle)
+      }
+      return () => {
+        if (context.presentation === port) {
+          context.presentation = null
+        }
+      }
+    },
+    restoreCurrent,
+    legacySource,
+    setLegacyOutputPaused(paused: boolean, supported: boolean): void {
+      if (getPtyId() && parseRemoteRuntimePtyId(getPtyId() ?? '')) {
+        legacySource.byteSource = !(paused && supported)
+      }
+    },
+    observeLegacyData(data: string, meta?: PtyDataMeta): void {
+      if (!isLive() || context.identity?.runtimeId) {
+        return
+      }
+      context.completion.observeOutputActivity()
+      legacySource.observeData(data, meta)
+    },
+    applyEffect,
+    applyLegacyEffect(effect: TerminalSnapshotEffect, current: TerminalTransientCurrent): void {
+      if (effect.fact.kind === 'command-finished') {
+        context.foreground.handleCommandFinished(effect.fact.exitCode)
+      } else {
+        applyEffect(effect, current)
+      }
+    },
+    observePrLink,
+    dispose(): void {
+      context.ended = true
+      context.transport = undefined
+      context.presentation = null
+      legacySource.dispose()
+      context.unsubscribeSettings()
+      context.releaseRendererOwner?.()
+      context.owner.unregisterAgentHookTerminalLifecycle()
+      context.shellInput.clearTitleOnlyInterruptTimer()
+      context.input.clearPendingTerminalInputIntent()
+      context.input.interruptInference.dispose()
+      context.foreground.commandLifecycle.dispose()
+      context.foreground.paneForegroundAgentTracker.dispose()
+      context.completion.dispose()
+      context.commandCode.dispose()
+      context.notification.clearPendingAgentTaskCompleteNotification()
+      context.notification.clearTerminalBellNotificationTimer()
+    }
+  }
+}
+
+export function terminalResidentServices(
+  binding: TerminalResidentBinding
+): TerminalResidentServices {
+  return {
+    setCacheTimerStartedAt: (paneKey, startedAt) =>
+      useAppStore.getState().setCacheTimerStartedAt(paneKey, startedAt),
+    markTerminalBell: (event) => useAppStore.getState().markTerminalBell(event),
+    dispatchNotification: (event) => dispatchTerminalNotification(binding.worktreeId, event)
+  }
+}

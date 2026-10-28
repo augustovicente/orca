@@ -54,6 +54,9 @@ function handleRuntimeClientEventResponse(
   }
   const message = response.result as RuntimeClientEventStreamMessage
   if (message.type === 'ready') {
+    for (const batch of message.snapshot?.terminalSideEffects ?? []) {
+      onEvent({ type: 'terminalSideEffects', batch })
+    }
     for (const sshState of message.snapshot?.sshStates ?? []) {
       const state = admitSshConnectionState(sshState.state, sshState.targetId)
       if (state) {

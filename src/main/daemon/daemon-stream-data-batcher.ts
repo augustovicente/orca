@@ -2,13 +2,12 @@ import {
   flushDaemonStreamBatch,
   SHALLOW_SOCKET_WRITE_GATE_BYTES
 } from './daemon-stream-batch-flush'
-import { removeQueuedObservations } from './daemon-stream-observation-removal'
 import type { Socket } from 'node:net'
 import { NDJSON_MAX_LINE_BYTES } from './ndjson'
 import { DaemonStreamBackpressure } from './daemon-stream-backpressure'
 import { accountDaemonStreamEntry } from './daemon-stream-entry-accounting'
 import { DaemonStreamHeldRefill } from './daemon-stream-held-refill'
-import type { PendingStreamDataBatch } from './daemon-stream-keep-tail-drop'
+import type { StreamQueueEntry, PendingStreamDataBatch } from './daemon-stream-keep-tail-drop'
 import type { DaemonEvent } from './types'
 import { appendDaemonStreamData, type DaemonStreamEnqueueOptions } from './daemon-stream-data-entry'
 import {
@@ -17,7 +16,6 @@ import {
 } from './daemon-stream-droppable-membership'
 import type { DaemonStreamDataBatcherOptions } from './daemon-stream-data-batcher-options'
 import type { ConnectedDaemonClient } from './daemon-client-connections'
-import { DaemonTransientAdmission } from './daemon-transient-admission'
 import type { TerminalTransientSink } from '../../shared/terminal-transient-observation'
 
 // Why framing rides the client: frames are encoded at flush time, so a replacement stream gets its own.
@@ -39,76 +37,94 @@ export class DaemonStreamDataBatcher {
     end?: number,
     accept?: (chars: number) => boolean
   ) => string
-  private readonly transientAdmissions = new Map<string, DaemonTransientAdmission>()
-
   prepareTransients(
     clientId: string,
-    sessionId: string,
-    subscriptionId: string,
-    streamId: string
+    sessionId: string
   ): (() => TerminalTransientSink | undefined) | null {
-    const client = this.getClient(clientId)
-    const socket = client?.streamSocket
-    const admission = this.transientAdmissions.get(clientId)
-    if (!socket || socket.destroyed || (admission && !admission.canBind(sessionId, socket))) {
+    const socket = this.getClient(clientId)?.streamSocket
+    if (!socket || socket.destroyed) {
       return null
     }
-    return () => {
-      if (
-        this.getClient(clientId)?.streamSocket !== socket ||
-        this.transientAdmissions.get(clientId) !== admission ||
-        socket.destroyed ||
-        (admission && !admission.canBind(sessionId, socket))
-      ) {
-        return undefined
+    return () =>
+      this.getClient(clientId)?.streamSocket === socket && !socket.destroyed
+        ? this.bindTransients(clientId, sessionId)
+        : undefined
+  }
+
+  bindTransients(clientId: string, sessionId: string): TerminalTransientSink | undefined {
+    const socket = this.getClient(clientId)?.streamSocket
+    if (!socket || socket.destroyed) {
+      return undefined
+    }
+    let disposed = false
+    let incarnationId = ''
+    let pending: Parameters<TerminalTransientSink['stage']>[0] | null = null
+    let readCurrent: (() => Parameters<TerminalTransientSink['stage']>[0]) | undefined
+    let queuedEntry: StreamQueueEntry | undefined
+    const commit = (): void => {
+      if (disposed || this.getClient(clientId)?.streamSocket !== socket || socket.destroyed) {
+        return
       }
-      return this.bindTransients(clientId, sessionId, subscriptionId, streamId)
+      pending ??= readCurrent?.() ?? null
+      if (!pending) {
+        return
+      }
+      const batch = this.getOrCreateBatch(clientId)
+      this.removeSnapshot(batch, sessionId)
+      queuedEntry = {
+        sessionId,
+        data: '',
+        observation: {
+          type: 'event',
+          event: 'terminalObservation',
+          sessionId,
+          incarnationId,
+          payload: pending
+        }
+      }
+      batch.queue.push(queuedEntry)
+      pending = null
+      if (!batch.timer) {
+        batch.timer = setTimeout(() => this.flush(clientId), STREAM_DATA_BATCH_INTERVAL_MS)
+      }
+    }
+    return {
+      install: (state, incarnation, read) => {
+        incarnationId = incarnation
+        readCurrent = read
+        pending = state
+        commit()
+      },
+      stage: (state) => {
+        pending = state
+      },
+      commit,
+      dispose: () => {
+        disposed = true
+        pending = null
+        readCurrent = undefined
+        const batch = this.pendingByClient.get(clientId)
+        if (batch) {
+          batch.queue = batch.queue.filter((entry) => entry !== queuedEntry)
+        }
+        queuedEntry = undefined
+      }
     }
   }
 
-  bindTransients(
-    clientId: string,
-    sessionId: string,
-    subscriptionId: string,
-    streamId: string
-  ): TerminalTransientSink | undefined {
-    const client = this.getClient(clientId)
-    if (!client?.streamSocket || client.streamSocket.destroyed) {
-      return undefined
-    }
-    let admission = this.transientAdmissions.get(clientId)
-    if (!admission) {
-      const owner = new DaemonTransientAdmission(
-        client.streamSocket,
-        client.streamFraming ?? 'ndjson',
-        (id, observation) => {
-          if (!owner.ownsSocket(this.getClient(clientId)?.streamSocket)) {
-            observation.release()
-            return
-          }
-          const batch = this.getOrCreateBatch(clientId)
-          batch.queue.push(
-            accountDaemonStreamEntry(batch, { sessionId: id, data: '', observation })
-          )
-          this.updateBackpressure(clientId, batch)
-          if (!batch.timer) {
-            batch.timer = setTimeout(() => this.flush(clientId), STREAM_DATA_BATCH_INTERVAL_MS)
-          }
-        },
-        (id) => removeQueuedObservations(this.pendingByClient.get(clientId), id),
-        () => {
-          if (owner.idle && this.transientAdmissions.get(clientId) === owner) {
-            this.transientAdmissions.delete(clientId)
-          }
-        },
-        () => this.flush(clientId)
+  private removeSnapshot(
+    batch: PendingStreamDataBatch | undefined,
+    sessionId?: string,
+    incarnationId?: string
+  ): void {
+    if (batch) {
+      batch.queue = batch.queue.filter(
+        (entry) =>
+          !entry.observation ||
+          (sessionId !== undefined && entry.sessionId !== sessionId) ||
+          (incarnationId !== undefined && entry.observation.incarnationId !== incarnationId)
       )
-      admission = owner
-      this.transientAdmissions.set(clientId, owner)
-    } else {
-      admission.replaceSocket(client.streamSocket, client.streamFraming ?? 'ndjson')
     }
-    return admission.bind(sessionId, subscriptionId, streamId)
   }
 
   constructor(
@@ -198,7 +214,6 @@ export class DaemonStreamDataBatcher {
       batch = {
         timer: null,
         queue: [],
-        admission: this.transientAdmissions.get(clientId),
         queuedChars: 0,
         queuedCharsBySession: new Map(),
         queuedMetadataBytesBySession: new Map(),
@@ -206,7 +221,6 @@ export class DaemonStreamDataBatcher {
       }
       this.pendingByClient.set(clientId, batch)
     }
-    batch.admission = this.transientAdmissions.get(clientId)
     return batch
   }
 
@@ -270,14 +284,7 @@ export class DaemonStreamDataBatcher {
 
   /** Reset socket-generation state without discarding queued payloads for a replacement stream. */
   replaceStream(clientId: string): void {
-    const client = this.getClient(clientId)
-    const admission = this.transientAdmissions.get(clientId)
-    if (client?.streamSocket) {
-      admission?.replaceSocket(client.streamSocket, client.streamFraming ?? 'ndjson')
-    } else {
-      admission?.invalidateBindings()
-    }
-    removeQueuedObservations(this.pendingByClient.get(clientId))
+    this.removeSnapshot(this.pendingByClient.get(clientId))
     const batch = this.pendingByClient.get(clientId)
     if (batch?.timer) {
       clearTimeout(batch.timer)
@@ -294,10 +301,6 @@ export class DaemonStreamDataBatcher {
         : [[clientId, this.pendingByClient.get(clientId)] as const]
 
     for (const [id, batch] of batches) {
-      removeQueuedObservations(this.pendingByClient.get(id))
-      for (const entry of batch?.queue ?? []) {
-        entry.lease?.release()
-      }
       if (batch?.timer) {
         clearTimeout(batch.timer)
       }

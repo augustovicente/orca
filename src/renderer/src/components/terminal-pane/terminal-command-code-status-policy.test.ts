@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentStatusEntry, AgentType } from '../../../../shared/agent-status-types'
+import { createInitialStoreState } from './pty-connection-test-store-fixtures'
 import type { PaneForegroundAgentEntry } from '@/store/slices/pane-foreground-agent'
 
 const PTY_ID_LOCAL = 'pty-1'
-const PTY_ID_SSH = 'ssh:target-1@@pty-9'
 const TAB_ID = 'tab-1'
 const WORKTREE_ID = 'repo-1::/tmp/wt-1'
 const PANE_KEY = `${TAB_ID}:11111111-1111-4111-8111-111111111111`
@@ -20,6 +20,7 @@ type MockStoreState = {
   paneForegroundAgentByPaneKey: Record<string, PaneForegroundAgentEntry>
   agentLaunchConfigByPaneKey: Record<string, { identity: { agentType?: AgentType } } | undefined>
   runtimePaneTitlesByTabId: Record<string, Record<number, string | undefined>>
+  setCacheTimerStartedAt: ReturnType<typeof vi.fn>
   setAgentStatus: ReturnType<typeof vi.fn>
   dropAgentStatus: ReturnType<typeof vi.fn>
   clearAgentLaunchConfig: ReturnType<typeof vi.fn>
@@ -32,7 +33,7 @@ const resolveLiveAgentStatusConnectionRouting = vi.fn()
 const getConnectionIdFromState = vi.fn()
 
 vi.mock('@/store', () => ({
-  useAppStore: { getState: () => mockStoreState }
+  useAppStore: { getState: () => mockStoreState, subscribe: vi.fn(() => () => {}) }
 }))
 vi.mock('@/hooks/terminal-command-finished-event', () => ({
   dispatchTerminalCommandFinishedEvent
@@ -45,7 +46,12 @@ vi.mock('@/lib/connection-owner-resolution', () => ({
 }))
 
 function makeMockStoreState(): MockStoreState {
+  const initialStore: ReturnType<typeof createInitialStoreState> = createInitialStoreState(
+    () => initialStore
+  )
   return {
+    ...initialStore,
+    settings: { promptCacheTimerEnabled: true },
     tabsByWorktree: { [WORKTREE_ID]: [{ id: TAB_ID }] },
     agentStatusByPaneKey: {},
     retainedAgentsByPaneKey: {},
@@ -53,6 +59,7 @@ function makeMockStoreState(): MockStoreState {
     agentLaunchConfigByPaneKey: {},
     runtimePaneTitlesByTabId: { [TAB_ID]: { [PANE_ID]: '✳ Build feature' } },
     setAgentStatus: vi.fn(),
+    setCacheTimerStartedAt: vi.fn(),
     dropAgentStatus: vi.fn(),
     clearAgentLaunchConfig: vi.fn(),
     setPaneForegroundAgent: vi.fn()
@@ -71,18 +78,22 @@ function makeStatusEntry(overrides: Partial<AgentStatusEntry> = {}): AgentStatus
 }
 
 async function createPolicy(ptyId: string) {
-  const { createParkedTerminalCommandStatusPolicy } =
-    await import('./parked-terminal-command-status')
-  return createParkedTerminalCommandStatusPolicy({
-    ptyId,
-    worktreeId: WORKTREE_ID,
-    tabId: TAB_ID,
-    paneId: PANE_ID,
-    paneKey: PANE_KEY
-  })
+  const { createTerminalResidentPolicy } = await import('./terminal-resident-policy')
+  const policy = createTerminalResidentPolicy(
+    {
+      worktreeId: WORKTREE_ID,
+      tabId: TAB_ID,
+      paneKey: PANE_KEY,
+      cwd: '',
+      initialTitle: mockStoreState.runtimePaneTitlesByTabId[TAB_ID]?.[PANE_ID]
+    },
+    { endpoint: 'local', executionHost: 'local', ptyId, runtimeId: null, incarnationId: null },
+    () => true
+  )
+  return { ...policy.commandCode, dispose: () => policy.dispose() }
 }
 
-describe('createParkedTerminalCommandStatusPolicy', () => {
+describe('terminal Command Code status policy', () => {
   beforeEach(() => {
     vi.resetModules()
     vi.useFakeTimers()
@@ -90,98 +101,20 @@ describe('createParkedTerminalCommandStatusPolicy', () => {
     resolveLiveAgentStatusConnectionRouting.mockReset().mockReturnValue(ROUTING)
     getConnectionIdFromState.mockReset().mockReturnValue(null)
     mockStoreState = makeMockStoreState()
+    vi.stubGlobal('window', {
+      api: {
+        pty: {
+          inspectProcess: vi
+            .fn()
+            .mockResolvedValue({ foregroundProcess: null, hasChildProcesses: false })
+        }
+      }
+    })
   })
 
   afterEach(() => {
     vi.useRealTimers()
-  })
-
-  // #23767: a Codex that exits while parked must not keep its process identity (and sidebar row),
-  // but a nested shell's leaked 133;D under a still-running agent must not drop it either.
-  describe('parked command boundary with a known foreground agent', () => {
-    const confirmForegroundProcess = vi.fn<(id: string) => Promise<string | null>>()
-    const flushMicrotasks = async (): Promise<void> => {
-      for (let i = 0; i < 5; i += 1) {
-        await Promise.resolve()
-      }
-    }
-
-    beforeEach(() => {
-      confirmForegroundProcess.mockReset()
-      vi.stubGlobal('window', { api: { pty: { confirmForegroundProcess } } })
-      mockStoreState.paneForegroundAgentByPaneKey[PANE_KEY] = {
-        agent: 'codex',
-        shellForeground: false,
-        routingTrusted: true
-      }
-    })
-
-    afterEach(() => {
-      vi.unstubAllGlobals()
-    })
-
-    it('keeps the agent when the confirmation still sees it (a leaked nested-shell marker)', async () => {
-      confirmForegroundProcess.mockResolvedValue('codex')
-      const policy = await createPolicy(PTY_ID_LOCAL)
-
-      policy.onCommandFinished(0)
-      await flushMicrotasks()
-
-      expect(confirmForegroundProcess).toHaveBeenCalledWith(PTY_ID_LOCAL)
-      expect(mockStoreState.setPaneForegroundAgent).not.toHaveBeenCalled()
-      policy.dispose()
-    })
-
-    it.each([
-      ['a shell', 'zsh'],
-      ['no answer', null]
-    ])('retires the agent when the confirmation finds %s', async (_label, processName) => {
-      confirmForegroundProcess.mockResolvedValue(processName)
-      const policy = await createPolicy(PTY_ID_LOCAL)
-
-      policy.onCommandFinished(0)
-      await flushMicrotasks()
-
-      expect(mockStoreState.setPaneForegroundAgent).toHaveBeenCalledWith(PANE_KEY, {
-        agent: null,
-        shellForeground: false
-      })
-      policy.dispose()
-    })
-
-    it('retires an SSH pane without a fenced read it cannot make while parked', async () => {
-      const policy = await createPolicy(PTY_ID_SSH)
-
-      policy.onCommandFinished(0)
-      await flushMicrotasks()
-
-      expect(confirmForegroundProcess).not.toHaveBeenCalled()
-      expect(mockStoreState.setPaneForegroundAgent).toHaveBeenCalledWith(PANE_KEY, {
-        agent: null,
-        shellForeground: false
-      })
-      policy.dispose()
-    })
-
-    it('writes nothing once the pane was revealed while the confirmation ran', async () => {
-      confirmForegroundProcess.mockResolvedValue('zsh')
-      const policy = await createPolicy(PTY_ID_LOCAL)
-
-      policy.onCommandFinished(0)
-      policy.dispose()
-      await flushMicrotasks()
-
-      expect(mockStoreState.setPaneForegroundAgent).not.toHaveBeenCalled()
-    })
-  })
-
-  it('leaves a pane with no process identity untouched at a parked command boundary', async () => {
-    const policy = await createPolicy(PTY_ID_SSH)
-
-    policy.onCommandFinished(0)
-
-    expect(mockStoreState.setPaneForegroundAgent).not.toHaveBeenCalled()
-    policy.dispose()
+    vi.unstubAllGlobals()
   })
 
   it('seeds a Command Code working row with the current pane title', async () => {
@@ -446,85 +379,25 @@ describe('createParkedTerminalCommandStatusPolicy', () => {
 
     expect(mockStoreState.setAgentStatus).toHaveBeenCalledTimes(1)
   })
-
-  it('nudges git UI on command finished for every PTY class', async () => {
-    const local = await createPolicy(PTY_ID_LOCAL)
-    local.onCommandFinished(0)
-    local.dispose()
-    const ssh = await createPolicy(PTY_ID_SSH)
-    ssh.onCommandFinished(0)
-    ssh.dispose()
-
-    expect(dispatchTerminalCommandFinishedEvent).toHaveBeenCalledTimes(2)
-    expect(dispatchTerminalCommandFinishedEvent).toHaveBeenCalledWith(WORKTREE_ID, 0)
-  })
-
-  it('drops a same-turn status row on command finished for SSH PTYs only', async () => {
-    mockStoreState.agentStatusByPaneKey[PANE_KEY] = makeStatusEntry()
-    const local = await createPolicy(PTY_ID_LOCAL)
-    local.onCommandFinished(0)
-    // Why: local drops need the mounted pane's foreground process-confirm ladder
-    // (leaked nested-shell 133;D protection), so the watcher must not drop them.
-    expect(mockStoreState.dropAgentStatus).not.toHaveBeenCalled()
-    local.dispose()
-
-    const ssh = await createPolicy(PTY_ID_SSH)
-    ssh.onCommandFinished(0)
-    expect(mockStoreState.dropAgentStatus).toHaveBeenCalledWith(PANE_KEY)
-    ssh.dispose()
-  })
-
-  it('keeps a finished OSC 7501 program result on SSH command finished until dismissed', async () => {
-    mockStoreState.agentStatusByPaneKey[PANE_KEY] = makeStatusEntry({
-      state: 'done',
-      agentType: 'brew',
-      programStatus: { state: 'done', observedAt: 1000 }
-    })
-    const ssh = await createPolicy(PTY_ID_SSH)
-
-    ssh.onCommandFinished(0)
-    expect(mockStoreState.dropAgentStatus).not.toHaveBeenCalled()
-
-    const { dismissRetainedProgramResult } = await import('@/lib/program-status/result-retention')
-    const dropAgentStatus = vi.fn<(paneKey: string) => void>()
-    dismissRetainedProgramResult(PANE_KEY, {
-      agentStatusByPaneKey: mockStoreState.agentStatusByPaneKey,
-      dropAgentStatus
-    })
-    expect(dropAgentStatus).toHaveBeenCalledWith(PANE_KEY)
-    ssh.dispose()
-  })
-
-  it('clears the launch registry on SSH command finished when no status row exists', async () => {
-    const ssh = await createPolicy(PTY_ID_SSH)
-
-    ssh.onCommandFinished(0)
-
-    expect(mockStoreState.clearAgentLaunchConfig).toHaveBeenCalledWith(PANE_KEY)
-    expect(mockStoreState.dropAgentStatus).not.toHaveBeenCalled()
-    ssh.dispose()
-  })
-
-  it('does nothing after dispose', async () => {
-    const ssh = await createPolicy(PTY_ID_SSH)
-    ssh.dispose()
-
-    ssh.onCommandFinished(0)
-    ssh.onCommandCodeWorking('Fix the spinner')
-
-    expect(dispatchTerminalCommandFinishedEvent).not.toHaveBeenCalled()
-    expect(mockStoreState.setAgentStatus).not.toHaveBeenCalled()
-  })
 })
 
 describe('readInFlightCommandCodeTurn', () => {
   beforeEach(() => {
     vi.resetModules()
     mockStoreState = makeMockStoreState()
+    vi.stubGlobal('window', {
+      api: {
+        pty: {
+          inspectProcess: vi
+            .fn()
+            .mockResolvedValue({ foregroundProcess: null, hasChildProcesses: false })
+        }
+      }
+    })
   })
 
   it('returns only a working command-code turn', async () => {
-    const { readInFlightCommandCodeTurn } = await import('./parked-terminal-command-status')
+    const { readInFlightCommandCodeTurn } = await import('./terminal-command-code-status-policy')
 
     mockStoreState.agentStatusByPaneKey[PANE_KEY] = makeStatusEntry({
       state: 'working',

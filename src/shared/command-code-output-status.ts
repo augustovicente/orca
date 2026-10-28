@@ -17,6 +17,8 @@ export { stripTerminalControl } from './terminal-control-stripping'
 
 type CommandCodeOutputStatusDetector = {
   observe: (data: string) => boolean
+  getState: () => { armed: boolean; prompt: string }
+  observeTurn: (prompt: string) => void
 }
 
 const RECENT_TEXT_LIMIT = 300
@@ -246,6 +248,11 @@ export function createCommandCodeOutputStatusDetector(args: {
   let recentRawText = ''
 
   return {
+    getState: () => ({ armed: hasSeenCommandCodeUi, prompt: lastSubmittedPrompt }),
+    observeTurn: (prompt) => {
+      hasSeenCommandCodeUi = true
+      lastSubmittedPrompt = prompt
+    },
     observe(data: string): boolean {
       const previousRawText = recentRawText
       recentRawText = appendRecentRawText(previousRawText, data)

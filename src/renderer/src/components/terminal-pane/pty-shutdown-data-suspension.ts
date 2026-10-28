@@ -1,6 +1,11 @@
 import { clearPreHandlerPtyState, drainPreHandlerPtyData } from './pty-pre-handler-buffer'
 import type { PtyDataMeta } from './pty-dispatcher'
 import { PtyShutdownOutputQueue, type PtyShutdownOutputEvent } from './pty-shutdown-output-queue'
+import {
+  getTerminalSemanticResident,
+  retireCapturedResident,
+  type TerminalSemanticResident
+} from './terminal-semantic-residents'
 
 export const ptyDataHandlers = new Map<string, (data: string, meta?: PtyDataMeta) => void>()
 export const ptyDataSidecars = new Map<string, Set<(data: string, meta?: PtyDataMeta) => void>>()
@@ -22,6 +27,7 @@ export type PtyDataHandlerShutdownSnapshot = {
 }
 
 type PendingPtyHandlerShutdown = {
+  resident?: TerminalSemanticResident
   owners: number
   committed: boolean
   outputQueue: PtyShutdownOutputQueue
@@ -46,6 +52,7 @@ export function unregisterPtyDataHandlers(ptyIds: string[]): PtyDataHandlerShutd
       const outputQueue = rolledBackShutdownEvents.get(id) ?? new PtyShutdownOutputQueue()
       rolledBackShutdownEvents.delete(id)
       pending = {
+        resident: getTerminalSemanticResident(id),
         owners: 1,
         committed: false,
         outputQueue,
@@ -132,6 +139,9 @@ function settlePtyDataHandlerShutdown(ptyId: string, committed: boolean): void {
   }
   pendingPtyHandlerShutdowns.delete(ptyId)
   if (pending.committed) {
+    if (pending.resident) {
+      retireCapturedResident(pending.resident)
+    }
     rolledBackShutdownEvents.delete(ptyId)
     pending.outputQueue.discard()
     pending.lifecycleHandler?.commit()

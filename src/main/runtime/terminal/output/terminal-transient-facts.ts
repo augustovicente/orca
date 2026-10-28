@@ -1,4 +1,5 @@
-import { OrcaRuntimeWithScheduleWaitBlockedCheck } from '../wait/terminal-wait-blocked-checks'
+import { TerminalSnapshotState } from '../../../../shared/terminal-snapshot-state'
+
 import type { PtyTransientFact } from '../../../providers/pty-provider-contract'
 import type {
   TerminalSideEffectBatch,
@@ -19,49 +20,10 @@ import type {
   RuntimePtyWorktreeRecord
 } from '../../runtime-terminal-state-records'
 import type { TerminalTitleFactMeta } from '../../../../shared/terminal-output-side-effects'
-import type { TerminalTransientObservation } from '../../../../shared/terminal-transient-observation'
-import { parseTerminalGitHubPRUrl } from '../../../../shared/terminal-github-pr-link-detector'
 
-export abstract class OrcaRuntimeWithEmitDaemonPtyTransientFact extends OrcaRuntimeWithScheduleWaitBlockedCheck {
-  protected abstract retirePtyAgentLaunchAuthorityOnConfirmedExit(ptyId: string): void
-  protected abstract recheckHookAgentPresenceForPty(
-    ptyId: string,
-    exitedSince?: number
-  ): Promise<'live' | 'unverifiable' | 'exited' | null>
+import { OrcaRuntimeWithTerminalSnapshotApplication } from './terminal-snapshot-application'
 
-  applyTerminalTransientObservation(
-    ptyId: string,
-    incarnationId: string,
-    observation: TerminalTransientObservation
-  ): void {
-    const entry = this.getOrCreatePtyTitleTrackerEntry(ptyId)
-    if (observation.kind === 'install') {
-      entry.transientIncarnationId = incarnationId
-      entry.tracker.setTransientFactScanningSuppressed(true)
-      // Current evidence prompts a fresh process read, never a remembered completion or attention.
-      void this.recheckHookAgentPresenceForPty(ptyId)
-      if (observation.current.mode2031 !== 'unknown') {
-        this.recordTerminalSideEffectFact(ptyId, {
-          kind:
-            observation.current.mode2031 === 'subscribed' ? '2031-subscribe' : '2031-unsubscribe'
-        })
-      }
-      return
-    }
-    if (entry.transientIncarnationId !== incarnationId) {
-      return
-    }
-    const fact = observation.fact
-    if (fact.kind === 'pr-link') {
-      const link = parseTerminalGitHubPRUrl(fact.url)
-      if (link) {
-        this.emitDaemonPtyTransientFact(ptyId, { kind: 'pr-link', link })
-      }
-    } else {
-      this.emitDaemonPtyTransientFact(ptyId, fact)
-    }
-  }
-
+export abstract class OrcaRuntimeWithEmitDaemonPtyTransientFact extends OrcaRuntimeWithTerminalSnapshotApplication {
   /** A transient fact the daemon detected while it held scan authority —
    *  emitted through the same fact channel as byte-scanned facts. Arrives
    *  between chunks, so recordTerminalSideEffectFact emits it immediately. */
@@ -123,11 +85,21 @@ export abstract class OrcaRuntimeWithEmitDaemonPtyTransientFact extends OrcaRunt
 
   /** Record one derived side-effect fact: batched per chunk while applying
    *  bytes, emitted immediately for between-chunk facts (stale-title timer). */
-  protected recordTerminalSideEffectFact(ptyId: string, fact: TerminalSideEffectFact): void {
-    if (!this.terminalSideEffectConsumerAvailable) {
-      return
-    }
+  protected recordTerminalSideEffectFact(
+    ptyId: string,
+    fact: TerminalSideEffectFact,
+    qualification?: { observedAt: number; commandOrdinal: number }
+  ): void {
     const entry = this.ptyTitleTrackersByPtyId.get(ptyId)
+    if (entry) {
+      entry.sideEffectState ??= new TerminalSnapshotState()
+      entry.sideEffectState.state.rawEndSeq = this.ptyOutputSequenceById.get(ptyId) ?? 0
+      entry.sideEffectState.record(
+        fact.kind === 'pr-link' ? { kind: 'pr-link', url: fact.link.url } : fact,
+        qualification?.observedAt,
+        qualification?.commandOrdinal
+      )
+    }
     if (entry?.applyingChunk) {
       entry.pendingFacts.push(fact)
       return
@@ -140,13 +112,26 @@ export abstract class OrcaRuntimeWithEmitDaemonPtyTransientFact extends OrcaRunt
     facts: TerminalSideEffectFact[],
     options: { replay?: boolean } = {}
   ): void {
-    if (!this.terminalSideEffectConsumerAvailable || facts.length === 0) {
+    const state = this.ptyTitleTrackersByPtyId.get(ptyId)?.sideEffectState
+    if (!this.terminalSideEffectConsumerAvailable || (facts.length === 0 && !state)) {
       return
     }
     const batch: TerminalSideEffectBatch = {
       ptyId,
       seq: this.ptyOutputSequenceById.get(ptyId) ?? 0,
       facts,
+      ...(state
+        ? {
+            terminalState: {
+              runtimeId: this.runtimeId,
+              incarnationId:
+                this.ptyTitleTrackersByPtyId.get(ptyId)?.transientIncarnationId ??
+                this.ptysById.get(ptyId)?.incarnationId ??
+                ptyId,
+              snapshot: state.snapshot()
+            }
+          }
+        : {}),
       ...(options.replay ? { replay: true } : {}),
       ...this.resolveTerminalSideEffectAttribution(ptyId)
     }
@@ -160,6 +145,13 @@ export abstract class OrcaRuntimeWithEmitDaemonPtyTransientFact extends OrcaRunt
     if (this.countTerminalSideEffectConsumingClientEventListeners() > 0) {
       this.emitClientEvent({ type: 'terminalSideEffects', batch })
     }
+  }
+
+  getTerminalSideEffectClientEventSnapshot(): TerminalSideEffectBatch[] {
+    return [...this.ptysById.keys()].flatMap((id) => {
+      const batch = this.getTerminalSideEffectSnapshot(id)
+      return batch ? [batch] : []
+    })
   }
 
   /** Same attribution resolution as emitTerminalAgentStatusEvents: prefer the
@@ -194,7 +186,35 @@ export abstract class OrcaRuntimeWithEmitDaemonPtyTransientFact extends OrcaRunt
   /** Title-only replay batch for renderer (re)attach — the no-attention-replay
    *  rule: snapshots restore title state, never historical bells/completions. */
   getTerminalSideEffectSnapshot(ptyId: string): TerminalSideEffectBatch | null {
-    const tracker = this.ptyTitleTrackersByPtyId.get(ptyId)?.tracker
+    const entry = this.ptysById.has(ptyId)
+      ? this.getOrCreatePtyTitleTrackerEntry(ptyId)
+      : this.ptyTitleTrackersByPtyId.get(ptyId)
+    if (entry && !entry.sideEffectState) {
+      entry.sideEffectState = new TerminalSnapshotState()
+      const rawTitle = entry.lastTitle?.raw ?? this.ptysById.get(ptyId)?.lastOscTitle
+      if (rawTitle) {
+        entry.sideEffectState.record(
+          { kind: 'title', rawTitle, normalizedTitle: normalizeTerminalTitle(rawTitle) },
+          this.ptysById.get(ptyId)?.lastOscTitleEpochMs ?? 0
+        )
+      }
+    }
+    if (entry?.sideEffectState) {
+      return {
+        ptyId,
+        seq: this.ptyOutputSequenceById.get(ptyId) ?? 0,
+        facts: [],
+        replay: true,
+        terminalState: {
+          runtimeId: this.runtimeId,
+          incarnationId:
+            entry.transientIncarnationId ?? this.ptysById.get(ptyId)?.incarnationId ?? ptyId,
+          snapshot: entry.sideEffectState.snapshot()
+        },
+        ...this.resolveTerminalSideEffectAttribution(ptyId)
+      }
+    }
+    const tracker = entry?.tracker
     const recordTitle = this.ptysById.get(ptyId)?.lastOscTitle
     const normalizedTitle = tracker?.getLastNormalizedTitle() ?? null
     // Why: a record-fallback snapshot must not replay the bare cursor-agent literal over a

@@ -28,7 +28,15 @@ export function createTerminalCommandLifecycle(options: TerminalCommandLifecycle
       // rendering hygiene that applies regardless of side-effect authority.
       const disposable = terminal.parser.registerOscHandler(133, () => true)
       disposables.push(disposable)
-      return disposable
+      return {
+        dispose: () => {
+          const index = disposables.indexOf(disposable)
+          if (index !== -1) {
+            disposables.splice(index, 1)
+          }
+          disposable.dispose()
+        }
+      }
     },
     dispose() {
       scanner.reset()

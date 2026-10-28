@@ -72,11 +72,9 @@ export function attachTransientStreamReader(
   socket: Socket,
   hello: DaemonHelloOutcome,
   emit: (event: DaemonEvent) => void,
-  resolveSession?: (incarnationId: string) => string | undefined
+  _resolveSession?: (incarnationId: string) => string | undefined
 ): { transientReader: DaemonTransientReader | undefined; streamReader: TurnBoundedSocketReader } {
-  const transientReader = hello.transientStreamId
-    ? new DaemonTransientReader(hello.transientStreamId, emit, resolveSession)
-    : undefined
+  const transientReader = hello.terminalState ? new DaemonTransientReader(emit) : undefined
   const streamReader = attachStreamEventReader(socket, hello, (event) => {
     if (transientReader) {
       transientReader.accept(event)

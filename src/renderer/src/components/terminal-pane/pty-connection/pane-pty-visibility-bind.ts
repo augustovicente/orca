@@ -1,21 +1,17 @@
 import { isRemoteRuntimePtyId } from '../../../../../shared/remote-runtime-pty-id'
-import { captureNotificationTransportOwner } from '@/attention/notification-subject-owner'
 import { scheduleRuntimeGraphSync } from '@/runtime/sync-runtime-graph'
 import { useAppStore } from '@/store'
 // Why: a restored pane's stale-account prompt can only be raised once a PTY is
 // actually attached — nothing is inspectable while the session hydrates.
 import { notifyCodexPaneBoundForStaleSweep } from '@/lib/codex-stale-pane-sweep'
-import { createTerminalGitHubPRLinkDetector } from '../../../../../shared/terminal-github-pr-link-detector'
 import { setRendererPtyVisibilityClaim } from '../pty-renderer-delivery-claims'
 
-import { createTerminalNotificationPolicy } from './terminal-notification-policy'
 import { shouldIgnoreStalePanePtyLayoutBinding } from './pane-pty-layout-binding'
 
 import type { ConnectPanePtySession } from './connect-pane-pty-session'
 
 /** PTY visibility reporting, active-PTY binding, and the spawn/rebind/bell handlers that follow it. */
 export function installPanePtyVisibilityBind(session: ConnectPanePtySession): void {
-  session.observeTerminalGitHubPRLink = createTerminalGitHubPRLinkDetector()
   session.reportPanePtyVisibility = (ptyId: string | null | undefined, visible: boolean): void => {
     if (!ptyId || isRemoteRuntimePtyId(ptyId)) {
       // Why: remote-runtime PTYs use a relay path outside main's local
@@ -181,17 +177,4 @@ export function installPanePtyVisibilityBind(session: ConnectPanePtySession): vo
     // replace its stale store identity without fresh-spawn exit semantics.
     session.bindActivePanePty(ptyId, { replacePtyId: replacedPtyId })
   }
-  const notificationPolicy = createTerminalNotificationPolicy({
-    paneKey: session.cacheKey,
-    worktreeId: session.deps.worktreeId,
-    tabId: session.deps.tabId,
-    getWorkspaceOwner: () => captureNotificationTransportOwner(session.transport),
-    getPtyId: () => session.transport.getPtyId(),
-    isLive: () => !session.disposed,
-    hasPendingHookDoneCompletion: () =>
-      session.agentCompletionCoordinator.hasPendingHookDoneCompletion(),
-    markTerminalBell: session.deps.markTerminalBell,
-    dispatchNotification: session.deps.dispatchNotification
-  })
-  Object.defineProperties(session, Object.getOwnPropertyDescriptors(notificationPolicy))
 }

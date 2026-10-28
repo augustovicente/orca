@@ -58,17 +58,15 @@ function wedgedDaemonError(requestError: Error, cancelError: unknown): Error | n
 
 export async function requestDaemonRpc<T>(opts: DaemonRpcRequestOptions): Promise<T> {
   const { transientReader, type, payload } = opts
-  const subscription = type === 'createOrAttach' ? transientReader?.begin() : undefined
+  const snapshots = type === 'createOrAttach' && transientReader !== undefined
   const result = await sendDaemonRpc<T>({
     ...opts,
     payload:
-      subscription && payload && typeof payload === 'object'
-        ? { ...payload, transients: subscription }
+      snapshots && payload && typeof payload === 'object'
+        ? { ...payload, terminalState: true }
         : payload
   })
-  if (subscription) {
-    transientReader?.finish(subscription.subscriptionId, result)
-  }
+
   if (
     type === 'detach' &&
     payload &&

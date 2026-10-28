@@ -4,7 +4,6 @@ import type { PendingStreamDataBatch } from './daemon-stream-keep-tail-drop'
 import type { DaemonStreamHeldRefill } from './daemon-stream-held-refill'
 import { recordDaemonStreamBacklogEvent } from './daemon-stream-backlog-probe'
 import { releaseDaemonStreamEntry } from './daemon-stream-entry-accounting'
-import { prepareLeasedStreamWrite } from './daemon-stream-data-entry'
 import { clampToSafeBulkWriteSplitIndex, streamFramesFor } from './daemon-stream-data-split'
 
 // Shallow socket: the stream is one FIFO, so a deep buffer buries a visible pane's echo behind other panes' bulk; bulk stops here and is HELD (flushSession can jump it), bounding echo latency.
@@ -48,19 +47,14 @@ export function flushDaemonStreamBatch(
     }
     const socketDeep = (socket.writableLength ?? 0) >= SHALLOW_SOCKET_WRITE_GATE_BYTES
     if (entry.observation) {
-      if (heldSessions.has(entry.sessionId)) {
+      if (heldSessions.has(entry.sessionId) || socketDeep) {
+        heldSessions.add(entry.sessionId)
         index++
         continue
       }
       batch.queue.splice(index, 1)
       releaseDaemonStreamEntry(batch, entry)
-      write(
-        clientId,
-        entry.sessionId,
-        socket,
-        entry.observation.startWrite(socket).buffer,
-        entry.observation.release
-      )
+      write(clientId, entry.sessionId, socket, frames.control(entry.observation))
       continue
     }
     if (entry.control) {
@@ -70,24 +64,9 @@ export function flushDaemonStreamBatch(
         index++
         continue
       }
-      const prepared = entry.lease
-        ? prepareLeasedStreamWrite(entry, framing ?? 'ndjson', maxLineBytes)
-        : undefined
-      if (prepared === null) {
-        heldSessions.add(entry.sessionId)
-        index++
-        continue
-      }
       batch.queue.splice(index, 1)
       releaseDaemonStreamEntry(batch, entry)
-      entry.lease?.release()
-      write(
-        clientId,
-        entry.sessionId,
-        socket,
-        prepared?.buffer ?? frames.control(entry.control),
-        prepared?.lease.startWrite(socket).release
-      )
+      write(clientId, entry.sessionId, socket, frames.control(entry.control))
       continue
     }
     if (
@@ -113,19 +92,10 @@ export function flushDaemonStreamBatch(
         socketBufferedBytes: socket.writableLength ?? 0
       })
     }
-    const prepared = entry.lease
-      ? prepareLeasedStreamWrite(entry, framing ?? 'ndjson', maxLineBytes)
-      : undefined
-    if (prepared === null) {
-      heldSessions.add(entry.sessionId)
-      index++
-      continue
-    }
     const end =
-      prepared?.end ??
-      (entry.transformed || entry.data.length <= BULK_WRITE_SLICE_CHARS
+      entry.transformed || entry.data.length <= BULK_WRITE_SLICE_CHARS
         ? entry.data.length
-        : clampToSafeBulkWriteSplitIndex(entry.data, BULK_WRITE_SLICE_CHARS))
+        : clampToSafeBulkWriteSplitIndex(entry.data, BULK_WRITE_SLICE_CHARS)
     const slice = entry.data.slice(0, end)
     const entrySequenceChars = entry.sequenceChars ?? entry.data.length
     const sliceSequenceChars = entry.transformed
@@ -137,9 +107,6 @@ export function flushDaemonStreamBatch(
     if (finalSlice) {
       batch.queue.splice(index, 1)
       releaseDaemonStreamEntry(batch, entry)
-      if (prepared) {
-        entry.lease?.release()
-      }
     } else {
       entry.data = entry.data.slice(end)
       const remainingSequenceChars = entrySequenceChars - sliceSequenceChars
@@ -155,26 +122,15 @@ export function flushDaemonStreamBatch(
     } else {
       batch.queuedCharsBySession.set(entry.sessionId, sessionHeldAfter)
     }
-    if (prepared) {
-      write(
-        clientId,
-        entry.sessionId,
-        socket,
-        prepared.buffer,
-        prepared.lease.startWrite(socket).release
-      )
-    } else {
-      frames.data(
-        { write: (line, done) => write(clientId, entry.sessionId, socket, line, done) },
-        entry.sessionId,
-        slice,
-        maxLineBytes,
-        sliceSequenceChars,
-        entry.seq,
-        entry.transformed,
-        entry.lease?.startWrite(socket).release
-      )
-    }
+    frames.data(
+      { write: (line, done) => write(clientId, entry.sessionId, socket, line, done) },
+      entry.sessionId,
+      slice,
+      maxLineBytes,
+      sliceSequenceChars,
+      entry.seq,
+      entry.transformed
+    )
   }
   updateBackpressure()
   if (batch.queue.length > 0) {

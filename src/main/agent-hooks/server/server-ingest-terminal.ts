@@ -95,6 +95,7 @@ export abstract class AgentHookServerIngestTerminal extends AgentHookServerInges
   }
 
   ingestTerminalStatus(event: {
+    observedAt?: number
     ptyId?: string
     paneKey: string
     tabId?: string
@@ -278,7 +279,8 @@ export abstract class AgentHookServerIngestTerminal extends AgentHookServerInges
         previous,
         mutationBefore,
         mutationBefore !== undefined || event.renewsProgramStatusLease === true,
-        newRun
+        newRun,
+        event.observedAt
       )
       return
     }
@@ -327,7 +329,7 @@ export abstract class AgentHookServerIngestTerminal extends AgentHookServerInges
       },
       undefined,
       event.origin ?? 'osc',
-      undefined,
+      event.observedAt,
       mutationBefore,
       newRun
     )

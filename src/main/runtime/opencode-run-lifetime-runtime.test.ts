@@ -1,3 +1,4 @@
+import { TerminalSnapshotState } from '../../shared/terminal-snapshot-state'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { readCommandLineMock } = vi.hoisted(() => ({ readCommandLineMock: vi.fn() }))
@@ -101,34 +102,39 @@ describe('OpenCode run process lifetime in the runtime', () => {
 
   it('keeps installed observations authoritative across a display gap and later visibility marker', async () => {
     const { runtime, statuses, channelOrder } = createRuntime()
-    runtime.applyTerminalTransientObservation('pty-1', 'incarnation', {
-      kind: 'install',
-      revision: 1,
-      rawEndSeq: 0,
-      current: { command: 'prompt', commandRevision: 1, mode2031: 'unknown', modeRevision: 0 }
-    })
+    const source = new TerminalSnapshotState()
+    runtime.applyTerminalTransientObservation('pty-1', 'incarnation', source.snapshot())
     await vi.advanceTimersByTimeAsync(FOREGROUND_COMMAND_READS.settleMs)
     expect(statuses).toEqual([])
     expect(channelOrder).toEqual([])
     runtime.onPtyData('pty-1', '\x1b]133;C\x07', 100)
-    runtime.applyTerminalTransientObservation('pty-1', 'incarnation', {
-      kind: 'observation',
-      revision: 2,
-      rawEndSeq: 8,
-      fact: { kind: 'command-started' }
-    })
+    source.record({ kind: 'command-started' }, 100)
+    source.record(
+      {
+        kind: 'opencode-status',
+        payload: { state: 'working', prompt: '', agentType: 'opencode' },
+        startedAt: 100
+      },
+      101
+    )
+    runtime.applyTerminalTransientObservation('pty-1', 'incarnation', source.snapshot())
     await vi.advanceTimersByTimeAsync(FOREGROUND_COMMAND_READS.settleMs)
     runtime.notePtyDataGap('pty-1', 1000)
     runtime.setPtyTransientFactDelegation('pty-1', false)
     runtime.onPtyData('pty-1', '\x1b]133;D;0\x07\x1b]133;A\x07', 101)
     expect(summary(statuses)).toEqual([`${PANE_KEY}:working:process`])
-    runtime.applyTerminalTransientObservation('pty-1', 'incarnation', {
-      kind: 'observation',
-      revision: 3,
-      rawEndSeq: 1028,
-      fact: { kind: 'command-finished', exitCode: 0 }
-    })
+    source.record({ kind: 'command-finished', exitCode: 0 }, 102)
+    source.record(
+      {
+        kind: 'opencode-status',
+        payload: { state: 'done', prompt: '', agentType: 'opencode' },
+        startedAt: 100
+      },
+      103
+    )
+    runtime.applyTerminalTransientObservation('pty-1', 'incarnation', source.snapshot())
     expect(summary(statuses)).toEqual([`${PANE_KEY}:working:process`, `${PANE_KEY}:done:process`])
+    expect(readCommandLineMock).not.toHaveBeenCalled()
     expect(channelOrder).toEqual([
       'fact:command-started',
       'status:working',

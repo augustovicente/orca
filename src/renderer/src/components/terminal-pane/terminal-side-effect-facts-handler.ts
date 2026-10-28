@@ -1,274 +1,239 @@
-/**
- * Renderer consumer registry for the `pty:sideEffect` channel.
- *
- * Why: with main as the side-effect parser for local-daemon/SSH PTYs, the
- * renderer no longer
- * derives title/bell/agent facts from bytes for those PTYs. This module is
- * the single channel subscriber; mounted panes and parked-tab watchers
- * register exactly one fact consumer per PTY (their existing policy
- * callbacks), so every fact has exactly one policy consumer regardless of
- * whether the tab is mounted, hidden, or parked. Facts for PTYs without a
- * registered consumer are dropped — mirroring today's eager-buffer behavior
- * where pre-mount output produces no attention side effects. The one exception
- * is a PTY whose consumer just unregistered: see the handoff buffer below.
- */
-import type { AgentIdleEdgeMeta } from '../../../../shared/terminal-output-side-effects'
-import type { GlobalSettings } from '../../../../shared/global-settings-types'
-import type { ParsedAgentStatusPayload } from '../../../../shared/agent-status-types'
-import type { TerminalGitHubPRLink } from '../../../../shared/terminal-github-pr-link-detector'
-import type {
-  TerminalSideEffectBatch,
-  TerminalSideEffectFact
-} from '../../../../shared/terminal-side-effect-facts'
+import { resetTerminalSideEffectAuthorityForTest } from './terminal-side-effect-authority'
+export { isMainTerminalSideEffectAuthorityForPty } from './terminal-side-effect-authority'
+import {
+  applyBatchToConsumer,
+  attachResidentConsumer,
+  type ConsumerEntry,
+  type TerminalSideEffectFactConsumerOptions
+} from './terminal-side-effect-consumer'
+export type {
+  TerminalSideEffectFactConsumerCallbacks,
+  TerminalSideEffectFactConsumerOptions
+} from './terminal-side-effect-consumer'
+import { useAppStore } from '@/store'
+import { isProvenProcessExit } from '../../../../shared/terminal-exit-cause'
+import { deferPtyShutdownExit } from './pty-shutdown-exit-deferral'
+import { createTerminalResidentPolicy } from './terminal-resident-policy'
+import { resolveTerminalResidentBinding } from './terminal-resident-binding'
+import { subscribeToPtyData } from './pty-data-sidecar-subscriptions'
+import { parseRemoteRuntimePtyId } from '../../../../shared/remote-runtime-pty-id'
+import { getPtyExecutionHost } from '../../../../shared/terminal-execution-host'
+import { toSshExecutionHostId } from '../../../../shared/execution-host'
+import {
+  remoteTerminalNeedsLegacySource,
+  subscribeResidentRemoteSource
+} from './terminal-resident-remote-source'
+import { onRuntimeEnvironmentsRetired } from '@/runtime/runtime-environment-revision'
+import type { TerminalResidentBinding, TerminalResidentServices } from './terminal-resident-policy'
 
-// Why: cached once per session — the blocking read should only ever run on
-// the pre-hydration startup path, never per pane bind.
-let persistedAuthorityFlagCache: boolean | null | undefined
+import {
+  residentRegistry,
+  residentsByPtyId,
+  legacySourcesByPtyId,
+  disposeLegacySource,
+  retireCapturedResident,
+  type TerminalSemanticResident
+} from './terminal-semantic-residents'
+export {
+  getTerminalSemanticResident,
+  retireTerminalSemanticResident,
+  retireTerminalSemanticResidentsForTab,
+  type TerminalSemanticResident
+} from './terminal-semantic-residents'
 
-function readPersistedSideEffectAuthorityFlagSync(): boolean | null {
-  if (persistedAuthorityFlagCache === undefined) {
-    try {
-      const getSync = (globalThis as { window?: Window }).window?.api?.settings?.getSync
-      persistedAuthorityFlagCache =
-        typeof getSync === 'function' ? (getSync()?.terminalMainSideEffectAuthority ?? null) : null
-    } catch {
-      persistedAuthorityFlagCache = null
+export function admitLegacyTerminalSemanticResident(options: {
+  ptyId: string
+  incarnationId?: string | null
+  binding: TerminalResidentBinding
+  byteSource: boolean
+  services?: TerminalResidentServices
+  policy?: ReturnType<typeof createTerminalResidentPolicy>
+}): TerminalSemanticResident {
+  const existing = residentsByPtyId.get(options.ptyId)
+  const sameExecution =
+    existing &&
+    (!options.incarnationId || existing.identity.incarnationId === options.incarnationId)
+  if (sameExecution && existing.identity.runtimeId !== null) {
+    return existing
+  }
+  const paired = parseRemoteRuntimePtyId(options.ptyId)
+  const identity = {
+    endpoint: paired?.environmentId ?? 'local',
+    executionHost:
+      options.binding.workspaceOwner?.executionHostId ??
+      getPtyExecutionHost(options.ptyId) ??
+      'local',
+    runtimeId: null,
+    ptyId: options.ptyId,
+    incarnationId: options.incarnationId ?? null
+  }
+  const resident = sameExecution
+    ? existing
+    : residentRegistry.admit(identity, (captured) =>
+        options.policy?.bindPty(captured.identity.ptyId, captured.identity.incarnationId)
+          ? options.policy
+          : createTerminalResidentPolicy(
+              options.binding,
+              captured.identity,
+              () => captured.isLive,
+              options.services
+            )
+      )
+  residentsByPtyId.set(options.ptyId, resident)
+  if (!sameExecution && !paired) {
+    resident.policy.legacySource.byteSource = options.byteSource
+  }
+  let legacy = legacySourcesByPtyId.get(options.ptyId)
+  if (!legacy || legacy.resident !== resident) {
+    disposeLegacySource(options.ptyId)
+    legacy = { resident, source: resident.policy.legacySource }
+    legacySourcesByPtyId.set(options.ptyId, legacy)
+  }
+  if (options.byteSource && !legacy.unsubscribe) {
+    legacy.unsubscribe = paired
+      ? subscribeResidentRemoteSource(resident)
+      : subscribeToPtyData(options.ptyId, (data, meta) => {
+          resident.policy.observeLegacyData(data, meta)
+        })
+  }
+  const entry = consumersByPtyId.get(options.ptyId)
+  if (entry) {
+    attachResidentConsumer(entry, resident)
+  }
+  return resident
+}
+
+export async function admitRemoteTerminalSemanticResident(
+  options: Parameters<typeof admitLegacyTerminalSemanticResident>[0]
+): Promise<void> {
+  const resident = admitLegacyTerminalSemanticResident({ ...options, byteSource: false })
+  try {
+    if (!(await remoteTerminalNeedsLegacySource(options.ptyId))) {
+      return
+    }
+    if (
+      !resident.isLive ||
+      residentsByPtyId.get(options.ptyId) !== resident ||
+      resident.identity.runtimeId
+    ) {
+      return
+    }
+    admitLegacyTerminalSemanticResident({ ...options, byteSource: true })
+  } catch (error) {
+    console.warn('[terminal-status] Could not observe remote terminal:', error)
+  }
+}
+
+onRuntimeEnvironmentsRetired((environmentIds) => {
+  for (const resident of residentsByPtyId.values()) {
+    if (environmentIds.includes(resident.identity.endpoint)) {
+      retireCapturedResident(resident)
     }
   }
-  return persistedAuthorityFlagCache
-}
+})
 
-/**
- * Structural authority predicate: main owns side effects for a PTY when its
- * bytes transit local main (everything except remote-runtime PTYs) and the
- * kill switch is on. Decided at transport/watcher creation — never per chunk —
- * so each fact has one consumer with no race.
- */
-export function isMainTerminalSideEffectAuthorityForPty(args: {
-  settings: Pick<GlobalSettings, 'terminalMainSideEffectAuthority'> | null
-  /** Remote-runtime owner environment; null means bytes transit local main. */
-  runtimeEnvironmentId: string | null
-}): boolean {
-  if (args.runtimeEnvironmentId !== null) {
-    return false
+export function observeTerminalSemanticResidentExit(
+  ptyId: string,
+  code: number,
+  incarnationId?: string
+): void {
+  const resident = residentsByPtyId.get(ptyId)
+  if (
+    !resident ||
+    !isProvenProcessExit(code) ||
+    (incarnationId !== undefined && resident.identity.incarnationId !== incarnationId)
+  ) {
+    return
   }
-  if (args.settings !== null) {
-    return args.settings.terminalMainSideEffectAuthority !== false
+  if (useAppStore.getState().isPtyShutdownPending(ptyId)) {
+    deferPtyShutdownExit(ptyId, (settlement) => {
+      if (settlement === 'committed') {
+        retireCapturedResident(resident)
+      }
+    })
+    return
   }
-  // Why: settings hydrate asynchronously, and the authority decision made
-  // here at transport/watcher creation is never revisited. A pane bound
-  // before hydration must honor the persisted kill switch — otherwise a user
-  // who turned main authority off gets startup panes with no byte parsers
-  // and a fact consumer they disabled. Surfaces without the sync read (web
-  // remote clients, tests) keep the default-on behavior.
-  return readPersistedSideEffectAuthorityFlagSync() !== false
+  retireCapturedResident(resident)
 }
 
-export type TerminalSideEffectFactConsumerCallbacks = {
-  onAgentStatus?: (payload: ParsedAgentStatusPayload) => void
-  /** `meta.staleWorkingTitleClear` marks facts derived from main's 3s
-   *  stale-title timer — policy must clear title/cache state without
-   *  scheduling task-complete notifications or unread attention. */
-  onTitleChange?: (
-    normalizedTitle: string,
-    rawTitle: string,
-    meta?: { staleWorkingTitleClear?: boolean }
-  ) => void
-  onBell?: () => void
-  onAgentBecameIdle?: (title: string, meta?: AgentIdleEdgeMeta) => void
-  onAgentBecameWorking?: () => void
-  onAgentExited?: () => void
-  /** OSC 133;D — same policy hook the byte-mode commandLifecycle drove
-   *  (stale agent-status row drop + interrupt-inference coordination). */
-  onCommandFinished?: (bestEffortExitCode: number | null) => void
-  onCommandStarted?: () => void
-  onPrLink?: (link: TerminalGitHubPRLink) => void
-  /** Command Code output scrape (no hooks): working seeds the status row;
-   *  done is settle-checked by the pane policy before completing the turn. */
-  onCommandCodeWorking?: (prompt: string) => void
-  onCommandCodeDone?: (prompt: string) => void
-  /** DECSET 2031 subscribe observed by main's tracker. Registered only by
-   *  hidden-delivery-gated consumers (their bytes never arrive); it records the
-   *  subscription for later theme-flip pushes, it does not answer. */
-  onMode2031Subscribe?: () => void
-  /** DECSET 2031 withdrawal observed by main's tracker. Clears the pane's
-   *  subscription registry so later theme flips stop pushing CSI 997. */
-  onMode2031Unsubscribe?: () => void
-}
-
-type ConsumerEntry = {
-  callbacks: TerminalSideEffectFactConsumerCallbacks
-  /** Output sequence of the last live title fact applied. Replay snapshots at
-   *  or before this point are stale and must not regress the title state. */
-  lastLiveTitleSeq: number | null
-}
+import type { TerminalSideEffectBatch } from '../../../../shared/terminal-side-effect-facts'
 
 const consumersByPtyId = new Map<string, ConsumerEntry>()
 let channelUnsubscribe: (() => void) | null = null
 
-function applyLiveFact(entry: ConsumerEntry, fact: TerminalSideEffectFact, seq: number): void {
-  switch (fact.kind) {
-    case 'agent-status':
-      entry.callbacks.onAgentStatus?.(fact.payload)
-      return
-    case 'title':
-      entry.lastLiveTitleSeq = seq
-      entry.callbacks.onTitleChange?.(
-        fact.normalizedTitle,
-        fact.rawTitle,
-        fact.staleWorkingTitleClear ? { staleWorkingTitleClear: true } : undefined
-      )
-      return
-    case 'bell':
-      entry.callbacks.onBell?.()
-      return
-    case 'agent-working':
-      entry.callbacks.onAgentBecameWorking?.()
-      return
-    case 'agent-idle':
-      entry.callbacks.onAgentBecameIdle?.(fact.title, {
-        ...(fact.status ? { status: fact.status } : {}),
-        ...(fact.staleWorkingTitleClear ? { staleWorkingTitleClear: true } : {})
-      })
-      return
-    case 'agent-exited':
-      entry.callbacks.onAgentExited?.()
-      return
-    case 'command-started':
-      entry.callbacks.onCommandStarted?.()
-      return
-    case 'command-finished':
-      entry.callbacks.onCommandFinished?.(fact.exitCode)
-      return
-    case 'pr-link':
-      entry.callbacks.onPrLink?.(fact.link)
-      return
-    case 'command-code-working':
-      entry.callbacks.onCommandCodeWorking?.(fact.prompt)
-      return
-    case 'command-code-done':
-      entry.callbacks.onCommandCodeDone?.(fact.prompt)
-      return
-    case '2031-subscribe':
-      entry.callbacks.onMode2031Subscribe?.()
-      return
-    case '2031-unsubscribe':
-      entry.callbacks.onMode2031Unsubscribe?.()
-  }
-}
-
-function applyBatchToConsumer(entry: ConsumerEntry, batch: TerminalSideEffectBatch): void {
-  if (batch.replay) {
-    // Why: the no-attention-replay rule — (re)attach snapshots restore title
-    // state only; historical bells/completions must never fire again. A replay
-    // older (by output sequence) than the last live title fact is stale.
-    if (entry.lastLiveTitleSeq !== null && batch.seq <= entry.lastLiveTitleSeq) {
-      return
-    }
-    for (const fact of batch.facts) {
-      if (fact.kind === 'title') {
-        entry.callbacks.onTitleChange?.(fact.normalizedTitle, fact.rawTitle)
-      }
-    }
-    return
-  }
-  for (const fact of batch.facts) {
-    applyLiveFact(entry, fact, batch.seq)
-  }
-}
-
-// Why: a reveal remount unregisters the parked watcher synchronously, but the
-// replacement pane registers only after its deferred rAF + async reattach
-// resolves — and replay is title-only, so a bell or a command-code 'done'
-// dropped in that window is lost for good. Only a PTY that just lost its
-// consumer buffers (never-consumed PTYs still drop, per the module contract),
-// bounded in time, batches, and PTYs so an abandoned handoff retains nothing.
-const HANDOFF_FACT_BUFFER_TTL_MS = 15_000
-const MAX_HANDOFF_FACT_BATCHES = 64
-const MAX_HANDOFF_FACT_PTYS = 32
-
-type HandoffFactBuffer = {
-  batches: TerminalSideEffectBatch[]
-  expiresAtMs: number
-  expiryTimer: ReturnType<typeof setTimeout>
-}
-const handoffFactBuffersByPtyId = new Map<string, HandoffFactBuffer>()
-
-function deleteHandoffFactBuffer(ptyId: string): void {
-  const buffer = handoffFactBuffersByPtyId.get(ptyId)
-  if (buffer) {
-    clearTimeout(buffer.expiryTimer)
-    handoffFactBuffersByPtyId.delete(ptyId)
-  }
-}
-
-function openHandoffFactBuffer(ptyId: string): void {
-  const nowMs = Date.now()
-  for (const [bufferedPtyId, buffer] of handoffFactBuffersByPtyId) {
-    if (buffer.expiresAtMs <= nowMs) {
-      deleteHandoffFactBuffer(bufferedPtyId)
-    }
-  }
-  deleteHandoffFactBuffer(ptyId)
-  if (handoffFactBuffersByPtyId.size >= MAX_HANDOFF_FACT_PTYS) {
-    const oldestPtyId = handoffFactBuffersByPtyId.keys().next().value
-    if (typeof oldestPtyId === 'string') {
-      deleteHandoffFactBuffer(oldestPtyId)
-    }
-  }
-  const buffer: HandoffFactBuffer = {
-    batches: [],
-    expiresAtMs: nowMs + HANDOFF_FACT_BUFFER_TTL_MS,
-    expiryTimer: setTimeout(() => {
-      if (handoffFactBuffersByPtyId.get(ptyId) === buffer) {
-        handoffFactBuffersByPtyId.delete(ptyId)
-      }
-    }, HANDOFF_FACT_BUFFER_TTL_MS)
-  }
-  buffer.expiryTimer.unref?.()
-  handoffFactBuffersByPtyId.set(ptyId, buffer)
-}
-
-function bufferHandoffFactBatch(batch: TerminalSideEffectBatch): void {
-  const buffer = handoffFactBuffersByPtyId.get(batch.ptyId)
-  if (!buffer) {
-    return
-  }
-  if (buffer.expiresAtMs <= Date.now()) {
-    deleteHandoffFactBuffer(batch.ptyId)
-    return
-  }
-  // Why: replay batches are snapshots the next consumer requests for itself.
-  if (batch.replay) {
-    return
-  }
-  if (buffer.batches.length >= MAX_HANDOFF_FACT_BATCHES) {
-    buffer.batches.shift()
-  }
-  buffer.batches.push(batch)
-}
-
-function drainHandoffFactBuffer(ptyId: string, entry: ConsumerEntry): void {
-  const buffer = handoffFactBuffersByPtyId.get(ptyId)
-  if (!buffer) {
-    return
-  }
-  deleteHandoffFactBuffer(ptyId)
-  if (buffer.expiresAtMs <= Date.now()) {
-    return
-  }
-  for (const batch of buffer.batches) {
-    applyBatchToConsumer(entry, batch)
-  }
-}
-
 export function dispatchTerminalSideEffectBatch(batch: TerminalSideEffectBatch): void {
   const entry = consumersByPtyId.get(batch.ptyId)
-  if (!entry) {
-    bufferHandoffFactBatch(batch)
+  if (!batch.terminalState && legacySourcesByPtyId.get(batch.ptyId)?.source.byteSource) {
     return
   }
-  applyBatchToConsumer(entry, batch)
+  if (batch.terminalState && batch.paneKey && batch.tabId && batch.worktreeId) {
+    const { paneKey, tabId, worktreeId } = batch
+    const paired = parseRemoteRuntimePtyId(batch.ptyId)
+    const identity = {
+      endpoint: paired?.environmentId ?? 'local',
+      executionHost: batch.connectionId
+        ? toSshExecutionHostId(batch.connectionId)
+        : (getPtyExecutionHost(batch.ptyId) ?? 'local'),
+      ptyId: batch.ptyId,
+      runtimeId: batch.terminalState.runtimeId,
+      incarnationId: batch.terminalState.incarnationId
+    }
+    const resident = residentRegistry.admit(identity, (captured) =>
+      entry?.policy?.bindPty(captured.identity.ptyId, captured.identity.incarnationId)
+        ? entry.policy
+        : createTerminalResidentPolicy(
+            resolveTerminalResidentBinding({
+              ...batch,
+              paneKey,
+              tabId,
+              worktreeId,
+              binding: entry?.binding
+            }),
+            captured.identity,
+            () => captured.isLive,
+            entry?.services
+          )
+    )
+    resident.policy.bindPty(identity.ptyId, identity.incarnationId, identity.runtimeId)
+    disposeLegacySource(batch.ptyId)
+    residentsByPtyId.set(batch.ptyId, resident)
+    if (entry) {
+      attachResidentConsumer(entry, resident)
+    }
+    resident.consume(batch)
+    return
+  }
+  let resident = residentsByPtyId.get(batch.ptyId)
+  const binding =
+    batch.paneKey && batch.worktreeId && batch.tabId
+      ? resolveTerminalResidentBinding({
+          ...batch,
+          paneKey: batch.paneKey,
+          worktreeId: batch.worktreeId,
+          tabId: batch.tabId,
+          binding: entry?.binding
+        })
+      : entry?.binding
+  if (!resident && binding) {
+    resident = admitLegacyTerminalSemanticResident({
+      ptyId: batch.ptyId,
+      binding,
+      byteSource: false,
+      policy: entry?.policy,
+      services: entry?.services
+    })
+  }
+  const legacy = legacySourcesByPtyId.get(batch.ptyId)
+  if (resident && legacy) {
+    if (entry) {
+      attachResidentConsumer(entry, resident)
+    }
+    legacy.source.observeFacts(batch)
+    return
+  }
+  if (entry) {
+    applyBatchToConsumer(entry, batch)
+  }
 }
 
 function ensureSideEffectChannelSubscription(): void {
@@ -284,16 +249,6 @@ function ensureSideEffectChannelSubscription(): void {
   channelUnsubscribe = onSideEffect(dispatchTerminalSideEffectBatch)
 }
 
-export type TerminalSideEffectFactConsumerOptions = {
-  ptyId: string
-  callbacks: TerminalSideEffectFactConsumerCallbacks
-  /** Pull main's title-only replay snapshot on registration. Pane transports
-   *  use this in place of deriving titles from eager-buffer byte replay.
-   *  Ordinary parked watchers already have a current pane title; cold-started
-   *  watchers request it because no pane populated their slot. */
-  restoreTitleOnRegister?: boolean
-}
-
 /**
  * Register the single fact consumer for a PTY. A new registration replaces a
  * stale one for the same PTY (same semantics as the parked watcher registry):
@@ -304,12 +259,24 @@ export function registerTerminalSideEffectFactConsumer(
 ): () => void {
   ensureSideEffectChannelSubscription()
   const entry: ConsumerEntry = {
+    binding: options.binding,
+    services: options.services,
+    policy: options.policy,
     callbacks: options.callbacks,
+    onResident: options.onResident,
     lastLiveTitleSeq: null
   }
+  consumersByPtyId.get(options.ptyId)?.detachPresentation?.()
   consumersByPtyId.set(options.ptyId, entry)
-  // Why before the snapshot request: draining live facts sets lastLiveTitleSeq, so the async title replay is correctly dropped as stale.
-  drainHandoffFactBuffer(options.ptyId, entry)
+  const resident = residentsByPtyId.get(options.ptyId)
+  if (resident && entry.onResident) {
+    entry.resident = resident
+    entry.detachPresentation = entry.onResident(resident)
+    entry.callbacks = {
+      ...resident.policy.callbacks,
+      onPrLink: (link) => resident.policy.observePrLink(link.url)
+    }
+  }
 
   if (options.restoreTitleOnRegister) {
     const getSnapshot = (globalThis as { window?: Window }).window?.api?.pty?.getSideEffectSnapshot
@@ -319,7 +286,7 @@ export function registerTerminalSideEffectFactConsumer(
           // Why: apply only while this registration is still the live
           // consumer; a slow snapshot must not fire into a replaced one.
           if (batch && consumersByPtyId.get(options.ptyId) === entry) {
-            applyBatchToConsumer(entry, { ...batch, replay: true })
+            dispatchTerminalSideEffectBatch({ ...batch, replay: true })
           }
         })
         .catch(() => {})
@@ -329,8 +296,7 @@ export function registerTerminalSideEffectFactConsumer(
   return () => {
     if (consumersByPtyId.get(options.ptyId) === entry) {
       consumersByPtyId.delete(options.ptyId)
-      // Why: the pane that replaces this consumer registers only after its async reattach resolves; hold facts across that handoff.
-      openHandoffFactBuffer(options.ptyId)
+      entry.detachPresentation?.()
     }
   }
 }
@@ -342,11 +308,16 @@ export function _dispatchTerminalSideEffectBatchForTest(batch: TerminalSideEffec
 
 /** Test seam: reset module state between tests. */
 export function _resetTerminalSideEffectFactConsumersForTest(): void {
+  for (const entry of consumersByPtyId.values()) {
+    entry.detachPresentation?.()
+  }
   consumersByPtyId.clear()
-  for (const ptyId of Array.from(handoffFactBuffersByPtyId.keys())) {
-    deleteHandoffFactBuffer(ptyId)
+  residentRegistry.dispose()
+  residentsByPtyId.clear()
+  for (const ptyId of legacySourcesByPtyId.keys()) {
+    disposeLegacySource(ptyId)
   }
   channelUnsubscribe?.()
   channelUnsubscribe = null
-  persistedAuthorityFlagCache = undefined
+  resetTerminalSideEffectAuthorityForTest()
 }

@@ -5,6 +5,7 @@ import { forgetForegroundTerminalTabs } from '@/lib/foreground-terminal-tabs'
 import { forgetAgentStartupDeliveriesForTabs } from '@/lib/agent-startup-delivery-guards'
 // Why: the store-free registry (not terminal-parked-tab-watchers, which imports @/store) so a slice can import this module during its own evaluation.
 import { retireParkedTerminalTab } from '@/components/terminal-pane/terminal-parked-watcher-registry'
+import { retireTerminalSemanticResidentsForTab } from '@/components/terminal-pane/terminal-semantic-residents'
 import { forgetNativeChatPromptDismissalsForTab } from '@/components/native-chat/native-chat-prompt-dismissals'
 import { retireAgentPaneAuthorityAliasesByOwnerTab } from './agent-pane-authority'
 import {
@@ -40,6 +41,7 @@ export function sweepRetiredTerminalTabState(
   // Why: idempotent, and retirement has no earlier hook — closeTab still revokes these before its own
   // provider teardown, where the ordering against pty exit is load-bearing.
   retireParkedTerminalTab(tabId)
+  retireTerminalSemanticResidentsForTab(tabId)
   // Why: sweep tab agent status through its suppressor-aware removal path.
   // Why the worktree: Pi can leave a completed row keyed under an already-missing tab id; passing it sweeps that orphan while preserving active pre-render child rows.
   actions.dropAgentStatusByTabPrefix(tabId, worktreeId ? { worktreeId } : undefined)
@@ -72,6 +74,7 @@ export function buildRetiredTerminalTabStateSweepPatch(
   // that discards the patch still mutates the registries.
   let swept: RetiredTerminalTabSweepState = state
   for (const tabId of tabIds) {
+    retireTerminalSemanticResidentsForTab(tabId, opts?.paneKeys)
     if (!opts?.paneKeys) {
       retireParkedTerminalTab(tabId)
     }

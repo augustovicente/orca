@@ -7,12 +7,8 @@ import type { TerminalTransientObservation } from '../../shared/terminal-transie
 export type TerminalObservationEvent = {
   type: 'event'
   event: 'terminalObservation'
-  /** Assigned only after ordered DATA/gap or the matching create result establishes routing. */
-  sessionId?: string
-  subscriptionId: string
-  streamId: string
+  sessionId: string
   incarnationId: string
-  epoch: number
   payload: TerminalTransientObservation
 }
 
@@ -22,7 +18,6 @@ export type DataEvent = {
   sessionId: string
   payload: {
     data: string
-    subscriptionId?: string
     seq?: number
     rawLength?: number
     transformed?: boolean
@@ -78,7 +73,7 @@ export type DataGapEvent = {
   type: 'event'
   event: 'dataGap'
   sessionId: string
-  payload: { droppedChars: number; sequenceChars?: number; subscriptionId?: string }
+  payload: { droppedChars: number; sequenceChars?: number }
 }
 
 /** Notification-bearing fact detected by the daemon while it holds scan

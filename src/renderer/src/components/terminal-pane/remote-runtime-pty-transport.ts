@@ -537,6 +537,7 @@ export function createRemoteRuntimePtyTransport(
   const agentCreateOperation = createAgentSessionCreateOperation()
   const agentKeyboardOptions = createAgentSessionKeyboardOptions(terminalKittyKeyboardProtocol)
   const outputProcessor = createPtyOutputProcessor({
+    onRawData: opts.onRawData,
     onTitleChange,
     onBell,
     onAgentBecameIdle,

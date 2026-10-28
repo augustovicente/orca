@@ -1,35 +1,147 @@
+import { z } from 'zod'
+import { normalizeAgentStatusPayload } from './agent-status-types'
+import { normalizeProgramStatusFacet } from './program-status/facet'
 import { parseTerminalGitHubPRUrl } from './terminal-github-pr-link-detector'
 
-export const TERMINAL_TRANSIENTS_CAPABILITY = 'terminal-transients-v1'
-export const isTerminalSubscriptionId = (value: unknown): value is string =>
-  typeof value === 'string' && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value)
+export const TERMINAL_TRANSIENTS_CAPABILITY = 'terminal-snapshots-v1'
+export const TERMINAL_SIDE_EFFECT_STATE_CAPABILITY = 'terminal-side-effect-state.v1'
 
-export type TerminalTransientFact =
-  | { kind: 'command-started' }
-  | { kind: 'command-finished'; exitCode: number | null }
-  | { kind: 'bell' }
-  | { kind: 'pr-link'; url: string }
-  | { kind: '2031-subscribe' }
-  | { kind: '2031-unsubscribe' }
-
-export type TerminalTransientCurrent = {
-  command: 'unseen' | 'running' | 'prompt' | 'uncertain'
-  commandRevision: number
-  mode2031: 'unknown' | 'subscribed' | 'unsubscribed'
-  modeRevision: number
-}
-
-export type TerminalTransientObservation = {
-  revision: number
-  rawEndSeq: number
-} & (
-  | { kind: 'install'; current: TerminalTransientCurrent }
-  | {
-      kind: 'observation'
-      fact: TerminalTransientFact
-    }
-)
-
+const ordinal = z.number().int().nonnegative().safe()
+const time = z.number().finite()
+const prompt = z.string().max(4096)
+const statusPayload = z.unknown().transform((value, ctx) => {
+  const payload = normalizeAgentStatusPayload(value)
+  if (payload) {
+    return payload
+  }
+  ctx.addIssue({ code: 'custom', message: 'Invalid terminal status' })
+  return z.NEVER
+})
+const facet = z.unknown().transform((value, ctx) => {
+  const result = normalizeProgramStatusFacet(value)
+  if (result) {
+    return result
+  }
+  ctx.addIssue({ code: 'custom', message: 'Invalid program facet' })
+  return z.NEVER
+})
+const idleStatus = z.enum(['idle', 'permission'])
+const title = z.object({
+  rawTitle: z.string().max(1024),
+  normalizedTitle: z.string().max(1024),
+  staleWorkingTitleClear: z.boolean().optional()
+})
+const activity = z.enum(['working', 'idle', 'permission']).nullable()
+const fact = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('command-started') }),
+  z.object({ kind: z.literal('command-finished'), exitCode: z.number().int().safe().nullable() }),
+  z.object({ kind: z.literal('bell') }),
+  z.object({ kind: z.literal('title'), ...title.shape }),
+  z.object({ kind: z.literal('agent-working') }),
+  z.object({
+    kind: z.literal('agent-idle'),
+    title: z.string().max(1024),
+    status: idleStatus.optional(),
+    staleWorkingTitleClear: z.boolean().optional()
+  }),
+  z.object({ kind: z.literal('agent-exited') }),
+  z.object({
+    kind: z.literal('agent-status'),
+    payload: statusPayload,
+    fromProgramStatus: z.boolean().optional(),
+    removesProgramStatusRow: z.boolean().optional()
+  }),
+  z.object({ kind: z.literal('program-facet'), facet: facet.nullable(), activity }),
+  z.object({ kind: z.literal('command-code-working'), prompt }),
+  z.object({ kind: z.literal('command-code-done'), prompt }),
+  z.object({ kind: z.literal('opencode-status'), payload: statusPayload, startedAt: time }),
+  z.object({ kind: z.literal('2031-subscribe') }),
+  z.object({ kind: z.literal('2031-unsubscribe') }),
+  z.object({
+    kind: z.literal('pr-link'),
+    url: z
+      .string()
+      .max(2048)
+      .refine((value) => parseTerminalGitHubPRUrl(value) !== null)
+  })
+])
+export type TerminalTransientFact = z.infer<typeof fact>
+export const terminalEffectKeys = [
+  'command-started',
+  'command-finished',
+  'bell',
+  'agent-working',
+  'agent-idle',
+  'agent-exited',
+  'status-working',
+  'status-blocked',
+  'status-waiting',
+  'status-done',
+  'program-working',
+  'program-blocked',
+  'program-waiting',
+  'program-done',
+  'program-removal',
+  'command-code-working',
+  'command-code-done',
+  'opencode-working',
+  'opencode-done'
+] as const
+export type TerminalEffectKey = (typeof terminalEffectKeys)[number]
+const effect = z.object({
+  count: ordinal,
+  order: ordinal,
+  observedAt: time,
+  commandOrdinal: ordinal,
+  fact
+})
+export type TerminalSnapshotEffect = z.infer<typeof effect>
+const current = z.object({
+  command: z.enum(['unseen', 'uncertain', 'running', 'prompt']),
+  commandRevision: ordinal,
+  commandOrdinal: ordinal,
+  mode2031: z.enum(['unknown', 'subscribed', 'unsubscribed']),
+  modeRevision: ordinal,
+  title: title.extend({ observedAt: time }).nullable(),
+  activity,
+  program: z
+    .object({
+      payload: statusPayload.nullable(),
+      facet: facet.nullable(),
+      activity,
+      removesRow: z.boolean(),
+      observedAt: time
+    })
+    .nullable(),
+  inBandStatus: z.object({ payload: statusPayload, observedAt: time }).nullable(),
+  commandCode: z.object({
+    armed: z.boolean(),
+    prompt,
+    phase: z.enum(['unseen', 'working', 'done']),
+    turnOrdinal: ordinal,
+    observedAt: time
+  }),
+  openCodeRun: z
+    .object({
+      agent: z.enum(['opencode', 'opencode2']),
+      commandOrdinal: ordinal,
+      startedAt: time,
+      observedAt: time
+    })
+    .nullable()
+})
+export type TerminalTransientCurrent = z.infer<typeof current>
+export const terminalSnapshotSchema = z.object({
+  kind: z.literal('snapshot'),
+  revision: ordinal,
+  rawEndSeq: ordinal,
+  current,
+  effects: z.partialRecord(z.enum(terminalEffectKeys), effect),
+  recentPrLinks: z
+    .array(z.object({ url: z.string().max(2048), order: ordinal, observedAt: time }))
+    .max(8)
+})
+export type TerminalTransientObservation = z.infer<typeof terminalSnapshotSchema>
 export type TerminalTransientSink = {
   install: (
     current: TerminalTransientObservation,
@@ -44,62 +156,24 @@ export type TerminalTransientSink = {
 export function isTerminalTransientObservation(
   value: unknown
 ): value is TerminalTransientObservation {
-  if (
-    !value ||
-    typeof value !== 'object' ||
-    !('revision' in value) ||
-    !('rawEndSeq' in value) ||
-    !Number.isSafeInteger(value.revision) ||
-    Number(value.revision) < 0 ||
-    !Number.isSafeInteger(value.rawEndSeq) ||
-    Number(value.rawEndSeq) < 0
-  ) {
-    return false
-  }
-  if ('kind' in value && value.kind === 'install' && 'current' in value) {
-    const state = value.current
-    return Boolean(
-      state &&
-      typeof state === 'object' &&
-      'command' in state &&
-      typeof state.command === 'string' &&
-      ['unseen', 'running', 'prompt', 'uncertain'].includes(state.command) &&
-      'mode2031' in state &&
-      typeof state.mode2031 === 'string' &&
-      ['unknown', 'subscribed', 'unsubscribed'].includes(state.mode2031) &&
-      'commandRevision' in state &&
-      Number.isSafeInteger(state.commandRevision) &&
-      Number(state.commandRevision) >= 0 &&
-      Number(state.commandRevision) <= Number(value.revision) &&
-      'modeRevision' in state &&
-      Number.isSafeInteger(state.modeRevision) &&
-      Number(state.modeRevision) >= 0 &&
-      Number(state.modeRevision) <= Number(value.revision)
-    )
-  }
-  if (!('kind' in value) || value.kind !== 'observation' || !('fact' in value)) {
-    return false
-  }
-  const fact = value.fact
-  if (!fact || typeof fact !== 'object' || !('kind' in fact)) {
-    return false
-  }
+  return terminalSnapshotSchema.safeParse(value).success
+}
+
+export function terminalEffectKey(fact: TerminalTransientFact): TerminalEffectKey | null {
   switch (fact.kind) {
-    case 'command-started':
-    case 'bell':
+    case 'agent-status':
+      return fact.removesProgramStatusRow
+        ? 'program-removal'
+        : `${fact.fromProgramStatus ? 'program' : 'status'}-${fact.payload.state}`
+    case 'opencode-status':
+      return fact.payload.state === 'working' ? 'opencode-working' : 'opencode-done'
+    case 'title':
+    case 'program-facet':
     case '2031-subscribe':
     case '2031-unsubscribe':
-      return true
-    case 'command-finished':
-      return 'exitCode' in fact && (fact.exitCode === null || Number.isSafeInteger(fact.exitCode))
     case 'pr-link':
-      return (
-        'url' in fact &&
-        typeof fact.url === 'string' &&
-        fact.url.length <= 2048 &&
-        parseTerminalGitHubPRUrl(fact.url) !== null
-      )
+      return null
     default:
-      return false
+      return fact.kind
   }
 }

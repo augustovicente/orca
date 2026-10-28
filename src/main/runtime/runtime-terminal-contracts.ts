@@ -166,6 +166,7 @@ export type PtyForegroundProcessReadEntry = {
 }
 
 export type RuntimeTerminalAgentStatusEvent = {
+  observedAt?: number
   ptyId: string
   source: 'mounted-leaf' | 'pty-record'
   paneKey: string

@@ -51,6 +51,7 @@ export function createIpcPtyTransport(opts: IpcPtyTransportOptions = {}): PtyTra
     return lifecycleGeneration
   }
   const outputProcessor = createPtyOutputProcessor({
+    onRawData: opts.onRawData,
     onTitleChange,
     onBell,
     onAgentBecameIdle: (title, meta) => {

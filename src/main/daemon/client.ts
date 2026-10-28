@@ -60,15 +60,15 @@ export class DaemonClient {
   private connectingPromise: Promise<void> | null = null
   private connectionAttemptGeneration = 0
   private daemonIdentity: DaemonEndpointIdentity | null = null
-  private transientStreamId: string | undefined
+  private terminalState = false
   private transientReader: DaemonTransientReader | undefined
 
   confirmTransientBinding(sessionId: string, incarnationId: string): void {
     this.transientReader?.confirm(sessionId, incarnationId)
   }
 
-  getTransientStreamId(): string | undefined {
-    return this.connected ? this.transientStreamId : undefined
+  hasTerminalState(): boolean {
+    return this.connected && this.terminalState
   }
   private observedAuthenticatedDisconnect = false
 
@@ -165,7 +165,7 @@ export class DaemonClient {
       if (!sameDaemonIdentity(controlIdentity, streamHello.identity)) {
         throw new DaemonProtocolError('Daemon identity changed during connection')
       }
-      this.transientStreamId = streamHello.transientStreamId
+      this.terminalState = streamHello.terminalState === true
       const emit = (event: DaemonEvent): void => {
         this.eventListeners.each((listener) => listener(event))
       }

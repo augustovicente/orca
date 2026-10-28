@@ -130,6 +130,7 @@ export function bindForegroundOutputRefresh(session: ConnectPanePtySession): voi
     if (!ptyId || !isRemoteRuntimePtyId(ptyId)) {
       return
     }
+    session.semanticPolicy.setLegacyOutputPaused(paused, supported)
     if (!paused) {
       const wasGated = session.remoteOutputGatedPtyId === ptyId
       if (wasGated) {

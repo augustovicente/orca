@@ -5,10 +5,7 @@ import { BINARY_STREAM_FRAMING, type DaemonStreamFraming } from './daemon-stream
 import { CLEAN_DISCONNECT_PROTOCOL_VERSION, DaemonProtocolError } from './types'
 import type { DaemonEndpointIdentity, HelloMessage, HelloResponse } from './types'
 import { addNodePtyRecoveryHint } from './node-pty-error-hints'
-import {
-  isTerminalSubscriptionId,
-  TERMINAL_TRANSIENTS_CAPABILITY
-} from '../../shared/terminal-transient-observation'
+import { TERMINAL_TRANSIENTS_CAPABILITY } from '../../shared/terminal-transient-observation'
 
 export type DaemonHelloRequest = {
   socket: Socket
@@ -29,7 +26,7 @@ export type DaemonHelloOutcome = {
   streamFraming: DaemonStreamFraming
   /** Bytes after the hello line in the same read; the socket's next reader must start with them. */
   remainder: Buffer
-  transientStreamId?: string
+  terminalState?: boolean
 }
 
 export function sendDaemonHello(request: DaemonHelloRequest): Promise<DaemonHelloOutcome> {
@@ -113,9 +110,8 @@ export function sendDaemonHello(request: DaemonHelloRequest): Promise<DaemonHell
             remainder,
             ...(role === 'stream' &&
             Array.isArray(response.capabilities) &&
-            response.capabilities.includes(TERMINAL_TRANSIENTS_CAPABILITY) &&
-            isTerminalSubscriptionId(response.streamId)
-              ? { transientStreamId: response.streamId }
+            response.capabilities.includes(TERMINAL_TRANSIENTS_CAPABILITY)
+              ? { terminalState: true }
               : {})
           })
         } else {

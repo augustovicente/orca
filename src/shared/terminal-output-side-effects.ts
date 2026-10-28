@@ -34,6 +34,7 @@ export const STALE_WORKING_TITLE_TIMEOUT_MS = 3000
 
 /** Provenance for title/idle facts; `staleWorkingTitleClear` marks facts synthesized by the 3s stale timer — not genuine task completions. */
 export type TerminalTitleFactMeta = {
+  observedAt?: number
   staleWorkingTitleClear?: boolean
 }
 
@@ -93,6 +94,7 @@ export type TerminalTitleTracker = {
    * Seed the last-known title for a mid-session tracker (app relaunch with persisted titles).
    * No-ops once any title has been observed or seeded (live state wins); fires no callbacks.
    */
+  restoreCurrent: (rawTitle: string | null, activity: AgentStatus | null) => void
   seedInitialTitle: (rawTitle: string) => void
   /** The stream lost the program's OSC 7501 reports (a data gap): titles classify again. */
   endProgramActivity: () => void
@@ -306,6 +308,14 @@ export function createTerminalTitleTracker(
     handleChunk,
     applySyntheticTitleFrame,
     endProgramActivity: () => applyProgramActivity(null),
+    restoreCurrent(rawTitle, activity): void {
+      clearStaleTitleTimer()
+      lastEmittedTitle = rawTitle === null ? null : normalizeTerminalTitle(rawTitle)
+      if (rawTitle) {
+        agentTracker?.seedTitle(rawTitle)
+      }
+      agentTracker?.seedProgramActivity(activity)
+    },
     seedInitialTitle(rawTitle: string): void {
       if (lastEmittedTitle !== null || !rawTitle) {
         return

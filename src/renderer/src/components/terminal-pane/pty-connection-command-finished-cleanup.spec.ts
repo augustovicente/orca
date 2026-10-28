@@ -714,6 +714,7 @@ export function registerPtyConnectionCommandFinishedCleanupTests(): void {
         transportFactoryQueue.push(transport)
         vi.useFakeTimers()
         vi.setSystemTime(1_100)
+        vi.mocked(window.api.pty.confirmForegroundProcess).mockResolvedValue('zsh')
         const paneKey = makePaneKey('tab-1', LEAF_1)
         mockStoreState = {
           ...mockStoreState,
@@ -776,6 +777,7 @@ export function registerPtyConnectionCommandFinishedCleanupTests(): void {
         delete mockStoreState.agentStatusByPaneKey[paneKey]
         writeAccepted.resolve(true)
         await flushAsyncTicks()
+        await vi.advanceTimersByTimeAsync(350)
 
         if (agentType === 'codex') {
           expect(window.api.agentStatus.inferInterrupt).not.toHaveBeenCalled()

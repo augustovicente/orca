@@ -1,3 +1,4 @@
+import { TERMINAL_SIDE_EFFECT_STATE_CAPABILITY } from '../../../../shared/terminal-transient-observation'
 import {
   getRegisteredSshState,
   listRegisteredSshTargets
@@ -13,13 +14,27 @@ export const CLIENT_EVENT_METHODS = [
     name: 'runtime.clientEvents.subscribe',
     permission: 'workspace',
     params: null,
-    handler: async (_params, { runtime, connectionId, clientKind }, emit) => {
+    handler: async (_params, { runtime, connectionId, clientKind, clientCapabilities }, emit) => {
+      const terminalState =
+        clientKind !== 'mobile' &&
+        clientCapabilities?.includes(TERMINAL_SIDE_EFFECT_STATE_CAPABILITY) === true
       await new Promise<void>((resolve) => {
         // Why: mobile discards terminalSideEffects; excluding it stops the
         // per-OSC batch frames from crossing the relay.
         const unsubscribe = runtime.onClientEvent(
           (event) => {
-            emit(event)
+            if (
+              event.type === 'terminalSideEffects' &&
+              !terminalState &&
+              event.batch.terminalState
+            ) {
+              const { terminalState: _state, ...batch } = event.batch
+              if (batch.facts.length > 0) {
+                emit({ ...event, batch })
+              }
+            } else {
+              emit(event)
+            }
           },
           { consumesTerminalSideEffects: clientKind !== 'mobile' }
         )
@@ -49,7 +64,16 @@ export const CLIENT_EVENT_METHODS = [
           return state ? [{ targetId: target.id, state }] : []
         })
         // Why: attaching the listener before snapshotting closes the reload gap without exposing HUB-private target configuration.
-        emit({ type: 'ready', subscriptionId, snapshot: { sshStates } })
+        emit({
+          type: 'ready',
+          subscriptionId,
+          snapshot: {
+            sshStates,
+            ...(terminalState
+              ? { terminalSideEffects: runtime.getTerminalSideEffectClientEventSnapshot() }
+              : {})
+          }
+        })
       })
     }
   }),

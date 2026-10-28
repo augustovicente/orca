@@ -6,6 +6,7 @@ import type { SubprocessHandle } from './session-subprocess-handle'
  *  output plane. Built together because the barrier's owner is what the
  *  plane's snapshots publish, and the plane's emit is the barrier's sink. */
 export function createSessionOutputPipeline(opts: {
+  startupCommand?: string
   cols: number
   incarnationId?: string
   rows: number
@@ -19,6 +20,8 @@ export function createSessionOutputPipeline(opts: {
   let barrier: TerminalShellRecoveryBarrier | null = null
   const output = new SessionOutputPlane({
     cols: opts.cols,
+    subprocess,
+    startupCommand: opts.startupCommand,
     incarnationId: opts.incarnationId,
     rows: opts.rows,
     scrollback: opts.scrollback,

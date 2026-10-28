@@ -83,7 +83,7 @@ export class RuntimeClientEventBus {
       titleGateKeys.set(event.batch.ptyId, gateKey)
       return true
     })
-    if (facts.length === 0) {
+    if (facts.length === 0 && !event.batch.terminalState) {
       return null
     }
     return facts.length === event.batch.facts.length

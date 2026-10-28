@@ -5,7 +5,10 @@ import type { ConnectPanePtySession } from './connect-pane-pty-session'
 
 /** The spawn/attach options a pane hands its PTY transport. */
 export function buildPaneTransportOptions(session: ConnectPanePtySession): IpcPtyTransportOptions {
+  const policy = session.semanticPolicy
+  policy.legacySource.byteSource = !session.mainSideEffectAuthority
   return {
+    ...(!session.mainSideEffectAuthority ? { onRawData: policy.observeLegacyData } : {}),
     terminalKittyKeyboardProtocol:
       session.pane.terminal.options.vtExtensions?.kittyKeyboard === true,
     cwd: session.deps.cwd,
@@ -85,18 +88,44 @@ export function buildPaneTransportOptions(session: ConnectPanePtySession): IpcPt
     ...(session.mainSideEffectAuthority
       ? {}
       : {
-          onTitleChange: session.onTitleChange,
-          onBell: session.onBell,
-          onAgentBecameIdle: session.onAgentBecameIdle,
-          onAgentBecameWorking: session.onAgentBecameWorking,
-          onAgentExited: session.onAgentExited
+          onTitleChange: (...args) => {
+            if (!session.semanticResident) {
+              session.onTitleChange(...args)
+            }
+          },
+          onBell: (...args) => {
+            if (!session.semanticResident) {
+              session.onBell(...args)
+            }
+          },
+          onAgentBecameIdle: (...args) => {
+            if (!session.semanticResident) {
+              session.onAgentBecameIdle(...args)
+            }
+          },
+          onAgentBecameWorking: (...args) => {
+            if (!session.semanticResident) {
+              session.onAgentBecameWorking(...args)
+            }
+          },
+          onAgentExited: (...args) => {
+            if (!session.semanticResident) {
+              session.onAgentExited(...args)
+            }
+          }
         }),
     // Why: local IPC terminals are now model-owned in main: OrcaRuntimeService
     // parses OSC 9999 before renderer delivery and forwards through the hook
     // server with local/SSH identity. Remote-runtime streams do not pass through
     // local main, so the renderer remains their status owner for now.
     ...(session.shouldOwnAgentStatusInRenderer
-      ? { onAgentStatus: session.handleRendererOwnedAgentStatus }
+      ? {
+          onAgentStatus: (payload) => {
+            if (!session.semanticResident) {
+              session.handleRendererOwnedAgentStatus(payload)
+            }
+          }
+        }
       : {})
   }
 }

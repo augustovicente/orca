@@ -16,9 +16,9 @@ import type { TerminalHost } from './terminal-host'
 import { PROTOCOL_VERSION } from './types'
 
 describe('negotiated attachment and claimed execution', () => {
-  it.each(['socket', 'same-socket UUID'] as const)(
+  it.each(['socket'] as const)(
     'preserves accepted startup and canonical adoption after %s replacement',
-    async (replacementKind) => {
+    async (_replacementKind) => {
       const directory = mkdtempSync(join(tmpdir(), 'orca-31182-admission-'))
       const socketPath = getDaemonSocketPath(directory)
       const tokenPath = join(directory, 'token')
@@ -57,7 +57,7 @@ describe('negotiated attachment and claimed execution', () => {
           })
         }
         await hello('control')
-        const original = await hello('stream')
+        await hello('stream')
         // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: these are the server's concrete production collaborators; only control dispatch is called directly.
         const daemon = server as unknown as {
           admission: DaemonTerminalAdmission
@@ -77,7 +77,7 @@ describe('negotiated attachment and claimed execution', () => {
           leafId: '11111111-1111-4111-8111-111111111111',
           terminalHandle: 'term_claimed'
         }
-        const request = (sessionId: string, streamId = original.transientStreamId!) => ({
+        const request = (sessionId: string) => ({
           id: randomUUID(),
           type: 'createOrAttach' as const,
           payload: {
@@ -86,33 +86,23 @@ describe('negotiated attachment and claimed execution', () => {
             rows: 24,
             command: 'typed-agent-command',
             agentSessionEnsure: { claim, surface },
-            transients: { streamId, subscriptionId: randomUUID() }
+            terminalState: true
           }
         })
         const accepted = daemon.admission.createOrAttach(clientId, request('canonical'))
         const canceled = expect(accepted).rejects.toThrow('Attach canceled for session canonical')
         await spawnStarted
-        let replacementStreamId: string
-        if (replacementKind === 'socket') {
-          replacementStreamId = (await hello('stream')).transientStreamId!
-        } else {
-          // Deliberately exercise UUID revalidation independently of socket identity.
-          replacementStreamId = randomUUID()
-          daemon.connections.get(clientId)!.transientStreamId = replacementStreamId
-        }
+        await hello('stream')
         releaseSpawn()
         await canceled
         expect(subprocess.write).toHaveBeenCalledExactlyOnceWith('typed-agent-command\r')
         expect(subprocess.forceKill).not.toHaveBeenCalled()
         await expect(
-          daemon.admission.createOrAttach(
-            clientId,
-            request('different-requested-id', replacementStreamId)
-          )
+          daemon.admission.createOrAttach(clientId, request('different-requested-id'))
         ).resolves.toMatchObject({
           isNew: false,
           agentSessionEnsure: { disposition: 'adopted', owner: { ptyId: 'canonical' } },
-          transients: { sessionId: 'canonical', streamId: replacementStreamId }
+          terminalState: true
         })
         expect(spawn).toHaveBeenCalledOnce()
         expect(subprocess.write).toHaveBeenCalledOnce()

@@ -22,6 +22,8 @@ export type AttachedClient = {
 }
 
 export type SessionOutputPlaneOptions = {
+  subprocess?: SubprocessHandle
+  startupCommand?: string
   cols: number
   rows: number
   scrollback?: number | undefined
@@ -48,15 +50,25 @@ export class SessionOutputPlane {
   private deviceAttributesQueryFilter: StartupDeviceAttributesQueryFilter | null = null
   private disposed = false
   private readonly incarnationId: string
+  private emitting = false
   private readonly transients: SessionTransientObservations
 
   constructor(opts: SessionOutputPlaneOptions) {
     this.incarnationId = opts.incarnationId ?? ''
-    this.transients = new SessionTransientObservations((observation) => {
-      for (const client of this.attachedClients) {
-        client.transients?.stage(observation)
-      }
-    }, opts.historySeedChunks !== undefined)
+    this.transients = new SessionTransientObservations(
+      (observation) => {
+        for (const client of this.attachedClients) {
+          client.transients?.stage(observation)
+          if (!this.emitting) {
+            client.transients?.commit()
+          }
+        }
+      },
+      opts.historySeedChunks !== undefined,
+      opts.subprocess,
+      opts.wslDistro,
+      opts.startupCommand
+    )
     const size = normalizePtySize(opts.cols, opts.rows)
     this.emulator = new HeadlessEmulator({
       cols: size.cols,
@@ -216,11 +228,13 @@ export class SessionOutputPlane {
       return
     }
     this.record({ kind: 'output', data: pending })
+    this.emitting = true
     this.transients.observe(pending, this._outputSequence)
     for (const client of this.attachedClients) {
       client.onData(pending, 0, true, this._outputSequence)
       client.transients?.commit()
     }
+    this.emitting = false
   }
 
   emit(emission: PtyIngressEmission, genuinePrefixLength = emission.data.length): void {
@@ -240,6 +254,7 @@ export class SessionOutputPlane {
       this.record({ kind: 'output', data })
     }
 
+    this.emitting = true
     this.transients.observe(genuine, this._outputSequence)
     // Broadcast to attached clients
     for (const client of this.attachedClients) {
@@ -250,6 +265,7 @@ export class SessionOutputPlane {
       }
       client.transients?.commit()
     }
+    this.emitting = false
   }
 
   record(record: PendingOutputRecord): void {

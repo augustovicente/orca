@@ -5,6 +5,7 @@
  * renderer store handler owns notification/unread policy.
  */
 
+import type { TerminalTransientObservation } from './terminal-transient-observation'
 import type { AgentIdleStatus } from './agent-title-status'
 import type { ParsedAgentStatusPayload } from './agent-status-types'
 import type { TerminalGitHubPRLink } from './terminal-github-pr-link-detector'
@@ -46,6 +47,11 @@ export type TerminalSideEffectFact =
   | { kind: '2031-unsubscribe' }
 
 export type TerminalSideEffectBatch = {
+  terminalState?: {
+    runtimeId: string
+    incarnationId: string
+    snapshot: TerminalTransientObservation
+  }
   ptyId: string
   /** PTY output byte sequence at emission. Replay batches carry the sequence
    *  their title state was current at, so the handler can drop a replay title

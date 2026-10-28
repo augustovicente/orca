@@ -27,5 +27,4 @@ export type HelloResponse = {
   /** Echoed only when the daemon switches this stream socket to that framing after this line. */
   streamFraming?: string
   capabilities?: string[]
-  streamId?: string
 }

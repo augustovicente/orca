@@ -1,12 +1,8 @@
-import { createTerminalInputPolicy } from './terminal-input-policy'
 import { detectAgentStatusFromTitle } from '@/lib/agent-status'
-import { markTerminalBracketedPasteInterrupted } from '../terminal-bracketed-paste'
 
 import { REATTACH_IDLE_AGENT_CURSOR_RESET_DELAY_MS } from './foreground-output-scan'
 
 import type { ConnectPanePtySession } from './connect-pane-pty-session'
-
-import { installPaneAgentIdentity } from './pane-foreground-policy-bind'
 
 export function installInterruptInputIntent(session: ConnectPanePtySession): void {
   session.scheduleReattachIdleAgentCursorReset = (): void => {
@@ -30,13 +26,4 @@ export function installInterruptInputIntent(session: ConnectPanePtySession): voi
       session.queueAgentIdleTerminalModeReset()
     }, REATTACH_IDLE_AGENT_CURSOR_RESET_DELAY_MS)
   }
-  const policy = createTerminalInputPolicy({
-    paneKey: session.cacheKey,
-    clearInferredInterruptWorkingTitle: () => session.clearInferredInterruptWorkingTitle(),
-    observeTitleOnlyInterrupt: () => session.observeTitleOnlyInterrupt(),
-    markBracketedPasteInterrupted: () =>
-      markTerminalBracketedPasteInterrupted(session.pane.terminal)
-  })
-  Object.defineProperties(session, Object.getOwnPropertyDescriptors(policy))
-  installPaneAgentIdentity(session)
 }

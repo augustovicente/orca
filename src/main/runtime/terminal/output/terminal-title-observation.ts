@@ -64,13 +64,21 @@ export abstract class OrcaRuntimeWithApplyTrackedPtyTitle extends OrcaRuntimeWit
   }
 
   /** Re-classifies the PTY under new program activity; on null the title's own glyph decides again. */
-  protected applyPtyProgramActivity(ptyId: string, activity: AgentStatus | null): void {
+  protected applyPtyProgramActivity(
+    ptyId: string,
+    activity: AgentStatus | null,
+    observedAt?: number
+  ): void {
     const entry = this.ptyTitleTrackersByPtyId.get(ptyId)
     if (!entry) {
       return
     }
     entry.programActivity = activity
-    this.observeClaudeTerminalEvidence(ptyId, { kind: 'activity', status: activity })
+    this.observeClaudeTerminalEvidence(ptyId, {
+      kind: 'activity',
+      status: activity,
+      ...(observedAt !== undefined ? { observedAt } : {})
+    })
     const pty = this.ptysById.get(ptyId)
     if (activity === null && pty?.lastExplicitAgentStatus?.programAtRest) {
       // The at-rest claim was the program's; a later agent in this pane must earn its own.
@@ -80,9 +88,15 @@ export abstract class OrcaRuntimeWithApplyTrackedPtyTitle extends OrcaRuntimeWit
     if (entry.lastTitle) {
       // A stale-spinner clear stands for the title it replaced, so a dead spinner is not revived.
       const raw = pty?.titleDisplayClear?.title ?? entry.lastTitle.raw
-      const changed = this.applyTrackedPtyTitle(ptyId, raw, entry.lastTitle.normalized, undefined, {
-        statusOnly: true
-      })
+      const changed = this.applyTrackedPtyTitle(
+        ptyId,
+        raw,
+        entry.lastTitle.normalized,
+        { observedAt },
+        {
+          statusOnly: true
+        }
+      )
       // The chunk's session-tab fan-out carries the new status to mobile.
       if (changed && entry.applyingChunk) {
         entry.chunkTouchedSessionTabs = true
@@ -104,7 +118,11 @@ export abstract class OrcaRuntimeWithApplyTrackedPtyTitle extends OrcaRuntimeWit
       return this.applyStaleWorkingTitleClear(ptyId, rawTitle, normalizedTitle)
     }
     if (!statusOnly) {
-      this.observeClaudeTerminalEvidence(ptyId, { kind: 'title', title: rawTitle })
+      this.observeClaudeTerminalEvidence(ptyId, {
+        kind: 'title',
+        title: rawTitle,
+        ...(meta?.observedAt !== undefined ? { observedAt: meta.observedAt } : {})
+      })
     }
     // Why: status is detected from the RAW title (mirrors the renderer tracker),
     // so working/idle transitions are unaffected by normalization; the records
@@ -130,7 +148,7 @@ export abstract class OrcaRuntimeWithApplyTrackedPtyTitle extends OrcaRuntimeWit
       const prevStatus = pty.lastAgentStatus
       const prevTitle = pty.lastOscTitle
       const observedAt = this.nextTitleObservationSequence()
-      const observedAtEpochMs = identityOnlyTitle ? null : Date.now()
+      const observedAtEpochMs = identityOnlyTitle ? null : (meta?.observedAt ?? Date.now())
       if (!statusOnly) {
         pty.titleDisplayClear = null
         pty.lastOscTitle = recordedTitle

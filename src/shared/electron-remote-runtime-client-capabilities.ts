@@ -1,3 +1,4 @@
+import { TERMINAL_SIDE_EFFECT_STATE_CAPABILITY } from './terminal-transient-observation'
 import { AGENT_SESSION_CURRENT_REQUESTS_CLIENT_CAPABILITY } from './agent-session-current-requests-capability'
 import { TERMINAL_IMAGE_VIEWER_CAPABILITY } from './terminal-image-viewer-capability'
 import {
@@ -25,6 +26,7 @@ import { AGENT_SESSION_OPTIONAL_MODEL_CLIENT_CAPABILITY } from './agent-session-
 // host still requires the separate authenticated browser-client lease.
 export const ELECTRON_REMOTE_RUNTIME_CLIENT_CAPABILITIES = [
   ...NATIVE_REMOTE_RUNTIME_CLIENT_CAPABILITIES,
+  TERMINAL_SIDE_EFFECT_STATE_CAPABILITY,
   TERMINAL_IMAGE_VIEWER_CAPABILITY,
   AGENT_SESSION_CREATE_MESSAGE_RUNTIME_CAPABILITY,
   AGENT_SESSION_CURRENT_REQUESTS_CLIENT_CAPABILITY,

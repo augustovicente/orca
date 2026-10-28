@@ -106,7 +106,8 @@ export abstract class OrcaRuntimeWithCreateTerminalSideEffectCommandCodeDetector
     chunk: Pick<ProcessedAgentStatusChunk, 'payloads'> & Partial<ProcessedAgentStatusChunk>,
     provenance?:
       | { origin: 'process'; yieldsToHookSince: number }
-      | { renewsProgramStatusLease: true }
+      | { renewsProgramStatusLease: true },
+    observedAt?: number
   ): void {
     const facet = chunk.programStatusFacet
     if (chunk.payloads.length === 0 && facet === undefined) {
@@ -155,6 +156,7 @@ export abstract class OrcaRuntimeWithCreateTerminalSideEffectCommandCodeDetector
             ...target,
             payload,
             ...provenance,
+            ...(observedAt === undefined ? {} : { observedAt }),
             ...(chunk.programStatusPayloads?.has(payload) ? { fromProgramStatus: true } : {}),
             ...(chunk.programStatusRowRemovals?.has(payload)
               ? { removesProgramStatusRow: true }

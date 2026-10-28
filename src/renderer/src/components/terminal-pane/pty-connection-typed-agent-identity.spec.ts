@@ -172,8 +172,22 @@ export function registerPtyConnectionTypedAgentIdentityTests(): void {
       transportFactoryQueue.push(transport1, transport2)
       const manager = createManager(2, 1)
 
-      connectPanePty(pane1 as never, manager as never, createDeps() as never)
-      connectPanePty(pane2 as never, manager as never, createDeps() as never)
+      connectPanePty(
+        pane1 as never,
+        manager as never,
+        createDeps({
+          restoredLeafId: pane1.leafId,
+          restoredPtyIdByLeafId: { [pane1.leafId]: 'pty-split-1' }
+        }) as never
+      )
+      connectPanePty(
+        pane2 as never,
+        manager as never,
+        createDeps({
+          restoredLeafId: pane2.leafId,
+          restoredPtyIdByLeafId: { [pane2.leafId]: 'pty-split-2' }
+        }) as never
+      )
       await flushAsyncTicks()
       const onTitleChange1 = createdTransportOptions[0]?.onTitleChange as
         | ((title: string, rawTitle: string) => void)

@@ -1,3 +1,4 @@
+import { sessionOutputPipelineOptions } from './session-output-pipeline-options'
 import { isValidPtySize } from './daemon-pty-size'
 import type { SessionOutputPlane, AttachedClient } from './session-output-plane'
 import { createSessionOutputPipeline } from './session-output-pipeline'
@@ -48,16 +49,14 @@ export class Session {
     this.subprocess = opts.subprocess
     this.processNameIsSpawnFile = opts.subprocess.processNameIsSpawnFile === true
     this.onSessionExit = opts.onExit
-    const pipeline = createSessionOutputPipeline({
-      incarnationId: this.incarnationId,
-      cols: opts.cols,
-      rows: opts.rows,
-      scrollback: opts.scrollback,
-      wslDistro: opts.wslDistro,
-      historySeedChunks: opts.historySeedChunks,
-      subprocess: this.subprocess,
-      isAlive: () => !this._disposed && this._state !== 'exited'
-    })
+    const pipeline = createSessionOutputPipeline(
+      sessionOutputPipelineOptions(
+        opts,
+        this.incarnationId,
+        this.subprocess,
+        () => !this._disposed && this._state !== 'exited'
+      )
+    )
     this.output = pipeline.output
     this.recoveryBarrier = pipeline.recoveryBarrier
     this.producerPause = new SessionProducerPause(this.subprocess)

@@ -1,213 +1,160 @@
 import { Socket } from 'node:net'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { DaemonTransientReader } from './daemon-transient-reader'
 import { attachStreamEventReader } from './daemon-client-ndjson-readers'
-import { streamFramesFor } from './daemon-stream-data-split'
-import type { DaemonEvent, TerminalObservationEvent } from './daemon-stream-events'
-import type { DaemonCreateOrAttachResult } from './daemon-create-or-attach-result'
+import { DaemonStreamDataBatcher } from './daemon-stream-data-batcher'
+import { TerminalSnapshotState } from '../../shared/terminal-snapshot-state'
+import { TerminalSnapshotConsumption } from '../../shared/terminal-snapshot-consumption'
+import { SessionTransientObservations } from './session-transient-observations'
+import type { DaemonEvent } from './daemon-stream-events'
 
-describe('ordered terminal observation reader', () => {
+const tick = () => new Promise<void>((resolve) => setImmediate(resolve))
+
+describe('complete terminal state delivery', () => {
   it.each(['ndjson', 'binary-v1'] as const)(
-    'binds %s before effects without waiting for the RPC result',
+    'recovers advancing effects once after a held %s gap without a FIFO',
     async (streamFraming) => {
-      const output: DaemonEvent[] = []
-      const admission = new DaemonTransientReader('stream', (event) => output.push(event))
-      const subscription = admission.begin()!
-      const observation = (revision: number): TerminalObservationEvent => ({
-        type: 'event',
-        event: 'terminalObservation',
-        ...subscription,
-        incarnationId: 'incarnation',
-        epoch: 0,
-        payload:
-          revision === 0
-            ? {
-                kind: 'install',
-                revision,
-                rawEndSeq: 0,
-                current: {
-                  command: 'unseen',
-                  commandRevision: 0,
-                  mode2031: 'unknown',
-                  modeRevision: 0
-                }
-              }
-            : { kind: 'observation', revision, rawEndSeq: 12, fact: { kind: 'command-started' } }
-      })
-      const frames = streamFramesFor(streamFraming)
       const socket = new Socket()
+      const destination = new Socket()
+      let deep = 0
+      Object.defineProperty(socket, 'writableLength', { get: () => deep })
+      const events: DaemonEvent[] = []
+      const admission = new DaemonTransientReader((event) => events.push(event))
       const reader = attachStreamEventReader(
-        socket,
+        destination,
         { streamFraming, remainder: Buffer.alloc(0) },
         (event) => admission.accept(event)
       )
-      const send = (event: DaemonEvent): void => {
-        socket.push(Buffer.from(frames.control(event)))
-      }
-      const tick = () => new Promise<void>((resolve) => setImmediate(resolve))
-      const result: DaemonCreateOrAttachResult = {
-        isNew: false,
-        snapshot: null,
-        pid: 1,
-        shellState: 'ready',
-        incarnationId: 'incarnation',
-        transients: { ...subscription, sessionId: 'actual-owner' }
-      }
+      vi.spyOn(socket, 'write').mockImplementation((...args: unknown[]) => {
+        const line = args[0]
+        destination.push(Buffer.isBuffer(line) ? line : Buffer.from(String(line)))
+        return deep === 0
+      })
+      const batcher = new DaemonStreamDataBatcher(() => ({ streamSocket: socket, streamFraming }), {
+        isSessionDroppable: () => true
+      })
+      const state = new TerminalSnapshotState()
+      const sink = batcher.bindTransients('client', 'canonical')!
+      const consumption = new TerminalSnapshotConsumption()
       try {
-        send(observation(0))
+        sink.install(state.snapshot(), 'incarnation', () => state.snapshot())
+        batcher.flush('client')
         await tick()
-        expect(output).toEqual([])
-        send({
-          type: 'event',
-          event: 'data',
-          sessionId: 'actual-owner',
-          payload: {
-            data: '',
-            rawLength: 0,
-            subscriptionId: subscription.subscriptionId
-          }
-        })
-        send({
-          type: 'event',
-          event: 'data',
-          sessionId: 'actual-owner',
-          payload: { data: 'paint' }
-        })
-        send(observation(1))
-        await tick()
-        expect(output.map((event) => event.event)).toEqual([
-          'terminalObservation',
-          'data',
-          'terminalObservation'
-        ])
-        expect(output.every((event) => event.sessionId === 'actual-owner')).toBe(true)
-        admission.finish(subscription.subscriptionId, result)
-        expect(output).toHaveLength(3)
-        send({ ...observation(2), streamId: 'previous-stream' })
-        send({ ...observation(2), incarnationId: 'previous-incarnation' })
-        send({ ...observation(2), epoch: -1 })
-        send(observation(3)) // Missing revision 2 makes current evidence unconfirmed.
-        send(observation(4))
-        await tick()
-        expect(output).toHaveLength(3)
-        const reinstall = observation(0)
-        if (reinstall.payload.kind !== 'install') {
-          throw new Error('Expected install')
+        const first = events.find((event) => event.event === 'terminalObservation')
+        expect(first?.sessionId).toBe('canonical')
+        if (first?.event !== 'terminalObservation') {
+          throw new Error('Missing initial state')
         }
-        send({
-          ...reinstall,
-          epoch: 1,
-          payload: { ...reinstall.payload, revision: 4, rawEndSeq: 12 }
-        })
+        expect(consumption.consume(first.payload)?.effects).toEqual([])
+        events.length = 0
+        deep = 256 * 1024
+        for (let ordinal = 1; ordinal <= 3; ordinal++) {
+          state.record({ kind: 'command-started' })
+          state.record({ kind: 'bell' })
+          state.record({ kind: 'command-finished', exitCode: ordinal })
+          state.state.rawEndSeq += 600_000
+          batcher.enqueue('client', 'canonical', 'x'.repeat(600_000))
+          sink.stage(state.snapshot())
+          sink.commit()
+          batcher.flush('client')
+        }
         await tick()
-        expect(output).toHaveLength(4)
-        admission.finish(subscription.subscriptionId, {
-          ...result,
-          transients: { ...subscription, sessionId: 'conflicting-owner' }
+        expect(events.filter((event) => event.event === 'terminalObservation')).toEqual([])
+        deep = 0
+        batcher.flush('client')
+        await vi.waitFor(() =>
+          expect(events.filter((event) => event.event === 'terminalObservation')).toHaveLength(1)
+        )
+        expect(events.some((event) => event.event === 'dataGap')).toBe(true)
+        const states = events.filter((event) => event.event === 'terminalObservation')
+        expect(states).toHaveLength(1)
+        const last = states[0]
+        if (last.event !== 'terminalObservation') {
+          throw new Error('Missing final state')
+        }
+        expect(events.at(-1)).toEqual(last)
+        const consumed = consumption.consume(last.payload)
+        expect(consumed?.effects.map((effect) => effect.fact.kind)).toEqual([
+          'command-started',
+          'bell',
+          'command-finished'
+        ])
+        expect(last.payload.effects['command-started']?.count).toBe(3)
+        expect(last.payload.effects['command-finished']?.fact).toEqual({
+          kind: 'command-finished',
+          exitCode: 3
         })
-        send({ ...observation(5), epoch: 1 })
-        await tick()
-        expect(output).toHaveLength(4)
+        expect(last.payload.current.commandOrdinal).toBe(3)
+        expect(consumption.consume(last.payload)?.effects).toEqual([])
+        expect(consumption.consume(first.payload)).toBeNull()
       } finally {
+        batcher.clear()
         reader.detach()
         socket.destroy()
+        destination.destroy()
       }
     }
   )
-  it('reuses physical slots at capacity through failed aliases, reordered results and lifetime end', () => {
-    const current = new Map<string, string>()
+
+  it('holds state without DATA and captured old cleanup cannot erase its replacement', () => {
+    const socket = new Socket()
+    let deep = 256 * 1024
+    Object.defineProperty(socket, 'writableLength', { get: () => deep })
     const events: DaemonEvent[] = []
-    const reader = new DaemonTransientReader(
-      'stream',
-      (event) => events.push(event),
-      (id) => current.get(id)
-    )
-    const install = (
-      subscription: ReturnType<typeof reader.begin>,
-      incarnationId: string,
-      revision = 0
-    ): TerminalObservationEvent => ({
-      type: 'event',
-      event: 'terminalObservation',
-      ...subscription,
-      incarnationId,
-      epoch: 0,
-      payload: {
-        kind: 'install',
-        revision,
-        rawEndSeq: revision,
-        current: {
-          command: 'running',
-          commandRevision: revision,
-          mode2031: 'unknown',
-          modeRevision: 0
-        }
-      }
+    vi.spyOn(socket, 'write').mockImplementation((...args: unknown[]) => {
+      events.push(JSON.parse(String(args[0])))
+      return deep === 0
     })
-    const result = (subscription: ReturnType<typeof reader.begin>, incarnationId = 'inc-0') => ({
-      incarnationId,
-      transients: { ...subscription, sessionId: current.get(incarnationId) }
-    })
-    const predecessor = reader.begin()
-    for (let i = 0; i < 4096; i++) {
-      const subscription = i === 0 ? predecessor : reader.begin()
-      current.set(`inc-${i}`, `session-${i}`)
-      reader.accept(install(subscription, `inc-${i}`))
+    const batcher = new DaemonStreamDataBatcher(() => ({ streamSocket: socket }))
+    const state = new TerminalSnapshotState()
+    const old = batcher.bindTransients('client', 'canonical')!
+    const successor = batcher.bindTransients('client', 'canonical')!
+    try {
+      old.install(state.snapshot(), 'incarnation', () => state.snapshot())
+      state.record({ kind: 'bell' })
+      successor.install(state.snapshot(), 'incarnation', () => state.snapshot())
+      old.dispose?.()
+      batcher.flush('client')
+      expect(events.filter((event) => event.event === 'terminalObservation')).toEqual([])
+      deep = 0
+      batcher.flush('client')
+      expect(events.filter((event) => event.event === 'terminalObservation')).toMatchObject([
+        { payload: { effects: { bell: { count: 1 } } } }
+      ])
+    } finally {
+      batcher.clear()
+      socket.destroy()
     }
-    expect(reader.retained().bindings).toBe(4096)
-    const before = reader.retained()
-    const failed = reader.begin()
-    reader.finish(failed.subscriptionId, undefined)
-    expect(reader.retained()).toEqual(before)
-    const fact = (subscription: typeof predecessor, revision: number): void =>
-      reader.accept({
-        ...install(subscription, 'inc-0', revision),
-        payload: {
-          kind: 'observation',
-          revision,
-          rawEndSeq: revision,
-          fact: { kind: 'command-started' }
-        }
+  })
+
+  it('retains independent finishes and current command plus split title, status and Command Code evidence', () => {
+    const source = new SessionTransientObservations(
+      () => {},
+      false,
+      undefined,
+      undefined,
+      'command-code'
+    )
+    try {
+      source.observe('\x1b]133;C\x07output\x1b]133;D;0\x07\x1b]133;C\x07', 30)
+      source.observe('\x1b]2;Working', 42)
+      source.observe(' title\x07\n❯ implement fix\nThinking…\n', 80)
+      const active = source.snapshot()
+      expect(active.current.command).toBe('running')
+      expect(active.current.commandOrdinal).toBe(2)
+      expect(active.effects['command-finished']?.commandOrdinal).toBe(1)
+      expect(active.current.title?.rawTitle).toBe('Working title')
+      expect(active.current.commandCode).toMatchObject({
+        armed: true,
+        prompt: 'implement fix',
+        phase: 'working'
       })
-    const a = reader.begin(),
-      b = reader.begin()
-    reader.finish(b.subscriptionId, result(b)) // A control result never cuts off queued predecessor facts.
-    events.length = 0
-    fact(predecessor, 1)
-    reader.accept(install(a, 'inc-0', 1))
-    fact(a, 2)
-    reader.accept(install(b, 'inc-0', 2))
-    reader.finish(a.subscriptionId, result(a)) // Late alias result cannot restore A's subscription.
-    fact(a, 3)
-    fact(b, 3)
-    expect(
-      events.map((event) =>
-        event.event === 'terminalObservation' ? event.payload.kind : event.event
-      )
-    ).toEqual(['observation', 'install', 'observation', 'install', 'observation'])
-    expect(reader.retained()).toEqual(before)
-    reader.accept({
-      type: 'event',
-      event: 'exit',
-      sessionId: 'session-0',
-      payload: { code: 0, incarnationId: 'inc-0' }
-    })
-    current.delete('inc-0')
-    reader.finish(b.subscriptionId, result(b))
-    expect(reader.retained().bindings).toBe(4095)
-    const successor = reader.begin()
-    current.set('successor', 'session-0') // Actual adapter publishes only after its raced-exit check.
-    reader.finish(successor.subscriptionId, result(successor, 'successor'))
-    expect(reader.retained().bindings).toBe(4095) // No result-before-install placeholder journal.
-    reader.accept(install(successor, 'successor'))
-    expect(events.at(-1)).toMatchObject({ sessionId: 'session-0', payload: { kind: 'install' } })
-    reader.detach('session-0')
-    reader.finish(successor.subscriptionId, result(successor, 'successor'))
-    expect(reader.retained().bindings).toBe(4095)
-    expect(reader.retained().bytes).toBeLessThanOrEqual(4 * 1024 * 1024)
-    reader.dispose()
-    reader.finish(successor.subscriptionId, result(successor, 'successor'))
-    reader.accept(install(successor, 'successor'))
-    expect(reader.retained()).toEqual({ bindings: 0, bytes: 4096 })
+      source.observe('\n❯ Ask your question...\n', 110)
+      expect(source.snapshot().effects['command-code-done']?.fact).toMatchObject({
+        prompt: 'implement fix'
+      })
+    } finally {
+      source.dispose()
+    }
   })
 })

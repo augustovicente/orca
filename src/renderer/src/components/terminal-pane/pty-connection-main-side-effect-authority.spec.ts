@@ -1,7 +1,9 @@
+import { TerminalSnapshotState } from '../../../../shared/terminal-snapshot-state'
 import { bindPtyConnectionTestMocks } from './pty-connection-mocks.spec'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { makePaneKey } from '../../../../shared/stable-pane-id'
-import { flushAsyncTicks } from './pty-connection-test-async'
+import { sendTerminalInputThroughPane } from './pty-connection-test-dom'
+import { createDeferred, flushAsyncTicks } from './pty-connection-test-async'
 import { AGENT_TASK_COMPLETE_NOTIFICATION_MAX_WAIT_MS } from './pty-connection-test-constants'
 import {
   LEAF_1,
@@ -114,6 +116,137 @@ export function registerPtyConnectionMainSideEffectAuthorityTests(): void {
         for (const callback of SIDE_EFFECT_PARSER_CALLBACKS) {
           expect(createdTransportOptions[0]?.[callback]).toBeTypeOf('function')
         }
+      })
+
+      it('keeps prebinding input acknowledgement and pending completion after detaching', async () => {
+        enableMainAuthority()
+        vi.useFakeTimers()
+        Object.assign(mockStoreState, { isPtyShutdownPending: () => false })
+        const { connectPanePty } = await import('./pty-connection')
+        const handler = await import('./terminal-side-effect-facts-handler')
+        const transport = createMockTransport()
+        const accepted = createDeferred<boolean>()
+        transport.sendInputAccepted = vi.fn(() => accepted.promise)
+        transportFactoryQueue.push(transport)
+        const pane = createPane(1)
+        const deps = createDeps()
+        const connection = connectPanePty(pane as never, createManager(1) as never, deps as never)
+        sendTerminalInputThroughPane(pane, '\x03')
+        expect(transport.sendInputAccepted).toHaveBeenCalledOnce()
+        expect(handler.getTerminalSemanticResident('pty-prebinding')).toBeUndefined()
+        const spawn = createdTransportOptions[0]?.onPtySpawn
+        if (typeof spawn !== 'function') {
+          throw new Error('Expected physical spawn callback')
+        }
+        spawn('pty-prebinding')
+        const source = new TerminalSnapshotState()
+        const deliver = () =>
+          handler._dispatchTerminalSideEffectBatchForTest({
+            ptyId: 'pty-prebinding',
+            seq: source.state.revision,
+            facts: [],
+            paneKey: makePaneKey('tab-1', LEAF_1),
+            tabId: 'tab-1',
+            worktreeId: 'wt-1',
+            terminalState: {
+              runtimeId: 'runtime-1',
+              incarnationId: 'incarnation-1',
+              snapshot: source.snapshot()
+            }
+          })
+        deliver()
+        const resident = handler.getTerminalSemanticResident('pty-prebinding')
+        source.record({ kind: 'agent-working' })
+        deliver()
+        source.record({ kind: 'agent-idle', title: 'Codex done', status: 'idle' })
+        deliver()
+        expect(resident?.policy.notification.hasPendingAgentTaskCompleteNotification()).toBe(true)
+        connection.dispose()
+        accepted.resolve(true)
+        await flushAsyncTicks()
+        expect(resident?.isLive).toBe(true)
+        expect(resident?.policy.input.pendingTerminalInputWrite).toBeNull()
+        expect(resident?.policy.notification.hasPendingAgentTaskCompleteNotification()).toBe(true)
+        await vi.advanceTimersByTimeAsync(AGENT_TASK_COMPLETE_NOTIFICATION_MAX_WAIT_MS)
+        expect(deps.dispatchNotification).toHaveBeenCalledOnce()
+        expect(deps.dispatchNotification).toHaveBeenCalledWith(
+          expect.objectContaining({
+            source: 'agent-task-complete',
+            ptyId: 'pty-prebinding',
+            terminalTitle: 'Codex done'
+          })
+        )
+        handler.observeTerminalSemanticResidentExit('pty-prebinding', 0, 'incarnation-1')
+      })
+
+      it('keeps one execution across detach and consumes a gap without retiring the next command', async () => {
+        enableMainAuthority()
+        vi.useFakeTimers()
+        const { connectPanePty } = await import('./pty-connection')
+        const handler = await import('./terminal-side-effect-facts-handler')
+        const transport = createMockTransport()
+        transportFactoryQueue.push(transport)
+        const deps = createDeps()
+        Object.assign(mockStoreState, {
+          markTerminalBell: deps.markTerminalBell,
+          setCacheTimerStartedAt: deps.setCacheTimerStartedAt,
+          setRuntimePaneTitle: deps.setRuntimePaneTitle,
+          updateTabTitle: deps.updateTabTitle,
+          isPtyShutdownPending: deps.isPtyShutdownPending
+        })
+        const connection = connectPanePty(
+          createPane(1) as never,
+          createManager(1) as never,
+          deps as never
+        )
+        const spawned = createdTransportOptions[0]?.onPtySpawn as (id: string) => void
+        spawned('pty-resident')
+        const source = new TerminalSnapshotState()
+        source.record(
+          { kind: 'title', rawTitle: 'Codex working', normalizedTitle: 'Codex working' },
+          100
+        )
+        source.record({ kind: 'bell' }, 101)
+        const deliver = () =>
+          handler._dispatchTerminalSideEffectBatchForTest({
+            ptyId: 'pty-resident',
+            seq: source.state.revision,
+            facts: [],
+            paneKey: makePaneKey('tab-1', LEAF_1),
+            tabId: 'tab-1',
+            worktreeId: 'wt-1',
+            terminalState: {
+              runtimeId: 'runtime-1',
+              incarnationId: 'incarnation-1',
+              snapshot: source.snapshot()
+            }
+          })
+        deliver()
+        const resident = handler.getTerminalSemanticResident('pty-resident')
+        expect(resident).toBeDefined()
+        expect(mockStoreState.markTerminalBell).not.toHaveBeenCalled()
+        source.record({ kind: 'command-started' }, 102)
+        deliver()
+        connection.dispose()
+        source.record({ kind: 'command-finished', exitCode: 0 }, 103)
+        source.record({ kind: 'command-started' }, 104)
+        source.record({ kind: 'bell' }, 105)
+        mockStoreState.dropAgentStatus.mockClear()
+        mockStoreState.clearAgentLaunchConfig.mockClear()
+        deliver()
+        deliver()
+        expect(handler.getTerminalSemanticResident('pty-resident')).toBe(resident)
+        expect(resident?.isLive).toBe(true)
+        expect(mockStoreState.markTerminalBell).toHaveBeenCalledTimes(1)
+        expect(mockStoreState.dropAgentStatus).not.toHaveBeenCalled()
+        expect(mockStoreState.clearAgentLaunchConfig).not.toHaveBeenCalled()
+        handler.observeTerminalSemanticResidentExit('pty-resident', -1, 'incarnation-1')
+        expect(resident?.isLive).toBe(true)
+        handler.observeTerminalSemanticResidentExit('pty-resident', 0, 'old-incarnation')
+        expect(resident?.isLive).toBe(true)
+        handler.observeTerminalSemanticResidentExit('pty-resident', 0, 'incarnation-1')
+        expect(resident?.isLive).toBe(false)
+        handler._resetTerminalSideEffectFactConsumersForTest()
       })
 
       it('consumes pty:sideEffect facts with the live-path policy after spawn', async () => {
@@ -314,7 +447,7 @@ export function registerPtyConnectionMainSideEffectAuthorityTests(): void {
 
         const link = {
           url: 'https://github.com/acme/orca/pull/42',
-          slug: { owner: 'acme', repo: 'orca' },
+          slug: { owner: 'acme', repo: 'orca', host: 'github.com' },
           number: 42
         }
         handler._dispatchTerminalSideEffectBatchForTest({
@@ -326,7 +459,7 @@ export function registerPtyConnectionMainSideEffectAuthorityTests(): void {
         expect(mockStoreState.observeTerminalGitHubPullRequestLink).toHaveBeenCalledWith(
           'wt-1',
           link,
-          expect.objectContaining({ tabId: 'tab-1', ptyId: 'tab-pty' })
+          expect.objectContaining({ tabId: 'tab-1', ptyId: 'pty-fact-pr' })
         )
       })
 

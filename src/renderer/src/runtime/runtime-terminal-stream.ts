@@ -1,13 +1,14 @@
 import { RuntimeRpcCallError } from './runtime-rpc-result'
 import { getRemoteRuntimeTerminalMultiplexer } from './remote-runtime-terminal-multiplexer'
 import { parseRemoteRuntimePtyId } from '../../../shared/remote-runtime-pty-id'
+import type { TerminalStreamEndVerdict } from '../../../shared/terminal-stream-end-verdict'
 
 const LIVE_TAIL_SUBSCRIPTION_TIMEOUT_MS = 10_000
 
 export type RuntimeTerminalDataSubscriptionOptions = {
   startAtLiveTail?: boolean
   onSnapshot?: (data: string, meta?: { pendingEscapeTailAnsi?: string }) => void
-  onEnd?: () => void
+  onEnd?: (verdict: TerminalStreamEndVerdict) => void
   onError?: (message: string) => void
   onTransportClose?: (event: { recoverable: boolean; retryWithBackoff?: boolean }) => void
 }
@@ -46,7 +47,10 @@ export function runtimeTerminalErrorMessage(error: unknown): string {
 export async function subscribeToRuntimeTerminalData(
   ptyId: string,
   clientId: string,
-  watcher: (data: string) => void,
+  watcher: (
+    data: string,
+    meta?: { seq?: number; rawLength?: number; transformed?: boolean }
+  ) => void,
   options?: RuntimeTerminalDataSubscriptionOptions
 ): Promise<() => void> {
   const owner = getRemoteRuntimePtyOwner(ptyId)
@@ -73,7 +77,7 @@ export async function subscribeToRuntimeTerminalData(
     terminal,
     client: { id: clientId, type: 'desktop' },
     callbacks: {
-      onData: (data) => watcher(data),
+      onData: (data, meta) => watcher(data, meta),
       onSnapshot: (data, meta) => {
         options?.onSnapshot?.(data, meta)
         if (!options?.startAtLiveTail) {
@@ -87,9 +91,9 @@ export async function subscribeToRuntimeTerminalData(
         resolveLiveTail = null
         rejectLiveTail = null
       },
-      onEnd: () => {
+      onEnd: (verdict) => {
         rejectPendingLiveTail('Remote terminal ended before live output was ready.')
-        options?.onEnd?.()
+        options?.onEnd?.(verdict)
       },
       onError: (message) => {
         rejectPendingLiveTail(message)
