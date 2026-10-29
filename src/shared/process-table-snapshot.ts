@@ -40,6 +40,12 @@ export const SHELL_FOREGROUND_PS_ARGS = [
 
 /** Match shell-tier columns exactly: the full parser’s optional tty/start pair eats argv like python 3 app.py and misreads zombies.
  * Drop invalid rows, but reject empty captures so missing data cannot prove the shell exited. */
+/** The name inside ps's `(comm)`, printed when argv was unreadable (another user's process, an exiting one, or a
+ * recovery the fork budget withheld): its identity is unknown, so it never proves which program holds a terminal. */
+export function unreadableArgvName(command: string): string | null {
+  return /^\((.*)\)$/.exec(command.trim())?.[1] ?? null
+}
+
 export function parseShellForegroundRows(stdout: string): ProcessTableRow[] {
   const rows: ProcessTableRow[] = []
   for (const rawLine of stdout.split(/\r?\n/)) {

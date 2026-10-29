@@ -3,7 +3,11 @@
 import { recognizeAgentProcessFromCommandLine } from '../../shared/agent-process-recognition'
 import { runProcess } from '@orca/process-host'
 import { runPsInProcess } from '../../shared/libproc-process-table'
-import { parseShellForegroundRows, type ProcessTableRow } from '../../shared/process-table-snapshot'
+import {
+  parseShellForegroundRows,
+  unreadableArgvName,
+  type ProcessTableRow
+} from '../../shared/process-table-snapshot'
 import { psLocaleEnvironment } from '../../shared/ps-locale-environment'
 import { isShellProcess } from '../../shared/shell-process-detection'
 import type { TuiAgent } from '../../shared/tui-agent'
@@ -90,8 +94,12 @@ export function judgeTerminalForeground(
     return 'unknown'
   }
   const front = rows.filter((row) => row.pgid === foregroundGroup)
-  // ps prints `(comm)` for argv it could not read (another user's, or exiting): that could be a root shell.
-  if (front.length === 0 || front.some((row) => /^\(.*\)$/.test(row.command.trim()))) {
+  // An unrecovered root shell (`su`) prints `(bash)`; typing into it could run the text. Our own exiting `(git)` is no risk.
+  const unreadableShell = (row: ProcessTableRow): boolean => {
+    const name = unreadableArgvName(row.command)
+    return name !== null && isShellProcess(name.replace(/^-/, ''))
+  }
+  if (front.length === 0 || front.some(unreadableShell)) {
     return 'unknown'
   }
   return front.some(

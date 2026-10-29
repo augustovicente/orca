@@ -49,15 +49,22 @@ function flightKey(spec: Spec): string {
 }
 
 type PsForkBudget = {
-  run: (spec: Spec, registeredSequence: number, deadline: number) => Promise<ProcessResult>
+  /** `background` (a display poll) queues behind interactive and fresh readers, so polls cannot run them past deadline. */
+  run: (
+    spec: Spec,
+    registeredSequence: number,
+    deadline: number,
+    background: boolean
+  ) => Promise<ProcessResult>
   reset: () => void
 }
 
 function createPsForkBudget(burst: number, refillMs: number): PsForkBudget {
   // Keeps each invocation's latest flight, finished or not, for requests that queued meanwhile.
   const flights = new Map<string, Flight>()
-  // Insertion order is service order: a busy invocation cannot take every token from the others.
-  const queue = new Map<string, Queued>()
+  // [interactive, background]; within a queue insertion order is service order, so no invocation takes every token.
+  const queues = [new Map<string, Queued>(), new Map<string, Queued>()] as const
+  const queued = (): number => queues[0].size + queues[1].size
   let tokens = burst
   let refilledAtMs = Number.NEGATIVE_INFINITY
   let grantTimer: ReturnType<typeof setTimeout> | undefined
@@ -102,22 +109,24 @@ function createPsForkBudget(burst: number, refillMs: number): PsForkBudget {
     grantTimer = undefined
     const now = monotonicNow()
     refill(now)
-    for (const [key, queued] of queue) {
-      if (tokens < 1) {
-        break
-      }
-      queue.delete(key)
-      const latest = Math.max(...queued.waiters.values())
-      if (queued.waiters.size === 0 || latest <= now) {
-        continue
-      }
-      tokens -= 1
-      submit(key, queued.spec, Math.floor(latest - now))
-      for (const wake of queued.waiters.keys()) {
-        wake()
+    for (const queue of queues) {
+      for (const [key, entry] of queue) {
+        if (tokens < 1) {
+          break
+        }
+        queue.delete(key)
+        const latest = Math.max(...entry.waiters.values())
+        if (entry.waiters.size === 0 || latest <= now) {
+          continue
+        }
+        tokens -= 1
+        submit(key, entry.spec, Math.floor(latest - now))
+        for (const wake of entry.waiters.keys()) {
+          wake()
+        }
       }
     }
-    if (queue.size > 0) {
+    if (queued() > 0) {
       grantTimer = setTimeout(grant, Math.ceil((1 - tokens) * refillMs))
     }
   }
@@ -125,9 +134,11 @@ function createPsForkBudget(burst: number, refillMs: number): PsForkBudget {
   const run = async (
     spec: Spec,
     registeredSequence: number,
-    deadline: number
+    deadline: number,
+    background: boolean
   ): Promise<ProcessResult> => {
     const key = flightKey(spec)
+    const ahead = (): number => (background ? queued() : queues[0].size)
     for (;;) {
       const flight = flights.get(key)
       if (flight && (!flight.submitted || flight.sequence >= registeredSequence)) {
@@ -145,17 +156,18 @@ function createPsForkBudget(burst: number, refillMs: number): PsForkBudget {
         return TIMED_OUT
       }
       refill(now)
-      if (queue.size === 0 && tokens >= 1) {
+      if (ahead() === 0 && tokens >= 1) {
         tokens -= 1
         submit(key, spec, Math.floor(deadline - now))
         continue
       }
       const served = await new Promise<boolean>((resolve) => {
-        const queued = queue.get(key) ?? { spec, waiters: new Map() }
-        queue.set(key, queued)
+        const queue = queues[background ? 1 : 0]
+        const entry = queue.get(key) ?? { spec, waiters: new Map() }
+        queue.set(key, entry)
         const timer = setTimeout(
           () => {
-            queued.waiters.delete(wake)
+            entry.waiters.delete(wake)
             resolve(false)
           },
           Math.max(0, deadline - now)
@@ -164,7 +176,7 @@ function createPsForkBudget(burst: number, refillMs: number): PsForkBudget {
           clearTimeout(timer)
           resolve(true)
         }
-        queued.waiters.set(wake, deadline)
+        entry.waiters.set(wake, deadline)
         grantTimer ??= setTimeout(grant, Math.ceil((1 - tokens) * refillMs))
       })
       if (!served) {
@@ -179,7 +191,7 @@ function createPsForkBudget(burst: number, refillMs: number): PsForkBudget {
       clearTimeout(grantTimer)
       grantTimer = undefined
       flights.clear()
-      queue.clear()
+      queues.forEach((queue) => queue.clear())
       tokens = burst
       refilledAtMs = Number.NEGATIVE_INFINITY
     }
@@ -197,18 +209,25 @@ export function runPsFallback(
   args: readonly string[],
   options: { env: NodeJS.ProcessEnv; maxOutputBytes?: number },
   registeredSequence: number,
-  deadline: number
+  deadline: number,
+  background = false
 ): Promise<ProcessResult> {
-  return fallbackBudget.run({ args, ...options }, registeredSequence, deadline)
+  return fallbackBudget.run({ args, ...options }, registeredSequence, deadline, background)
 }
 
 /** `ps -o pid=,command= -p …` for argv the in-process reader could not read, under its own smaller budget. */
 export function runArgvRecoveryPs(
   args: readonly string[],
   options: { env: NodeJS.ProcessEnv; maxOutputBytes?: number },
-  deadline: number
+  deadline: number,
+  background: boolean
 ): Promise<ProcessResult> {
-  return argvRecoveryBudget.run({ args, ...options }, registerPsFallbackRequest(), deadline)
+  return argvRecoveryBudget.run(
+    { args, ...options },
+    registerPsFallbackRequest(),
+    deadline,
+    background
+  )
 }
 
 export function resetPsFallbackForTests(): void {

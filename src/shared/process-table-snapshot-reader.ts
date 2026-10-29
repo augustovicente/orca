@@ -21,7 +21,7 @@ export { PROCESS_TABLE_SNAPSHOT_MAX_STALENESS_MS, PS_ARGS, PS_MAX_BUFFER_BYTES, 
 type Snapshot<T> = { value: T; capturedAtMs: number; completedAtMs: number }
 
 type ProcessTableSnapshotReaderDeps<T> = {
-  /** `fresh`: the caller needs observations made after its request, recovered argv included. */
+  /** `fresh`: an authoritative read waiting on this capture; anything else is a display poll. */
   runPs: (fresh: boolean) => Promise<T>
   now: () => number
   ttlMs?: number
@@ -229,7 +229,7 @@ const processTableReader = createProcessTableSnapshotReader<ProcessTableCapture>
     const stdout =
       process.platform === 'darwin'
         ? await captureDarwinProcessTable(
-            (args, timeout, ps) => captureProcessTable(args, timeout, ps, fresh),
+            (args, timeout, ps) => captureProcessTable(args, timeout, ps, !fresh),
             assertWholeCapture,
             PS_TIMEOUT_MS
           )
@@ -247,7 +247,7 @@ const processTableReader = createProcessTableSnapshotReader<ProcessTableCapture>
 const shellForegroundReader = createProcessTableSnapshotReader<ProcessTableRow[]>({
   runPs: async (fresh) =>
     parseShellForegroundRows(
-      await captureProcessTable(SHELL_FOREGROUND_PS_ARGS, PS_TIMEOUT_MS, false, fresh)
+      await captureProcessTable(SHELL_FOREGROUND_PS_ARGS, PS_TIMEOUT_MS, false, !fresh)
     ),
   now: () => Date.now()
 })

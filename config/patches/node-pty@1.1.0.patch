@@ -1,5 +1,5 @@
 diff --git a/binding.gyp b/binding.gyp
-index 5f63978b07ab50aaf7523219a2170ec737a6b5db..bbd9e06136e8922f40b5779e35d4fc835f1479ab 100644
+index 5f63978b07ab50aaf7523219a2170ec737a6b5db..b4110a7c781d505ae581436cec68a10bf600734a 100644
 --- a/binding.gyp
 +++ b/binding.gyp
 @@ -1,13 +1,18 @@
@@ -8,7 +8,7 @@ index 5f63978b07ab50aaf7523219a2170ec737a6b5db..bbd9e06136e8922f40b5779e35d4fc83
      'dependencies': [
 -      "<!(node -p \"require('node-addon-api').targets\"):node_addon_api_except",
 +      "<!(node -p \"require.resolve('node-addon-api/node_addon_api.gyp')\"):node_addon_api_except",
-     ],
++    ],
 +    # Orca: GCC 9 (Ubuntu 20.04 floor) accepts C++20 as gnu++2a, but rejects
 +    # the newer gnu++20 spelling emitted by Node 24's gyp flags.
 +    'cflags_cc!': [
@@ -16,7 +16,7 @@ index 5f63978b07ab50aaf7523219a2170ec737a6b5db..bbd9e06136e8922f40b5779e35d4fc83
 +    ],
 +    'cflags_cc': [
 +      '-std=gnu++2a'
-+    ],
+     ],
      'conditions': [
        ['OS=="win"', {
 -        'msvs_configuration_attributes': {
@@ -25,7 +25,7 @@ index 5f63978b07ab50aaf7523219a2170ec737a6b5db..bbd9e06136e8922f40b5779e35d4fc83
          'msvs_settings': {
              'VCCLCompilerTool': {
                'AdditionalOptions': [
-@@ -42,32 +39,6 @@
+@@ -42,32 +47,6 @@
              '-lshlwapi'
            ],
          },
@@ -58,10 +58,15 @@ index 5f63978b07ab50aaf7523219a2170ec737a6b5db..bbd9e06136e8922f40b5779e35d4fc83
        ]
      }, { # OS!="win"
        'targets': [
-@@ -88,6 +85,16 @@
+@@ -88,6 +67,21 @@
                'libraries!': [
                  '-lutil'
                ]
++            }],
++            # Orca: libproc reads complete on the pool; one landing while a
++            # worker_thread's env tears down must not abort the process.
++            ['OS=="mac"', {
++              'defines': ['NODE_API_SWALLOW_UNTHROWABLE_EXCEPTIONS']
 +            }],
 +            # Orca: pair with the .symver pins in pty.cc. Force the real
 +            # libutil.so.1/libpthread.so.0 into DT_NEEDED (gcc's default
@@ -297,7 +302,7 @@ index 181ccabbbe9c4948a9725fb1db907a68e9de01fc..67f31facf85562b67adbfbd04ce28ddd
  process.send!({ consoleProcessList });
  process.exit(0);
 diff --git a/src/unix/pty.cc b/src/unix/pty.cc
-index 7b4b9e1f990fbf95b51528bb56dc9717f5b87532..7c8625dd7eea49deed4339156ad3a8b8413ee5bc 100644
+index 7b4b9e1f990fbf95b51528bb56dc9717f5b87532..381d59e11bf158d269335c8231b407fc9c93ca19 100644
 --- a/src/unix/pty.cc
 +++ b/src/unix/pty.cc
 @@ -23,8 +23,11 @@
@@ -352,19 +357,17 @@ index 7b4b9e1f990fbf95b51528bb56dc9717f5b87532..7c8625dd7eea49deed4339156ad3a8b8
  /* Some platforms name VWERASE and VDISCARD differently */
  #if !defined(VWERASE) && defined(VWERSE)
  #define VWERASE	VWERSE
-@@ -67,6 +103,11 @@
+@@ -67,6 +103,9 @@
  #include <sys/event.h>
  #include <sys/sysctl.h>
  #include <termios.h>
 +#include <vis.h>
 +#include <xlocale.h>
 +#include <algorithm>
-+#include <atomic>
-+#include <memory>
  #endif
  
  /* NSIG - macro for highest signal + 1, should be defined */
-@@ -228,6 +269,9 @@ Napi::Value PtyGetProc(const Napi::CallbackInfo& info);
+@@ -228,6 +267,9 @@ Napi::Value PtyGetProc(const Napi::CallbackInfo& info);
  static int
  pty_nonblock(int);
  
@@ -374,7 +377,7 @@ index 7b4b9e1f990fbf95b51528bb56dc9717f5b87532..7c8625dd7eea49deed4339156ad3a8b8
  #if defined(__APPLE__)
  static char *
  pty_getproc(int);
-@@ -237,13 +281,23 @@ pty_getproc(int, char *);
+@@ -237,13 +279,23 @@ pty_getproc(int, char *);
  #endif
  
  #if defined(__APPLE__) || defined(__OpenBSD__)
@@ -399,7 +402,7 @@ index 7b4b9e1f990fbf95b51528bb56dc9717f5b87532..7c8625dd7eea49deed4339156ad3a8b8
  #endif
  
  struct DelBuf {
-@@ -345,8 +399,8 @@ Napi::Value PtyFork(const Napi::CallbackInfo& info) {
+@@ -345,8 +397,8 @@ Napi::Value PtyFork(const Napi::CallbackInfo& info) {
    term->c_cc[VSTATUS] = 20;
    #endif
  
@@ -410,7 +413,7 @@ index 7b4b9e1f990fbf95b51528bb56dc9717f5b87532..7c8625dd7eea49deed4339156ad3a8b8
  
    // helperPath
    std::string helper_path = info[9].As<Napi::String>();
-@@ -367,14 +421,18 @@ Napi::Value PtyFork(const Napi::CallbackInfo& info) {
+@@ -367,14 +419,18 @@ Napi::Value PtyFork(const Napi::CallbackInfo& info) {
      argv[i + 3] = strdup(arg.c_str());
    }
  
@@ -433,7 +436,7 @@ index 7b4b9e1f990fbf95b51528bb56dc9717f5b87532..7c8625dd7eea49deed4339156ad3a8b8
  #else
    int argc = argv_.Length();
    int argl = argc + 2;
-@@ -445,6 +503,9 @@ Napi::Value PtyFork(const Napi::CallbackInfo& info) {
+@@ -445,6 +501,9 @@ Napi::Value PtyFork(const Napi::CallbackInfo& info) {
        if (pty_nonblock(master) == -1) {
          throw Napi::Error::New(napiEnv, "Could not set master fd to nonblocking.");
        }
@@ -443,7 +446,7 @@ index 7b4b9e1f990fbf95b51528bb56dc9717f5b87532..7c8625dd7eea49deed4339156ad3a8b8
    }
  #endif
  
-@@ -586,6 +647,23 @@ pty_nonblock(int fd) {
+@@ -586,6 +645,23 @@ pty_nonblock(int fd) {
    return fcntl(fd, F_SETFL, flags | O_NONBLOCK);
  }
  
@@ -467,7 +470,7 @@ index 7b4b9e1f990fbf95b51528bb56dc9717f5b87532..7c8625dd7eea49deed4339156ad3a8b8
  /**
   * pty_getproc
   * Taken from tmux.
-@@ -684,15 +762,73 @@ pty_getproc(int fd, char *tty) {
+@@ -684,15 +760,73 @@ pty_getproc(int fd, char *tty) {
  #endif
  
  #if defined(__APPLE__)
@@ -543,7 +546,7 @@ index 7b4b9e1f990fbf95b51528bb56dc9717f5b87532..7c8625dd7eea49deed4339156ad3a8b8
  
    for (; count < 3; count++) {
      low_fds[count] = posix_openpt(O_RDWR);
-@@ -706,81 +842,524 @@ pty_posix_spawn(char** argv, char** env,
+@@ -706,84 +840,499 @@ pty_posix_spawn(char** argv, char** env,
                POSIX_SPAWN_SETSID;
    *master = posix_openpt(O_RDWR);
    if (*master == -1) {
@@ -676,15 +679,17 @@ index 7b4b9e1f990fbf95b51528bb56dc9717f5b87532..7c8625dd7eea49deed4339156ad3a8b8
 +    close(*master);
 +    *master = -1;
 +  }
-+
+ 
+-  for (; count > 0; count--) {
+-    close(low_fds[count]);
 +  for (size_t i = 0; i <= count && i < 3; i++) {
 +    if (low_fds[i] != -1) {
 +      close(low_fds[i]);
 +    }
-+  }
-+}
-+#endif
-+
+   }
+ }
+ #endif
+ 
 +#if defined(__APPLE__)
 +/**
 + * Orca: in-process libproc/sysctl process table
@@ -884,9 +889,7 @@ index 7b4b9e1f990fbf95b51528bb56dc9717f5b87532..7c8625dd7eea49deed4339156ad3a8b8
 +  }
 +  return 0;
 +}
- 
--  for (; count > 0; count--) {
--    close(low_fds[count]);
++
 +static Napi::Array
 +orca_process_rows_to_js(Napi::Env env, bool include_command, const std::vector<orca_process_row>& rows) {
 +  Napi::Array result = Napi::Array::New(env, rows.size());
@@ -922,7 +925,7 @@ index 7b4b9e1f990fbf95b51528bb56dc9717f5b87532..7c8625dd7eea49deed4339156ad3a8b8
 +  Napi::Env env(info.Env());
 +  if (info.Length() < 1 || !info[0].IsObject()) {
 +    throw Napi::TypeError::New(env, "Usage: readProcessTable({ command, pids, tty, ctype })");
-   }
++  }
 +  Napi::Object options = info[0].As<Napi::Object>();
 +  orca_process_query query = { false, false, {}, false, "", "C" };
 +  query.include_command = options.Get("command").ToBoolean().Value();
@@ -957,47 +960,15 @@ index 7b4b9e1f990fbf95b51528bb56dc9717f5b87532..7c8625dd7eea49deed4339156ad3a8b8
 +  return query;
 +}
 +
-+// worker_threads tear their env down with reads still on the pool; completing one then must not touch JS, or the
-+// Napi::Error thrown from OnWorkComplete aborts the process. An env cleanup hook raises this flag first.
-+typedef std::shared_ptr<std::atomic<bool>> orca_env_closing;
-+
-+static orca_env_closing
-+orca_env_closing_of(Napi::Env env) {
-+  orca_env_closing* closing = env.GetInstanceData<orca_env_closing>();
-+  return closing ? *closing : orca_env_closing();
-+}
-+
-+class OrcaPromiseWorker : public Napi::AsyncWorker {
-+ public:
-+  explicit OrcaPromiseWorker(Napi::Env env)
-+      : Napi::AsyncWorker(env), deferred_(Napi::Promise::Deferred::New(env)), closing_(orca_env_closing_of(env)) {}
-+
-+  Napi::Promise Promise() { return deferred_.Promise(); }
-+
-+ protected:
-+  void OnWorkComplete(Napi::Env env, napi_status status) override {
-+    if (!closing_ || !closing_->load()) {
-+      try {
-+        // Destroys this worker on success.
-+        Napi::AsyncWorker::OnWorkComplete(env, status);
-+        return;
-+      } catch (const Napi::Error&) {
-+        // The env stopped accepting JS between the check and the call.
-+      }
-+    }
-+    Destroy();
-+  }
-+
-+  Napi::Promise::Deferred deferred_;
-+
-+ private:
-+  orca_env_closing closing_;
-+};
-+
-+class OrcaProcessTableWorker : public OrcaPromiseWorker {
++class OrcaProcessTableWorker : public Napi::AsyncWorker {
 + public:
 +  OrcaProcessTableWorker(Napi::Env env, orca_process_query query)
-+      : OrcaPromiseWorker(env), query_(std::move(query)), status_(-1) {}
++      : Napi::AsyncWorker(env),
++        deferred_(Napi::Promise::Deferred::New(env)),
++        query_(std::move(query)),
++        status_(-1) {}
++
++  Napi::Promise Promise() { return deferred_.Promise(); }
 +
 +  void Execute() override {
 +    status_ = orca_gather_process_table(query_, &rows_);
@@ -1018,6 +989,7 @@ index 7b4b9e1f990fbf95b51528bb56dc9717f5b87532..7c8625dd7eea49deed4339156ad3a8b8
 +  }
 +
 + private:
++  Napi::Promise::Deferred deferred_;
 +  orca_process_query query_;
 +  int status_;
 +  std::vector<orca_process_row> rows_;
@@ -1032,10 +1004,12 @@ index 7b4b9e1f990fbf95b51528bb56dc9717f5b87532..7c8625dd7eea49deed4339156ad3a8b8
 +
 +// PROC_PIDVNODEPATHINFO stats the cwd vnode and proc_pidpath may ask the filesystem for a path, so either can block
 +// on a dead network mount: both run on a worker thread and JS bounds how many may be outstanding.
-+class OrcaProcessPathWorker : public OrcaPromiseWorker {
++class OrcaProcessPathWorker : public Napi::AsyncWorker {
 + public:
 +  OrcaProcessPathWorker(Napi::Env env, pid_t pid, bool cwd)
-+      : OrcaPromiseWorker(env), pid_(pid), cwd_(cwd), found_(false) {}
++      : Napi::AsyncWorker(env), deferred_(Napi::Promise::Deferred::New(env)), pid_(pid), cwd_(cwd), found_(false) {}
++
++  Napi::Promise Promise() { return deferred_.Promise(); }
 +
 +  void Execute() override {
 +    if (cwd_) {
@@ -1065,6 +1039,7 @@ index 7b4b9e1f990fbf95b51528bb56dc9717f5b87532..7c8625dd7eea49deed4339156ad3a8b8
 +  }
 +
 + private:
++  Napi::Promise::Deferred deferred_;
 +  pid_t pid_;
 +  bool cwd_;
 +  bool found_;
@@ -1089,17 +1064,17 @@ index 7b4b9e1f990fbf95b51528bb56dc9717f5b87532..7c8625dd7eea49deed4339156ad3a8b8
 +
 +Napi::Value OrcaReadProcessPath(const Napi::CallbackInfo& info) {
 +  return orca_queue_path_worker(info, false);
- }
- #endif
- 
-@@ -793,6 +1372,14 @@ Napi::Object init(Napi::Env env, Napi::Object exports) {
++}
++#endif
++
+ /**
+  * Init
+  */
+@@ -793,6 +1342,11 @@ Napi::Object init(Napi::Env env, Napi::Object exports) {
    exports.Set("open",    Napi::Function::New(env, PtyOpen));
    exports.Set("resize",  Napi::Function::New(env, PtyResize));
    exports.Set("process", Napi::Function::New(env, PtyGetProc));
 +#if defined(__APPLE__)
-+  orca_env_closing closing = std::make_shared<std::atomic<bool>>(false);
-+  env.SetInstanceData(new orca_env_closing(closing));
-+  env.AddCleanupHook([closing]() { closing->store(true); });
 +  exports.Set("readProcessTable", Napi::Function::New(env, OrcaProcessTableAsync));
 +  exports.Set("readProcessCwd", Napi::Function::New(env, OrcaReadProcessCwd));
 +  exports.Set("readProcessPath", Napi::Function::New(env, OrcaReadProcessPath));

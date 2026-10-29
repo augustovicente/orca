@@ -21,26 +21,21 @@ export function assertWholeCapture(stdout: string): string {
   return stdout
 }
 
-/** One ps-shaped capture: in process where possible; `freshCommands` refuses argv recovered before this call. */
+/** One ps-shaped capture: in process where possible; `background` (a display poll) yields the fork budget. */
 export async function captureProcessTable(
   args: readonly string[],
   timeout = PS_TIMEOUT_MS,
   ps = false,
-  freshCommands = false
+  background = false
 ) {
   const env = psLocaleEnvironment()
-  let stdout = ps
-    ? null
-    : await readPsStdoutInProcess(args, { env, timeoutMs: timeout, freshCommands })
+  const options = { timeoutMs: timeout, maxOutputBytes: PS_MAX_BUFFER_BYTES, background }
+  let stdout = ps ? null : await readPsStdoutInProcess(args, { env, ...options })
   try {
     // A forced subprocess capture (held naming pass) shares the fork budget; elsewhere ps is the only reader.
     stdout ??=
       ps && process.platform === 'darwin'
-        ? await readPsStdoutBudgeted(args, {
-            env: env ?? process.env,
-            timeoutMs: timeout,
-            maxOutputBytes: PS_MAX_BUFFER_BYTES
-          })
+        ? await readPsStdoutBudgeted(args, { env: env ?? process.env, ...options })
         : (
             await execFile('ps', [...args], {
               encoding: 'utf-8',

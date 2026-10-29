@@ -24,20 +24,23 @@ function installAddon(readProcessTable: LibprocAddon['readProcessTable']): void 
 }
 
 /** The call-site shape every poller uses: the in-process reader, else its own ps. True when ps answered. */
-async function poll(pid: number): Promise<boolean> {
+async function poll(pid: number, background = false, timeoutMs = 2000): Promise<boolean> {
   const args = ['-o', 'pid=,ppid=,pgid=,lstart=', '-p', String(pid)]
-  const options = { env: ENV, timeoutMs: 2000, maxOutputBytes: 4096 }
+  const options = { env: ENV, timeoutMs, maxOutputBytes: 4096, background }
   const result =
     (await runPsInProcess(args, options)) ?? (await runProcess({ program: 'ps', args, ...options }))
   return !result.timedOut
 }
 
-async function overOneMinute(): Promise<{ forks: number; servedPerStream: number[] }> {
-  const servedPerStream = Array<number>(STREAMS).fill(0)
-  const timers = Array.from({ length: STREAMS }, (_, stream) =>
+async function overOneMinute(
+  streams = STREAMS,
+  background = false
+): Promise<{ forks: number; servedPerStream: number[] }> {
+  const servedPerStream = Array<number>(streams).fill(0)
+  const timers = Array.from({ length: streams }, (_, stream) =>
     setInterval(
       () =>
-        void poll(7000 + stream).then((served) => {
+        void poll(7000 + stream, background).then((served) => {
           servedPerStream[stream] += Number(served)
         }),
       POLL_MS
@@ -158,5 +161,25 @@ describe('ps fallback budget', () => {
     } finally {
       Object.defineProperty(process, 'platform', platform)
     }
+  })
+
+  it('serves interactive reads ahead of a storm of display polls, still fair among the polls', async () => {
+    installAddon(async () => {
+      throw new Error('sysctl failed')
+    })
+    // A launch paste's terminal read (3s) every 5s, beside 20 steady-state display streams.
+    let interactive = 0
+    let interactiveServed = 0
+    const paste = setInterval(() => {
+      interactive += 1
+      void poll(9000 + interactive, false, 3000).then((served) => {
+        interactiveServed += Number(served)
+      })
+    }, 5_000)
+    const { servedPerStream } = await overOneMinute(20, true)
+    clearInterval(paste)
+
+    expect(interactiveServed).toBe(interactive)
+    expect(Math.min(...servedPerStream)).toBeGreaterThanOrEqual(2)
   })
 })

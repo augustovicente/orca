@@ -36,8 +36,8 @@ export type InProcessPsOptions = {
   /** The caller's ps timeout: past it the read resolves timed out, as the killed ps would. */
   timeoutMs: number
   maxOutputBytes?: number
-  /** The read feeds fresh observations: recovered argv must come from a ps run after this request, not the cache. */
-  freshCommands?: boolean
+  /** A display poll: any ps it needs waits behind interactive and fresh readers in the fork budget. */
+  background?: boolean
   /** The caller runs its own ps when the in-process reader is down, rather than share the fallback budget, which may
    * time it out (signalling paths that must not lose their read). */
   callerRunsPs?: boolean
@@ -114,8 +114,7 @@ export async function runPsInProcess(
   }
   const registeredSequence = registerNativeRequest()
   const fallbackSequence = registerPsFallbackRequest()
-  const requestedAtMs = monotonicNow()
-  const deadline = requestedAtMs + options.timeoutMs
+  const deadline = monotonicNow() + options.timeoutMs
   const env = options.env ?? process.env
   // ps gets the caller's whole timeout from the moment the reader gives up, as the caller's own ps did.
   const fallback = async (): Promise<LibprocPsResult | null> =>
@@ -125,7 +124,8 @@ export async function runPsInProcess(
           args,
           { env, maxOutputBytes: options.maxOutputBytes },
           fallbackSequence,
-          monotonicNow() + options.timeoutMs
+          monotonicNow() + options.timeoutMs,
+          options.background
         )
   const utc = lstartZoneIsUtc(env)
   const needsLstart = query.columns.includes('lstart')
@@ -177,11 +177,11 @@ export async function runPsInProcess(
     if (rows && includeCommand) {
       await completeCommands(
         rows,
-        query.pids !== null,
+        query.pids !== null ? 'pids' : query.tty !== null ? 'tty' : 'all',
         ctype,
         env,
         deadline,
-        options.freshCommands ? requestedAtMs : undefined
+        options.background === true
       )
     }
   } catch {
@@ -266,14 +266,20 @@ export async function readPsStdoutInProcess(
  * only a ps spawned after this call answers it. */
 export async function readPsStdoutBudgeted(
   args: readonly string[],
-  options: { env: NodeJS.ProcessEnv; timeoutMs: number; maxOutputBytes?: number }
+  options: {
+    env: NodeJS.ProcessEnv
+    timeoutMs: number
+    maxOutputBytes?: number
+    background?: boolean
+  }
 ): Promise<string> {
   const registered = registerPsFallbackRequest()
   const result = await runPsFallback(
     args,
     { env: options.env, maxOutputBytes: options.maxOutputBytes },
     registered,
-    monotonicNow() + options.timeoutMs
+    monotonicNow() + options.timeoutMs,
+    options.background
   )
   return stdoutLikeExecFile(args, result)
 }

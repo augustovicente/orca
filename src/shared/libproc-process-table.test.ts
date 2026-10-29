@@ -472,7 +472,8 @@ describe('runPsInProcess', () => {
     expect(runProcess).toHaveBeenCalledTimes(2)
   })
 
-  it('gives fresh observations argv ps read after the request, while display reads keep the cache', async () => {
+  it('trusts recovered argv only within the 2s evidence window, so a same-comm re-exec is seen', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] })
     const sudo = row({
       pid: 5100,
       ppid: 4242,
@@ -498,9 +499,8 @@ describe('runPsInProcess', () => {
     expect((await runPsInProcess(args, BUDGET))?.stdout).toBe(`node /opt/claude/cli.js\n`)
     argv = 'node /srv/server.js'
     expect((await runPsInProcess(args, BUDGET))?.stdout).toBe(`node /opt/claude/cli.js\n`)
-    expect((await runPsInProcess(args, { ...BUDGET, freshCommands: true }))?.stdout).toBe(
-      'node /srv/server.js\n'
-    )
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect((await runPsInProcess(args, BUDGET))?.stdout).toBe('node /srv/server.js\n')
     expect(runProcess).toHaveBeenCalledTimes(2)
   })
 
@@ -535,7 +535,7 @@ describe('runPsInProcess', () => {
     expect(runProcess).toHaveBeenCalledTimes(1)
   })
 
-  it('charges fresh argv reads of a su pane to the recovery budget, not one ps each', async () => {
+  it('recovers a su pane’s argv at most once per process per 2s however often it is read', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] })
     const su = row({
       pid: 5300,
@@ -551,17 +551,41 @@ describe('runPsInProcess', () => {
     runProcess.mockResolvedValue({
       code: 0,
       signal: null,
-      stdout: ' 5300 su\n',
+      stdout: ' 5300 su -l\n',
       stderr: '',
       timedOut: false
     })
-    const args = ['-o', 'pid=,ppid=,pgid=,tpgid=,stat=,command=', '-t', 'ttys004']
+    const args = ['-o', 'pid=,command=', '-t', 'ttys004']
 
+    const reads: ReturnType<typeof runPsInProcess>[] = []
     for (let poll = 0; poll < 20; poll += 1) {
-      void runPsInProcess(args, { ...BUDGET, freshCommands: true })
+      reads.push(runPsInProcess(args, BUDGET))
       await vi.advanceTimersByTimeAsync(750)
     }
-    // A burst of 2, then one every 2s, over 15s.
-    expect(runProcess.mock.calls.length).toBeLessThanOrEqual(10)
+    for (const read of await Promise.all(reads)) {
+      expect(read?.stdout).toContain('5300 su -l\n')
+    }
+    expect(runProcess.mock.calls.length).toBeLessThanOrEqual(8)
+  })
+
+  it('recovers the foreground of a terminal where no process of ours is left (exec su)', async () => {
+    const root = { tdev: TTYS004, uid: OTHER_UID, flags: 0x2, tpgid: 5400 }
+    const table = [
+      row({ ...root, pid: 4200, ppid: 1, pgid: 4200, comm: 'login', command: '(login)' }),
+      row({ ...root, pid: 5400, ppid: 4200, pgid: 5400, comm: 'sh', command: '(sh)' })
+    ]
+    installAddon({ readProcessTable: vi.fn(async (query: LibprocQuery) => tableFor(query, table)) })
+    runProcess.mockResolvedValue({
+      code: 0,
+      signal: null,
+      stdout: ' 5400 -sh\n',
+      stderr: '',
+      timedOut: false
+    })
+
+    const result = await runPsInProcess(['-o', 'pid=,command=', '-t', 'ttys004'], BUDGET)
+    expect(result?.stdout).toContain('5400 -sh\n')
+    // The pane's root login is not in the foreground group, so it never costs a ps.
+    expect(runProcess.mock.calls.map(([spec]) => spec.args.at(-1))).toEqual(['5400'])
   })
 })

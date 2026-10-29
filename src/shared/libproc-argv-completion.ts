@@ -33,9 +33,12 @@ function descendsFromUsersTerminal(
   return false
 }
 
+/** Which rows the caller asked ps for: `-p` pids, one `-t` terminal, or the whole table. */
+export type CommandSelection = 'pids' | 'tty' | 'all'
+
 function needsRecovery(
   row: LibprocProcessRow,
-  selectedByPid: boolean,
+  selection: CommandSelection,
   byPid: ReadonlyMap<number, LibprocProcessRow>
 ): boolean {
   return (
@@ -44,21 +47,23 @@ function needsRecovery(
     row.status !== SIDL &&
     (row.flags & P_WEXIT) === 0 &&
     !isOwnProcess(row) &&
-    (selectedByPid || descendsFromUsersTerminal(row, byPid))
+    (selection === 'pids' ||
+      // After `exec su` no process of ours is left on the terminal; its foreground group is what callers judge.
+      (selection === 'tty' && row.pgid === row.tpgid) ||
+      descendsFromUsersTerminal(row, byPid))
   )
 }
 
-/** One ps run's answer for a process; undefined when ps omitted it or failed. */
-type Recovery = { startedAtMs: number; command: Promise<string | undefined> }
 /** A positive answer ages from when ps started reading; a failure from when it ended, however long ps took. */
 type Recovered = { startedAtMs: number; settledAtMs: number; command: string | undefined }
 
-// exec can keep pid, start time and comm (node → node with another script) and no cheap field shows it, so display
-// reads trust recovered argv for 30s; fresh readers take only argv ps read after their request.
+// exec can keep pid, start time and comm (node → node with another script) and no cheap field shows it, so recovered
+// argv is trusted only within the evidence staleness window: strict evidence stays honest about its age.
 const recovered = new Map<string, Recovered>()
-const recovering = new Map<string, Recovery>()
+// One ps run's answer per process; undefined when ps omitted it, failed or the budget withheld it.
+const recovering = new Map<string, Promise<string | undefined>>()
 const RECOVERED_LIMIT = 512
-const RECOVERED_TTL_MS = 30_000
+const RECOVERED_TTL_MS = 2_000
 // A row ps could not answer (exited, or unreadable to it too) waits this long before costing another ps.
 const UNRECOVERED_TTL_MS = 5_000
 
@@ -68,10 +73,6 @@ function commandKey(ctype: string, row: LibprocProcessRow): string {
 }
 
 function remember(key: string, entry: Recovered): void {
-  // A fresh reader's recovery can overtake an older one still running; the older answer must not replace it.
-  if ((recovered.get(key)?.startedAtMs ?? Number.NEGATIVE_INFINITY) > entry.startedAtMs) {
-    return
-  }
   recovered.delete(key)
   for (const oldest of recovered.keys()) {
     if (recovered.size < RECOVERED_LIMIT) {
@@ -85,13 +86,15 @@ function remember(key: string, entry: Recovered): void {
 async function readCommands(
   pids: readonly number[],
   env: NodeJS.ProcessEnv,
-  deadline: number
+  deadline: number,
+  background: boolean
 ): Promise<ReadonlyMap<number, string> | null> {
   try {
     const result = await runArgvRecoveryPs(
       ['-ww', '-o', 'pid=,command=', '-p', pids.join(',')],
       { env, maxOutputBytes: 1024 * 1024 },
-      deadline
+      deadline,
+      background
     )
     if (result.timedOut || result.outputTruncated || (result.code !== 0 && result.code !== 1)) {
       return null
@@ -110,40 +113,36 @@ async function readCommands(
 }
 
 /** Fill argv only setuid ps can read, for the rows this caller selected or that descend from a user's terminal.
- * Concurrent callers share one ps per process; `notBeforeMs` refuses argv ps read before that instant. */
+ * Concurrent callers share one ps per process; `background` polls yield the recovery budget to interactive reads. */
 export async function completeCommands(
   rows: LibprocProcessRow[],
-  selectedByPid: boolean,
+  selection: CommandSelection,
   ctype: string,
   env: NodeJS.ProcessEnv,
   deadline: number,
-  notBeforeMs?: number
+  background: boolean
 ): Promise<void> {
   const byPid = new Map(rows.map((row) => [row.pid, row]))
   const now = monotonicNow()
   const pending: { row: LibprocProcessRow; command: Promise<string | undefined> }[] = []
   const missing: { row: LibprocProcessRow; key: string }[] = []
   for (const row of rows) {
-    if (!needsRecovery(row, selectedByPid, byPid)) {
+    if (!needsRecovery(row, selection, byPid)) {
       continue
     }
     const key = commandKey(ctype, row)
     const known = recovered.get(key)
-    // A failure only withholds argv, never serves stale argv, so fresh readers honour it too.
+    // A failure only withholds argv (the row reads unverifiable), never serves stale argv.
     if (known && known.command === undefined && now - known.settledAtMs < UNRECOVERED_TTL_MS) {
       continue
     }
-    if (
-      known?.command !== undefined &&
-      now - known.startedAtMs < RECOVERED_TTL_MS &&
-      (notBeforeMs === undefined || known.startedAtMs >= notBeforeMs)
-    ) {
+    if (known?.command !== undefined && now - known.startedAtMs < RECOVERED_TTL_MS) {
       row.command = known.command
       continue
     }
     const inFlight = recovering.get(key)
-    if (inFlight && (notBeforeMs === undefined || inFlight.startedAtMs >= notBeforeMs)) {
-      pending.push({ row, command: inFlight.command })
+    if (inFlight) {
+      pending.push({ row, command: inFlight })
     } else {
       missing.push({ row, key })
     }
@@ -156,21 +155,17 @@ export async function completeCommands(
     const read = readCommands(
       missing.map(({ row }) => row.pid),
       env,
-      deadline
+      deadline,
+      background
     )
     for (const { row, key } of missing) {
-      const recovery: Recovery = {
-        startedAtMs,
-        command: read.then((commands) => commands?.get(row.pid))
-      }
+      const recovery = read.then((commands) => commands?.get(row.pid))
       recovering.set(key, recovery)
-      void recovery.command.then((command) => {
+      void recovery.then((command) => {
         remember(key, { startedAtMs, settledAtMs: monotonicNow(), command })
-        if (recovering.get(key) === recovery) {
-          recovering.delete(key)
-        }
+        recovering.delete(key)
       })
-      pending.push({ row, command: recovery.command })
+      pending.push({ row, command: recovery })
     }
   }
   if (pending.length === 0) {

@@ -52,6 +52,12 @@ describe('who holds a pane’s terminal, by its foreground process group', () =>
       pane(200, [{ pid: 200, ppid: 101, pgid: 200, stat: 'S+', command: 'bash ./start-agent.sh' }]),
       'shell'
     ],
+    // A pane looping short commands: our own child, already exiting, prints `(comm)` in ps too.
+    [
+      'the pane’s own exiting command',
+      pane(200, [{ pid: 200, ppid: 101, pgid: 200, stat: 'SE+', command: '(git)' }]),
+      'agent'
+    ],
     [
       'an agent stopped in the background',
       pane(101, [{ pid: 200, ppid: 101, pgid: 200, stat: 'T', command: '/opt/bin/claude' }]),

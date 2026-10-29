@@ -65,7 +65,9 @@ describe('host-stamped remote foreground resolver', () => {
   it.each([
     ['multiplexer_boundary', rowsFor(['tmux new-session'])],
     ['ambiguous_foreground_group', rowsFor(['node /opt/codex', 'node /opt/claude'])],
-    ['candidate_start_time_missing', rowsFor(['node /opt/codex'], { candidateStart: '' })]
+    ['candidate_start_time_missing', rowsFor(['node /opt/codex'], { candidateStart: '' })],
+    // An agent under sudo whose argv recovery failed or was withheld by the fork budget.
+    ['argv_unreadable', rowsFor(['(node)'])]
   ])('degrades to unverifiable for %s', (reason, rows) => {
     const evidence = resolveRemoteForegroundEvidence(
       { rootPid: 100, fallbackProcess: 'zsh' },
