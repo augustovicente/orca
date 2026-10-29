@@ -245,7 +245,9 @@ async function readLinuxProcessStartTimes(
 
 async function captureProcessTable(args: readonly string[], timeout = PS_TIMEOUT_MS, ps = false) {
   const env = psLocaleEnvironment()
-  let stdout = ps ? null : await readPsStdoutInProcess(args, { env, timeoutMs: timeout })
+  // Strict evidence publishes this capture's age, so recovered argv must be no older than it.
+  const fresh = { env, timeoutMs: timeout, freshCommands: true }
+  let stdout = ps ? null : await readPsStdoutInProcess(args, fresh)
   try {
     stdout ??= (
       await execFile('ps', [...args], {

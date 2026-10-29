@@ -1,4 +1,5 @@
 import { createRequire } from 'node:module'
+import { DEADLINE_PASSED, beforeDeadline, monotonicNow } from './deadline-settle-notifier'
 
 /** One `kinfo_proc` from node-pty's patched macOS addon (config/patches/node-pty@1.1.0.patch). */
 export type LibprocProcessRow = {
@@ -13,6 +14,8 @@ export type LibprocProcessRow = {
   flags: number
   /** `p_nice`; absent from older builds. */
   nice?: number
+  /** Effective uid (`cr_uid`), which decides whether KERN_PROCARGS2 may read argv. */
+  uid?: number
   sessionLeader: boolean
   startSec: number
   /** `p_starttime.tv_usec`, telling apart processes a reused pid started within one second. */
@@ -20,7 +23,7 @@ export type LibprocProcessRow = {
   comm: string
   /** ps's command text (getproclline + strvis in the query's LC_CTYPE). */
   command?: string
-  /** argv was unreadable (another user's process): `command` holds the executable path, where setuid ps prints argv. */
+  /** argv was unreadable (another user's, exiting or mid-exec): `command` holds `(comm)`, where setuid ps may print argv. */
   commandIncomplete?: boolean
 }
 
@@ -35,8 +38,9 @@ export type LibprocQuery = {
 export type LibprocAddon = {
   /** Reads on a libuv worker thread; argv for a whole table costs ~20ms of syscalls. */
   readProcessTable: (query: LibprocQuery) => Promise<LibprocProcessRow[] | null>
-  processCwd: (pid: number) => string | null
-  processPath: (pid: number) => string | null
+  /** PROC_PIDVNODEPATHINFO and proc_pidpath can block on a dead network mount, so both run on a worker thread. */
+  readProcessCwd: (pid: number) => Promise<string | null>
+  readProcessPath: (pid: number) => Promise<string | null>
 }
 
 const requireFromHere = createRequire(__filename)
@@ -49,10 +53,10 @@ function isLibprocAddon(native: unknown): native is LibprocAddon {
     native !== null &&
     'readProcessTable' in native &&
     typeof native.readProcessTable === 'function' &&
-    'processCwd' in native &&
-    typeof native.processCwd === 'function' &&
-    'processPath' in native &&
-    typeof native.processPath === 'function'
+    'readProcessCwd' in native &&
+    typeof native.readProcessCwd === 'function' &&
+    'readProcessPath' in native &&
+    typeof native.readProcessPath === 'function'
   )
 }
 
@@ -77,7 +81,7 @@ export function loadLibprocAddon(): LibprocAddon | null {
       typeof utils.loadNativeModule === 'function'
         ? utils.loadNativeModule('pty')?.module
         : null
-    // An older pty.node exports positional processTable() instead; it must not match.
+    // An older pty.node exports positional processTable() or synchronous processCwd() instead; it must not match.
     cachedAddon = isLibprocAddon(native) ? native : null
   } catch {
     cachedAddon = null
@@ -93,27 +97,35 @@ export function setLibprocAddonForTests(addon: LibprocAddon | null | undefined):
   addonOverride = addon
 }
 
-/** PROC_PIDVNODEPATHINFO cwd, or undefined when only lsof can answer. */
-export function readLibprocProcessCwd(pid: number): string | null | undefined {
+// A lookup stuck on a dead mount pins its worker thread in the kernel; cap them so the rest of the libuv pool stays free.
+const MAX_OUTSTANDING_PATH_READS = 2
+// Path lookups take microseconds; past this the mount is wedged and lsof -b, which never stats, answers instead.
+const PATH_READ_TIMEOUT_MS = 250
+let outstandingPathReads = 0
+
+/** cwd or executable path read in process, or undefined when only lsof can answer (no addon, a slow or wedged lookup). */
+export async function readLibprocProcessFilePath(
+  which: 'cwd' | 'executable',
+  pid: number
+): Promise<string | null | undefined> {
   const addon = loadLibprocAddon()
-  if (!addon) {
+  if (!addon || outstandingPathReads >= MAX_OUTSTANDING_PATH_READS) {
     return undefined
   }
+  let pending: Promise<string | null>
   try {
-    return addon.processCwd(pid)
+    pending = which === 'cwd' ? addon.readProcessCwd(pid) : addon.readProcessPath(pid)
   } catch {
     return undefined
   }
-}
-
-/** proc_pidpath executable, or undefined when only lsof can answer. */
-export function readLibprocProcessPath(pid: number): string | null | undefined {
-  const addon = loadLibprocAddon()
-  if (!addon) {
-    return undefined
+  outstandingPathReads += 1
+  const release = (): void => {
+    outstandingPathReads -= 1
   }
+  pending.then(release, release)
   try {
-    return addon.processPath(pid)
+    const path = await beforeDeadline(pending, monotonicNow() + PATH_READ_TIMEOUT_MS)
+    return path === DEADLINE_PASSED ? undefined : path
   } catch {
     return undefined
   }

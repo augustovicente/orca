@@ -15,6 +15,7 @@ import {
 } from './libproc-addon'
 import { nativeReadWaitersForTests, resetNativeReadsForTests } from './libproc-native-reads'
 import { runPsInProcess } from './libproc-process-table'
+import { resetPsFallbackForTests } from './libproc-ps-fallback'
 import { parseCheapProcessTableRows, parseStrictProcessTableRows } from './process-table-snapshot'
 
 const TTYS004 = (16 << 24) | 4
@@ -107,17 +108,27 @@ function tableFor(
 function installAddon(overrides: Partial<LibprocAddon> = {}): LibprocAddon {
   const addon: LibprocAddon = {
     readProcessTable: vi.fn(async (query: LibprocQuery) => tableFor(query)),
-    processCwd: vi.fn(() => null),
-    processPath: vi.fn(() => null),
+    readProcessCwd: vi.fn(async () => null),
+    readProcessPath: vi.fn(async () => null),
     ...overrides
   }
   setLibprocAddonForTests(addon)
   return addon
 }
 
+const PS_RESULT = {
+  code: 0,
+  signal: null,
+  stdout: ' 1\n',
+  stderr: '',
+  timedOut: false,
+  outputTruncated: false
+}
+
 afterEach(() => {
   setLibprocAddonForTests(undefined)
   resetNativeReadsForTests()
+  resetPsFallbackForTests()
   runProcess.mockReset()
   vi.useRealTimers()
 })
@@ -182,7 +193,7 @@ describe('runPsInProcess', () => {
     })
   })
 
-  it('keeps the real ps for invocations it cannot reproduce or a failing addon', async () => {
+  it('keeps the real ps for invocations it cannot reproduce, and answers a failing addon with /bin/ps', async () => {
     installAddon()
     expect(await runPsInProcess(['-axo', 'pid=PROCESS_ID'], BUDGET)).toBeNull()
     expect(await runPsInProcess(['-axo', 'pid=,uid='], BUDGET)).toBeNull()
@@ -200,7 +211,11 @@ describe('runPsInProcess', () => {
         throw new Error('sysctl failed')
       }
     })
-    expect(await runPsInProcess(['-axo', 'pid='], BUDGET)).toBeNull()
+    runProcess.mockResolvedValue(PS_RESULT)
+    expect(await runPsInProcess(['-axo', 'pid='], BUDGET)).toEqual(PS_RESULT)
+    expect(runProcess).toHaveBeenCalledWith(
+      expect.objectContaining({ program: '/bin/ps', args: ['-axo', 'pid='] })
+    )
 
     setLibprocAddonForTests(null)
     expect(await runPsInProcess(['-axo', 'pid='], BUDGET)).toBeNull()
@@ -279,9 +294,10 @@ describe('runPsInProcess', () => {
     expect(readProcessTable).toHaveBeenCalledTimes(2)
   })
 
-  it('queues past the read cap without retaining timed-out waiters, then hands a stalled pool to ps', async () => {
+  it('queues past the read cap without retaining timed-out waiters, then hands a stalled pool to budgeted ps', async () => {
     vi.useFakeTimers()
-    installAddon({ readProcessTable: vi.fn(() => new Promise<never>(() => {})) })
+    const addon = installAddon({ readProcessTable: vi.fn(() => new Promise<never>(() => {})) })
+    runProcess.mockResolvedValue(PS_RESULT)
     const read = (pid: number, timeoutMs = 50) =>
       runPsInProcess(['-p', String(pid), '-o', 'pid='], { timeoutMs })
 
@@ -291,11 +307,18 @@ describe('runPsInProcess', () => {
     expect(nativeReadWaitersForTests()).toBe(300)
     await vi.advanceTimersByTimeAsync(50)
     expect(nativeReadWaitersForTests()).toBe(0)
-    expect(await Promise.all(overflow)).toEqual(Array(300).fill(null))
+    // The stalled burst costs the fork budget, not one ps per caller; the rest time out like a killed ps.
+    await vi.advanceTimersByTimeAsync(50)
+    const results = await Promise.all(overflow)
+    expect(results.filter((result) => result?.timedOut === false)).toHaveLength(4)
+    expect(results.filter((result) => result?.timedOut === true)).toHaveLength(296)
+    expect(runProcess).toHaveBeenCalledTimes(4)
 
-    // The breaker stays open for its cool-down: callers run ps without queueing.
-    expect(await read(7000)).toBeNull()
+    // The breaker stays open for its cool-down: callers go to ps without queueing on the pool.
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(await read(7000)).toEqual(PS_RESULT)
     expect(nativeReadWaitersForTests()).toBe(0)
+    expect(addon.readProcessTable).toHaveBeenCalledTimes(8)
     await vi.advanceTimersByTimeAsync(10_000)
     expect(await Promise.all(capped)).toEqual(
       Array(8).fill(expect.objectContaining({ timedOut: true }))
@@ -308,7 +331,7 @@ describe('runPsInProcess', () => {
       settled = result
     })
     await vi.advanceTimersByTimeAsync(0)
-    expect(settled).toBeNull()
+    expect(settled).toEqual(PS_RESULT)
   })
 
   it('recovers argv for a sudo use_pty tree on its own pty, but not for root daemons or GUI helpers', async () => {
@@ -382,5 +405,93 @@ describe('runPsInProcess', () => {
     const results = await Promise.all([1, 2, 3].map(() => runPsInProcess(args, BUDGET)))
     expect(results.map((result) => result?.stdout)).toEqual(Array(3).fill('4242 ttys004\n'))
     expect(runProcess).not.toHaveBeenCalled()
+  })
+
+  it('leaves argv of the user’s own mid-exec processes and of exiting ones to (comm), asking ps only for other users', async () => {
+    const own = process.geteuid!()
+    const foreign = { ppid: 4242, tdev: TTYS004, uid: 0, flags: 0x2 }
+    const table = [
+      ...TABLE,
+      // A pane looping short commands: our own child between fork and exec reads like another user's.
+      row({ pid: 4800, ppid: 4242, tdev: TTYS004, uid: own, comm: 'git', command: '(git)' }),
+      row({ ...foreign, pid: 4801, flags: 0x2 | 0x2000, comm: 'sudo', command: '(sudo)' }),
+      row({ ...foreign, pid: 4802, status: 1, comm: 'sudo', command: '(sudo)' }),
+      row({ ...foreign, pid: 4803, comm: 'node', command: '(node)' })
+    ]
+    installAddon({ readProcessTable: vi.fn(async (query: LibprocQuery) => tableFor(query, table)) })
+    runProcess.mockResolvedValue({
+      code: 0,
+      signal: null,
+      stdout: ' 4803 node /opt/claude/cli.js\n',
+      stderr: '',
+      timedOut: false
+    })
+
+    const result = await runPsInProcess(['-axo', 'pid=,command='], BUDGET)
+    expect(result?.stdout).toContain('4800 (git)\n')
+    expect(result?.stdout).toContain('4803 node /opt/claude/cli.js\n')
+    expect(runProcess).toHaveBeenCalledTimes(1)
+    expect(runProcess.mock.calls[0]?.[0].args.at(-1)).toBe('4803')
+  })
+
+  it('shares one argv ps among concurrent readers and waits out a failed recovery before asking again', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] })
+    const sudo = row({
+      pid: 4900,
+      ppid: 4242,
+      tdev: TTYS004,
+      uid: 0,
+      comm: 'node',
+      command: '(node)'
+    })
+    installAddon({
+      readProcessTable: vi.fn(async (query: LibprocQuery) => tableFor(query, [...TABLE, sudo]))
+    })
+    // ps omits a process that exited, or one it cannot read either.
+    runProcess.mockResolvedValue({ code: 1, signal: null, stdout: '', stderr: '', timedOut: false })
+    const read = (): Promise<unknown> =>
+      runPsInProcess(['-o', 'pid=,command=', '-t', 'ttys004'], BUDGET)
+
+    const concurrent = await Promise.all(Array.from({ length: 24 }, read))
+    expect(concurrent).toEqual(Array(24).fill(expect.objectContaining({ timedOut: false })))
+    expect(runProcess).toHaveBeenCalledTimes(1)
+
+    await read()
+    expect(runProcess).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(5_000)
+    await read()
+    expect(runProcess).toHaveBeenCalledTimes(2)
+  })
+
+  it('gives fresh observations argv ps read after the request, while display reads keep the cache', async () => {
+    const sudo = row({
+      pid: 5100,
+      ppid: 4242,
+      tdev: TTYS004,
+      uid: 0,
+      comm: 'node',
+      command: '(node)'
+    })
+    installAddon({
+      readProcessTable: vi.fn(async (query: LibprocQuery) => tableFor(query, [...TABLE, sudo]))
+    })
+    // Same pid, start time and comm: node re-exec'd from Claude into an unrelated server.
+    let argv = 'node /opt/claude/cli.js'
+    runProcess.mockImplementation(async () => ({
+      code: 0,
+      signal: null,
+      stdout: ` 5100 ${argv}\n`,
+      stderr: '',
+      timedOut: false
+    }))
+    const args = ['-p', '5100', '-o', 'command=']
+
+    expect((await runPsInProcess(args, BUDGET))?.stdout).toBe(`node /opt/claude/cli.js\n`)
+    argv = 'node /srv/server.js'
+    expect((await runPsInProcess(args, BUDGET))?.stdout).toBe(`node /opt/claude/cli.js\n`)
+    expect((await runPsInProcess(args, { ...BUDGET, freshCommands: true }))?.stdout).toBe(
+      'node /srv/server.js\n'
+    )
+    expect(runProcess).toHaveBeenCalledTimes(2)
   })
 })

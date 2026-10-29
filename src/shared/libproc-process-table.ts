@@ -11,6 +11,7 @@ import {
   registerNativeRequest
 } from './libproc-native-reads'
 import { completeCommands } from './libproc-argv-completion'
+import { registerPsFallbackRequest, runPsFallback } from './libproc-ps-fallback'
 import {
   compareLikePs,
   formatDarwinDevice,
@@ -21,12 +22,12 @@ import {
 
 /** Shaped like a process-host ProcessResult so call sites can substitute it for ps's. */
 export type LibprocPsResult = {
-  code: 0 | 1 | null
+  code: number | null
   signal: NodeJS.Signals | null
   stdout: string
-  stderr: ''
+  stderr: string
   timedOut: boolean
-  outputTruncated: boolean
+  outputTruncated?: boolean
 }
 
 export type InProcessPsOptions = {
@@ -35,6 +36,11 @@ export type InProcessPsOptions = {
   /** The caller's ps timeout: past it the read resolves timed out, as the killed ps would. */
   timeoutMs: number
   maxOutputBytes?: number
+  /** The read feeds fresh observations: recovered argv must come from a ps run after this request, not the cache. */
+  freshCommands?: boolean
+  /** The caller runs its own ps when the in-process reader is down, rather than share the fallback budget, which may
+   * time it out (signalling paths that must not lose their read). */
+  callerRunsPs?: boolean
 }
 
 const TIMED_OUT: LibprocPsResult = {
@@ -95,19 +101,32 @@ export function inProcessDeadlineAllowanceMs(timeoutMs: number): number {
   return loadLibprocAddon() && isNativeReaderHealthy() ? inProcessSliceMs(timeoutMs) : 0
 }
 
-/** ps output for `args`, read in process; null when the addon or the invocation is unsupported so callers run ps. */
+/** ps output for `args`, read in process, or by one budgeted /bin/ps while the reader is down; null when the addon or
+ * the invocation is unsupported (or `callerRunsPs`) so callers run ps. */
 export async function runPsInProcess(
   args: readonly string[],
   options: InProcessPsOptions
 ): Promise<LibprocPsResult | null> {
   const addon = loadLibprocAddon()
   const query = addon ? parsePsQuery(args) : null
-  if (!addon || !query || !isNativeReaderHealthy()) {
+  if (!addon || !query) {
     return null
   }
   const registeredSequence = registerNativeRequest()
-  const deadline = monotonicNow() + options.timeoutMs
+  const fallbackSequence = registerPsFallbackRequest()
+  const requestedAtMs = monotonicNow()
+  const deadline = requestedAtMs + options.timeoutMs
   const env = options.env ?? process.env
+  // ps gets the caller's whole timeout from the moment the reader gives up, as the caller's own ps did.
+  const fallback = async (): Promise<LibprocPsResult | null> =>
+    options.callerRunsPs
+      ? null
+      : runPsFallback(
+          args,
+          { env, maxOutputBytes: options.maxOutputBytes },
+          fallbackSequence,
+          monotonicNow() + options.timeoutMs
+        )
   const utc = lstartZoneIsUtc(env)
   const needsLstart = query.columns.includes('lstart')
   // lstart is `%c`: only the C and en_US forms are reproduced.
@@ -116,6 +135,9 @@ export async function runPsInProcess(
     (utc === null || !/^(?:C|POSIX|en_US(?:\..*)?)$/.test(localeCategory(env, 'LC_TIME')))
   ) {
     return null
+  }
+  if (!isNativeReaderHealthy()) {
+    return fallback()
   }
   const includeCommand = query.columns.includes('command')
   const ctype = localeCategory(env, 'LC_CTYPE')
@@ -130,7 +152,7 @@ export async function runPsInProcess(
   try {
     const read = await readFreshNativeTable(addon, nativeQuery, registeredSequence, deadline)
     if (read === 'stalled') {
-      return null
+      return fallback()
     }
     if (read === DEADLINE_PASSED) {
       return TIMED_OUT
@@ -144,7 +166,7 @@ export async function runPsInProcess(
       if (devices.size > 0) {
         const named = await nameTerminals(devices, deadline)
         if (named === 'stalled') {
-          return null
+          return fallback()
         }
         if (named === DEADLINE_PASSED) {
           return TIMED_OUT
@@ -153,10 +175,17 @@ export async function runPsInProcess(
       }
     }
     if (rows && includeCommand) {
-      await completeCommands(rows, query.pids !== null, ctype, env, deadline)
+      await completeCommands(
+        rows,
+        query.pids !== null,
+        ctype,
+        env,
+        deadline,
+        options.freshCommands ? requestedAtMs : undefined
+      )
     }
   } catch {
-    return null
+    return fallback()
   }
   if (monotonicNow() > deadline) {
     return TIMED_OUT
@@ -218,7 +247,9 @@ export async function readPsStdoutInProcess(
   }
   if (result.timedOut || result.code !== 0) {
     throw Object.assign(
-      new Error(`Command failed: ps ${args.join(' ')}${result.timedOut ? ' (timed out)' : ''}`),
+      new Error(
+        `Command failed: ps ${args.join(' ')}${result.timedOut ? ' (timed out)' : ''}\n${result.stderr}`
+      ),
       { code: result.code, killed: result.timedOut, signal: result.signal }
     )
   }

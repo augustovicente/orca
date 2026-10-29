@@ -4,7 +4,7 @@ import { access, readlink, realpath, stat } from 'node:fs/promises'
 import { delimiter, isAbsolute, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { LSOF_NONBLOCKING_ARGS } from './lsof-nonblocking-args'
-import { readLibprocProcessPath } from './libproc-addon'
+import { readLibprocProcessFilePath } from './libproc-addon'
 import { readPsStdoutInProcess } from './libproc-process-table'
 import { PS_MAX_BUFFER_BYTES } from './process-table-snapshot'
 
@@ -32,7 +32,7 @@ async function readExecutablePath(pid: number): Promise<string | null> {
   if (process.platform !== 'darwin') {
     return null
   }
-  const inProcess = readLibprocProcessPath(pid)
+  const inProcess = await readLibprocProcessFilePath('executable', pid)
   if (inProcess !== undefined) {
     return inProcess
   }
