@@ -27,6 +27,9 @@ import { crewParentRelations } from './crew-parent-relations'
 import { createCrewHostDerivation } from './crew-host-derivation'
 import { statusForFleetWorker } from '../../../../shared/orchestration-fleet-status-index'
 import { projectLiveness } from '../../../../shared/orchestration-fleet-worker-projection'
+import { federatedMessageNamesOnlyHome } from '../dispatch-report-mailbox'
+import { workerReportRefusal } from '../worker-report-admission'
+import { isEquivalentPaneKey } from '../db/pane-key-match'
 export type CrewReadDependencies = {
   db: OrchestrationDb | null
   retainedDbExists: boolean
@@ -105,6 +108,26 @@ export function buildCrewSnapshot(
   }
   hydrate(aliasesFor(self.address), self.paneKey ? [self.paneKey] : [])
   self = getParty(addressOf(self.address) ?? self.address) ?? self
+  const remoteAttachment = self.paneKey
+    ? host.sourceInputs.activeRemoteAttachmentForPane(self.paneKey)
+    : undefined
+  const canAddressPeer = (to: string | undefined) =>
+    !remoteAttachment ||
+    (to !== undefined &&
+      federatedMessageNamesOnlyHome({ to }, remoteAttachment.run) &&
+      !workerReportRefusal({
+        dispatchId: remoteAttachment.id,
+        from: self.address,
+        workerState: remoteAttachment.remoteRoute?.stopping ? 'stopping' : undefined,
+        processCurrent: Boolean(
+          remoteAttachment.pane &&
+          self.paneKey &&
+          isEquivalentPaneKey(remoteAttachment.pane, self.paneKey) &&
+          remoteAttachment.process &&
+          self.terminalHandle &&
+          remoteAttachment.process === deps.processForHandle?.(self.terminalHandle)
+        )
+      }))
   const ownedRunAddresses = readCrewOwnedRunAddresses(db, self)
   for (const current of host.sourceInputs.runInputs(ownedRunAddresses)) {
     const coordinator = party(current.session, current.handle, current.pane, `run:${current.id}`)
@@ -216,16 +239,17 @@ export function buildCrewSnapshot(
     const target = getParty(targetAddress)!
     let row = rows.get(targetAddress)
     if (!row) {
+      const sendAddress = target.orcaSessionId
+        ? target.address
+        : (target.terminalHandle ??
+          (target.address.startsWith('dispatch:') || target.address.startsWith('run:')
+            ? target.address
+            : undefined))
       row = decorate(
         target,
         'peer',
         undefined,
-        target.orcaSessionId
-          ? target.address
-          : (target.terminalHandle ??
-              (target.address.startsWith('dispatch:') || target.address.startsWith('run:')
-                ? target.address
-                : undefined))
+        canAddressPeer(sendAddress) ? sendAddress : undefined
       )
       snapshot.sections.talkingWith.push(row)
     }
