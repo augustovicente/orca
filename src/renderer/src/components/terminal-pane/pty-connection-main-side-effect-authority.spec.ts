@@ -1,3 +1,5 @@
+import { registerUnqualifiedSavedInputTest } from './pty-connection-unqualified-saved-input.spec'
+import type * as IpcPtyTransportModule from './pty-transport'
 import type { createRemoteRuntimePtyTransport } from './remote-runtime-pty-transport'
 import { registerPersistedResidentAuthorityTests } from './pty-connection-persisted-resident-authority.spec'
 import { TerminalSnapshotState } from '../../../../shared/terminal-snapshot-state'
@@ -29,6 +31,7 @@ import {
 export function registerPtyConnectionMainSideEffectAuthorityTests(): void {
   let mockStoreState: StoreState
   let realRemoteTransportFactory: typeof createRemoteRuntimePtyTransport | undefined
+  let realIpcTransportFactory: typeof IpcPtyTransportModule.createIpcPtyTransport | undefined
   let transportFactoryQueue: MockTransport[] = []
   let createdTransportOptions: Record<string, unknown>[] = []
   let storeSubscribers: ((state: StoreState) => void)[] = []
@@ -54,12 +57,14 @@ export function registerPtyConnectionMainSideEffectAuthorityTests(): void {
       vi.clearAllMocks()
       transportFactoryQueue = []
       realRemoteTransportFactory = undefined
+      realIpcTransportFactory = undefined
       createdTransportOptions = []
       storeSubscribers = []
       mockStoreState = createInitialStoreState(() => mockStoreState)
       bindPtyConnectionTestMocks({
         getState: () => mockStoreState,
         getRemoteTransportFactory: () => realRemoteTransportFactory,
+        getIpcTransportFactory: () => realIpcTransportFactory,
         getTransportQueue: () => transportFactoryQueue,
         getTransportOptions: () => createdTransportOptions,
         getStoreSubscribers: () => storeSubscribers,
@@ -82,6 +87,14 @@ export function registerPtyConnectionMainSideEffectAuthorityTests(): void {
       }
     })
 
+    registerUnqualifiedSavedInputTest({
+      getState: () => mockStoreState,
+      createDeps,
+      useIpcTransport: (factory) => {
+        realIpcTransportFactory = factory
+      }
+    })
+
     describe('with main side-effect authority on', () => {
       const SIDE_EFFECT_PARSER_CALLBACKS = [
         'onTitleChange',
@@ -97,6 +110,128 @@ export function registerPtyConnectionMainSideEffectAuthorityTests(): void {
           terminalMainSideEffectAuthority: true
         }
       }
+
+      it('keeps a captured finish through rejected input and recovers the real local queue after its liveness wake', async () => {
+        enableMainAuthority()
+        realIpcTransportFactory = (
+          await vi.importActual<typeof IpcPtyTransportModule>('./pty-transport')
+        ).createIpcPtyTransport
+        const { connectPanePty } = await import('./pty-connection')
+        const handler = await import('./terminal-side-effect-facts-handler')
+        const { createRemountTerminalTabForRecovery, createSettleTerminalTabRecovery } =
+          await import('@/store/slices/worktrees/session/worktree-slice-lookups')
+        const set = (patch: unknown) =>
+          Object.assign(mockStoreState, typeof patch === 'function' ? patch(mockStoreState) : patch)
+        Object.assign(mockStoreState, {
+          pendingStartupByTabId: {},
+          remountTerminalTabForRecovery: createRemountTerminalTabForRecovery(
+            set as never,
+            (() => mockStoreState) as never
+          ),
+          settleTerminalTabRecovery: createSettleTerminalTabRecovery(
+            set as never,
+            (() => mockStoreState) as never
+          )
+        })
+        Object.assign(window.api.pty, {
+          spawn: vi.fn().mockResolvedValue({ id: 'pty-local-recovery', incarnationId: 'physical' })
+        })
+        const attachUserInputSignal = (pane: ReturnType<typeof createPane>) => {
+          let signal: (() => void) | undefined
+          Object.assign(pane.terminal, {
+            _core: {
+              coreService: {
+                onUserInput: (listener: () => void) => {
+                  signal = listener
+                  return {
+                    dispose: () => {
+                      signal = undefined
+                    }
+                  }
+                }
+              }
+            }
+          })
+          return (data: string) => {
+            expect(signal).toBeTypeOf('function')
+            signal?.()
+            sendTerminalInputThroughPane(pane, data)
+          }
+        }
+        const pane = createPane(1)
+        const send = attachUserInputSignal(pane)
+        const deps = createDeps()
+        const first = connectPanePty(pane as never, createManager(1) as never, deps as never)
+        await flushAsyncTicks(40)
+        const resident = handler.getTerminalSemanticResident('pty-local-recovery')
+        expect(resident).toBeDefined()
+        const liveness = createDeferred<boolean>()
+        vi.mocked(window.api.pty.hasPty).mockReturnValue(liveness.promise)
+        vi.mocked(window.api.pty.write).mockImplementationOnce(() => {
+          throw new Error('physical write unavailable')
+        })
+        send('first')
+        await flushAsyncTicks()
+        expect(window.api.pty.hasPty).toHaveBeenCalledWith('pty-local-recovery')
+        const source = new TerminalSnapshotState()
+        const deliver = () =>
+          handler.dispatchTerminalSideEffectBatch({
+            ptyId: 'pty-local-recovery',
+            seq: source.state.revision,
+            facts: [],
+            terminalState: {
+              runtimeId: 'runtime-local',
+              incarnationId: 'physical',
+              snapshot: source.snapshot()
+            }
+          })
+        deliver()
+        const paneKey = makePaneKey('tab-1', LEAF_1)
+        mockStoreState.agentStatusByPaneKey[paneKey] = {
+          paneKey,
+          state: 'done',
+          prompt: 'finished command',
+          updatedAt: Date.now(),
+          stateStartedAt: Date.now(),
+          agentType: 'codex',
+          stateHistory: []
+        }
+        source.record({ kind: 'command-started' })
+        deliver()
+        vi.mocked(window.api.pty.write).mockClear()
+        send('x')
+        expect(window.api.pty.write).not.toHaveBeenCalled()
+        mockStoreState.dropAgentStatus.mockClear()
+        source.record({ kind: 'command-finished', exitCode: 0 })
+        deliver()
+        expect(mockStoreState.dropAgentStatus).toHaveBeenCalledWith(paneKey)
+        const generation = mockStoreState.tabsByWorktree['wt-1']?.[0]?.generation ?? 0
+        liveness.resolve(true)
+        await flushAsyncTicks(40)
+        expect(mockStoreState.tabsByWorktree['wt-1']?.[0]?.generation).toBe(generation + 1)
+        first.dispose()
+        vi.mocked(window.api.pty.hasPty).mockResolvedValue(true)
+        const nextPane = createPane(1)
+        const sendNext = attachUserInputSignal(nextPane)
+        const nextDeps = createDeps({
+          restoredLeafId: LEAF_1,
+          restoredPtyIdByLeafId: mockStoreState.terminalLayoutsByTabId['tab-1'].ptyIdsByLeafId
+        })
+        const second = connectPanePty(
+          nextPane as never,
+          createManager(1) as never,
+          nextDeps as never
+        )
+        await flushAsyncTicks(40)
+        // Existing endpoint-rejection recovery discards the interrupted line through its terminator.
+        sendNext('\x03')
+        expect(window.api.pty.write).not.toHaveBeenCalled()
+        sendNext('later')
+        await flushAsyncTicks()
+        expect(window.api.pty.write).toHaveBeenCalledWith('pty-local-recovery', 'later', 'driving')
+        expect(handler.getTerminalSemanticResident('pty-local-recovery')).toBe(resident)
+        second.dispose()
+      })
 
       it('omits byte-parser callbacks from the local transport options', async () => {
         enableMainAuthority()

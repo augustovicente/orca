@@ -1,6 +1,7 @@
 import { TerminalResidentRegistry, type TerminalResident } from './terminal-resident-registry'
 import type { createTerminalResidentPolicy } from './terminal-resident-policy'
 import type { TerminalResidentLegacySource } from './terminal-resident-legacy-source'
+import type { TerminalResidentBinding } from './terminal-resident-binding'
 
 export type TerminalSemanticResident = TerminalResident<
   ReturnType<typeof createTerminalResidentPolicy>
@@ -15,6 +16,7 @@ export const sourceSubscriptionsByPtyId = new Map<
     endpoint?: string
     tabId?: string
     paneKey?: string
+    binding?: TerminalResidentBinding
   }
 >()
 export const residentsByPtyId = new Map<string, TerminalSemanticResident>()
@@ -24,6 +26,7 @@ export const legacySourcesByPtyId = new Map<
     resident: TerminalSemanticResident
     source: TerminalResidentLegacySource
     unsubscribe?: () => void
+    installationSource?: object
   }
 >()
 

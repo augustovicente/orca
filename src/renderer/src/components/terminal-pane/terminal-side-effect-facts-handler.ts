@@ -86,6 +86,34 @@ import type { TerminalSideEffectBatch } from '../../../../shared/terminal-side-e
 const consumersByPtyId = new Map<string, Set<ConsumerEntry>>()
 let channelUnsubscribe: (() => void) | null = null
 
+/** Only the current endpoint subscription's positive ready may switch optional delivery. */
+export function installTerminalSideEffectSource(
+  endpoint: string,
+  source: object,
+  capable: boolean
+): void {
+  for (const [ptyId, resident] of residentsByPtyId) {
+    if (resident.identity.endpoint !== endpoint) {
+      continue
+    }
+    sourceSubscriptionsByPtyId.get(ptyId)?.close?.()
+    sourceSubscriptionsByPtyId.delete(ptyId)
+    disposeLegacySource(ptyId)
+    if (capable) {
+      continue
+    }
+    const options = {
+      ptyId,
+      binding: resident.policy.binding,
+      byteSource: true,
+      selectLegacy: true,
+      installationSource: source
+    }
+    admitLegacyTerminalSemanticResident(options)
+    admitRemoteTerminalSemanticResident(options)
+  }
+}
+
 export function dispatchTerminalSideEffectBatch(
   batch: TerminalSideEffectBatch,
   installation?: RuntimeClientEventInstallation
@@ -98,6 +126,11 @@ export function dispatchTerminalSideEffectBatch(
   }
   const entries = consumersByPtyId.get(batch.ptyId)
   const entry = entries?.values().next().value
+  const binding = entry?.binding ?? sourceSubscriptionsByPtyId.get(batch.ptyId)?.binding
+  const attribution = batch.paneKey && batch.tabId && batch.worktreeId ? batch : binding
+  const paneKey = attribution?.paneKey
+  const tabId = attribution?.tabId
+  const worktreeId = attribution?.worktreeId
   if (
     !batch.terminalState &&
     !parseRemoteRuntimePtyId(batch.ptyId) &&
@@ -105,8 +138,7 @@ export function dispatchTerminalSideEffectBatch(
   ) {
     return
   }
-  if (batch.terminalState && batch.paneKey && batch.tabId && batch.worktreeId) {
-    const { paneKey, tabId, worktreeId } = batch
+  if (batch.terminalState && paneKey && tabId && worktreeId) {
     const paired = parseRemoteRuntimePtyId(batch.ptyId)
     const identity = {
       endpoint: paired?.environmentId ?? 'local',
@@ -124,7 +156,7 @@ export function dispatchTerminalSideEffectBatch(
           paneKey,
           tabId,
           worktreeId,
-          binding: entry?.binding
+          binding
         }),
         captured.identity,
         () => captured.isLive,
@@ -166,7 +198,11 @@ export function dispatchTerminalSideEffectBatch(
         sourceSubscriptionsByPtyId.delete(batch.ptyId)
         resident.consume(batch)
       }
-    } else if (resident.identity.runtimeId === null) {
+    } else if (
+      resident.identity.runtimeId === null ||
+      (installation?.source &&
+        legacySourcesByPtyId.get(batch.ptyId)?.installationSource === installation.source)
+    ) {
       resident.policy.legacySource.observeFacts(batch)
     }
     return

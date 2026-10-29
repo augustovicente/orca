@@ -8,6 +8,7 @@ import { installPtyResizeForward } from './pty-resize-forward'
 import { subscribeToTerminalInputData } from '../terminal-user-input-signal'
 import { installTerminalImeCompositionRoute } from '../terminal-ime-composition-route'
 import { useAppStore } from '@/store'
+import { clearUnchangedTitleOnlyWorking } from './terminal-pane-input'
 import { isTerminalQueryReply } from '../../../../../shared/terminal-query-reply'
 
 import { isPtyLocked } from '@/lib/pane-manager/mobile-driver-state'
@@ -93,6 +94,7 @@ export function installPtyInputForward(session: ConnectPanePtySession): void {
     const acknowledgedIntent = intent ?? session.inferIntentFromExactTerminalInput(data)
     const baseline = useAppStore.getState().agentStatusByPaneKey[session.cacheKey] ?? null
     const launch = useAppStore.getState().agentLaunchConfigByPaneKey[session.cacheKey]
+    const titleBaseline = session.getCurrentTerminalTitle()
     const capturedTransport = session.transport
     const acknowledged =
       acknowledgedIntent !== null && capturedTransport.sendInputAccepted !== undefined
@@ -153,14 +155,33 @@ export function installPtyInputForward(session: ConnectPanePtySession): void {
             }
             return null
           }
+          if (dispatched && !dispatched.resident.isLive) {
+            return null
+          }
+          // Receipt-independent effects keep their original true-ACK stage without inventing an execution.
+          paneEffects(data, baseline)
+          const mounted = view.deref()
+          if (mounted && !mounted.disposed) {
+            mounted.markAcceptedTerminalInputSent()
+          }
           const captured = dispatched
-          if (!captured?.resident.isLive) {
+          if (!captured) {
+            if (
+              mounted &&
+              !mounted.disposed &&
+              (useAppStore.getState().agentStatusByPaneKey[mounted.cacheKey] ?? null) ===
+                baseline &&
+              useAppStore.getState().agentLaunchConfigByPaneKey[mounted.cacheKey] === launch
+            ) {
+              clearUnchangedTitleOnlyWorking(mounted, titleBaseline)
+            }
+            return null
+          }
+          if (!captured.resident.isLive) {
             return null
           }
           const policy = captured.resident.policy
           policy.acceptInput(data, acknowledgedIntent)
-          // Pane effects retain the original true-receipt stage even after presentation closes.
-          paneEffects(data, baseline)
           const result = captured.inference.observeInputIntent(
             acknowledgedIntent,
             baseline,
@@ -172,10 +193,6 @@ export function installPtyInputForward(session: ConnectPanePtySession): void {
             current.agentLaunchConfigByPaneKey[policy.binding.paneKey] === launch
           ) {
             policy.shellInput.observeTitleOnlyInterrupt()
-          }
-          const mounted = view.deref()
-          if (mounted && !mounted.disposed) {
-            mounted.markAcceptedTerminalInputSent()
           }
           return result ?? null
         })

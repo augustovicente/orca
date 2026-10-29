@@ -22,7 +22,11 @@ export function registerParkedTerminalSourceTests(context: {
   emit: (data: string) => void
   getOnData: () => unknown
   holdRemoteAdmission: () => void
-  getRemoteSubscriptions: () => { options?: RuntimeTerminalDataSubscriptionOptions }[]
+  getRemoteSubscriptions: () => {
+    options?: RuntimeTerminalDataSubscriptionOptions
+    data: (data: string, meta?: { seq?: number }) => void
+    close: ReturnType<typeof vi.fn>
+  }[]
 }): void {
   const { startWatcher, dispatchTerminalNotification, emit } = context
   it.each([
@@ -80,6 +84,122 @@ export function registerParkedTerminalSourceTests(context: {
     })
     next()
     handler._resetTerminalSideEffectFactConsumersForTest()
+  })
+
+  it('R2-C2 consumes a capable unattributed live bell while lookup remains pending', async () => {
+    context.getStore().settings = {
+      ...context.getStore().settings,
+      terminalMainSideEffectAuthority: true
+    }
+    const admission = Promise.withResolvers<boolean>()
+    Object.assign(window.api.pty, { hasPty: vi.fn(() => admission.promise) })
+    const { TerminalSnapshotState } = await import('../../../../shared/terminal-snapshot-state')
+    const pinnedRoot = process.env.ORCA_PR31182_PINNED_MAIN_PARITY_ROOT
+    const handler = pinnedRoot
+      ? await import(/* @vite-ignore */ `${pinnedRoot}/terminal-side-effect-facts-handler.ts`)
+      : await import('./terminal-side-effect-facts-handler')
+    const watcher = pinnedRoot
+      ? await import(/* @vite-ignore */ `${pinnedRoot}/parked-terminal-byte-watcher.ts`)
+      : await import('./parked-terminal-byte-watcher')
+    const dispose = watcher.startParkedTerminalByteWatcher({
+      ptyId: PTY_ID,
+      tabId: TAB_ID,
+      worktreeId: WORKTREE_ID,
+      leafId: LEAF_ID,
+      paneId: PANE_ID
+    })
+    const source = new TerminalSnapshotState()
+    const deliver = (replay: boolean) =>
+      handler.dispatchTerminalSideEffectBatch({
+        ptyId: PTY_ID,
+        seq: source.state.revision,
+        replay,
+        facts: replay ? [] : [{ kind: 'bell' }],
+        terminalState: {
+          runtimeId: 'runtime-1',
+          incarnationId: 'incarnation-1',
+          snapshot: source.snapshot()
+        }
+      })
+    deliver(true)
+    source.record({ kind: 'bell' })
+    deliver(false)
+    await vi.advanceTimersByTimeAsync(16_000)
+    admission.resolve(true)
+    await vi.advanceTimersByTimeAsync(AGENT_TASK_COMPLETE_NOTIFICATION_MAX_WAIT_MS)
+    dispose()
+    expect(context.getStore().markTerminalBell).toHaveBeenCalledOnce()
+    expect(dispatchTerminalNotification).toHaveBeenCalledOnce()
+  })
+
+  it('keeps the same parser and controllers through legacy retry, capable upgrade and obsolete callbacks', async () => {
+    const ptyId = 'remote:env-1@@terminal-1'
+    const handler = await import('./terminal-side-effect-facts-handler')
+    const { TerminalSnapshotState } = await import('../../../../shared/terminal-snapshot-state')
+    const state = new TerminalSnapshotState()
+    const deliver = (runtimeId: string, incarnationId = 'physical', baseline = false) => {
+      handler.dispatchTerminalSideEffectBatch(
+        {
+          ptyId,
+          paneKey: PANE_KEY,
+          tabId: TAB_ID,
+          worktreeId: WORKTREE_ID,
+          seq: state.state.revision,
+          facts: [],
+          replay: baseline,
+          terminalState: { runtimeId, incarnationId, snapshot: state.snapshot() }
+        },
+        baseline ? { baseline: true, source: capableSource } : undefined
+      )
+    }
+    const capableSource = {}
+    deliver('runtime-1', 'physical', true)
+    const resident = handler.getTerminalSemanticResident(ptyId)!
+    const policy = resident.policy
+    const legacySource = policy.legacySource
+    handler.installTerminalSideEffectSource('env-1', {}, false)
+    await vi.advanceTimersByTimeAsync(0)
+    const first = context.getRemoteSubscriptions().at(-1)!
+    expect(first).toBeDefined()
+    first.data('\x1b]0;part', { seq: 9 })
+    first.options?.onTransportClose?.({ reason: 'closed' } as never)
+    await vi.advanceTimersByTimeAsync(250)
+    const retry = context.getRemoteSubscriptions().at(-1)!
+    expect(retry).not.toBe(first)
+    expect(first.close).toHaveBeenCalledOnce()
+    retry.data('ial\x07', { seq: 13 })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(context.getStore().updateTabTitle).toHaveBeenCalledWith(TAB_ID, 'partial')
+    expect(handler.getTerminalSemanticResident(ptyId)).toBe(resident)
+    expect(resident.policy).toBe(policy)
+    expect(resident.policy.legacySource).toBe(legacySource)
+    const before = context.getStore().markTerminalBell.mock.calls.length
+    retry.data('\x07', { seq: 14 })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(context.getStore().markTerminalBell).toHaveBeenCalledTimes(before + 1)
+    handler.installTerminalSideEffectSource('env-1', capableSource, true)
+    state.record({ kind: 'bell' })
+    deliver('runtime-2', 'physical', true)
+    expect(context.getStore().markTerminalBell).toHaveBeenCalledTimes(before + 1)
+    first.data('\x07', { seq: 15 })
+    retry.data('\x07', { seq: 15 })
+    retry.options?.onEnd?.('exited')
+    expect(resident.isLive).toBe(true)
+    state.record({ kind: 'bell' })
+    deliver('runtime-2')
+    expect(context.getStore().markTerminalBell).toHaveBeenCalledTimes(before + 2)
+    expect(handler.getTerminalSemanticResident(ptyId)).toBe(resident)
+    expect(retry.close).toHaveBeenCalledOnce()
+    deliver('runtime-2', 'replacement', true)
+    expect(resident.isLive).toBe(true)
+    handler.installTerminalSideEffectSource('env-1', {}, false)
+    await vi.advanceTimersByTimeAsync(0)
+    context.getRemoteSubscriptions().at(-1)?.options?.onAdmitted?.({
+      ptyId: 'terminal-1',
+      incarnationId: 'replacement'
+    })
+    expect(resident.isLive).toBe(false)
+    expect(handler.getTerminalSemanticResident(ptyId)).not.toBe(resident)
   })
 
   it('production Uprime retains the local authority-OFF raw-buffer bell', async () => {

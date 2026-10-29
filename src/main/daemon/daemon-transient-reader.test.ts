@@ -12,6 +12,202 @@ import type { DaemonEvent } from './daemon-stream-events'
 const tick = () => new Promise<void>((resolve) => setImmediate(resolve))
 
 describe('complete terminal state delivery', () => {
+  it('bounds unrelated queue visits for one latest-state update at N and 10N', () => {
+    const visits: number[] = []
+    for (const size of [10, 100]) {
+      const socket = new Socket()
+      const batcher = new DaemonStreamDataBatcher(() => ({ streamSocket: socket }))
+      const state = new TerminalSnapshotState()
+      const sink = batcher.bindTransients('client', 'canonical')
+      if (!sink) {
+        throw new Error('Expected a live transient sink')
+      }
+      let visited = 0
+      const nativeFilter = Array.prototype.filter
+      let spy: ReturnType<typeof vi.spyOn> | undefined
+      try {
+        sink.install(state.snapshot(), 'incarnation', () => state.snapshot())
+        for (let index = 0; index < size; index++) {
+          batcher.enqueue('client', `unrelated-${index}`, 'x')
+        }
+        spy = vi.spyOn(Array.prototype, 'filter').mockImplementation(function (
+          this: unknown[],
+          predicate,
+          thisArg
+        ) {
+          visited += this.length
+          return nativeFilter.call(this, predicate, thisArg)
+        })
+        state.record({ kind: 'bell' })
+        sink.stage(state.snapshot())
+        sink.commit()
+        visits.push(visited)
+      } finally {
+        spy?.mockRestore()
+        batcher.clear()
+        socket.destroy()
+      }
+    }
+    expect(visits[0], `queue visits at N and 10N: ${visits.join(', ')}`).toBeLessThanOrEqual(2)
+    expect(visits[1]).toBeLessThanOrEqual(2)
+  })
+
+  it('amortizes actual slot traversal and bounds tombstones while moving latest after ordinary output', () => {
+    for (const size of [10, 100]) {
+      const socket = new Socket()
+      const events: DaemonEvent[] = []
+      vi.spyOn(socket, 'write').mockImplementation((...args: unknown[]) => {
+        events.push(JSON.parse(String(args[0])))
+        return true
+      })
+      const batcher = new DaemonStreamDataBatcher(() => ({ streamSocket: socket }))
+      const state = new TerminalSnapshotState()
+      const sink = batcher.bindTransients('client', 'canonical')!
+      try {
+        sink.install(state.snapshot(), 'incarnation', () => state.snapshot())
+        for (let index = 0; index < size; index++) {
+          batcher.enqueue('client', `other-${index}`, 'x')
+        }
+        const batches = Reflect.get(batcher, 'pendingByClient')
+        const batch = batches.get('client')
+        let visits = 0
+        const wrap = (queue: unknown[]) =>
+          new Proxy(queue, {
+            get: (target, key, receiver) => {
+              if (typeof key === 'string' && /^\d+$/.test(key)) {
+                visits++
+              }
+              return Reflect.get(target, key, receiver)
+            }
+          })
+        let queue = wrap(batch.queue)
+        Object.defineProperty(batch, 'queue', {
+          get: () => queue,
+          set: (value: unknown[]) => {
+            queue = wrap(value)
+          },
+          configurable: true
+        })
+        const updates = size * 4
+        for (let index = 0; index < updates; index++) {
+          state.record({ kind: 'bell' })
+          sink.stage(state.snapshot())
+          sink.commit()
+          expect(batch.latestSnapshots.size).toBe(1)
+          expect(batch.queue.length).toBeLessThanOrEqual(2 * (size + 2))
+        }
+        expect(visits).toBeLessThanOrEqual(4 * updates + size)
+        batcher.enqueue('client', 'canonical', 'between')
+        state.record({ kind: 'bell' })
+        sink.stage(state.snapshot())
+        sink.commit()
+        batcher.flush('client')
+        const own = events.filter((event) => event.sessionId === 'canonical')
+        expect(own.map((event) => event.event)).toEqual([
+          'terminalObservation',
+          'data',
+          'terminalObservation'
+        ])
+        expect(own[0]).toMatchObject({ payload: { effects: {} } })
+        expect(own[1]).toMatchObject({ payload: { data: 'between' } })
+        expect(own[2]).toMatchObject({ payload: { effects: { bell: { count: updates + 1 } } } })
+        expect(batch.latestSnapshots.size).toBe(0)
+        expect(batch.discardedEntries).toBe(0)
+        expect(batch.queuedMetadataBytesBySession.size).toBe(0)
+        expect(batcher.queuedCharsForClient('client')).toBe(0)
+        expect(visits).toBeLessThanOrEqual(8 * (updates + size))
+      } finally {
+        sink.dispose?.()
+        batcher.clear()
+        socket.destroy()
+      }
+    }
+  })
+
+  it('bounds actual queue work through dead latest slots, held flush, drain and disposal at N and 10N', () => {
+    for (const size of [10, 100]) {
+      const socket = new Socket()
+      let deep = 256 * 1024
+      Object.defineProperty(socket, 'writableLength', { get: () => deep })
+      const writes = vi.spyOn(socket, 'write').mockReturnValue(true)
+      const batcher = new DaemonStreamDataBatcher(() => ({ streamSocket: socket }), {
+        isSessionDroppable: () => true
+      })
+      const state = new TerminalSnapshotState()
+      const sinks = Array.from({ length: size }, (_, index) =>
+        batcher.bindTransients('client', `physical-${index}`)!
+      )
+      try {
+        for (const sink of sinks) {
+          sink.install(state.snapshot(), 'incarnation', () => state.snapshot())
+        }
+        const batch = Reflect.get(batcher, 'pendingByClient').get('client')
+        let operations = 0
+        const wrap = (items: unknown[]) =>
+          new Proxy(items, {
+            get: (target, key, receiver) => {
+              if (typeof key === 'string' && /^\d+$/.test(key)) {
+                operations++
+              }
+              return Reflect.get(target, key, receiver)
+            },
+            set: (target, key, value, receiver) => {
+              if (typeof key === 'string' && /^\d+$/.test(key)) {
+                operations++
+              }
+              return Reflect.set(target, key, value, receiver)
+            },
+            deleteProperty: (target, key) => {
+              operations++
+              return Reflect.deleteProperty(target, key)
+            }
+          })
+        let queue = wrap(batch.queue)
+        Object.defineProperty(batch, 'queue', {
+          get: () => queue,
+          set: (items: unknown[]) => {
+            queue = wrap(items)
+          },
+          configurable: true
+        })
+        for (const sink of sinks) {
+          sink.stage(state.snapshot())
+          sink.commit()
+        }
+        const unrelated = 4 * size
+        for (let index = 0; index < unrelated; index++) {
+          batcher.enqueue('client', `held-${index}`, 'x'.repeat(8192))
+        }
+        state.record({ kind: 'bell' })
+        for (const sink of sinks) {
+          sink.stage(state.snapshot())
+          sink.commit()
+        }
+        batcher.flush('client')
+        expect(batch.discardedEntries).toBe(0)
+        expect(batch.latestSnapshots.size).toBe(size)
+        expect(batcher.queuedCharsForClient('client')).toBe(unrelated * 8192)
+        const beforeDrop = batcher.queuedCharsForClient('client')
+        batcher.enqueue('client', 'dropper', 'x'.repeat(1200000))
+        expect(batcher.queuedCharsForClient('client') - beforeDrop).toBeGreaterThan(0)
+        expect(batcher.queuedCharsForClient('client') - beforeDrop).toBeLessThan(1200000)
+        deep = 0
+        batcher.flush('client')
+        expect(writes.mock.calls.some(([line]) => String(line).includes('"dataGap"'))).toBe(true)
+        sinks.forEach((sink) => sink.dispose?.())
+        expect(batch.queue).toHaveLength(0)
+        expect(batch.latestSnapshots.size).toBe(0)
+        expect(batch.queuedMetadataBytesBySession.size).toBe(0)
+        expect(batcher.queuedCharsForClient('client')).toBe(0)
+        expect(operations).toBeLessThanOrEqual(30 * (size + unrelated))
+      } finally {
+        sinks.forEach((sink) => sink.dispose?.())
+        batcher.clear()
+        socket.destroy()
+      }
+    }
+  })
+
   it.each(['ndjson', 'binary-v1'] as const)(
     'recovers advancing effects once after a held %s gap without a FIFO',
     async (streamFraming) => {

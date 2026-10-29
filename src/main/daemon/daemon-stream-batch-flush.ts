@@ -41,6 +41,10 @@ export function flushDaemonStreamBatch(
   let index = 0
   while (index < batch.queue.length) {
     const entry = batch.queue[index]
+    if (entry.discarded) {
+      index++
+      continue
+    }
     if (onlySession !== undefined && entry.sessionId !== onlySession) {
       index++
       continue
@@ -52,7 +56,8 @@ export function flushDaemonStreamBatch(
         index++
         continue
       }
-      batch.queue.splice(index, 1)
+      entry.discarded = true
+      index++
       releaseDaemonStreamEntry(batch, entry)
       write(clientId, entry.sessionId, socket, frames.control(entry.observation))
       continue
@@ -68,7 +73,8 @@ export function flushDaemonStreamBatch(
         index++
         continue
       }
-      batch.queue.splice(index, 1)
+      entry.discarded = true
+      index++
       releaseDaemonStreamEntry(batch, entry)
       write(clientId, entry.sessionId, socket, frames.control(entry.control))
       continue
@@ -109,7 +115,8 @@ export function flushDaemonStreamBatch(
         : slice.length
     const finalSlice = end >= entry.data.length
     if (finalSlice) {
-      batch.queue.splice(index, 1)
+      entry.discarded = true
+      index++
       releaseDaemonStreamEntry(batch, entry)
     } else {
       entry.data = entry.data.slice(end)
@@ -136,6 +143,8 @@ export function flushDaemonStreamBatch(
       entry.transformed
     )
   }
+  batch.queue = batch.queue.filter((entry) => !entry.discarded)
+  batch.discardedEntries = 0
   updateBackpressure()
   if (batch.queue.length > 0) {
     // 'drain' only fires when the buffer fully empties (one gate-depth/turn = seconds for multi-MB backlogs); arm a no-op data event whose flush callback re-flushes while bytes are still in flight.

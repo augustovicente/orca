@@ -14,6 +14,7 @@ export type PendingPtyInputWrite = {
   inputKind: TerminalInputKind
   resolveAccepted: ((accepted: boolean) => void) | undefined
   call?: TerminalInputCall
+  eligible?: boolean
   tooLarge: boolean | Promise<boolean>
   chunks?: Iterator<string>
   nextChunk?: string
@@ -51,4 +52,11 @@ export function isCoalesciblePtyInput(input: PendingPtyInputWrite): boolean {
     !input.replyOnly &&
     !input.resolveAccepted
   )
+}
+
+export function notifyEligiblePtyInputWrite(item: PendingPtyInputWrite): void {
+  if (!item.eligible && !item.resolveAccepted && item.tooLarge === false) {
+    item.eligible = true
+    item.call?.onEligible(item.id)
+  }
 }

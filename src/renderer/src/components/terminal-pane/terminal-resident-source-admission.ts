@@ -26,6 +26,8 @@ export function createTerminalResidentSourceAdmissions(
     binding: TerminalResidentBinding
     byteSource: boolean
     services?: TerminalResidentServices
+    selectLegacy?: boolean
+    installationSource?: object
   }): TerminalSemanticResident {
     let existing = residentsByPtyId.get(options.ptyId)
     if (
@@ -39,7 +41,7 @@ export function createTerminalResidentSourceAdmissions(
     const sameExecution =
       existing &&
       (!options.incarnationId || existing.identity.incarnationId === options.incarnationId)
-    if (sameExecution && existing.identity.runtimeId !== null) {
+    if (sameExecution && existing.identity.runtimeId !== null && !options.selectLegacy) {
       return existing
     }
     const paired = parseRemoteRuntimePtyId(options.ptyId)
@@ -65,7 +67,7 @@ export function createTerminalResidentSourceAdmissions(
         )
     resident.policy.bindPty(identity.ptyId, identity.incarnationId)
     residentsByPtyId.set(options.ptyId, resident)
-    if (!sameExecution) {
+    if (!sameExecution || options.selectLegacy) {
       resident.policy.legacySource.byteSource = options.byteSource
     }
     drainHandoffFactBuffer(options.ptyId, resident)
@@ -74,6 +76,9 @@ export function createTerminalResidentSourceAdmissions(
       disposeLegacySource(options.ptyId)
       legacy = { resident, source: resident.policy.legacySource }
       legacySourcesByPtyId.set(options.ptyId, legacy)
+    }
+    if (options.installationSource) {
+      legacy.installationSource = options.installationSource
     }
     if (options.byteSource && !legacy.unsubscribe) {
       legacy.unsubscribe = paired
@@ -101,7 +106,11 @@ export function createTerminalResidentSourceAdmissions(
     if (typeof hasPty !== 'function') {
       return
     }
-    const source = { tabId: options.binding.tabId, paneKey: options.binding.paneKey }
+    const source = {
+      tabId: options.binding.tabId,
+      paneKey: options.binding.paneKey,
+      binding: options.binding
+    }
     sourceSubscriptionsByPtyId.set(options.ptyId, source)
     void hasPty(options.ptyId)
       .then((present) => {
@@ -124,15 +133,23 @@ export function createTerminalResidentSourceAdmissions(
     options: Parameters<typeof admitLegacyTerminalSemanticResident>[0]
   ): void {
     if (
-      residentsByPtyId.get(options.ptyId)?.identity.runtimeId != null ||
+      (residentsByPtyId.get(options.ptyId)?.identity.runtimeId != null &&
+        !legacySourcesByPtyId.has(options.ptyId)) ||
       sourceSubscriptionsByPtyId.has(options.ptyId)
     ) {
       return
     }
-    const source: { close?: () => void; endpoint?: string; tabId: string; paneKey: string } = {
+    const source: {
+      close?: () => void
+      endpoint?: string
+      tabId: string
+      paneKey: string
+      binding: TerminalResidentBinding
+    } = {
       endpoint: parseRemoteRuntimePtyId(options.ptyId)?.environmentId,
       tabId: options.binding.tabId,
-      paneKey: options.binding.paneKey
+      paneKey: options.binding.paneKey,
+      binding: options.binding
     }
     sourceSubscriptionsByPtyId.set(options.ptyId, source)
     // The named stream's actual acknowledgement admits E before its first live callback.
@@ -140,7 +157,8 @@ export function createTerminalResidentSourceAdmissions(
       admitLegacyTerminalSemanticResident({
         ...options,
         incarnationId: result?.incarnationId,
-        byteSource: true
+        byteSource: true,
+        selectLegacy: legacySourcesByPtyId.has(options.ptyId)
       })
     )
   }

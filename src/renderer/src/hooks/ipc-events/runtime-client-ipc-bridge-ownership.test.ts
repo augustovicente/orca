@@ -538,3 +538,88 @@ it('installs a restarted runtime baseline before live effects on the same physic
     await h.finish()
   }
 })
+
+it('R2-C3 follows actual empty-ready rollback and upgrade with stale or missing status on the same execution', async () => {
+  const h = createHarness()
+  const markTerminalBell = vi.fn()
+  useAppStore.setState({
+    markTerminalBell,
+    fetchHostWorkspaceStatuses: vi.fn(async () => {}),
+    settings: { ...useAppStore.getState().settings, activeRuntimeEnvironmentId: 'host-a' }
+  })
+  const source = new TerminalSnapshotState()
+  const ptyId = toRemoteRuntimePtyId('physical', 'host-a')
+  const batch = () => ({
+    ptyId: 'physical',
+    paneKey: 'tab:leaf',
+    tabId: 'tab',
+    worktreeId: 'remote-wt',
+    seq: source.state.revision,
+    facts: [],
+    terminalState: {
+      runtimeId: 'new-runtime',
+      incarnationId: 'incarnation',
+      snapshot: source.snapshot()
+    }
+  })
+  const legacy = () => ({
+    type: 'terminalSideEffects' as const,
+    batch: {
+      ptyId: 'physical',
+      paneKey: 'tab:leaf',
+      tabId: 'tab',
+      worktreeId: 'remote-wt',
+      seq: 1,
+      facts: [{ kind: 'bell' as const }]
+    }
+  })
+  try {
+    h.start()
+    h.emit(0, false, {
+      type: 'ready',
+      subscriptionId: 'sub-0',
+      snapshot: { terminalSideEffects: [batch()] }
+    })
+    const resident = getTerminalSemanticResident(ptyId)
+    expect(resident).toBeDefined()
+    const policy = resident?.policy
+    const cursor = resident && Reflect.get(resident, 'consumption')
+    // Store capability deliberately remains stale-capable throughout rollback.
+    h.emit(0, true, { type: 'ready', subscriptionId: 'sub-0', snapshot: {} })
+    expect(h.pending).toHaveLength(2)
+    h.emit(1, false, { type: 'ready', subscriptionId: 'sub-1', snapshot: {} })
+    h.emit(0, false, legacy())
+    expect(markTerminalBell).not.toHaveBeenCalled()
+    h.emit(1, false, legacy())
+    expect(markTerminalBell).toHaveBeenCalledOnce()
+    // Missing separately refreshed status must not suppress a current actual ready.
+    useAppStore.setState({
+      settings: { ...useAppStore.getState().settings, activeRuntimeEnvironmentId: 'host-a' },
+      runtimeStatusByEnvironmentId: new Map()
+    })
+    expect(h.pending).toHaveLength(4)
+    h.emit(2, false, { type: 'ready', subscriptionId: 'sub-2', snapshot: {} })
+    h.emit(2, false, legacy())
+    expect(markTerminalBell).toHaveBeenCalledOnce()
+    h.emit(3, false, {
+      type: 'ready',
+      subscriptionId: 'sub-3',
+      snapshot: { terminalSideEffects: [] }
+    })
+    h.emit(3, false, legacy())
+    expect(markTerminalBell).toHaveBeenCalledOnce()
+    expect(getTerminalSemanticResident(ptyId)).toBe(resident)
+    expect(Reflect.get(cursor!, 'previous')?.revision).toBe(0)
+    source.record({ kind: 'bell' }, Date.now())
+    h.emit(3, false, { type: 'terminalSideEffects', batch: batch() })
+    expect(Reflect.get(cursor!, 'previous')?.revision).toBe(1)
+    expect(markTerminalBell).toHaveBeenCalledTimes(2)
+    h.emit(1, false, legacy())
+    expect(markTerminalBell).toHaveBeenCalledTimes(2)
+    expect(getTerminalSemanticResident(ptyId)).toBe(resident)
+    expect(resident?.policy).toBe(policy)
+    expect(resident && Reflect.get(resident, 'consumption')).toBe(cursor)
+  } finally {
+    await h.finish()
+  }
+})

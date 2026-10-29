@@ -1,4 +1,3 @@
-import { serializeAgentStatusSubject } from '../../../shared/agent-status-subject'
 import type { AgentHookEventPayload } from '../../../shared/agent-hook-listener/listener-event'
 import { isTmuxInnerSubject } from '../../../shared/tmux-agent-hook-owner'
 import type { AgentHookLaunchObservation, AgentHookLaunchSubject } from './server-authority-state'
@@ -8,7 +7,6 @@ import { AgentHookServerState } from './server-state'
 export abstract class AgentHookServerAuthorityProjection extends AgentHookServerState {
   getCanonicalStatusSnapshot() {
     const snapshot = this.canonicalStatusStore.getSnapshot()
-    const parents = this.canonicalStatusStore.getParents()
     return {
       ...snapshot,
       parents: snapshot.parents.map((parent) => ({
@@ -17,11 +15,7 @@ export abstract class AgentHookServerAuthorityProjection extends AgentHookServer
           ? {
               status: this.projectLaunchAuthority(
                 parent.status,
-                parents.find(
-                  (current) =>
-                    serializeAgentStatusSubject(current.subject) ===
-                    serializeAgentStatusSubject(parent.subject)
-                )
+                this.canonicalStatusStore.getCanonicalParent(parent.subject) ?? undefined
               )
             }
           : {})
@@ -30,17 +24,19 @@ export abstract class AgentHookServerAuthorityProjection extends AgentHookServer
   }
 
   protected authoritySubject(paneKey: string): AgentHookLaunchSubject | undefined {
-    return (
-      this.state.lastStatusByPaneKey.get(paneKey) ??
-      this.canonicalStatusStore
-        .getParents()
-        .find(
-          (parent) =>
-            parent.subject.kind === 'pty' &&
-            parent.subject.paneKey === paneKey &&
-            !isTmuxInnerSubject(parent.subject)
-        )
-    )
+    const legacy = this.state.lastStatusByPaneKey.get(paneKey)
+    if (legacy) {
+      return legacy
+    }
+    for (const subject of this.canonicalSubjectsByPane.get(paneKey)?.values() ?? []) {
+      if (subject.kind === 'pty' && !isTmuxInnerSubject(subject)) {
+        const parent = this.canonicalStatusStore.getCanonicalParent(subject)
+        if (parent) {
+          return parent
+        }
+      }
+    }
+    return undefined
   }
 
   protected applicableAuthority(observation: AgentHookLaunchObservation | undefined): boolean {

@@ -8,9 +8,12 @@ import { admitSshConnectionState } from '../../../shared/ssh-retained-payload-ad
 import { getRuntimeEnvironmentRevision } from './runtime-environment-revision'
 import { subscribeRuntimeEnvironment } from './runtime-environment-pairing-refresh'
 
-export type RuntimeClientEventInstallation = { baseline: true; source: object }
+export type RuntimeClientEventInstallation = { baseline: boolean; source: object }
+export type RuntimeClientEventDelivery =
+  | RuntimeClientEvent
+  | { type: 'terminalSideEffectsReady'; capable: boolean }
 export type RuntimeClientEventReceiver = (
-  event: RuntimeClientEvent,
+  event: RuntimeClientEventDelivery,
   installation?: RuntimeClientEventInstallation
 ) => void
 
@@ -65,6 +68,13 @@ function handleRuntimeClientEventResponse(
   }
   const message = response.result as RuntimeClientEventStreamMessage
   if (message.type === 'ready') {
+    onEvent(
+      {
+        type: 'terminalSideEffectsReady',
+        capable: message.snapshot?.terminalSideEffects !== undefined
+      },
+      { baseline: true, source }
+    )
     for (const batch of message.snapshot?.terminalSideEffects ?? []) {
       onEvent(
         { type: 'terminalSideEffects', batch: { ...batch, replay: true } },
@@ -94,7 +104,10 @@ function handleRuntimeClientEventResponse(
     return
   }
   if (isRuntimeClientEvent(message)) {
-    onEvent(message)
+    onEvent(
+      message,
+      message.type === 'terminalSideEffects' ? { baseline: false, source } : undefined
+    )
   }
 }
 

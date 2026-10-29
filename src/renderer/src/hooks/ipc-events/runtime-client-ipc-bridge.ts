@@ -1,5 +1,8 @@
 import { applyHostWorktreeTerminalSleepState } from '@/components/terminal-pane/pty-shutdown-exit-deferral'
-import { dispatchTerminalSideEffectBatch } from '@/components/terminal-pane/terminal-side-effect-facts-handler'
+import {
+  dispatchTerminalSideEffectBatch,
+  installTerminalSideEffectSource
+} from '@/components/terminal-pane/terminal-side-effect-facts-handler'
 import { emitAutomationsChangedWindowEvent } from '@/lib/automations-changed-window-event'
 import { applyNativeChatLaunchDraftResolved } from '@/runtime/native-chat-launch-draft-runtime-resolution'
 import { getRuntimeEnvironmentRevision } from '@/runtime/runtime-environment-revision'
@@ -97,12 +100,18 @@ export function registerRuntimeClientIpcBridge(
 
   const handleRuntimeClientEvent = (
     environmentId: string,
-    event: RuntimeClientEvent,
+    event: RuntimeClientEvent | { type: 'terminalSideEffectsReady'; capable: boolean },
     installation?: RuntimeClientEventInstallation,
     generation = getEnvironmentSshStateGeneration(environmentId)
   ): void => {
     if (event.type === 'worktreeTerminalSleepState') {
       applyHostWorktreeTerminalSleepState(environmentId, event)
+      return
+    }
+    if (event.type === 'terminalSideEffectsReady') {
+      if (installation) {
+        installTerminalSideEffectSource(environmentId, installation.source, event.capable)
+      }
       return
     }
     if (event.type === 'terminalSideEffects') {

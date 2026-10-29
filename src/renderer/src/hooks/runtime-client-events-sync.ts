@@ -1,4 +1,3 @@
-import type { RuntimeClientEvent } from '../../../shared/runtime-client-events'
 import type {
   RuntimeClientEventInstallation,
   RuntimeClientEventReceiver
@@ -23,7 +22,7 @@ export type RuntimeClientEventsSyncDeps = {
   ) => Promise<RuntimeClientEventSubscriptionHandle>
   onEvent: (
     environmentId: string,
-    event: RuntimeClientEvent,
+    event: Parameters<RuntimeClientEventReceiver>[0],
     installation?: RuntimeClientEventInstallation
   ) => void
   /** Base retry delay; doubles per consecutive failure up to retryMaxDelayMs. */

@@ -112,7 +112,8 @@ export function createIpcPtyTransport(opts: IpcPtyTransportOptions = {}): PtyTra
     await preconnectInputBuffer.flush({
       ptyId: id,
       isCurrent: () => !destroyed && connected && ptyId === id,
-      sendInput: (data, inputKind) => inputWriteQueue.enqueue(id, data, inputKind),
+      handlesInputEligibility: true,
+      sendInput: (data, inputKind, call) => inputWriteQueue.enqueue(id, data, inputKind, call),
       sendInputImmediate: (data) => inputWriteQueue.enqueueQueryReply(id, data),
       ...(connectionId
         ? {}
@@ -236,7 +237,6 @@ export function createIpcPtyTransport(opts: IpcPtyTransportOptions = {}): PtyTra
       if (destroyed || !connected || !ptyId) {
         return false
       }
-      call?.onEligible(ptyId)
       return inputWriteQueue.enqueue(ptyId, data, inputKind, call)
     },
 

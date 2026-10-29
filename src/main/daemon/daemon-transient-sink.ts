@@ -3,7 +3,7 @@ import type { TerminalTransientSink } from '../../shared/terminal-transient-obse
 import type { StreamQueueEntry, PendingStreamDataBatch } from './daemon-stream-keep-tail-drop'
 import {
   accountDaemonStreamEntry,
-  releaseDaemonStreamEntry
+  discardDaemonStreamEntry
 } from './daemon-stream-entry-accounting'
 
 export function createDaemonTransientSink(
@@ -36,6 +36,7 @@ export function createDaemonTransientSink(
     const batch = context.getBatch()
     context.removeSnapshot(batch)
     queuedEntry = {
+      queued: true,
       sessionId,
       data: '',
       observation: {
@@ -46,12 +47,17 @@ export function createDaemonTransientSink(
         payload: pending
       }
     }
+    batch.latestSnapshots ??= new Map()
+    batch.latestSnapshots.set(sessionId, queuedEntry)
     batch.queue.push(queuedEntry)
     pending = null
     context.scheduleFlush(batch)
   }
   return {
     install: (state, incarnation, read) => {
+      if (disposed || !context.isCurrent() || socket.destroyed) {
+        return
+      }
       incarnationId = incarnation
       readCurrent = read
       const batch = context.getBatch()
@@ -81,13 +87,8 @@ export function createDaemonTransientSink(
       readCurrent = undefined
       const batch = context.getPendingBatch()
       if (batch) {
-        batch.queue = batch.queue.filter((entry) => {
-          if (entry !== queuedEntry && entry !== installation) {
-            return true
-          }
-          releaseDaemonStreamEntry(batch, entry)
-          return false
-        })
+        discardDaemonStreamEntry(batch, queuedEntry)
+        discardDaemonStreamEntry(batch, installation)
         context.updateBackpressure(batch)
       }
       queuedEntry = undefined

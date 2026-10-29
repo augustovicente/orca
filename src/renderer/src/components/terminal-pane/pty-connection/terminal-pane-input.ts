@@ -1,4 +1,6 @@
 import { useAppStore } from '@/store'
+import { detectAgentStatusFromTitle } from '@/lib/agent-status'
+import { titleAfterInferredInterrupt } from '../../../../../shared/terminal-pane-title-reset'
 import { createAgentQuestionAnsweredInference } from '../agent-question-answered-inference'
 import { isPassiveTerminalInputReport } from '../terminal-passive-input-report'
 import { markTerminalBracketedPasteInterrupted } from '../terminal-bracketed-paste'
@@ -47,5 +49,27 @@ export function installTerminalPaneInput(session: ConnectPanePtySession): void {
     if (!isPassiveTerminalInputReport(data)) {
       dismissRetainedProgramResult(paneKey, useAppStore.getState())
     }
+  }
+}
+
+/** A true input receipt can clear stale presentation evidence without certifying a process. */
+export function clearUnchangedTitleOnlyWorking(
+  session: ConnectPanePtySession,
+  title: string | null
+): void {
+  if (
+    useAppStore.getState().agentStatusByPaneKey[session.cacheKey] ||
+    session.getCurrentTerminalTitle() !== title ||
+    detectAgentStatusFromTitle(title ?? '') !== 'working'
+  ) {
+    return
+  }
+  const neutral = titleAfterInferredInterrupt(title, session.neutralTerminalTitle())
+  if (neutral === null) {
+    return
+  }
+  session.deps.setRuntimePaneTitle(session.deps.tabId, session.pane.id, neutral)
+  if (session.manager.getActivePane()?.id === session.pane.id) {
+    session.deps.updateTabTitle(session.deps.tabId, neutral)
   }
 }

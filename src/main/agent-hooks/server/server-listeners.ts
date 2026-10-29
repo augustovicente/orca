@@ -244,12 +244,7 @@ export abstract class AgentHookServerListeners extends AgentHookServerAuthorityP
     }
     const rows: AgentStatusIpcPayload[] = []
     for (const subject of this.canonicalSubjectsByPane.get(paneKey)?.values() ?? []) {
-      const parent = this.canonicalStatusStore
-        .getParents()
-        .find(
-          (record) =>
-            serializeAgentStatusSubject(record.subject) === serializeAgentStatusSubject(subject)
-        )
+      const parent = this.canonicalStatusStore.getCanonicalParent(subject)
       if (parent?.status) {
         rows.push(this.projectLaunchAuthority(parent.status, parent))
       }

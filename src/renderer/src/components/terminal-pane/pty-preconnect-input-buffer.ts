@@ -1,3 +1,4 @@
+import { notifyRetainedPtyInput } from './pty-preconnect-input-handoff'
 import { CLIPBOARD_TEXT_MEASURE_YIELD_CODE_UNITS } from '../../../../shared/clipboard-text'
 import type { TerminalInputCall } from './terminal-input-call'
 import type { TerminalInputKind } from '../../../../shared/terminal-input-kind'
@@ -27,7 +28,9 @@ type BufferedInput = PtyPreconnectInputEntry & {
 export type PreconnectInputWriter = {
   isCurrent: () => boolean
   ptyId?: string
-  sendInput: (data: string, inputKind: TerminalInputKind) => boolean
+  sendInput: (data: string, inputKind: TerminalInputKind, call?: TerminalInputCall) => boolean
+  /** The actual local queue rejects failed/oversized calls before folding them. */
+  handlesInputEligibility?: boolean
   sendInputImmediate: (data: string) => boolean
   sendInputAccepted?: (
     data: string,
@@ -136,22 +139,6 @@ export function createPtyPreconnectInputBuffer(
     pendingCodeUnits -= input.data.length
     input.resolve?.(false)
   }
-  const notifyRetained = (
-    onRetained: ((entry: PtyPreconnectInputEntry) => void) | undefined,
-    input: BufferedInput
-  ): void => {
-    try {
-      onRetained?.({
-        data: input.data,
-        kind: input.kind,
-        inputKind: input.inputKind,
-        ...(input.calls ? { calls: input.calls.slice() } : {})
-      })
-    } catch {
-      // Handoff capture is advisory; a callback failure must not reject input admission.
-    }
-  }
-
   // Seeded entries already belong to predecessor handoff; do not report them back as newly typed.
   for (const entry of initialEntries) {
     retain({
@@ -230,7 +217,7 @@ export function createPtyPreconnectInputBuffer(
           }
           continue
         }
-        if (writer.ptyId) {
+        if (writer.ptyId && !writer.handlesInputEligibility) {
           for (const { call } of input.calls ?? []) {
             call.onEligible(writer.ptyId)
             call.onDispatch(writer.ptyId)
@@ -239,7 +226,18 @@ export function createPtyPreconnectInputBuffer(
         const accepted =
           input.kind === 'immediate'
             ? writer.sendInputImmediate(input.data)
-            : writer.sendInput(input.data, input.inputKind)
+            : writer.sendInput(input.data, input.inputKind, {
+                onEligible: (id) => {
+                  for (const { call } of input.calls ?? []) {
+                    call.onEligible(id)
+                  }
+                },
+                onDispatch: (id) => {
+                  for (const { call } of input.calls ?? []) {
+                    call.onDispatch(id)
+                  }
+                }
+              })
         if (!accepted) {
           clear()
           return
@@ -260,7 +258,7 @@ export function createPtyPreconnectInputBuffer(
     if (!buffering) {
       return Promise.resolve()
     }
-    if (writer.ptyId && writer.isCurrent()) {
+    if (writer.ptyId && writer.isCurrent() && !writer.handlesInputEligibility) {
       for (const input of pending) {
         if (input.kind === 'accepted') {
           break
@@ -270,7 +268,9 @@ export function createPtyPreconnectInputBuffer(
         }
       }
     }
-    const flushPromise = Promise.resolve().then(() => runFlush(writer))
+    const flushPromise = writer.handlesInputEligibility
+      ? runFlush(writer)
+      : Promise.resolve().then(() => runFlush(writer))
     activeFlush = flushPromise
     const releaseFlight = (): void => {
       if (activeFlush === flushPromise) {
@@ -291,7 +291,7 @@ export function createPtyPreconnectInputBuffer(
       }
       const retained = retain(input)
       if (retained) {
-        notifyRetained(onRetained, input)
+        notifyRetainedPtyInput(onRetained, input)
       }
       return retained
     },
@@ -317,7 +317,7 @@ export function createPtyPreconnectInputBuffer(
           return
         }
         signal?.addEventListener('abort', onAbort, { once: true })
-        notifyRetained(onRetained, input)
+        notifyRetainedPtyInput(onRetained, input)
       })
     },
     flush,

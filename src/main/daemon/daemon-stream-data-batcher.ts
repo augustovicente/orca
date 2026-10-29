@@ -8,6 +8,7 @@ import { NDJSON_MAX_LINE_BYTES } from './ndjson'
 import { DaemonStreamBackpressure } from './daemon-stream-backpressure'
 import {
   accountDaemonStreamEntry,
+  discardDaemonStreamEntry,
   releaseDaemonStreamEntry
 } from './daemon-stream-entry-accounting'
 import { DaemonStreamHeldRefill } from './daemon-stream-held-refill'
@@ -85,7 +86,14 @@ export class DaemonStreamDataBatcher {
     installations = false
   ): void {
     if (batch) {
+      if (sessionId !== undefined) {
+        discardDaemonStreamEntry(batch, batch.latestSnapshots?.get(sessionId))
+        return
+      }
       batch.queue = batch.queue.filter((entry) => {
+        if (entry.discarded) {
+          return false
+        }
         const observation =
           entry.observation ??
           (installations && entry.control?.event === 'terminalObservation'
@@ -101,6 +109,7 @@ export class DaemonStreamDataBatcher {
         releaseDaemonStreamEntry(batch, entry)
         return false
       })
+      batch.discardedEntries = 0
     }
   }
 

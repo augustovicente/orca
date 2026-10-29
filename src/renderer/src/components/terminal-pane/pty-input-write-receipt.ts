@@ -24,3 +24,19 @@ export async function writeAcceptedPtyChunk(
     pendingAcceptedCancels.delete(cancel)
   }
 }
+
+export function reportPtyInputDrainFailure(
+  deps: PtyInputWriteQueueDeps,
+  failingId: string | null,
+  error: unknown,
+  failureIsCurrent: boolean
+): void {
+  console.warn('[pty-input-write-queue] drain failed:', error)
+  if (failureIsCurrent && failingId !== null) {
+    try {
+      deps.onDrainFailure?.(failingId)
+    } catch (recoveryError) {
+      console.warn('[pty-input-write-queue] failure handler failed:', recoveryError)
+    }
+  }
+}

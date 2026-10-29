@@ -1,3 +1,4 @@
+import type { createIpcPtyTransport } from './pty-transport'
 import type { createRemoteRuntimePtyTransport } from './remote-runtime-pty-transport'
 import type * as React from 'react'
 import { vi } from 'vitest'
@@ -10,6 +11,7 @@ type StoreSubscriber = (state: StoreState) => void
 type PtyConnectionTestBindings = {
   getState: () => StoreState
   getRemoteTransportFactory?: () => typeof createRemoteRuntimePtyTransport | undefined
+  getIpcTransportFactory?: () => typeof createIpcPtyTransport | undefined
   getTransportQueue: () => MockTransport[]
   getTransportOptions: () => Record<string, unknown>[]
   getStoreSubscribers: () => StoreSubscriber[]
@@ -230,9 +232,15 @@ async function transportMockFactory() {
   }
 }
 
-vi.mock('./pty-transport', async () => ({
-  createIpcPtyTransport: vi.fn(await transportMockFactory())
-}))
+vi.mock('./pty-transport', async () => {
+  const create = await transportMockFactory()
+  return {
+    createIpcPtyTransport: vi.fn((options: Record<string, unknown>) => {
+      const real = fixture.current().getIpcTransportFactory?.()
+      return real ? real(options) : create(options)
+    })
+  }
+})
 
 vi.mock('./remote-runtime-pty-transport', async () => {
   const create = await transportMockFactory()

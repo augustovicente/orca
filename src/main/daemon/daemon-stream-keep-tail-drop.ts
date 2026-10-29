@@ -20,11 +20,15 @@ export type StreamQueueEntry = {
   control?: DaemonEvent
   observation?: TerminalObservationEvent
   retainedBytes?: number
+  queued?: boolean
+  discarded?: boolean
 }
 
 export type PendingStreamDataBatch = {
   timer: ReturnType<typeof setTimeout> | null
   queue: StreamQueueEntry[]
+  latestSnapshots?: Map<string, StreamQueueEntry>
+  discardedEntries?: number
   queuedChars: number
   // Track each session so small replies can bypass other sessions' held floods.
   queuedCharsBySession: Map<string, number>
