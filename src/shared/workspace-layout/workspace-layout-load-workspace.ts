@@ -1,3 +1,4 @@
+import { compareRecordedKeys, sortRecordedKeys } from './workspace-layout-recorded-key-order'
 import { ORCA_LAYOUT_OWNER_IS_MAIN } from '../layout-owner-switch'
 import type { Tab } from '../tab-types'
 import { normalizeTerminalLayoutPtyOwnership } from '../terminal-layout-pty-ownership'
@@ -38,34 +39,36 @@ function takeRows({ session, key, terminalHomes }: WorkspaceLoadArgs) {
 
 /** A pane key's leaf for this tab, from the records that name one (the old window's leaf). */
 export function createRecordedLeafReader(session: WorkspaceSessionState) {
-  let suffixes: Map<string, string | null> | undefined
+  let keys: string[] | undefined
   return (tabId: string): string | undefined => {
-    if (!suffixes) {
-      suffixes = new Map()
+    if (!keys) {
+      const distinct = new Set<string>()
       for (const records of [
         session.terminalPtyIncarnationsByPaneKey,
         session.sleepingAgentSessionsByPaneKey,
         session.terminalSurfaceTombstonesByPaneKey
       ]) {
         for (const paneKey of Object.keys(records ?? {})) {
-          // Every literal prefix can be a tab ID; legacy IDs need not end at the first colon.
-          for (
-            let colon = paneKey.indexOf(':');
-            colon !== -1;
-            colon = paneKey.indexOf(':', colon + 1)
-          ) {
-            const prefix = paneKey.slice(0, colon)
-            const suffix = paneKey.slice(colon + 1)
-            if (!suffixes.has(prefix)) {
-              suffixes.set(prefix, suffix)
-            } else if (suffixes.get(prefix) !== suffix) {
-              suffixes.set(prefix, null)
-            }
-          }
+          distinct.add(paneKey)
         }
       }
+      keys = sortRecordedKeys([...distinct])
     }
-    return suffixes.get(tabId) ?? undefined
+    const prefix = `${tabId}:`
+    let low = 0
+    let high = keys.length
+    while (low < high) {
+      const middle = low + Math.floor((high - low) / 2)
+      if (compareRecordedKeys(keys[middle], prefix) < 0) {
+        low = middle + 1
+      } else {
+        high = middle
+      }
+    }
+    const first = keys[low]
+    return first?.startsWith(prefix) && !keys[low + 1]?.startsWith(prefix)
+      ? first.slice(prefix.length)
+      : undefined
   }
 }
 

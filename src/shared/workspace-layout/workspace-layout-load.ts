@@ -12,11 +12,8 @@ import {
   type LayoutContentFacts
 } from './workspace-layout-beside'
 import { omitStoredFields, pickStoredFields } from './stored-record-fields'
-import {
-  applyLegacySurfaceTombstones,
-  loadLeaves,
-  unbindDuplicateTerminals
-} from './workspace-layout-load-bindings'
+import { loadLeaves, unbindDuplicateTerminals } from './workspace-layout-load-bindings'
+import { retireLoadedLegacySurfaces } from './workspace-layout-load-retirement'
 import { diffStoredSession } from './workspace-layout-load-report'
 import type {
   LoadedWorkspaceLayout,
@@ -235,6 +232,6 @@ export function loadWorkspaceLayoutWithoutReport(
   placeClosedTabs(session, layout, carried)
   loadLeaves(layout, { session, layouts }, { view: desktopView, facts, carried }, context)
   unbindDuplicateTerminals(layout)
-  layout = applyLegacySurfaceTombstones(layout, session, carried)
+  layout = retireLoadedLegacySurfaces(layout, session, carried)
   return { layout, desktopView, facts, carried }
 }
