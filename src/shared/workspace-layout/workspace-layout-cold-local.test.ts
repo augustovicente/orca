@@ -315,9 +315,13 @@ it('keeps direct-API special properties, odd/empty/ambiguous suffixes, kind coll
   ).toHaveLength(1)
   const prefix: string[] = []
   const fault = new Error('exact original')
-  expect(() =>
+  let thrown: unknown
+  try {
     loadWorkspaceLayout('local', stored, context(prefix, 'leaf:ambiguous', fault))
-  ).toThrow(fault)
+  } catch (error) {
+    thrown = error
+  }
+  expect(thrown).toBe(fault)
   expect(prefix).toEqual(events.slice(0, events.indexOf('leaf:leaf:ambiguous') + 1))
   expect(stored).toEqual(before)
   expect(digest({ loaded, saved: saveWorkspaceLayout(loaded), events })).toBe(

@@ -260,6 +260,14 @@ it('keeps loaded default title, headless target/refusal, exported hooks and orde
       [oldPane, pane, 'pty-main-0']
     ])
     expect(returned).not.toHaveBeenCalled()
+    transfer.mockClear()
+    f.runtime.seed('pty-main-1', 'term_main_1', pane)
+    f.runtime.follow()
+    expect(transfer).not.toHaveBeenCalled()
+    expect(returned.mock.calls.map(([key, id]) => [key, id])).toEqual([
+      [oldPane, 'pty-main-0'],
+      [pane, 'pty-main-1']
+    ])
     f.runtime.seed('leaf-only', 'term_leaf_only', undefined, false)
     await f.addCloseLeaf()
     f.runtime.attachWindow(1)
