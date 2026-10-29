@@ -92,9 +92,7 @@ export function useChecksPanelReviewData(model: ChecksPanelReviewDataInput) {
         }
         console.warn('Failed to fetch PR comments:', err)
         setComments([])
-        setCommentsError(
-          checksPanelLoadErrorMessage(err, forgeOwnerHostIdForWorkspace(repo, activeWorktree))
-        )
+        setCommentsError(checksPanelLoadErrorMessage(err, getRepoExecutionHostId(repo)))
       } finally {
         if (
           isCurrentAsyncResult(
