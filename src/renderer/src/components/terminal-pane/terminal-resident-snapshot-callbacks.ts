@@ -3,6 +3,7 @@ import { useAppStore } from '@/store'
 import { detectAgentStatusFromTitle } from '../../../../shared/agent-detection'
 import { parseRemoteRuntimePtyId } from '../../../../shared/remote-runtime/remote-runtime-pty-id'
 import { dispatchTerminalCommandFinishedEvent } from '@/hooks/terminal-command-finished-event'
+import type { TerminalFactSubject } from './terminal-fact-subject'
 import type {
   TerminalSnapshotEffect,
   TerminalTransientCurrent
@@ -23,8 +24,23 @@ export function createTerminalResidentSnapshotCallbacks(
   const { showTitle, neutralTitle } = titleEffects
   const { onWorking, onIdle } = attention
   const { onAgentExited } = callbacks
-  const applyEffect = (effect: TerminalSnapshotEffect, current: TerminalTransientCurrent): void => {
+  const applyEffect = (
+    effect: TerminalSnapshotEffect,
+    current: TerminalTransientCurrent,
+    subject?: TerminalFactSubject | null
+  ): void => {
     const fact = effect.fact
+    if (
+      subject !== undefined &&
+      !subject?.isCurrent() &&
+      fact.kind !== 'bell' &&
+      fact.kind !== 'pr-link'
+    ) {
+      if (fact.kind === 'command-finished') {
+        dispatchTerminalCommandFinishedEvent(binding.worktreeId, fact.exitCode)
+      }
+      return
+    }
     switch (fact.kind) {
       case 'command-started':
         captureCommand(effect.commandOrdinal)
@@ -36,7 +52,25 @@ export function createTerminalResidentSnapshotCallbacks(
           context.commandContext?.ordinal === effect.commandOrdinal &&
           context.commandContext.inputGeneration === context.acceptedInputGeneration
         ) {
-          context.foreground.finishCapturedCommand(fact.exitCode, context.commandContext.entry)
+          const command = context.commandContext
+          context.foreground.finishCapturedCommand(
+            fact.exitCode,
+            useAppStore.getState().agentStatusByPaneKey[binding.paneKey],
+            () =>
+              context.isLive() &&
+              context.commandContext === command &&
+              context.acceptedInputGeneration === command.inputGeneration
+          )
+        } else if (!context.commandContext && effect.commandOrdinal === current.commandOrdinal) {
+          const generation = context.acceptedInputGeneration
+          context.foreground.finishCapturedCommand(
+            fact.exitCode,
+            useAppStore.getState().agentStatusByPaneKey[binding.paneKey],
+            () =>
+              context.isLive() &&
+              context.commandContext === null &&
+              context.acceptedInputGeneration === generation
+          )
         } else {
           dispatchTerminalCommandFinishedEvent(binding.worktreeId, fact.exitCode)
         }
@@ -66,8 +100,12 @@ export function createTerminalResidentSnapshotCallbacks(
   const restoreCurrent = (
     current: TerminalTransientCurrent,
     first: boolean,
-    complete = true
+    complete = true,
+    subject?: TerminalFactSubject | null
   ): void => {
+    if (subject !== undefined && !subject?.isCurrent()) {
+      return
+    }
     const title = current.title
     if (first) {
       const status =

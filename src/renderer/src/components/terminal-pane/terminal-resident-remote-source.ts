@@ -57,7 +57,7 @@ export function subscribeResidentRemoteSource(
       ptyId,
       `desktop:semantic:${ptyId}`,
       (data, meta) => {
-        if (resident?.isLive) {
+        if (isLive() && resident?.isLive && recovery.ownsEpoch(epoch)) {
           resident.policy.observeLegacyData(data, meta)
         }
       },
@@ -76,6 +76,9 @@ export function subscribeResidentRemoteSource(
         },
         onSnapshot: () => {},
         onEnd: (verdict) => {
+          if (!isLive() || !recovery.ownsEpoch(epoch)) {
+            return
+          }
           if (verdict === 'exited') {
             if (resident) {
               retireCapturedResident(resident)

@@ -5,9 +5,9 @@ import { markTerminalBracketedPasteInterrupted } from '../terminal-bracketed-pas
 import type { TerminalSemanticResident } from '../terminal-side-effect-facts-handler'
 import type { ConnectPanePtySession } from './connect-pane-pty-session'
 
-import {
+import type {
   createTerminalResidentPolicy,
-  type TerminalResidentPresentation
+  TerminalResidentPresentation
 } from '../terminal-resident-policy'
 import { getTerminalSemanticResident } from '../terminal-semantic-residents'
 
@@ -17,29 +17,10 @@ export function installTerminalResidentPolicy(session: ConnectPanePtySession): v
     ? session.deps.restoredPtyIdByLeafId?.[session.deps.restoredLeafId]
     : state.terminalLayoutsByTabId[session.deps.tabId]?.ptyIdsByLeafId?.[session.pane.leafId]
   const resident = ptyId ? getTerminalSemanticResident(ptyId) : undefined
-  const policy =
-    resident?.policy ??
-    createTerminalResidentPolicy(
-      {
-        paneKey: session.cacheKey,
-        tabId: session.deps.tabId,
-        worktreeId: session.deps.worktreeId,
-        cwd: session.deps.cwd,
-        startup: session.paneStartup,
-        initialTitle: session.getCurrentTerminalTitle() ?? undefined,
-        launchToken: session.launchToken,
-        runtimeEnvironmentId: session.runtimeEnvironmentId
-      },
-      null,
-      () => true,
-      {
-        setCacheTimerStartedAt: session.deps.setCacheTimerStartedAt,
-        markTerminalBell: session.deps.markTerminalBell,
-        dispatchNotification: session.deps.dispatchNotification
-      }
-    )
-  session.semanticResident = resident
-  attachPolicyPresentation(session, policy)
+  if (resident) {
+    session.semanticResident = resident
+    attachPolicyPresentation(session, resident.policy)
+  }
 }
 
 export function attachTerminalResidentPresentation(
@@ -47,9 +28,6 @@ export function attachTerminalResidentPresentation(
   resident: TerminalSemanticResident
 ): () => void {
   session.detachSemanticPresentation?.()
-  if (session.semanticPolicy !== resident.policy) {
-    session.semanticPolicy.dispose()
-  }
   session.semanticResident = resident
   return attachPolicyPresentation(session, resident.policy)
 }
@@ -59,13 +37,7 @@ function attachPolicyPresentation(
   policy: ReturnType<typeof createTerminalResidentPolicy>
 ): () => void {
   session.semanticPolicy = policy
-  for (const part of [
-    policy.owner,
-    policy.shellInput,
-    policy.input,
-    policy.foreground,
-    policy.notification
-  ]) {
+  for (const part of [policy.owner, policy.shellInput, policy.foreground, policy.notification]) {
     Object.defineProperties(session, Object.getOwnPropertyDescriptors(part))
   }
   session.terminalOwnerPolicy = policy.owner

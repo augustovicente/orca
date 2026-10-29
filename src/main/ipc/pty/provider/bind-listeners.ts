@@ -1,4 +1,4 @@
-import { isCurrentPtyExit, ptyOwnership } from './ownership-state'
+import { isCurrentPtyExit, ptyOwnership, ptyIncarnationById } from './ownership-state'
 import {
   localBackgroundStreamUnsub,
   localDataUnsub,
@@ -17,6 +17,7 @@ import type { PtyIpcSession } from '../session'
 import { publishPtyEndpointLoss } from '../../../runtime/terminal/pty-endpoint-loss-signal'
 
 export function bindProviderListeners(session: PtyIpcSession): void {
+  const provider = localProvider
   localDataUnsub?.()
   localExitUnsub?.()
   localBackgroundStreamUnsub?.()
@@ -25,6 +26,9 @@ export function bindProviderListeners(session: PtyIpcSession): void {
   // Daemon death invalidates every session; notify background panes too so they can remount (STA-2373).
   setLocalWriteUnavailableUnsub(
     localProvider.onWriteUnavailable?.((payload) => {
+      if (localProvider !== provider) {
+        return
+      }
       // Before the window check: a headless host has no window, only remote streams.
       publishPtyEndpointLoss(payload.id)
       if (
@@ -42,11 +46,19 @@ export function bindProviderListeners(session: PtyIpcSession): void {
   // Apply thinning facts in stream order; gaps require snapshot restore and change transient-scan authority.
   setLocalBackgroundStreamUnsub(
     localProvider.onBackgroundStreamEvent?.((payload) => {
+      if (localProvider !== provider) {
+        return
+      }
       if (payload.kind === 'terminalObservation') {
+        const incarnationId = ptyIncarnationById.get(payload.id)
+        if (incarnationId && incarnationId !== payload.incarnationId) {
+          return
+        }
         session.runtime?.applyTerminalTransientObservation(
           payload.id,
           payload.incarnationId,
-          payload.observation
+          payload.observation,
+          payload.semanticSource
         )
         return
       }
@@ -55,7 +67,8 @@ export function bindProviderListeners(session: PtyIpcSession): void {
           payload.id,
           payload.background,
           payload.scanSeedAnsi,
-          payload.mode2031PendingSubscribe
+          payload.mode2031PendingSubscribe,
+          payload.semanticSource
         )
         return
       }
@@ -76,6 +89,10 @@ export function bindProviderListeners(session: PtyIpcSession): void {
   // Feed the runtime unless the emitting provider already did via configure().
   setLocalDataUnsub(
     localProvider.onData((payload) => {
+      if (localProvider !== provider) {
+        return
+      }
+      session.runtime?.selectPtyLegacySemanticSource(payload.id, payload.semanticSource)
       const rawLength = payload.sequenceChars ?? payload.data.length
       const outputSeq = payload.runtimeFed
         ? session.runtime?.getPtyOutputSequence(payload.id)
@@ -91,7 +108,7 @@ export function bindProviderListeners(session: PtyIpcSession): void {
   )
   setLocalExitUnsub(
     localProvider.onExit((payload) => {
-      if (!isCurrentPtyExit(payload)) {
+      if (localProvider !== provider || !isCurrentPtyExit(payload)) {
         return
       }
       const syntheticExit = session.consumeSyntheticKillExit(payload.id, payload.incarnationId)

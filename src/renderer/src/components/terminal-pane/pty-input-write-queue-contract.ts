@@ -1,3 +1,4 @@
+import type { TerminalInputCall } from './terminal-input-call'
 import type { TerminalInputKind } from '../../../../shared/terminal-input-kind'
 
 export const TERMINAL_INPUT_COALESCE_MAX_CODE_UNITS = 4096
@@ -12,15 +13,26 @@ export type PendingPtyInputWrite = {
   replyOnly: boolean
   inputKind: TerminalInputKind
   resolveAccepted: ((accepted: boolean) => void) | undefined
+  call?: TerminalInputCall
   tooLarge: boolean | Promise<boolean>
   chunks?: Iterator<string>
   nextChunk?: string
 }
 
 export type PtyInputWriteQueue = {
-  enqueue: (id: string, data: string, inputKind: TerminalInputKind) => boolean
+  enqueue: (
+    id: string,
+    data: string,
+    inputKind: TerminalInputKind,
+    call?: TerminalInputCall
+  ) => boolean
   enqueueQueryReply: (id: string, data: string) => boolean
-  enqueueAccepted: (id: string, data: string, inputKind: TerminalInputKind) => Promise<boolean>
+  enqueueAccepted: (
+    id: string,
+    data: string,
+    inputKind: TerminalInputKind,
+    call?: TerminalInputCall
+  ) => Promise<boolean>
   waitForDrain: () => Promise<void>
   clear: () => void
 }

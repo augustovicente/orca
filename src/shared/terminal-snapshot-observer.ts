@@ -32,9 +32,6 @@ export class TerminalSnapshotObserver {
       initialTitle?: string
       inFlightTurn?: { prompt: string } | null
       publishEachFact?: boolean
-      beforeCommandStarted?: () => void
-      onCommandStarted?: () => void
-      onCommandFinished?: (exitCode: number | null) => void
     } = {}
   ) {
     this.accumulator = new TerminalSnapshotState(options.adopted)
@@ -42,13 +39,10 @@ export class TerminalSnapshotObserver {
     this.tracker = createTerminalTitleTracker(
       {
         onCommandStarted: () => {
-          options.beforeCommandStarted?.()
           this.record({ kind: 'command-started' })
-          options.onCommandStarted?.()
         },
         onCommandFinished: (exitCode) => {
           this.record({ kind: 'command-finished', exitCode })
-          options.onCommandFinished?.(exitCode)
         },
         onTitle: (normalizedTitle, rawTitle, meta) =>
           this.record({ kind: 'title', normalizedTitle, rawTitle, ...meta }),

@@ -1,3 +1,4 @@
+import type { TerminalFactSubject } from '../terminal-fact-subject'
 import type { PaneLaunchAgentPaneSlice } from './pane-launch-agent-candidate'
 import type { TerminalAgent } from '../../../../../shared/terminal-agent'
 import type { RecognizedAgentProcess } from '../../../../../shared/agent-process-recognition'
@@ -19,6 +20,6 @@ export type TerminalForegroundServices = {
   flushPendingInterruptInference: () => boolean | Promise<boolean>
   dropCommandFinishedStatusIfSameTurn: (
     entry: AgentStatusEntry | undefined,
-    options?: { allowInferredInterrupt?: boolean }
+    options?: { allowInferredInterrupt?: boolean; subject?: TerminalFactSubject }
   ) => void
 }

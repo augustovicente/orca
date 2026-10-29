@@ -64,7 +64,7 @@ export function registerPtyConnectionNotificationSettingsGatingTests(): void {
       const { useNotificationDispatch } = await vi.importActual<
         typeof UseNotificationDispatchModule
       >('./use-notification-dispatch')
-      const transport = createMockTransport()
+      const transport = createMockTransport('tab-pty')
       transportFactoryQueue.push(transport)
 
       vi.useFakeTimers()
@@ -114,7 +114,7 @@ export function registerPtyConnectionNotificationSettingsGatingTests(): void {
 
     it('does not suppress terminal bell notifications when agent-complete notifications are disabled', async () => {
       const { connectPanePty } = await import('./pty-connection')
-      const transport = createMockTransport()
+      const transport = createMockTransport('tab-pty')
       transportFactoryQueue.push(transport)
 
       vi.useFakeTimers()
@@ -213,6 +213,14 @@ export function registerPtyConnectionNotificationSettingsGatingTests(): void {
         createManager(1) as never,
         createDeps() as never
       )
+      const handler = await import('./terminal-side-effect-facts-handler')
+      const firstSource = createdTransportOptions[0]?.onSourceAdmitted
+      const secondSource = createdTransportOptions[1]?.onSourceAdmitted
+      if (typeof firstSource !== 'function' || typeof secondSource !== 'function') {
+        throw new Error('Missing actual source result seam')
+      }
+      firstSource('pty-1')
+      secondSource('pty-2')
       await flushAsyncTicks()
 
       expect(storeSubscribers).toHaveLength(1)
@@ -220,6 +228,9 @@ export function registerPtyConnectionNotificationSettingsGatingTests(): void {
       firstBinding.dispose()
       expect(storeSubscribers).toHaveLength(1)
       secondBinding.dispose()
+      expect(storeSubscribers).toHaveLength(1)
+      handler.retireTerminalSemanticResident('pty-1')
+      handler.retireTerminalSemanticResident('pty-2')
       expect(storeSubscribers).toHaveLength(0)
     })
 

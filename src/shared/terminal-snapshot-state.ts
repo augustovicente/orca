@@ -22,8 +22,7 @@ export class TerminalSnapshotState {
         activity: null,
         program: null,
         inBandStatus: null,
-        commandCode: { armed: false, prompt: '', phase: 'unseen', turnOrdinal: 0, observedAt: 0 },
-        openCodeRun: null
+        commandCode: { armed: false, prompt: '', phase: 'unseen', turnOrdinal: 0, observedAt: 0 }
       },
       effects: {},
       recentPrLinks: []
@@ -98,17 +97,6 @@ export class TerminalSnapshotState {
           phase: fact.kind === 'command-code-working' ? 'working' : 'done',
           observedAt
         }
-        break
-      case 'opencode-status':
-        current.openCodeRun =
-          fact.payload.state === 'working'
-            ? {
-                agent: fact.payload.agentType === 'opencode2' ? 'opencode2' : 'opencode',
-                commandOrdinal: current.commandOrdinal,
-                startedAt: fact.startedAt,
-                observedAt
-              }
-            : null
         break
       case 'pr-link':
         this.state.recentPrLinks = [

@@ -5,6 +5,7 @@ import type { TerminalResidentPolicy } from './terminal-resident-registry'
 import type { PtyDataMeta } from './pty-dispatcher'
 import type { TerminalResidentBinding } from './terminal-resident-policy'
 import { readInFlightCommandCodeTurn } from './terminal-command-code-status-policy'
+import { captureTerminalFactSubject, type TerminalFactSubject } from './terminal-fact-subject'
 
 /** One parser and counter lifetime accepts whichever legacy delivery owns genuine output. */
 export class TerminalResidentLegacySource {
@@ -12,9 +13,14 @@ export class TerminalResidentLegacySource {
   private readonly consumption = new TerminalSnapshotConsumption()
   private rawEndSeq = 0
   private lastLiveTitleSeq: number | null = null
+  private subject: TerminalFactSubject | null = null
+  private readonly paneKey: string
+  private readonly acceptsUnqualifiedFacts: boolean
   byteSource = false
 
   constructor(binding: TerminalResidentBinding, policy: TerminalResidentPolicy) {
+    this.paneKey = binding.paneKey
+    this.acceptsUnqualifiedFacts = binding.runtimeEnvironmentId != null
     this.byteSource = binding.runtimeEnvironmentId != null
     this.bytes = new TerminalSnapshotObserver(
       (snapshot, delivery = 'bytes') => {
@@ -22,10 +28,16 @@ export class TerminalResidentLegacySource {
         if (!consumed) {
           return
         }
-        const ownsEffects = this.byteSource === (delivery === 'bytes')
+        const ownsEffects =
+          this.byteSource === (delivery === 'bytes') ||
+          (delivery === 'facts' && this.acceptsUnqualifiedFacts)
         for (const effect of consumed.effects) {
           if (ownsEffects || (delivery === 'bytes' && effect.fact.kind === 'command-started')) {
-            policy.applyEffect(effect, snapshot.current)
+            const currentSubject = this.subject?.isCurrent() === true
+            policy.applyEffect(effect, snapshot.current, this.subject)
+            if (currentSubject) {
+              this.subject = captureTerminalFactSubject(this.paneKey)
+            }
           }
         }
         if (!ownsEffects) {
@@ -34,7 +46,7 @@ export class TerminalResidentLegacySource {
         for (const link of consumed.links) {
           policy.observePrLink(link.url)
         }
-        policy.restoreCurrent(snapshot.current, consumed.first, false)
+        policy.restoreCurrent(snapshot.current, consumed.first, false, this.subject)
       },
       {
         adopted: true,
@@ -48,7 +60,7 @@ export class TerminalResidentLegacySource {
     this.consumption.consume(snapshot)
   }
 
-  observeData(data: string, meta?: PtyDataMeta): void {
+  observeData(data: string, meta?: PtyDataMeta, subject?: TerminalFactSubject | null): void {
     if (meta?.droppedOutput) {
       return
     }
@@ -62,12 +74,13 @@ export class TerminalResidentLegacySource {
       data = data.slice(overlap)
     }
     this.rawEndSeq = end
+    this.subject = subject === undefined ? captureTerminalFactSubject(this.paneKey) : subject
     this.bytes.observe(data, end)
   }
 
-  observeFacts(batch: TerminalSideEffectBatch): void {
+  observeFacts(batch: TerminalSideEffectBatch, subject?: TerminalFactSubject | null): void {
     if (
-      this.byteSource ||
+      (this.byteSource && !this.acceptsUnqualifiedFacts) ||
       (batch.replay && this.lastLiveTitleSeq !== null && batch.seq <= this.lastLiveTitleSeq)
     ) {
       return
@@ -79,6 +92,7 @@ export class TerminalResidentLegacySource {
       if (!batch.replay && fact.kind === 'title') {
         this.lastLiveTitleSeq = batch.seq
       }
+      this.subject = subject === undefined ? captureTerminalFactSubject(this.paneKey) : subject
       this.bytes.observeFact(
         fact.kind === 'pr-link' ? { kind: 'pr-link', url: fact.link.url } : fact,
         batch.seq

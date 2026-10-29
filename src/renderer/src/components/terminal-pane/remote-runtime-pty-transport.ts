@@ -16,6 +16,7 @@ import {
   type RemoteRuntimeInputSegment
 } from './remote-runtime-input-journal'
 import type { AcceptedInputOptions } from './pty-preconnect-input-buffer'
+import type { TerminalInputCall } from './terminal-input-call'
 import type { TerminalInputKind } from '../../../../shared/terminal-input-kind'
 import { isSshSignInPendingTerminalError } from './terminal-ssh-sign-in-error'
 /* eslint-disable max-lines -- Why: remote PTY transport keeps lifecycle, JSON fallback, and binary stream wiring together so reconnect/destroy ordering stays testable as one behavior surface. */
@@ -1229,6 +1230,7 @@ export function createRemoteRuntimePtyTransport(
     handle = hostHandle
     remotePtyId = toRemoteRuntimePtyId(hostHandle, currentRuntimeEnvironmentId)
     registerShutdownHandlers(remotePtyId)
+    opts.onSourceAdmitted?.(remotePtyId, authoritativePtyIncarnationId)
     connected = true
     desiredViewport = {
       cols: options.cols ?? 80,
@@ -1539,6 +1541,7 @@ export function createRemoteRuntimePtyTransport(
     if (!remotePtyId) {
       return undefined
     }
+    opts.onSourceAdmitted?.(remotePtyId, authoritativePtyIncarnationId)
     connected = true
     desiredViewport = {
       cols: options.cols ?? 80,
@@ -1974,12 +1977,13 @@ export function createRemoteRuntimePtyTransport(
     // Why first: journaled bytes were typed before anything in the hold.
     resumeSequencedInput(stream, boundHandle)
     const active = recoveryInputHold.release(heldInputEndpoint(boundHandle), {
+      ptyId: toRemoteRuntimePtyId(boundHandle, currentRuntimeEnvironmentId),
       isCurrent: () => connected && handle === boundHandle && !inputBlocked(),
       // Why: the 1 Mi-code-unit hold fits the 16 MiB ceiling; one journal batch survives a mid-send outage.
       sendInput: (data) => {
         const current = getCurrentMultiplexedStream(boundHandle)
         if (!current?.acknowledgesInput()) {
-          return sendInputNow(data)
+          return sendInputNow(data, 'driving', undefined, true)
         }
         inputJournal.send(current, heldInputEndpoint(boundHandle), inputSegments(data))
         return true
@@ -2008,21 +2012,33 @@ export function createRemoteRuntimePtyTransport(
   ): Promise<boolean> {
     const signal = options?.signal
     const targetHandle = handle
-    if (!connected || !targetHandle || inputBlocked() || signal?.aborted) {
+    const targetEnvironment = currentRuntimeEnvironmentId
+    const targetLifecycle = lifecycleEpoch
+    const targetIncarnation = authoritativePtyIncarnationId
+    const isTargetCurrent = () =>
+      connected &&
+      !destroyed &&
+      handle === targetHandle &&
+      currentRuntimeEnvironmentId === targetEnvironment &&
+      lifecycleEpoch === targetLifecycle &&
+      (targetIncarnation === null || authoritativePtyIncarnationId === targetIncarnation) &&
+      !inputBlocked() &&
+      !signal?.aborted
+    if (!targetHandle || !isTargetCurrent()) {
       return false
     }
     if (!data) {
       return true
     }
     await inputBatcher.drain()
-    if (!connected || handle !== targetHandle || inputBlocked()) {
+    if (!isTargetCurrent()) {
       return false
     }
     if (pendingViewportClaim && !getCurrentMultiplexedStream(targetHandle)) {
       const ready = await new Promise<boolean>((resolve) => {
         viewportClaimReadyWaiters.add(resolve)
       })
-      if (!ready || !connected || handle !== targetHandle) {
+      if (!ready || !isTargetCurrent()) {
         return false
       }
     }
@@ -2037,27 +2053,34 @@ export function createRemoteRuntimePtyTransport(
     } catch {
       return false
     }
-    if (signal?.aborted) {
+    if (!isTargetCurrent()) {
       return false
     }
     const stream = getCurrentMultiplexedStream(targetHandle)
+    options?.call?.onDispatch(toRemoteRuntimePtyId(targetHandle, targetEnvironment))
     if (stream?.acknowledgesInput()) {
       return sendSequencedInputAccepted(stream, targetHandle, pendingTyping, data, signal)
     }
     try {
       for (const chunk of iterateTerminalInputChunks(text)) {
-        if (!connected || handle !== targetHandle || inputBlocked() || signal?.aborted) {
+        if (!isTargetCurrent()) {
           return false
         }
         // Why: acknowledged sends order behind pending debounce text but must not collapse large paste back into one remote RPC.
         const result = await trackTerminalSend(
           targetHandle,
-          callRuntime<{ send: RuntimeTerminalSend }>('terminal.send', {
-            terminal: targetHandle,
-            text: chunk,
-            client: { id: clientId, type: 'desktop' },
-            ...(desiredViewport ? { viewport: desiredViewport, claimViewport: true as const } : {})
-          })
+          callRuntimeForEnvironment<{ send: RuntimeTerminalSend }>(
+            targetEnvironment,
+            'terminal.send',
+            {
+              terminal: targetHandle,
+              text: chunk,
+              client: { id: clientId, type: 'desktop' },
+              ...(desiredViewport
+                ? { viewport: desiredViewport, claimViewport: true as const }
+                : {})
+            }
+          )
         )
         if (result.send.accepted !== true) {
           return false
@@ -2986,6 +3009,10 @@ export function createRemoteRuntimePtyTransport(
             if (!isCurrentSubscription()) {
               return
             }
+            opts.onSourceAdmitted?.(
+              toRemoteRuntimePtyId(subscribedHandle, currentRuntimeEnvironmentId),
+              authoritativePtyIncarnationId
+            )
             inputReadySubscription = generation
             if (
               installedStream &&
@@ -3316,7 +3343,12 @@ export function createRemoteRuntimePtyTransport(
     })
   }
 
-  function sendInputNow(data: string): boolean {
+  function sendInputNow(
+    data: string,
+    inputKind: TerminalInputKind = 'driving',
+    call?: TerminalInputCall,
+    releasingHeldInput = false
+  ): boolean {
     if (!connected || !handle || inputBlocked()) {
       return false
     }
@@ -3324,7 +3356,20 @@ export function createRemoteRuntimePtyTransport(
       return true
     }
     // Why: literal LF bytes from paste/programmatic input must survive; callers use \r or the enter flag for semantic Enter.
-    return inputBatcher.push(data)
+    const targetHandle = handle
+    const targetEpoch = lifecycleEpoch
+    return inputBatcher.push(data, () => {
+      if (lifecycleEpoch !== targetEpoch || handle !== targetHandle) {
+        return false
+      }
+      if (!releasingHeldInput && shouldHoldInput()) {
+        recoveryInputHold.enqueue(holdEndpoint(), data, inputKind, call)
+        return false
+      }
+      const target = toRemoteRuntimePtyId(targetHandle, currentRuntimeEnvironmentId)
+      call?.onEligible(target)
+      call?.onDispatch(target)
+    })
   }
 
   function sendInputImmediateNow(data: string): boolean {
@@ -3669,6 +3714,7 @@ export function createRemoteRuntimePtyTransport(
       }
       if (createdTerminal.isReattach !== true) {
         spawnedHandle = handle
+        opts.onSourceAdmitted?.(remotePtyId, authoritativePtyIncarnationId)
         onPtySpawn?.(remotePtyId)
       }
       emitRecoveryState()
@@ -3800,19 +3846,28 @@ export function createRemoteRuntimePtyTransport(
     },
 
     // Why: the kind only gates the local hold; terminal.send gets no kind, so the host classifies desktop bytes itself.
-    sendInput(data, inputKind): boolean {
+    sendInput(data, inputKind, call): boolean {
       if (releaseThenShouldHold(inputKind)) {
         if (!data) {
           return true
         }
         // Why: earlier input still in size validation reaches the hold later; queue behind it.
         if (inputBatcher.hasPendingValidation()) {
-          return inputBatcher.push(data)
+          return inputBatcher.push(data, () => {
+            if (releaseThenShouldHold(inputKind)) {
+              recoveryInputHold.enqueue(holdEndpoint(), data, inputKind, call)
+              return false
+            }
+            if (remotePtyId) {
+              call?.onEligible(remotePtyId)
+              call?.onDispatch(remotePtyId)
+            }
+          })
         }
         inputBatcher.flush()
-        return recoveryInputHold.enqueue(holdEndpoint(), data, inputKind)
+        return recoveryInputHold.enqueue(holdEndpoint(), data, inputKind, call)
       }
-      return sendInputNow(data)
+      return sendInputNow(data, inputKind, call)
     },
 
     // Why: query replies (CPR/DSR/DA/OSC) are read in raw mode with a short timeout; the 8ms debounce would miss it and echo the reply onto the prompt (#7329).

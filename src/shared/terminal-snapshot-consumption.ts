@@ -1,11 +1,35 @@
 import {
   terminalEffectKeys,
+  terminalEffectKey,
+  type TerminalTransientFact,
   type TerminalTransientObservation,
   type TerminalSnapshotEffect
 } from './terminal-transient-observation'
 
 export class TerminalSnapshotConsumption {
   private previous: TerminalTransientObservation | null = null
+  install(snapshot: TerminalTransientObservation): void {
+    this.previous = snapshot
+  }
+  consumeLive(snapshot: TerminalTransientObservation, facts: readonly TerminalTransientFact[]) {
+    const consumed = this.consume(snapshot)
+    if (!consumed?.first) {
+      return consumed
+    }
+    return {
+      ...consumed,
+      effects: facts.flatMap((fact) => {
+        const key = terminalEffectKey(fact)
+        const effect = key ? snapshot.effects[key] : undefined
+        return effect ? [{ ...effect, fact }] : []
+      }),
+      links: facts.flatMap((fact) =>
+        fact.kind === 'pr-link'
+          ? snapshot.recentPrLinks.filter((link) => link.url === fact.url)
+          : []
+      )
+    }
+  }
   consume(snapshot: TerminalTransientObservation): {
     effects: TerminalSnapshotEffect[]
     links: TerminalTransientObservation['recentPrLinks']

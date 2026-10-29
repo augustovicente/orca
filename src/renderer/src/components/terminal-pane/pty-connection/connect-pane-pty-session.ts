@@ -13,7 +13,7 @@ export type ConnectPanePtySession = {
   // Why typed: every PTY write must name its input kind, and the bag's `any` would hide a missing one.
   transport: PtyTransport
   semanticResident?: TerminalSemanticResident
-  semanticPolicy: ReturnType<typeof createTerminalResidentPolicy>
+  semanticPolicy?: ReturnType<typeof createTerminalResidentPolicy>
   detachSemanticPresentation?: () => void
   hiddenOutputRestoreUnhideSeq: number | null
   idleCursorReset: TerminalIdleCursorReset

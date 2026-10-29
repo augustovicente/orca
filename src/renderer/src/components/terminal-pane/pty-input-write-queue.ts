@@ -1,3 +1,5 @@
+import { writeAcceptedPtyChunk } from './pty-input-write-receipt'
+import type { TerminalInputCall } from './terminal-input-call'
 import { yieldToEventLoop } from '../../../../shared/event-loop-yield'
 import {
   isTerminalInputTooLargeWithDeferredMeasurement,
@@ -109,26 +111,6 @@ export function createPtyInputWriteQueue(deps: PtyInputWriteQueueDeps): PtyInput
     nextSequence = 0
   }
 
-  // Use per-write cancellation; queue-lifetime promise reactions retain every acknowledged write until teardown.
-  async function writeAcceptedChunk(item: PendingPtyInputWrite, data: string): Promise<boolean> {
-    let cancel = (): void => undefined
-    const cancelled = new Promise<boolean>((resolve) => {
-      cancel = () => resolve(false)
-    })
-    // Install cancellation before writes because synchronous accepted callbacks may clear the queue reentrantly.
-    pendingAcceptedCancels.add(cancel)
-    try {
-      return await Promise.race([
-        cancelled,
-        Promise.resolve(deps.writeAccepted?.(item.id, data, item.inputKind) ?? false).catch(
-          () => false
-        )
-      ])
-    } finally {
-      pendingAcceptedCancels.delete(cancel)
-    }
-  }
-
   async function drain(): Promise<void> {
     let failureGeneration = generation
     // Why: the drain yields, so the owner may rebind before the failure surfaces; report the id that actually failed.
@@ -158,6 +140,7 @@ export function createPtyInputWriteQueue(deps: PtyInputWriteQueueDeps): PtyInput
         }
         // Coalesce validated small entries without changing bytes; per-item nested timers throttle dense wheel/repeat input to ≥4ms and replay gestures seconds late.
         if (next.chunks === undefined && isCoalesciblePtyInput(next)) {
+          next.call?.onDispatch(next.id)
           let payload = next.text
           removePending(next)
           let peek: PendingPtyInputWrite | undefined
@@ -172,6 +155,7 @@ export function createPtyInputWriteQueue(deps: PtyInputWriteQueueDeps): PtyInput
             ) {
               break
             }
+            peek.call?.onDispatch(peek.id)
             payload += peek.text
             removePending(peek)
           }
@@ -190,8 +174,10 @@ export function createPtyInputWriteQueue(deps: PtyInputWriteQueueDeps): PtyInput
           continue
         }
         const writeGeneration = generation
+        next.call?.onDispatch(next.id)
+        next.call = undefined
         const accepted = next.resolveAccepted
-          ? await writeAcceptedChunk(next, chunk.value)
+          ? await writeAcceptedPtyChunk(deps, pendingAcceptedCancels, next, chunk.value)
           : (deps.write(next.id, chunk.value, next.inputKind), true)
         if (generation !== writeGeneration || firstPending() !== next) {
           continue
@@ -247,7 +233,8 @@ export function createPtyInputWriteQueue(deps: PtyInputWriteQueueDeps): PtyInput
     text: string,
     queryReply: boolean,
     inputKind: TerminalInputKind,
-    resolveAccepted?: PendingPtyInputWrite['resolveAccepted']
+    resolveAccepted?: PendingPtyInputWrite['resolveAccepted'],
+    call?: TerminalInputCall
   ): boolean {
     try {
       if (failedGeneration === generation) {
@@ -271,7 +258,8 @@ export function createPtyInputWriteQueue(deps: PtyInputWriteQueueDeps): PtyInput
         replyOnly,
         inputKind,
         tooLarge,
-        resolveAccepted
+        resolveAccepted,
+        call
       }
       nextSequence += 1
       if (replyOnly) {
@@ -290,17 +278,22 @@ export function createPtyInputWriteQueue(deps: PtyInputWriteQueueDeps): PtyInput
   }
 
   return {
-    enqueue(id: string, data: string, inputKind: TerminalInputKind): boolean {
-      return enqueueInput(id, data, false, inputKind)
+    enqueue(
+      id: string,
+      data: string,
+      inputKind: TerminalInputKind,
+      call?: TerminalInputCall
+    ): boolean {
+      return enqueueInput(id, data, false, inputKind, undefined, call)
     },
 
     enqueueQueryReply(id: string, data: string): boolean {
       return enqueueInput(id, data, true, 'query-reply')
     },
 
-    enqueueAccepted: (id, data, inputKind) =>
+    enqueueAccepted: (id, data, inputKind, call) =>
       new Promise((resolve) => {
-        enqueueInput(id, data, false, inputKind, resolve)
+        enqueueInput(id, data, false, inputKind, resolve, call)
       }),
 
     async waitForDrain(): Promise<void> {

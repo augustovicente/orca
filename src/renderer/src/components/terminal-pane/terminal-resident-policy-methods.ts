@@ -8,17 +8,12 @@ import type { TerminalResidentPolicyContext } from './terminal-resident-policy-c
 import type { TerminalResidentPolicy } from './terminal-resident-registry'
 import type { TerminalResidentLegacySource } from './terminal-resident-legacy-source'
 import type { createTerminalResidentStatusCallbacks } from './terminal-resident-attention-callbacks'
-import { parseRemoteRuntimePtyId } from '../../../../shared/remote-runtime/remote-runtime-pty-id'
 import { captureNotificationTransportOwner } from '@/attention/notification-subject-owner'
 import type { TerminalResidentPresentation } from './terminal-resident-binding'
 import type { AgentInterruptInputIntent } from '../../../../shared/agent-interrupt-intent'
 import { isPassiveTerminalInputReport } from './terminal-passive-input-report'
 import type { PtyTransport } from './pty-transport-types'
 import type { PtyDataMeta } from './pty-dispatcher'
-import type {
-  TerminalSnapshotEffect,
-  TerminalTransientCurrent
-} from '../../../../shared/terminal-transient-observation'
 
 type SnapshotCallbacks = Pick<
   TerminalResidentPolicy,
@@ -32,20 +27,16 @@ export function terminalResidentLegacyCallbacks(
   const { isLive } = context
   const { restoreCurrent, applyEffect, observePrLink } = callbacks
   return {
-    restoreCurrent: (current, first, complete) => {
+    restoreCurrent: (current, first, complete, subject) => {
       if (isLive()) {
-        restoreCurrent(current, first, complete)
+        restoreCurrent(current, first, complete, subject)
       }
     },
-    applyEffect: (effect, current) => {
+    applyEffect: (effect, current, subject) => {
       if (!isLive()) {
         return
       }
-      if (effect.fact.kind === 'command-finished') {
-        context.foreground.handleCommandFinished(effect.fact.exitCode)
-      } else {
-        applyEffect(effect, current)
-      }
+      applyEffect(effect, current, subject)
     },
     observePrLink: (url) => {
       if (isLive()) {
@@ -68,13 +59,24 @@ export function createTerminalResidentPolicyMethods(
   const { bindPty, callbacks, restoreCurrent, legacySource, applyEffect, observePrLink } = methods
   return {
     callbacks,
+    recordInputDispatch(): void {
+      context.acceptedInputGeneration += 1
+    },
     acceptInput(data: string, intent: AgentInterruptInputIntent | null = null): void {
       if (!isLive() || isPassiveTerminalInputReport(data)) {
         return
       }
-      context.acceptedInputGeneration += 1
-      context.shellInput.observeAcceptedShellCommandInput(data)
-      context.input.observeAcceptedTerminalInput(data, intent)
+      if (intent === null) {
+        context.acceptedInputGeneration += 1
+      }
+      if (
+        data.includes('\r') ||
+        data.includes('\n') ||
+        data.includes('\x03') ||
+        data.includes('\x04')
+      ) {
+        context.foreground.requestKnownWindowsShiftEnterReconfirmation()
+      }
     },
     binding,
     bindPty,
@@ -94,30 +96,21 @@ export function createTerminalResidentPolicyMethods(
     notification: context.notification,
     commandCode: context.commandCode,
     attachPresentation(port: TerminalResidentPresentation): () => void {
-      context.presentation = port
+      const detach = context.presentationPorts.attach(port)
       context.displayPaneId = port.paneId
       if (context.currentTitle !== null && context.currentTitle !== binding.initialTitle) {
         port.showTitle(context.currentTitle, context.currentTitle)
       }
-      return () => {
-        if (context.presentation === port) {
-          context.presentation = null
-        }
-      }
+      return detach
     },
     restoreCurrent,
     legacySource,
-    setLegacyOutputPaused(paused: boolean, supported: boolean): void {
-      if (getPtyId() && parseRemoteRuntimePtyId(getPtyId() ?? '')) {
-        legacySource.byteSource = !(paused && supported)
-      }
-    },
     observeRetainedFacts(batch: TerminalSideEffectBatch, original: TerminalFactSubject): void {
       let subject = original
       for (const fact of batch.facts) {
         const current = subject.isCurrent()
         if (current || fact.kind === 'bell' || fact.kind === 'pr-link') {
-          legacySource.observeFacts({ ...batch, facts: [fact] })
+          legacySource.observeFacts({ ...batch, facts: [fact] }, subject)
           if (current) {
             subject = captureTerminalFactSubject(binding.paneKey)
           }
@@ -126,33 +119,30 @@ export function createTerminalResidentPolicyMethods(
         }
       }
     },
-    observeLegacyData(data: string, meta?: PtyDataMeta): void {
+    observeLegacyData(
+      data: string,
+      meta?: PtyDataMeta,
+      subject?: TerminalFactSubject | null
+    ): void {
       if (!isLive()) {
         return
       }
       context.completion.observeOutputActivity()
-      legacySource.observeData(data, meta)
+      legacySource.observeData(data, meta, subject)
     },
     applyEffect,
-    applyLegacyEffect(effect: TerminalSnapshotEffect, current: TerminalTransientCurrent): void {
-      if (effect.fact.kind === 'command-finished') {
-        context.foreground.handleCommandFinished(effect.fact.exitCode)
-      } else {
-        applyEffect(effect, current)
-      }
-    },
     observePrLink,
     dispose(): void {
       context.ended = true
       context.transport = undefined
-      context.presentation = null
+      context.presentationPorts.clear()
       legacySource.dispose()
       context.unsubscribeSettings()
       context.releaseRendererOwner?.()
       context.owner.unregisterAgentHookTerminalLifecycle()
       context.shellInput.clearTitleOnlyInterruptTimer()
       context.input.clearPendingTerminalInputIntent()
-      context.input.interruptInference.dispose()
+      context.input.dispose()
       context.foreground.commandLifecycle.dispose()
       context.foreground.paneForegroundAgentTracker.dispose()
       context.completion.dispose()

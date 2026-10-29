@@ -84,7 +84,9 @@ export abstract class OrcaRuntimeWithOnPtyData extends OrcaRuntimeWithPreparePty
     const osc7Metadata = this.recordOsc7MetadataForPty(ptyId, data)
     const cwd = osc7Metadata.cwd
     const cwdChanged = osc7Metadata.cwdChanged
-    const capable = this.ptyTitleTrackersByPtyId.get(ptyId)?.transientIncarnationId !== undefined
+    const observer = this.ptyTitleTrackersByPtyId.get(ptyId)
+    const capable =
+      observer?.transientSource?.terminalState ?? observer?.transientIncarnationId !== undefined
     const agentStatusChunk: ProcessedAgentStatusChunk = capable
       ? { cleanData: data, payloads: [], lastPayloadCleanOffset: null }
       : this.processAgentStatusOscForPty(ptyId, data)
@@ -232,6 +234,9 @@ export abstract class OrcaRuntimeWithOnPtyData extends OrcaRuntimeWithPreparePty
 
     // Feed cleanData titles in byte order so coalesced transitions reach waits/delivery; pure OSC 9999 status chunks must not disturb stale-title probes.
     const titleTrackerEntry = this.getOrCreatePtyTitleTrackerEntry(ptyId)
+    if (pty?.incarnationId) {
+      titleTrackerEntry.physicalIncarnationId = pty.incarnationId
+    }
     const previousTitleScanTail = this.oscTitleScanTailByPtyId.get(ptyId)
     const titleInput = previousTitleScanTail
       ? `${previousTitleScanTail}${agentStatusChunk.cleanData}`

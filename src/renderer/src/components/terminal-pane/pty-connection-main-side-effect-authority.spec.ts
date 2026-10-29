@@ -108,14 +108,14 @@ export function registerPtyConnectionMainSideEffectAuthorityTests(): void {
 
         expect(createdTransportOptions[0]).toBeDefined()
         for (const callback of SIDE_EFFECT_PARSER_CALLBACKS) {
-          expect(createdTransportOptions[0]?.[callback]).toBeUndefined()
+          expect(createdTransportOptions[0]?.productionOptions).not.toHaveProperty(callback)
         }
         // Lifecycle callbacks stay on the transport; only side-effect parsing moves to the fact consumer.
         expect(createdTransportOptions[0]?.onPtySpawn).toBeTypeOf('function')
         expect(createdTransportOptions[0]?.onPtyExit).toBeTypeOf('function')
       })
 
-      it('keeps byte-parser callbacks on remote-runtime transports', async () => {
+      it('keeps semantic callbacks on the source rather than the remote presentation transport', async () => {
         enableMainAuthority()
         enableActiveRuntimeEnvironment()
         const { connectPanePty } = await import('./pty-connection')
@@ -127,6 +127,7 @@ export function registerPtyConnectionMainSideEffectAuthorityTests(): void {
 
         expect(createRemoteRuntimePtyTransport).toHaveBeenCalledWith('env-1', expect.any(Object))
         for (const callback of SIDE_EFFECT_PARSER_CALLBACKS) {
+          expect(createdTransportOptions[0]?.productionOptions).not.toHaveProperty(callback)
           expect(createdTransportOptions[0]?.[callback]).toBeTypeOf('function')
         }
       })
@@ -304,7 +305,7 @@ export function registerPtyConnectionMainSideEffectAuthorityTests(): void {
         )
       })
 
-      it('stops consuming facts after the pane binding is disposed', async () => {
+      it('continues consuming facts on the captured execution after presentation disposal', async () => {
         enableMainAuthority()
         const { connectPanePty } = await import('./pty-connection')
         const handler = await import('./terminal-side-effect-facts-handler')
@@ -327,7 +328,9 @@ export function registerPtyConnectionMainSideEffectAuthorityTests(): void {
           facts: [{ kind: 'bell' }]
         })
 
-        expect(deps.markTerminalBell).not.toHaveBeenCalled()
+        expect(deps.markTerminalBell).toHaveBeenCalledExactlyOnceWith(
+          expect.objectContaining({ paneKey: makePaneKey('tab-1', LEAF_1) })
+        )
       })
 
       it('schedules the completion notification for genuine working→idle facts', async () => {
@@ -714,6 +717,7 @@ export function registerPtyConnectionMainSideEffectAuthorityTests(): void {
         connectPanePty(createPane(1) as never, createManager(1) as never, deps as never)
 
         for (const callback of SIDE_EFFECT_PARSER_CALLBACKS) {
+          expect(createdTransportOptions[0]?.productionOptions).not.toHaveProperty(callback)
           expect(createdTransportOptions[0]?.[callback]).toBeTypeOf('function')
         }
         const onPtySpawn = createdTransportOptions[0]?.onPtySpawn as (ptyId: string) => void

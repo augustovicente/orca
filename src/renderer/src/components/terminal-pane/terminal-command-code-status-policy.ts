@@ -1,3 +1,4 @@
+import { captureTerminalFactSubject } from './terminal-fact-subject'
 import { useAppStore } from '@/store'
 import type { resolveLiveAgentStatusConnectionRouting } from '@/lib/agent-status-connection-ownership'
 import { rendererAgentStatusObservations } from '@/lib/renderer-agent-status-observations'
@@ -146,9 +147,17 @@ export function createTerminalCommandCodeStatusPolicy(options: {
         cancelCommandCodeDoneSettle(paneKey)
         return
       }
-      openCommandCodeDoneSettle(paneKey, normalizedPrompt)
+      const subject = captureTerminalFactSubject(paneKey)
+      openCommandCodeDoneSettle(
+        paneKey,
+        normalizedPrompt,
+        () => options.canApply() && subject.isCurrent()
+      )
     },
     clearDoneTimer: clearCommandCodeOutputDoneTimer,
-    dispose: releaseCommandCodeDoneSettleExecutor
+    dispose: () => {
+      cancelCommandCodeDoneSettle(paneKey)
+      releaseCommandCodeDoneSettleExecutor()
+    }
   }
 }

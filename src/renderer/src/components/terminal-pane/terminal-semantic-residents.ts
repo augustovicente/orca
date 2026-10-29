@@ -8,7 +8,15 @@ export type TerminalSemanticResident = TerminalResident<
 export const residentRegistry = new TerminalResidentRegistry<
   ReturnType<typeof createTerminalResidentPolicy>
 >()
-export const sourceSubscriptionsByPtyId = new Map<string, { close?: () => void }>()
+export const sourceSubscriptionsByPtyId = new Map<
+  string,
+  {
+    close?: () => void
+    endpoint?: string
+    tabId?: string
+    paneKey?: string
+  }
+>()
 export const residentsByPtyId = new Map<string, TerminalSemanticResident>()
 export const legacySourcesByPtyId = new Map<
   string,
@@ -62,12 +70,15 @@ export function retireTerminalSemanticResidentsForTab(
   tabId: string,
   paneKeys?: ReadonlySet<string>
 ): void {
-  for (const resident of residentsByPtyId.values()) {
+  // Resource removal cancels unresolved interest; physical exit alone retires admitted E.
+  for (const [ptyId, source] of sourceSubscriptionsByPtyId) {
     if (
-      resident.policy.binding.tabId === tabId &&
-      (!paneKeys || paneKeys.has(resident.policy.binding.paneKey))
+      !residentsByPtyId.has(ptyId) &&
+      source.tabId === tabId &&
+      (!paneKeys || (source.paneKey && paneKeys.has(source.paneKey)))
     ) {
-      retireCapturedResident(resident)
+      source.close?.()
+      sourceSubscriptionsByPtyId.delete(ptyId)
     }
   }
 }

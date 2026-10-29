@@ -193,7 +193,7 @@ export function installPtyExitHibernate(session: ConnectPanePtySession): void {
     const processExitState =
       session.processExitStateByPtyId.get(ptyId) ?? session.currentProcessExitState
     session.processExitStateByPtyId.delete(ptyId)
-    session.agentCompletionCoordinator.dispose()
+    session.detachSemanticPresentation?.()
     session.dropSideEffectFactConsumer()
     // Clear the local mark too so a rebound PTY cannot skip hidden gating.
     session.releaseHiddenRendererPtyDelivery()

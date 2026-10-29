@@ -81,7 +81,6 @@ export abstract class DaemonPtySpawnResult extends DaemonPtySpawnRequest {
     }
     if (result.incarnationId) {
       this.sessionIncarnations.set(sessionId, result.incarnationId)
-      this.client.confirmTransientBinding(sessionId, result.incarnationId)
     }
     this.inputClosedIncarnations.sync(sessionId, result)
     this.hostLossSessionIds.delete(sessionId)

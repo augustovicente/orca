@@ -1,3 +1,6 @@
+import type { RuntimeClientEventInstallation } from '@/runtime/runtime-client-events'
+import { createTerminalResidentSourceAdmissions } from './terminal-resident-source-admission'
+import { captureTerminalFactSubject } from './terminal-fact-subject'
 import {
   openHandoffFactBuffer,
   bufferHandoffFactBatch,
@@ -20,13 +23,9 @@ import { isProvenProcessExit } from '../../../../shared/terminal-exit-cause'
 import { deferPtyShutdownExit } from './pty-shutdown-exit-deferral'
 import { createTerminalResidentPolicy } from './terminal-resident-policy'
 import { resolveTerminalResidentBinding } from './terminal-resident-binding'
-import { subscribeToPtyData } from './pty-data-sidecar-subscriptions'
 import { parseRemoteRuntimePtyId } from '../../../../shared/remote-runtime/remote-runtime-pty-id'
 import { getPtyExecutionHost } from '../../../../shared/terminal-execution-host'
 import { toSshExecutionHostId } from '../../../../shared/execution-host'
-import { subscribeResidentRemoteSource } from './terminal-resident-remote-source'
-import { onRuntimeEnvironmentsRetired } from '@/runtime/runtime-environment-revision'
-import type { TerminalResidentBinding, TerminalResidentServices } from './terminal-resident-policy'
 
 import {
   sourceSubscriptionsByPtyId,
@@ -34,8 +33,7 @@ import {
   residentsByPtyId,
   legacySourcesByPtyId,
   disposeLegacySource,
-  retireCapturedResident,
-  type TerminalSemanticResident
+  retireCapturedResident
 } from './terminal-semantic-residents'
 export {
   getTerminalSemanticResident,
@@ -44,90 +42,20 @@ export {
   type TerminalSemanticResident
 } from './terminal-semantic-residents'
 
-export function admitLegacyTerminalSemanticResident(options: {
-  ptyId: string
-  incarnationId?: string | null
-  binding: TerminalResidentBinding
-  byteSource: boolean
-  services?: TerminalResidentServices
-}): TerminalSemanticResident {
-  const existing = residentsByPtyId.get(options.ptyId)
-  const sameExecution =
-    existing &&
-    (!options.incarnationId || existing.identity.incarnationId === options.incarnationId)
-  if (sameExecution && existing.identity.runtimeId !== null) {
-    return existing
-  }
-  const paired = parseRemoteRuntimePtyId(options.ptyId)
-  const identity = {
-    endpoint: paired?.environmentId ?? 'local',
-    executionHost:
-      options.binding.workspaceOwner?.executionHostId ??
-      getPtyExecutionHost(options.ptyId) ??
-      'local',
-    runtimeId: null,
-    ptyId: options.ptyId,
-    incarnationId: options.incarnationId ?? null
-  }
-  const resident = sameExecution
-    ? existing
-    : residentRegistry.admit(identity, (captured) =>
-        createTerminalResidentPolicy(
-          options.binding,
-          captured.identity,
-          () => captured.isLive,
-          options.services
-        )
-      )
-  residentsByPtyId.set(options.ptyId, resident)
-  if (!sameExecution) {
-    resident.policy.legacySource.byteSource = options.byteSource
-  }
-  drainHandoffFactBuffer(options.ptyId, resident)
-  let legacy = legacySourcesByPtyId.get(options.ptyId)
-  if (!legacy || legacy.resident !== resident) {
-    disposeLegacySource(options.ptyId)
-    legacy = { resident, source: resident.policy.legacySource }
-    legacySourcesByPtyId.set(options.ptyId, legacy)
-  }
-  if (options.byteSource && !legacy.unsubscribe) {
-    legacy.unsubscribe = paired
-      ? undefined
-      : subscribeToPtyData(options.ptyId, (data, meta) => {
-          resident.policy.observeLegacyData(data, meta)
-        })
-  }
-  for (const entry of consumersByPtyId.get(options.ptyId) ?? []) {
+const {
+  admitLegacyTerminalSemanticResident,
+  followLocalTerminalSemanticSource,
+  admitRemoteTerminalSemanticResident
+} = createTerminalResidentSourceAdmissions((ptyId, resident) => {
+  for (const entry of consumersByPtyId.get(ptyId) ?? []) {
     attachResidentConsumer(entry, resident)
   }
-  return resident
-}
-
-export function admitRemoteTerminalSemanticResident(
-  options: Parameters<typeof admitLegacyTerminalSemanticResident>[0]
-): void {
-  if (residentsByPtyId.has(options.ptyId) || sourceSubscriptionsByPtyId.has(options.ptyId)) {
-    return
-  }
-  const source: { close?: () => void } = {}
-  sourceSubscriptionsByPtyId.set(options.ptyId, source)
-  // The named stream's actual acknowledgement admits E before its first live callback.
-  source.close = subscribeResidentRemoteSource(options.ptyId, (result) =>
-    admitLegacyTerminalSemanticResident({
-      ...options,
-      incarnationId: result?.incarnationId,
-      byteSource: false
-    })
-  )
-}
-
-onRuntimeEnvironmentsRetired((environmentIds) => {
-  for (const resident of residentsByPtyId.values()) {
-    if (environmentIds.includes(resident.identity.endpoint)) {
-      retireCapturedResident(resident)
-    }
-  }
 })
+export {
+  admitLegacyTerminalSemanticResident,
+  followLocalTerminalSemanticSource,
+  admitRemoteTerminalSemanticResident
+}
 
 export function observeTerminalSemanticResidentExit(
   ptyId: string,
@@ -158,10 +86,23 @@ import type { TerminalSideEffectBatch } from '../../../../shared/terminal-side-e
 const consumersByPtyId = new Map<string, Set<ConsumerEntry>>()
 let channelUnsubscribe: (() => void) | null = null
 
-export function dispatchTerminalSideEffectBatch(batch: TerminalSideEffectBatch): void {
+export function dispatchTerminalSideEffectBatch(
+  batch: TerminalSideEffectBatch,
+  installation?: RuntimeClientEventInstallation
+): void {
+  if (installation?.baseline && batch.terminalState && parseRemoteRuntimePtyId(batch.ptyId)) {
+    const captured = residentsByPtyId.get(batch.ptyId)
+    if (captured && !captured.installSource(batch)) {
+      return
+    }
+  }
   const entries = consumersByPtyId.get(batch.ptyId)
   const entry = entries?.values().next().value
-  if (!batch.terminalState && legacySourcesByPtyId.get(batch.ptyId)?.source.byteSource) {
+  if (
+    !batch.terminalState &&
+    !parseRemoteRuntimePtyId(batch.ptyId) &&
+    legacySourcesByPtyId.get(batch.ptyId)?.source.byteSource
+  ) {
     return
   }
   if (batch.terminalState && batch.paneKey && batch.tabId && batch.worktreeId) {
@@ -196,6 +137,8 @@ export function dispatchTerminalSideEffectBatch(batch: TerminalSideEffectBatch):
     resident.policy.bindPty(identity.ptyId, identity.incarnationId, identity.runtimeId)
     drainHandoffFactBuffer(batch.ptyId, resident)
     disposeLegacySource(batch.ptyId)
+    sourceSubscriptionsByPtyId.get(batch.ptyId)?.close?.()
+    sourceSubscriptionsByPtyId.delete(batch.ptyId)
     residentsByPtyId.set(batch.ptyId, resident)
     for (const consumer of entries ?? []) {
       attachResidentConsumer(consumer, resident)
@@ -213,9 +156,17 @@ export function dispatchTerminalSideEffectBatch(batch: TerminalSideEffectBatch):
           incarnationId: batch.terminalState.incarnationId
         })
       ) {
+        resident.policy.bindPty(
+          batch.ptyId,
+          batch.terminalState.incarnationId,
+          batch.terminalState.runtimeId
+        )
+        disposeLegacySource(batch.ptyId)
+        sourceSubscriptionsByPtyId.get(batch.ptyId)?.close?.()
+        sourceSubscriptionsByPtyId.delete(batch.ptyId)
         resident.consume(batch)
       }
-    } else {
+    } else if (resident.identity.runtimeId === null) {
       resident.policy.legacySource.observeFacts(batch)
     }
     return
@@ -244,7 +195,33 @@ export function registerTerminalSideEffectFactConsumer(
   const entry: ConsumerEntry = {
     binding: options.binding,
     services: options.services,
-    onResident: options.onResident
+    onResident: (captured) => {
+      const detach = options.onResident(captured)
+      if (options.restoreTitleOnRegister) {
+        const getSnapshot = globalThis.window?.api?.pty?.getSideEffectSnapshot
+        const subject = captureTerminalFactSubject(entry.binding.paneKey)
+        if (typeof getSnapshot === 'function') {
+          void getSnapshot(options.ptyId)
+            .then((batch) => {
+              if (
+                !batch ||
+                !captured.isLive ||
+                !entries.has(entry) ||
+                entry.resident !== captured
+              ) {
+                return
+              }
+              if (batch.terminalState) {
+                captured.consume({ ...batch, replay: true }, subject)
+              } else {
+                captured.policy.legacySource.observeFacts({ ...batch, replay: true }, subject)
+              }
+            })
+            .catch(() => {})
+        }
+      }
+      return detach
+    }
   }
   let entries = consumersByPtyId.get(options.ptyId)
   if (!entries) {
@@ -258,23 +235,7 @@ export function registerTerminalSideEffectFactConsumer(
   } else {
     openHandoffFactBuffer(options.ptyId, entry.binding, true)
   }
-  if (options.restoreTitleOnRegister) {
-    const getSnapshot = globalThis.window?.api?.pty?.getSideEffectSnapshot
-    if (typeof getSnapshot === 'function') {
-      // Only this captured execution may receive the eventual baseline.
-      void getSnapshot(options.ptyId)
-        .then((batch) => {
-          if (batch && resident?.isLive && entries.has(entry) && entry.resident === resident) {
-            if (batch.terminalState) {
-              resident.consume({ ...batch, replay: true })
-            } else {
-              resident.policy.legacySource.observeFacts({ ...batch, replay: true })
-            }
-          }
-        })
-        .catch(() => {})
-    }
-  }
+
   return () => {
     if (!entries.delete(entry)) {
       return

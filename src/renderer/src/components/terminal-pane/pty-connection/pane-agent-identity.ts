@@ -1,19 +1,15 @@
+import { isPaneForegroundTrackingAllowed } from './terminal-foreground-tracking'
+import { captureTerminalFactSubject } from '../terminal-fact-subject'
 import type { AgentStatusEntry } from '../../../../../shared/agent-status-types'
 import type { TerminalForegroundServices } from './terminal-foreground-services'
 import { dismissRetainedProgramResult } from '@/lib/program-status/result-retention'
 import { isRetainedProgramResult } from '@/lib/program-status/row'
 import { useAppStore } from '@/store'
-import { getConnectionId } from '@/lib/connection-context'
-import {
-  isLocalNativeWindowsConpty,
-  resolveWindowsShellOverride
-} from '@/lib/pane-manager/windows-pty-compatibility'
 import { createTerminalCommandLifecycle } from '../terminal-command-lifecycle'
 import { createPaneForegroundAgentTracker } from '../pane-foreground-agent-tracker'
 import { isRemoteExecutionHostPtyId } from '../../../../../shared/remote-execution-host-pty-id'
 import { inspectRuntimeTerminalProcess } from '@/runtime/runtime-terminal-inspection'
 import { dispatchTerminalCommandFinishedEvent } from '@/hooks/terminal-command-finished-event'
-import { getExecutionHostIdForWorktree } from '@/lib/worktree-runtime-owner'
 import { isTuiAgent, TUI_AGENT_CONFIG } from '../../../../../shared/tui-agent-config'
 
 import { createTerminalLaunchAgentPolicy } from './terminal-launch-agent-policy'
@@ -105,29 +101,8 @@ export function createTerminalForegroundPolicy(services: TerminalForegroundServi
       .then((verifiable) => dropUnlessVerifiable(verifiable === true))
       .catch(() => dropUnlessVerifiable(false))
   }
-  const isForegroundTrackingAllowed = (id: string): boolean => {
-    if (isRemoteExecutionHostPtyId(id)) {
-      return true
-    }
-    if (!navigator.userAgent.includes('Windows')) {
-      return true
-    }
-    const state = useAppStore.getState()
-    const tab = (state.tabsByWorktree[services.worktreeId] ?? []).find(
-      (candidate) => candidate.id === services.tabId
-    )
-    // WSL/remote panes cannot authorize native ConPTY bytes, so skip Windows scans that cannot affect routing.
-    return isLocalNativeWindowsConpty({
-      userAgent: navigator.userAgent,
-      connectionId: getConnectionId(services.worktreeId) ?? null,
-      cwd: services.cwd,
-      shellOverride: resolveWindowsShellOverride(
-        tab?.shellOverride,
-        state.settings?.terminalWindowsShell
-      ),
-      executionHostId: getExecutionHostIdForWorktree(state, services.worktreeId)
-    })
-  }
+  const isForegroundTrackingAllowed = (id: string): boolean =>
+    isPaneForegroundTrackingAllowed(id, services)
   const paneForegroundAgentTracker = createPaneForegroundAgentTracker({
     getPtyId: () => services.getPtyId(),
     isTrackablePtyId: isForegroundTrackingAllowed,
@@ -183,8 +158,11 @@ export function createTerminalForegroundPolicy(services: TerminalForegroundServi
   // identical across authority modes.
   const finishCapturedCommand = (
     bestEffortExitCode: number | null,
-    entry: AgentStatusEntry | undefined
+    entry: AgentStatusEntry | undefined,
+    canApply = () => true
   ): void => {
+    const subject = captureTerminalFactSubject(services.paneKey)
+    let cleanupLaunch = subject.launch
     services.clearCommandInferredPaneAgentAfterPtySideEffects()
     visibleForegroundSamplePending = false
     const shouldDeferStatusDrop = paneForegroundAgentTracker.onCommandFinished()
@@ -192,27 +170,44 @@ export function createTerminalForegroundPolicy(services: TerminalForegroundServi
     // `git checkout`); nudge git UI now instead of waiting for a poll.
     dispatchTerminalCommandFinishedEvent(services.worktreeId, bestEffortExitCode)
     const inferenceResult = services.flushPendingInterruptInference()
+    const applyDrop = (allowInferredInterrupt = false): void => {
+      if (useAppStore.getState().agentLaunchConfigByPaneKey[services.paneKey] !== subject.launch) {
+        return
+      }
+      services.dropCommandFinishedStatusIfSameTurn(entry, { subject, allowInferredInterrupt })
+      cleanupLaunch = useAppStore.getState().agentLaunchConfigByPaneKey[services.paneKey]
+    }
     const dropStatus = (): void => {
+      if (!canApply()) {
+        return
+      }
       if (inferenceResult === true) {
-        services.dropCommandFinishedStatusIfSameTurn(entry, { allowInferredInterrupt: true })
+        applyDrop(true)
         return
       }
       if (inferenceResult instanceof Promise) {
         void inferenceResult.then((applied) => {
-          services.dropCommandFinishedStatusIfSameTurn(entry, {
-            allowInferredInterrupt: applied === true
-          })
+          if (!canApply()) {
+            return
+          }
+          applyDrop(applied === true)
         })
         return
       }
-      services.dropCommandFinishedStatusIfSameTurn(entry)
+      applyDrop()
     }
     if (shouldDeferStatusDrop) {
       // Retain identity through local shell confirmation, anchoring accepted-status ordinal once across the whole retry ladder.
       const armedAcceptedStatusSeq = entry?.acceptedStatusSeq
       deferredCommandFinishedStatusDrop = dropStatus
-      deferredConfirmedShellReconcile = () =>
-        reconcileEndedProcessIfPaneQuiet(armedAcceptedStatusSeq)
+      deferredConfirmedShellReconcile = () => {
+        if (
+          canApply() &&
+          useAppStore.getState().agentLaunchConfigByPaneKey[services.paneKey] === cleanupLaunch
+        ) {
+          reconcileEndedProcessIfPaneQuiet(armedAcceptedStatusSeq)
+        }
+      }
       return
     }
     deferredCommandFinishedStatusDrop = null

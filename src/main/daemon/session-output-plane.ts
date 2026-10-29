@@ -63,8 +63,6 @@ export class SessionOutputPlane {
         }
       },
       opts.historySeedChunks !== undefined,
-      opts.subprocess,
-      opts.wslDistro,
       opts.startupCommand
     )
     const size = normalizePtySize(opts.cols, opts.rows)

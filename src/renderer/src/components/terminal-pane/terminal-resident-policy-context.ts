@@ -14,6 +14,7 @@ import type { createTerminalNotificationPolicy } from './pty-connection/terminal
 import type { createTerminalCompletionPolicy } from './pty-connection/terminal-completion-policy'
 import type { createTerminalCommandCodeStatusPolicy } from './terminal-command-code-status-policy'
 import type { createTerminalResidentStatusObserver } from './terminal-resident-status-observer'
+import type { TerminalResidentPresentations } from './terminal-resident-presentations'
 
 export type TerminalResidentPolicyContext = {
   readonly binding: TerminalResidentBinding
@@ -28,7 +29,8 @@ export type TerminalResidentPolicyContext = {
   ended: boolean
   unsubscribeSettings: () => void
   releaseRendererOwner: (() => void) | undefined
-  presentation: TerminalResidentPresentation | null
+  readonly presentation: TerminalResidentPresentation | null
+  readonly presentationPorts: TerminalResidentPresentations
   currentTitle: string | null
   displayPaneId: number | null
   acceptedInputGeneration: number

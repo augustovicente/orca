@@ -59,7 +59,11 @@ export function flushDaemonStreamBatch(
     }
     if (entry.control) {
       // Holding gaps lets repeated background drops coalesce without filling the socket with markers.
-      if (heldSessions.has(entry.sessionId) || (socketDeep && entry.control.event === 'dataGap')) {
+      if (
+        heldSessions.has(entry.sessionId) ||
+        (socketDeep &&
+          (entry.control.event === 'dataGap' || entry.control.event === 'terminalObservation'))
+      ) {
         heldSessions.add(entry.sessionId)
         index++
         continue

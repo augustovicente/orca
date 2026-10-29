@@ -1,3 +1,4 @@
+import { createDaemonTransientSink } from './daemon-transient-sink'
 import {
   flushDaemonStreamBatch,
   SHALLOW_SOCKET_WRITE_GATE_BYTES
@@ -5,9 +6,12 @@ import {
 import type { Socket } from 'node:net'
 import { NDJSON_MAX_LINE_BYTES } from './ndjson'
 import { DaemonStreamBackpressure } from './daemon-stream-backpressure'
-import { accountDaemonStreamEntry } from './daemon-stream-entry-accounting'
+import {
+  accountDaemonStreamEntry,
+  releaseDaemonStreamEntry
+} from './daemon-stream-entry-accounting'
 import { DaemonStreamHeldRefill } from './daemon-stream-held-refill'
-import type { StreamQueueEntry, PendingStreamDataBatch } from './daemon-stream-keep-tail-drop'
+import type { PendingStreamDataBatch } from './daemon-stream-keep-tail-drop'
 import type { DaemonEvent } from './types'
 import { appendDaemonStreamData, type DaemonStreamEnqueueOptions } from './daemon-stream-data-entry'
 import {
@@ -56,74 +60,47 @@ export class DaemonStreamDataBatcher {
     if (!socket || socket.destroyed) {
       return undefined
     }
-    let disposed = false
-    let incarnationId = ''
-    let pending: Parameters<TerminalTransientSink['stage']>[0] | null = null
-    let readCurrent: (() => Parameters<TerminalTransientSink['stage']>[0]) | undefined
-    let queuedEntry: StreamQueueEntry | undefined
-    const commit = (): void => {
-      if (disposed || this.getClient(clientId)?.streamSocket !== socket || socket.destroyed) {
-        return
-      }
-      pending ??= readCurrent?.() ?? null
-      if (!pending) {
-        return
-      }
-      const batch = this.getOrCreateBatch(clientId)
-      this.removeSnapshot(batch, sessionId)
-      queuedEntry = {
-        sessionId,
-        data: '',
-        observation: {
-          type: 'event',
-          event: 'terminalObservation',
-          sessionId,
-          incarnationId,
-          payload: pending
+    return createDaemonTransientSink(
+      {
+        socket,
+        isCurrent: () => this.getClient(clientId)?.streamSocket === socket,
+        getBatch: () => this.getOrCreateBatch(clientId),
+        getPendingBatch: () => this.pendingByClient.get(clientId),
+        removeSnapshot: (batch) => this.removeSnapshot(batch, sessionId),
+        updateBackpressure: (batch) => this.updateBackpressure(clientId, batch),
+        scheduleFlush: (batch) => {
+          if (!batch.timer) {
+            batch.timer = setTimeout(() => this.flush(clientId), STREAM_DATA_BATCH_INTERVAL_MS)
+          }
         }
-      }
-      batch.queue.push(queuedEntry)
-      pending = null
-      if (!batch.timer) {
-        batch.timer = setTimeout(() => this.flush(clientId), STREAM_DATA_BATCH_INTERVAL_MS)
-      }
-    }
-    return {
-      install: (state, incarnation, read) => {
-        incarnationId = incarnation
-        readCurrent = read
-        pending = state
-        commit()
       },
-      stage: (state) => {
-        pending = state
-      },
-      commit,
-      dispose: () => {
-        disposed = true
-        pending = null
-        readCurrent = undefined
-        const batch = this.pendingByClient.get(clientId)
-        if (batch) {
-          batch.queue = batch.queue.filter((entry) => entry !== queuedEntry)
-        }
-        queuedEntry = undefined
-      }
-    }
+      sessionId
+    )
   }
 
   private removeSnapshot(
     batch: PendingStreamDataBatch | undefined,
     sessionId?: string,
-    incarnationId?: string
+    incarnationId?: string,
+    installations = false
   ): void {
     if (batch) {
-      batch.queue = batch.queue.filter(
-        (entry) =>
-          !entry.observation ||
+      batch.queue = batch.queue.filter((entry) => {
+        const observation =
+          entry.observation ??
+          (installations && entry.control?.event === 'terminalObservation'
+            ? entry.control
+            : undefined)
+        if (
+          !observation ||
           (sessionId !== undefined && entry.sessionId !== sessionId) ||
-          (incarnationId !== undefined && entry.observation.incarnationId !== incarnationId)
-      )
+          (incarnationId !== undefined && observation.incarnationId !== incarnationId)
+        ) {
+          return true
+        }
+        releaseDaemonStreamEntry(batch, entry)
+        return false
+      })
     }
   }
 
@@ -283,7 +260,7 @@ export class DaemonStreamDataBatcher {
 
   /** Reset socket-generation state without discarding queued payloads for a replacement stream. */
   replaceStream(clientId: string): void {
-    this.removeSnapshot(this.pendingByClient.get(clientId))
+    this.removeSnapshot(this.pendingByClient.get(clientId), undefined, undefined, true)
     const batch = this.pendingByClient.get(clientId)
     if (batch?.timer) {
       clearTimeout(batch.timer)

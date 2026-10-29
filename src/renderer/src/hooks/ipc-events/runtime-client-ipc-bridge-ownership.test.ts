@@ -4,7 +4,16 @@ import { subscribeRuntimeEnvironmentFromPreload } from '../../../../preload/runt
 import { tagRuntimeSubscriptionReplayResponse } from '../../../../shared/runtime-subscription-replay'
 import { createCompatibleRuntimeStatusResponse } from '@/runtime/runtime-compatibility-test-fixture'
 import { registerRuntimeClientIpcBridge } from './runtime-client-ipc-bridge'
-import type { RuntimeClientEvent } from '../../../../shared/runtime-client-events'
+import { TerminalSnapshotState } from '../../../../shared/terminal-snapshot-state'
+import { toRemoteRuntimePtyId } from '../../../../shared/remote-runtime/remote-runtime-pty-id'
+import {
+  getTerminalSemanticResident,
+  _resetTerminalSideEffectFactConsumersForTest
+} from '../../components/terminal-pane/terminal-side-effect-facts-handler'
+import type {
+  RuntimeClientEvent,
+  RuntimeClientEventStreamMessage
+} from '../../../../shared/runtime-client-events'
 import { replaceRuntimeEnvironmentRevisions } from '@/runtime/runtime-environment-revision'
 import {
   beginWorktreeLineageRefresh,
@@ -15,6 +24,7 @@ const initialState = useAppStore.getState()
 
 beforeEach(() => vi.useFakeTimers())
 afterEach(() => {
+  _resetTerminalSideEffectFactConsumersForTest()
   useAppStore.setState(initialState, true)
   replaceRuntimeEnvironmentRevisions(initialState.runtimeEnvironments)
   vi.useRealTimers()
@@ -117,7 +127,7 @@ function createHarness() {
       index: number,
       replay = false,
       event?:
-        | RuntimeClientEvent
+        | RuntimeClientEventStreamMessage
         | { type: 'worktreesChanged'; repoId: string; sortOrderOnly: unknown; sortOrders?: unknown }
     ) => {
       const response = {
@@ -471,6 +481,59 @@ it("lists a profile created on the host once the host announces it, without touc
       ])
     )
     expect(useAppStore.getState().browserSessionProfilesByHostId.local).toEqual([])
+  } finally {
+    await h.finish()
+  }
+})
+
+it('installs a restarted runtime baseline before live effects on the same physical execution', async () => {
+  const h = createHarness()
+  const markTerminalBell = vi.fn()
+  useAppStore.setState({ markTerminalBell })
+  const source = new TerminalSnapshotState()
+  const batch = (runtimeId: string) => ({
+    ptyId: 'physical',
+    paneKey: 'tab:leaf',
+    tabId: 'tab',
+    worktreeId: 'remote-wt',
+    seq: 1,
+    facts: [],
+    terminalState: { runtimeId, incarnationId: 'incarnation', snapshot: source.snapshot() }
+  })
+  try {
+    h.start()
+    h.emit(0, false, {
+      type: 'ready',
+      subscriptionId: 'sub-0',
+      snapshot: { terminalSideEffects: [batch('old-runtime')] }
+    })
+    const resident = getTerminalSemanticResident(toRemoteRuntimePtyId('physical', 'host-a'))
+    expect(resident).toBeDefined()
+    const policy = resident?.policy
+    source.record({ kind: 'bell' }, Date.now())
+    h.emit(0, false, { type: 'terminalSideEffects', batch: batch('foreign-runtime') })
+    expect(markTerminalBell).not.toHaveBeenCalled()
+    h.emit(0, true, {
+      type: 'ready',
+      subscriptionId: 'sub-0',
+      snapshot: { terminalSideEffects: [batch('new-runtime')] }
+    })
+    expect(markTerminalBell).not.toHaveBeenCalled()
+    expect(h.pending).toHaveLength(2)
+    h.emit(1, false, {
+      type: 'ready',
+      subscriptionId: 'sub-1',
+      snapshot: { terminalSideEffects: [batch('new-runtime')] }
+    })
+    expect(getTerminalSemanticResident(toRemoteRuntimePtyId('physical', 'host-a'))).toBe(resident)
+    expect(resident?.policy).toBe(policy)
+    expect(resident?.identity.runtimeId).toBe('new-runtime')
+    source.record({ kind: 'bell' }, Date.now() + 1)
+    h.emit(1, false, { type: 'terminalSideEffects', batch: batch('new-runtime') })
+    expect(markTerminalBell).toHaveBeenCalledTimes(1)
+    source.record({ kind: 'bell' }, Date.now() + 2)
+    h.emit(1, false, { type: 'terminalSideEffects', batch: batch('old-runtime') })
+    expect(markTerminalBell).toHaveBeenCalledTimes(1)
   } finally {
     await h.finish()
   }

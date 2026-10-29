@@ -1,6 +1,6 @@
+import type { PtySemanticSource } from '../../../providers/pty-provider-events'
 import { TerminalSnapshotConsumption } from '../../../../shared/terminal-snapshot-consumption'
 import { TerminalSnapshotState } from '../../../../shared/terminal-snapshot-state'
-import { isAgentStatusHooksEnabledForAgent } from '../../../../shared/agent-status-hooks-setting'
 import type { ProcessedAgentStatusChunk } from '../../../../shared/agent-status-osc'
 import type { AgentStatus } from '../../../../shared/agent-detection'
 import type { TerminalTransientFact } from '../../../../shared/terminal-transient-observation'
@@ -44,16 +44,27 @@ export abstract class OrcaRuntimeWithTerminalSnapshotApplication extends OrcaRun
   applyTerminalTransientObservation(
     ptyId: string,
     incarnationId: string,
-    observation: TerminalTransientObservation
+    observation: TerminalTransientObservation,
+    source?: PtySemanticSource
   ): void {
     const entry = this.getOrCreatePtyTitleTrackerEntry(ptyId)
-    if (entry.transientIncarnationId !== incarnationId) {
+    const previousSource = entry.transientSource
+    const newDomain =
+      source &&
+      previousSource &&
+      (previousSource.provider !== source.provider || !previousSource.terminalState)
+    if (entry.transientIncarnationId !== incarnationId || !entry.transientConsumption) {
       entry.transientIncarnationId = incarnationId
       entry.transientConsumption = new TerminalSnapshotConsumption()
-      entry.sideEffectState = new TerminalSnapshotState()
       entry.sourceSnapshot = undefined
-      this.openCodeRunLifetime.forgetPty(ptyId)
+    } else if (newDomain) {
+      entry.transientConsumption.install(observation)
+      entry.sourceSnapshot = undefined
     }
+    if (source) {
+      entry.transientSource = source
+    }
+    entry.physicalIncarnationId = incarnationId
     const consumed = entry.transientConsumption?.consume(observation)
     if (!consumed) {
       return
@@ -62,7 +73,11 @@ export abstract class OrcaRuntimeWithTerminalSnapshotApplication extends OrcaRun
     entry.sourceSnapshot = observation
     entry.tracker.setTransientFactScanningSuppressed(true)
     entry.sideEffectState ??= new TerminalSnapshotState()
-    const current = observation.current
+    const sourceCurrent = observation.current
+    const current = {
+      ...sourceCurrent,
+      commandOrdinal: entry.sideEffectState.state.current.commandOrdinal
+    }
     const policyTitle = entry.sideEffectState.state.current.title
     const policyActivity = entry.sideEffectState.state.current.activity
     const titleChanged =
@@ -80,7 +95,7 @@ export abstract class OrcaRuntimeWithTerminalSnapshotApplication extends OrcaRun
           { observedAt: link.observedAt, commandOrdinal: current.commandOrdinal }
         )
       }
-      // Historical effects must not leave the projection behind the source's current command.
+      current.commandOrdinal = entry.sideEffectState.state.current.commandOrdinal
       entry.sideEffectState.state.current = structuredClone(current)
       if (!previous || previous.revision !== observation.revision) {
         entry.sideEffectState.state.revision++
@@ -151,7 +166,7 @@ export abstract class OrcaRuntimeWithTerminalSnapshotApplication extends OrcaRun
     } finally {
       entry.applyingChunk = false
       const facts = entry.pendingFacts.splice(0)
-      this.emitTerminalSideEffectBatch(ptyId, facts)
+      this.emitTerminalSideEffectBatch(ptyId, facts, { replay: consumed.first })
     }
   }
 
@@ -160,6 +175,14 @@ export abstract class OrcaRuntimeWithTerminalSnapshotApplication extends OrcaRun
     fact: TerminalTransientFact,
     qualification?: { observedAt: number; commandOrdinal: number }
   ): void {
+    const projected = qualification
+      ? {
+          ...qualification,
+          commandOrdinal:
+            this.ptyTitleTrackersByPtyId.get(ptyId)?.sideEffectState?.state.current
+              .commandOrdinal ?? 0
+        }
+      : undefined
     switch (fact.kind) {
       case 'agent-status': {
         this.flushSnapshotFactsBeforeStatus(ptyId)
@@ -177,33 +200,7 @@ export abstract class OrcaRuntimeWithTerminalSnapshotApplication extends OrcaRun
           true,
           qualification?.observedAt
         )
-        this.recordTerminalSideEffectFact(ptyId, { kind: 'agent-status', payload }, qualification)
-        return
-      }
-      case 'opencode-status': {
-        const entry = this.ptyTitleTrackersByPtyId.get(ptyId)
-        if (entry?.sideEffectState) {
-          entry.sideEffectState.record(
-            fact,
-            qualification?.observedAt,
-            qualification?.commandOrdinal
-          )
-        }
-        this.flushSnapshotFactsBeforeStatus(ptyId)
-        if (
-          isAgentStatusHooksEnabledForAgent(
-            this.store?.getSettings?.(),
-            fact.payload.agentType === 'opencode2' ? 'opencode2' : 'opencode'
-          )
-        ) {
-          this.emitTerminalAgentStatusEvents(
-            ptyId,
-            { payloads: [fact.payload] },
-            { origin: 'process', yieldsToHookSince: fact.startedAt },
-            true,
-            qualification?.observedAt
-          )
-        }
+        this.recordTerminalSideEffectFact(ptyId, { kind: 'agent-status', payload }, projected)
         return
       }
       case 'program-facet':
@@ -211,7 +208,7 @@ export abstract class OrcaRuntimeWithTerminalSnapshotApplication extends OrcaRun
         return
       case 'title':
         this.applyTrackedPtyTitle(ptyId, fact.rawTitle, fact.normalizedTitle, fact)
-        this.recordTerminalSideEffectFact(ptyId, fact, qualification)
+        this.recordTerminalSideEffectFact(ptyId, fact, projected)
         return
       case 'agent-exited':
         this.confirmPtyAgentExit(ptyId)
@@ -219,12 +216,23 @@ export abstract class OrcaRuntimeWithTerminalSnapshotApplication extends OrcaRun
       case 'pr-link': {
         const link = parseTerminalGitHubPRUrl(fact.url)
         if (link) {
-          this.recordTerminalSideEffectFact(ptyId, { kind: 'pr-link', link }, qualification)
+          this.recordTerminalSideEffectFact(ptyId, { kind: 'pr-link', link }, projected)
         }
         return
       }
       case 'command-started':
-        this.recordTerminalSideEffectFact(ptyId, fact, qualification)
+        this.recordTerminalSideEffectFact(
+          ptyId,
+          fact,
+          qualification
+            ? {
+                ...qualification,
+                commandOrdinal:
+                  (this.ptyTitleTrackersByPtyId.get(ptyId)?.sideEffectState?.state.current
+                    .commandOrdinal ?? 0) + 1
+              }
+            : undefined
+        )
         return
       case 'command-finished':
         if (
@@ -234,10 +242,10 @@ export abstract class OrcaRuntimeWithTerminalSnapshotApplication extends OrcaRun
         ) {
           this.retirePtyAgentLaunchAuthorityOnConfirmedExit(ptyId)
         }
-        this.recordTerminalSideEffectFact(ptyId, fact, qualification)
+        this.recordTerminalSideEffectFact(ptyId, fact, projected)
         return
       default:
-        this.recordTerminalSideEffectFact(ptyId, fact, qualification)
+        this.recordTerminalSideEffectFact(ptyId, fact, projected)
     }
   }
 
@@ -248,7 +256,10 @@ export abstract class OrcaRuntimeWithTerminalSnapshotApplication extends OrcaRun
     }
     // Preserve command/status delivery order while the snapshot always names the final source command.
     if (entry.sourceSnapshot) {
-      entry.sideEffectState.state.current = structuredClone(entry.sourceSnapshot.current)
+      entry.sideEffectState.state.current = {
+        ...structuredClone(entry.sourceSnapshot.current),
+        commandOrdinal: entry.sideEffectState.state.current.commandOrdinal
+      }
     }
     this.emitTerminalSideEffectBatch(ptyId, entry.pendingFacts.splice(0))
   }
@@ -260,6 +271,7 @@ export abstract class OrcaRuntimeWithTerminalSnapshotApplication extends OrcaRun
   ): void
   protected abstract emitTerminalSideEffectBatch(
     ptyId: string,
-    facts: TerminalSideEffectFact[]
+    facts: TerminalSideEffectFact[],
+    options?: { replay?: boolean }
   ): void
 }

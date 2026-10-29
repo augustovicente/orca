@@ -1,8 +1,8 @@
+import { registerParkedTerminalSourceTests } from './parked-terminal-source.spec'
 import { registerParkedTerminalAuthorityTests } from './parked-terminal-authority.spec'
 import type * as RuntimeRpcClient from '@/runtime/runtime-rpc-client'
 import type { TerminalSemanticResident } from './terminal-semantic-residents'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { TerminalSideEffectFact } from '../../../../shared/terminal-side-effect-facts'
 import type { ParkedTerminalByteWatcherOptions } from './parked-terminal-byte-watcher'
 import { AGENT_TASK_COMPLETE_NOTIFICATION_MAX_WAIT_MS } from './agent-task-complete-policy'
 import type { PtyDataMeta } from './pty-dispatcher'
@@ -171,6 +171,7 @@ describe('startParkedTerminalByteWatcher', () => {
           onReplay: vi.fn(() => () => {}),
           onExit: vi.fn(() => () => {}),
           ackData: vi.fn(),
+          hasPty: vi.fn().mockResolvedValue(true),
           inspectProcess: vi
             .fn()
             .mockResolvedValue({ foregroundProcess: null, hasChildProcesses: false }),
@@ -193,62 +194,16 @@ describe('startParkedTerminalByteWatcher', () => {
     }
   })
 
-  it.each([
-    ['local main-authority', 'pty-parked-1'],
-    ['SSH through main', 'ssh:connection-1@@pty-1'],
-    ['WSL facts', 'wsl-pty-1'],
-    ['parked paired', 'remote:env-1@@terminal-1']
-  ])('production Uprime retains the bounded old-host bell: %s', async (_route, ptyId) => {
-    mockStoreState.settings = {
-      ...mockStoreState.settings,
-      terminalMainSideEffectAuthority: true
-    }
-    const pty = window.api.pty
-    const admission = Promise.withResolvers<boolean>()
-    Object.assign(pty, { hasPty: vi.fn(() => admission.promise) })
-    holdRemoteAdmission = true
-    const pinned = process.env.ORCA_PR31182_PINNED_MAIN_PARITY === '1'
-    const pinnedRoot =
-      '/Users/brennanbenson/orca-qa/linear-agent-status-1026/workers/r31182-fixer/pinned-main-parity'
-    const watcher = pinned
-      ? await import(/* @vite-ignore */ `${pinnedRoot}/parked-terminal-byte-watcher.ts`)
-      : await import('./parked-terminal-byte-watcher')
-    const handler = pinned
-      ? await import(/* @vite-ignore */ `${pinnedRoot}/terminal-side-effect-facts-handler.ts`)
-      : await import('./terminal-side-effect-facts-handler')
-    const options = {
-      ptyId,
-      tabId: TAB_ID,
-      worktreeId: WORKTREE_ID,
-      leafId: LEAF_ID,
-      paneId: PANE_ID
-    }
-    // Reveal removes presentation before the next watcher; the bell has no consumer.
-    const first = watcher.startParkedTerminalByteWatcher(options)
-    first()
-    handler.dispatchTerminalSideEffectBatch({ ptyId, seq: 1, facts: [{ kind: 'bell' }] })
-    expect(mockStoreState.markTerminalBell).not.toHaveBeenCalled()
-    const next = watcher.startParkedTerminalByteWatcher(options)
-    admission.resolve(true)
-    for (const subscription of remoteSubscriptions) {
-      subscription.options?.onAdmitted?.()
-    }
-    await vi.advanceTimersByTimeAsync(AGENT_TASK_COMPLETE_NOTIFICATION_MAX_WAIT_MS)
-    expect.soft(mockStoreState.markTerminalBell).toHaveBeenCalledOnce()
-    expect
-      .soft(dispatchTerminalNotification)
-      .toHaveBeenCalledWith(
-        WORKTREE_ID,
-        expect.objectContaining({ source: 'terminal-bell', ptyId, paneKey: PANE_KEY })
-      )
-    console.info('production-Uprime', {
-      pinned,
-      route: _route,
-      attention: mockStoreState.markTerminalBell.mock.calls.length,
-      notifications: dispatchTerminalNotification.mock.calls.length
-    })
-    next()
-    handler._resetTerminalSideEffectFactConsumersForTest()
+  registerParkedTerminalSourceTests({
+    getStore: () => mockStoreState,
+    startWatcher,
+    dispatchTerminalNotification,
+    emit,
+    getOnData: () => onData,
+    holdRemoteAdmission: () => {
+      holdRemoteAdmission = true
+    },
+    getRemoteSubscriptions: () => remoteSubscriptions
   })
 
   it('forwards every OSC title in order to the pane and tab title store actions', async () => {
@@ -484,6 +439,141 @@ describe('startParkedTerminalByteWatcher', () => {
     dispose()
   })
 
+  it('consumes first live capable companions and unattributed advances once on a zero-port execution', async () => {
+    const handler = await import('./terminal-side-effect-facts-handler')
+    const { TerminalSnapshotState } = await import('../../../../shared/terminal-snapshot-state')
+    const watched = await startWatcher()
+    const before = watched.getResident()
+    watched.dispose()
+    const source = new TerminalSnapshotState()
+    source.record({ kind: 'bell' }, 10)
+    const first = {
+      ptyId: PTY_ID,
+      paneKey: PANE_KEY,
+      tabId: TAB_ID,
+      worktreeId: WORKTREE_ID,
+      seq: 1,
+      facts: [{ kind: 'bell' as const }],
+      terminalState: {
+        runtimeId: 'runtime',
+        incarnationId: 'physical',
+        snapshot: source.snapshot()
+      }
+    }
+    handler.dispatchTerminalSideEffectBatch(first)
+    const resident = handler.getTerminalSemanticResident(PTY_ID)
+    if (!resident) {
+      throw new Error('Qualified capable ingress must admit E')
+    }
+    expect(resident).toBe(before)
+    const cursor = Object.getOwnPropertyDescriptor(resident, 'consumption')?.value
+    const controllers = [
+      resident.policy.completion,
+      resident.policy.legacySource,
+      resident.policy.input
+    ]
+    const captured = vi.fn(() => () => {})
+    const detach = handler.registerTerminalSideEffectFactConsumer({
+      ptyId: PTY_ID,
+      binding: resident.policy.binding,
+      onResident: captured
+    })
+    expect(captured).toHaveBeenCalledExactlyOnceWith(resident)
+    expect(mockStoreState.markTerminalBell).toHaveBeenCalledTimes(1)
+    source.record({ kind: 'bell' }, 20)
+    const terminalState = {
+      runtimeId: 'runtime',
+      incarnationId: 'physical',
+      snapshot: source.snapshot()
+    }
+    handler.dispatchTerminalSideEffectBatch({
+      ptyId: PTY_ID,
+      seq: 2,
+      facts: [{ kind: 'bell' }],
+      terminalState
+    })
+    handler.dispatchTerminalSideEffectBatch({ ...first, terminalState })
+    handler.dispatchTerminalSideEffectBatch({ ...first, replay: true, terminalState })
+    expect(mockStoreState.markTerminalBell).toHaveBeenCalledTimes(2)
+    source.record({ kind: 'bell' }, 30)
+    handler.dispatchTerminalSideEffectBatch({
+      ptyId: PTY_ID,
+      seq: 3,
+      facts: [{ kind: 'bell' }],
+      terminalState: { ...terminalState, runtimeId: 'foreign', snapshot: source.snapshot() }
+    })
+    expect(mockStoreState.markTerminalBell).toHaveBeenCalledTimes(2)
+    expect(handler.getTerminalSemanticResident(PTY_ID)).toBe(resident)
+    expect(Object.getOwnPropertyDescriptor(resident, 'consumption')?.value).toBe(cursor)
+    expect([
+      resident.policy.completion,
+      resident.policy.legacySource,
+      resident.policy.input
+    ]).toEqual(controllers)
+    const ended = vi.fn()
+    resident.onEnd(ended)
+    detach()
+    expect(resident.isLive).toBe(true)
+    expect(ended).not.toHaveBeenCalled()
+    handler.retireTerminalSemanticResident(PTY_ID, 'foreign-incarnation')
+    expect(ended).not.toHaveBeenCalled()
+    handler.retireTerminalSemanticResident(PTY_ID, 'physical')
+    expect(ended).toHaveBeenCalledExactlyOnceWith(resident)
+  })
+
+  it('keeps Escape history per writer while captured execution ACK groups reject an older turn', async () => {
+    const { getResident, dispose } = await startWatcher()
+    const resident = getResident()
+    if (!resident) {
+      throw new Error('Positive source must admit E')
+    }
+    const inferInterrupt = vi.fn().mockResolvedValue(true)
+    Object.assign(window.api, { agentStatus: { inferInterrupt } })
+    const row = {
+      paneKey: PANE_KEY,
+      state: 'working' as const,
+      prompt: 'original',
+      agentType: 'opencode' as const,
+      updatedAt: Date.now(),
+      stateStartedAt: Date.now() - 10,
+      stateHistory: []
+    }
+    mockStoreState.agentStatusByPaneKey[PANE_KEY] = row
+    const input = resident.policy.input
+    const first = input.createInterruptWriter()
+    const second = input.createInterruptWriter()
+    const group = input.reserveInterruptBaseline(row)
+    expect(input.reserveInterruptBaseline(row)).toBe(group)
+    first.observeInputIntent('plain-escape', row, group)
+    second.observeInputIntent('plain-escape', row, group)
+    await vi.advanceTimersByTimeAsync(100)
+    expect(inferInterrupt).not.toHaveBeenCalled()
+    const release = first.retain()
+    first.release()
+    dispose()
+    expect(resident.isLive).toBe(true)
+    await first.observeInputIntent('plain-escape', row, group)
+    await vi.advanceTimersByTimeAsync(350)
+    expect(inferInterrupt).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ baselinePrompt: 'original', inputCount: 2 })
+    )
+    release()
+    const newer = {
+      ...row,
+      prompt: 'new turn',
+      updatedAt: Date.now(),
+      stateStartedAt: Date.now() - 10
+    }
+    mockStoreState.agentStatusByPaneKey[PANE_KEY] = newer
+    const newerGroup = input.reserveInterruptBaseline(newer)
+    expect(newerGroup).toBeGreaterThan(group)
+    expect(input.reserveInterruptBaseline(row)).toBeLessThan(newerGroup)
+    second.observeInputIntent('plain-escape', row, group)
+    await vi.advanceTimersByTimeAsync(350)
+    expect(inferInterrupt).toHaveBeenCalledTimes(1)
+    second.release()
+  })
+
   it('settles Command Code output after parking without replacing the policy', async () => {
     const { dispose, getResident } = await startWatcher()
     emit('# Command Code v0.27.2\r\n')
@@ -619,9 +709,8 @@ describe('startParkedTerminalByteWatcher', () => {
 
   it('consumes host facts during a supported paired output pause', async () => {
     const remotePtyId = 'remote:env-1@@terminal-1'
-    const { dispose, getResident } = await startWatcher({ ptyId: remotePtyId })
+    const { dispose } = await startWatcher({ ptyId: remotePtyId })
     const handler = await import('./terminal-side-effect-facts-handler')
-    getResident()?.policy.setLegacyOutputPaused(true, true)
 
     expect(onData).toBeNull()
     handler._dispatchTerminalSideEffectBatchForTest({
@@ -675,7 +764,6 @@ describe('startParkedTerminalByteWatcher', () => {
 
     // An unfinished raw prefix belongs to this execution, including while facts own attention.
     raw('output\x1b]133;')
-    policy.setLegacyOutputPaused(true, true)
     facts(rawEndSeq, [
       { kind: 'title', normalizedTitle: '⠋ Remote build', rawTitle: '⠋ Remote build' },
       { kind: 'agent-working' },
@@ -694,14 +782,13 @@ describe('startParkedTerminalByteWatcher', () => {
     expect(resident.policy).toBe(policy)
     expect(policy.legacySource).toBe(source)
     expect(remoteSubscriptions).toHaveLength(1)
-    raw('C\x07command output\x07')
+    raw('C\x07command output')
     expect(mockStoreState.markTerminalBell).toHaveBeenCalledTimes(1)
     // Synthetic hook attention has no raw-stream copy on an old paired host.
     facts(rawEndSeq, [{ kind: 'bell' }])
     expect(mockStoreState.markTerminalBell).toHaveBeenCalledTimes(2)
-    policy.setLegacyOutputPaused(false, true)
+    // Old raw-only output and synthetic facts both retain their supported delivery.
     raw('ordinary bell\x07')
-    facts(rawEndSeq, [{ kind: 'bell' }])
     expect(mockStoreState.markTerminalBell).toHaveBeenCalledTimes(3)
     raw('\x1b]133;D;7\x07')
 

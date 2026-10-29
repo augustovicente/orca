@@ -30,7 +30,6 @@ export abstract class OrcaRuntimeWithEmitDaemonPtyTransientFact extends OrcaRunt
   emitDaemonPtyTransientFact(ptyId: string, fact: PtyTransientFact): void {
     switch (fact.kind) {
       case 'command-started':
-        this.openCodeRunLifetime.onCommandStarted(ptyId)
         this.recordTerminalSideEffectFact(ptyId, { kind: 'command-started' })
         return
       case 'bell':
@@ -42,7 +41,6 @@ export abstract class OrcaRuntimeWithEmitDaemonPtyTransientFact extends OrcaRunt
           kind: 'command-finished',
           exitCode: fact.exitCode
         })
-        this.openCodeRunLifetime.onCommandFinished(ptyId, fact.exitCode)
         return
       case 'pr-link':
         this.recordTerminalSideEffectFact(ptyId, { kind: 'pr-link', link: fact.link })
@@ -109,6 +107,7 @@ export abstract class OrcaRuntimeWithEmitDaemonPtyTransientFact extends OrcaRunt
     options: { replay?: boolean } = {}
   ): void {
     const state = this.ptyTitleTrackersByPtyId.get(ptyId)?.sideEffectState
+    const incarnationId = this.ptyTitleTrackersByPtyId.get(ptyId)?.physicalIncarnationId
     if (!this.terminalSideEffectConsumerAvailable || (facts.length === 0 && !state)) {
       return
     }
@@ -116,14 +115,11 @@ export abstract class OrcaRuntimeWithEmitDaemonPtyTransientFact extends OrcaRunt
       ptyId,
       seq: this.ptyOutputSequenceById.get(ptyId) ?? 0,
       facts,
-      ...(state
+      ...(state && incarnationId
         ? {
             terminalState: {
               runtimeId: this.runtimeId,
-              incarnationId:
-                this.ptyTitleTrackersByPtyId.get(ptyId)?.transientIncarnationId ??
-                this.ptysById.get(ptyId)?.incarnationId ??
-                ptyId,
+              incarnationId,
               snapshot: state.snapshot()
             }
           }
@@ -196,7 +192,7 @@ export abstract class OrcaRuntimeWithEmitDaemonPtyTransientFact extends OrcaRunt
         )
       }
     }
-    if (entry?.sideEffectState) {
+    if (entry?.sideEffectState && entry.physicalIncarnationId) {
       return {
         ptyId,
         seq: this.ptyOutputSequenceById.get(ptyId) ?? 0,
@@ -204,8 +200,7 @@ export abstract class OrcaRuntimeWithEmitDaemonPtyTransientFact extends OrcaRunt
         replay: true,
         terminalState: {
           runtimeId: this.runtimeId,
-          incarnationId:
-            entry.transientIncarnationId ?? this.ptysById.get(ptyId)?.incarnationId ?? ptyId,
+          incarnationId: entry.physicalIncarnationId,
           snapshot: entry.sideEffectState.snapshot()
         },
         ...this.resolveTerminalSideEffectAttribution(ptyId)

@@ -828,7 +828,7 @@ export function registerPtyConnectionCommandFinishedCleanupTests(): void {
 
       connectPanePty(...mockPanePtyArgs(pane, createManager(1), createDeps()))
       vi.advanceTimersByTime(1_000)
-      await flushAsyncTicks()
+      await flushAsyncTicks(30)
       if (!onDataHandler) {
         throw new Error('expected onData handler to be registered')
       }
@@ -836,7 +836,7 @@ export function registerPtyConnectionCommandFinishedCleanupTests(): void {
       ;(onDataHandler as unknown as (data: string) => void)('\x03')
 
       capturedDataCallback.current?.('\x1b]133;D;130\x07thebr ~/repo $ ')
-      await flushAsyncTicks()
+      await flushAsyncTicks(30)
 
       expect(window.api.agentStatus.inferInterrupt).toHaveBeenCalled()
       expect(mockStoreState.dropAgentStatus).toHaveBeenCalledWith(paneKey)

@@ -4,11 +4,7 @@ import { isRemoteRuntimePtyId } from '../../../../../shared/remote-runtime/remot
 import { safeFit } from '@/lib/pane-manager/pane-tree-ops'
 import { bindPanePtyId, getFitOverrideForPty } from '@/lib/pane-manager/mobile-fit-overrides'
 import { isCtrlCKeyEvent, isPlainEscapeKeyEvent } from '../agent-interrupt-inference'
-import {
-  admitRemoteTerminalSemanticResident,
-  admitLegacyTerminalSemanticResident,
-  registerTerminalSideEffectFactConsumer
-} from '../terminal-side-effect-facts-handler'
+import { registerTerminalSideEffectFactConsumer } from '../terminal-side-effect-facts-handler'
 
 import type { ConnectPanePtySession } from './connect-pane-pty-session'
 
@@ -46,7 +42,7 @@ export function installTerminalKeydownFit(session: ConnectPanePtySession): void 
     }
     // Enter at shell foreground backs up OSC 133;C hooks replaced by shell frameworks; confirm only panes without live agent identity.
     if (event.key === 'Enter' && !event.metaKey && !event.ctrlKey && !event.altKey) {
-      session.sampleVisiblePaneForegroundAgent()
+      session.sampleVisiblePaneForegroundAgent?.()
     }
   }
   // Infer from focused key events; raw bytes conflate Escape with Alt/meta and programmatic writes must not clear status.
@@ -95,7 +91,6 @@ export function installTerminalKeydownFit(session: ConnectPanePtySession): void 
     if (session.disposed) {
       return
     }
-    session.semanticPolicy.bindPty(ptyId, session.remotePtyIncarnationId ?? null)
     const binding = {
       paneKey: session.cacheKey,
       tabId: session.deps.tabId,
@@ -111,27 +106,6 @@ export function installTerminalKeydownFit(session: ConnectPanePtySession): void 
       setCacheTimerStartedAt: session.deps.setCacheTimerStartedAt,
       markTerminalBell: session.deps.markTerminalBell,
       dispatchNotification: session.deps.dispatchNotification
-    }
-    if (
-      !session.mainSideEffectAuthority &&
-      session.runtimeEnvironmentId === null &&
-      !isRemoteRuntimePtyId(ptyId)
-    ) {
-      admitLegacyTerminalSemanticResident({
-        ptyId,
-        incarnationId: session.remotePtyIncarnationId,
-        binding,
-        byteSource: true,
-        services
-      })
-    }
-    if (isRemoteRuntimePtyId(ptyId)) {
-      void admitRemoteTerminalSemanticResident({
-        ptyId,
-        binding,
-        byteSource: true,
-        services
-      })
     }
     session.unregisterSideEffectFactConsumer?.()
     session.unregisterSideEffectFactConsumer = registerTerminalSideEffectFactConsumer({

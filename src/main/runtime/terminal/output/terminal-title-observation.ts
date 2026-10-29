@@ -263,7 +263,6 @@ export abstract class OrcaRuntimeWithApplyTrackedPtyTitle extends OrcaRuntimeWit
     this.ptyTitleTrackersByPtyId.get(ptyId)?.tracker.dispose()
     this.ptyTitleTrackersByPtyId.delete(ptyId)
     this.ptyForegroundAgent.forget(ptyId)
-    this.openCodeRunLifetime.forgetPty(ptyId)
     this.mobileSessionTabsAgentStatusHeartbeat.removePty(ptyId)
     this.clientEvents.clearPtyTitleGate(ptyId)
   }

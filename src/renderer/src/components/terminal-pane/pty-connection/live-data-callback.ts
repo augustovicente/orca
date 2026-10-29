@@ -34,7 +34,7 @@ export function bindLiveDataCallback(session: ConnectPanePtySession): void {
       session.hasReceivedPtyOutput = true
       recordAgentHibernationPaneOutput(session.cacheKey)
       // Why: output is the agent-start signal that ends the relaxed no-evidence process-scan cadence (a starting agent always prints).
-      session.agentCompletionCoordinator.observeOutputActivity()
+      session.agentCompletionCoordinator?.observeOutputActivity()
     }
     session.observeStartupDraftPasteReadiness(data)
     session.resetHiddenOutputRestoreIfPtyChanged()

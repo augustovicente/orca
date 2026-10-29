@@ -6,6 +6,7 @@ import { DaemonStreamDataBatcher } from './daemon-stream-data-batcher'
 import { TerminalSnapshotState } from '../../shared/terminal-snapshot-state'
 import { TerminalSnapshotConsumption } from '../../shared/terminal-snapshot-consumption'
 import { SessionTransientObservations } from './session-transient-observations'
+import { SessionOutputPlane } from './session-output-plane'
 import type { DaemonEvent } from './daemon-stream-events'
 
 const tick = () => new Promise<void>((resolve) => setImmediate(resolve))
@@ -96,6 +97,75 @@ describe('complete terminal state delivery', () => {
     }
   )
 
+  it.each(['ndjson', 'binary-v1'] as const)(
+    'keeps the physical installation before first live effect under %s backpressure',
+    async (streamFraming) => {
+      const socket = new Socket()
+      const destination = new Socket()
+      let deep = 256 * 1024
+      Object.defineProperty(socket, 'writableLength', { get: () => deep })
+      const events: DaemonEvent[] = []
+      const admission = new DaemonTransientReader((event) => events.push(event))
+      const reader = attachStreamEventReader(
+        destination,
+        { streamFraming, remainder: Buffer.alloc(0) },
+        (event) => admission.accept(event)
+      )
+      vi.spyOn(socket, 'write').mockImplementation((...args: unknown[]) => {
+        const line = args[0]
+        destination.push(Buffer.isBuffer(line) ? line : Buffer.from(String(line)))
+        return deep === 0
+      })
+      const batcher = new DaemonStreamDataBatcher(() => ({ streamSocket: socket, streamFraming }))
+      const plane = new SessionOutputPlane({ cols: 80, rows: 24, incarnationId: 'physical' })
+      const emission = (data: string, start: number) => ({
+        data,
+        rawStartSeq: start,
+        rawEndSeq: start + data.length
+      })
+      try {
+        plane.emit(emission('\x07', 0))
+        batcher.enqueue('client', 'canonical', 'x'.repeat(64 * 1024))
+        plane.attachClient({
+          transients: batcher.bindTransients('client', 'canonical'),
+          onData: (data) => batcher.enqueue('client', 'canonical', data),
+          onExit: () => {}
+        })
+        plane.emit(emission('\x07', 1))
+        batcher.flush('client')
+        await tick()
+        expect(events.filter((event) => event.event === 'terminalObservation')).toHaveLength(0)
+        deep = 0
+        batcher.flush('client')
+        await tick()
+        await vi.waitFor(() =>
+          expect(events.filter((event) => event.event === 'terminalObservation')).toHaveLength(2)
+        )
+        const observations = events.filter((event) => event.event === 'terminalObservation')
+        expect(observations).toHaveLength(2)
+        expect(
+          observations.map(
+            (event) => event.event === 'terminalObservation' && event.payload.effects.bell?.count
+          )
+        ).toEqual([1, 2])
+        const cursor = new TerminalSnapshotConsumption()
+        const applied = observations.flatMap((event) =>
+          event.event === 'terminalObservation'
+            ? (cursor.consume(event.payload)?.effects ?? [])
+            : []
+        )
+        expect(applied.map((effect) => effect.fact.kind)).toEqual(['bell'])
+      } finally {
+        plane.markDisposed()
+        plane.disposeEmulator()
+        batcher.clear()
+        reader.detach()
+        socket.destroy()
+        destination.destroy()
+      }
+    }
+  )
+
   it('holds state without DATA and captured old cleanup cannot erase its replacement', () => {
     const socket = new Socket()
     let deep = 256 * 1024
@@ -128,13 +198,7 @@ describe('complete terminal state delivery', () => {
   })
 
   it('retains independent finishes and current command plus split title, status and Command Code evidence', () => {
-    const source = new SessionTransientObservations(
-      () => {},
-      false,
-      undefined,
-      undefined,
-      'command-code'
-    )
+    const source = new SessionTransientObservations(() => {}, false, 'command-code')
     try {
       source.observe('\x1b]133;C\x07output\x1b]133;D;0\x07\x1b]133;C\x07', 30)
       source.observe('\x1b]2;Working', 42)

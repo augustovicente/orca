@@ -12,7 +12,10 @@ import {
   hydrateRuntimeEnvironmentSshState,
   refreshRuntimeEnvironmentSshTargetMetadata
 } from '@/runtime/runtime-environment-ssh-state'
-import { subscribeRuntimeClientEvents } from '@/runtime/runtime-client-events'
+import {
+  subscribeRuntimeClientEvents,
+  type RuntimeClientEventInstallation
+} from '@/runtime/runtime-client-events'
 import { toRemoteRuntimePtyId } from '../../../../shared/remote-runtime/remote-runtime-pty-id'
 import { getEnvironmentSshStateGeneration } from '@/store/slices/runtime-environment-ssh'
 import { getRuntimeEnvironmentConnectionGeneration } from '@/store/slices/runtime-status'
@@ -95,6 +98,7 @@ export function registerRuntimeClientIpcBridge(
   const handleRuntimeClientEvent = (
     environmentId: string,
     event: RuntimeClientEvent,
+    installation?: RuntimeClientEventInstallation,
     generation = getEnvironmentSshStateGeneration(environmentId)
   ): void => {
     if (event.type === 'worktreeTerminalSleepState') {
@@ -102,10 +106,13 @@ export function registerRuntimeClientIpcBridge(
       return
     }
     if (event.type === 'terminalSideEffects') {
-      dispatchTerminalSideEffectBatch({
-        ...event.batch,
-        ptyId: toRemoteRuntimePtyId(event.batch.ptyId, environmentId)
-      })
+      dispatchTerminalSideEffectBatch(
+        {
+          ...event.batch,
+          ptyId: toRemoteRuntimePtyId(event.batch.ptyId, environmentId)
+        },
+        installation
+      )
       return
     }
     if (event.type === 'nativeChatLaunchDraftResolved') {
@@ -228,13 +235,13 @@ export function registerRuntimeClientIpcBridge(
       void useAppStore.getState().fetchHostWorkspaceStatuses(environmentId)
       const subscription = subscribeRuntimeClientEvents(
         environmentId,
-        (event) => {
+        (event, installation) => {
           if (
             sshGeneration === getEnvironmentSshStateGeneration(environmentId) &&
             runtimeGeneration === getRuntimeEnvironmentConnectionGeneration(environmentId) &&
             runtimeRevision === getRuntimeEnvironmentRevision(environmentId)
           ) {
-            onEvent(event)
+            onEvent(event, installation)
           }
         },
         onError,

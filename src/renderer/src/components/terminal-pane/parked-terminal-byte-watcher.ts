@@ -1,13 +1,12 @@
 import type { NotificationWorkspaceOwner } from '../../../../shared/notification-source'
 import { makePaneKey } from '../../../../shared/stable-pane-id'
 import { useAppStore } from '@/store'
-import { hasPreHandlerPtyExit } from './pty-pre-handler-buffer'
 import { isRemoteRuntimePtyId } from '../../../../shared/remote-runtime/remote-runtime-pty-id'
 import { isRendererHiddenPtyDeliveryGateEnabled } from './terminal-hidden-delivery-gate'
 import { acquireHiddenRendererPtyDeliveryClaim } from './pty-renderer-delivery-claims'
 import { resolveTerminalResidentBinding } from './terminal-resident-binding'
 import {
-  admitLegacyTerminalSemanticResident,
+  followLocalTerminalSemanticSource,
   admitRemoteTerminalSemanticResident,
   isMainTerminalSideEffectAuthorityForPty,
   registerTerminalSideEffectFactConsumer
@@ -52,16 +51,7 @@ export function startParkedTerminalByteWatcher(
     binding: { initialTitle: options.initialTitle, workspaceOwner: options.workspaceOwner }
   })
   if (!remote) {
-    const hasPty = window.api.pty.hasPty
-    if (typeof hasPty === 'function') {
-      void hasPty(ptyId)
-        .then((present) => {
-          if (present === true && !hasPreHandlerPtyExit(ptyId)) {
-            admitLegacyTerminalSemanticResident({ ptyId, binding, byteSource: !mainAuthority })
-          }
-        })
-        .catch(() => {})
-    }
+    followLocalTerminalSemanticSource({ ptyId, binding, byteSource: !mainAuthority })
   }
   if (remote) {
     void admitRemoteTerminalSemanticResident({ ptyId, binding, byteSource: true })

@@ -57,6 +57,7 @@ export function bindPtyConnectionTestMocks(bindings: PtyConnectionTestBindings):
 function takeMockTransport(options: Record<string, unknown>): MockTransport {
   const bindings = fixture.current()
   bindings.getTransportOptions().push(options)
+  options.productionOptions = { ...options }
   const transport = bindings.getTransportQueue().shift()
   if (!transport) {
     throw new Error('No mock transport queued')
@@ -131,18 +132,29 @@ async function transportMockFactory() {
         ? globalThis.terminalConnectionTestDelivery?.getResident(ptyId)?.policy
         : undefined
     }
+    let admitted: string | undefined
+    const admit = (ptyId: string | null, incarnationId?: string) => {
+      if (ptyId && typeof options.onSourceAdmitted === 'function' && admitted !== ptyId) {
+        admitted = ptyId
+        options.onSourceAdmitted(ptyId, incarnationId)
+      }
+    }
     // Parsed callback injections represent the physical source in these pane suites.
     const forward = <Args extends unknown[]>(
       name: string,
       select: (policy: NonNullable<ReturnType<typeof getPolicy>>) => (...args: Args) => unknown
     ) => {
       const original = options[name]
-      if (typeof original !== 'function') {
-        return
-      }
       options[name] = (...args: Args) => {
+        admit(boundPtyId ?? transport.getPtyId())
         const policy = getPolicy()
-        return policy ? select(policy)(...args) : original(...args)
+        if (policy) {
+          return select(policy)(...args)
+        }
+        if (typeof original === 'function') {
+          return original(...args)
+        }
+        throw new Error(`Physical source not admitted for test injection ${name}`)
       }
     }
     forward('onTitleChange', (policy) => policy.callbacks.onTitleChange)
@@ -155,9 +167,37 @@ async function transportMockFactory() {
     if (typeof onSpawn === 'function') {
       options.onPtySpawn = (ptyId: string) => {
         boundPtyId = ptyId
+        admit(ptyId)
         return onSpawn(ptyId)
       }
     }
+    const sendInput = transport.sendInput.getMockImplementation()
+    transport.sendInput.mockImplementation((data, kind, call) => {
+      const id = boundPtyId ?? transport.getPtyId()
+      if (id) {
+        admit(id)
+        call?.onEligible(id)
+        call?.onDispatch(id)
+      }
+      return sendInput?.(data, kind, call)
+    })
+    const accepted = transport.sendInputAccepted?.getMockImplementation()
+    transport.sendInputAccepted?.mockImplementation((data, kind, acceptedOptions) => {
+      const id = boundPtyId ?? transport.getPtyId()
+      if (id) {
+        admit(id)
+        acceptedOptions?.call?.onDispatch(id)
+      }
+      return accepted?.(data, kind, acceptedOptions)
+    })
+    const attach = transport.attach.getMockImplementation()
+    transport.attach.mockImplementation((opts) => {
+      const result = attach?.(opts)
+      boundPtyId = transport.getPtyId()
+      // This fixture's successful attach stands for the positive inventory result.
+      admit(boundPtyId)
+      return result
+    })
     const connect = transport.connect.getMockImplementation()
     let rawEndSeq = 0
     transport.connect.mockImplementation(async (opts) => {
@@ -165,6 +205,7 @@ async function transportMockFactory() {
       const onData = callbacks?.onData
       if (callbacks && onData) {
         callbacks.onData = (data, meta) => {
+          admit(boundPtyId ?? transport.getPtyId())
           rawEndSeq = meta?.seq ?? rawEndSeq + data.length
           meta ??= { seq: rawEndSeq, rawLength: data.length }
           if (typeof options.onRawData === 'function') {
@@ -182,6 +223,7 @@ async function transportMockFactory() {
       }
       const result = await connect?.(opts)
       boundPtyId = typeof result === 'string' ? result : (result?.id ?? transport.getPtyId())
+      admit(boundPtyId, result?.incarnationId)
       return result
     })
     return transport

@@ -9,6 +9,7 @@ import {
 } from '../core'
 // Import the registry to avoid client-events' module-init cycle through ipc/ssh.
 import { ALL_RPC_METHODS } from './index'
+import { RuntimeClientEventBus } from '../../runtime-client-event-bus'
 
 const subscribeMethod = eraseRpcMethods(ALL_RPC_METHODS).find(
   (method) => method.name === 'runtime.clientEvents.subscribe' && isStreamingMethod(method)
@@ -23,9 +24,11 @@ function makeRuntime(): {
   const onClientEvent = vi.fn(
     (
       _listener: (event: RuntimeClientEvent) => void,
-      _options?: { consumesTerminalSideEffects?: boolean }
-    ) =>
-      () => {}
+      options?: { consumesTerminalSideEffects?: boolean; initialize?: () => void }
+    ) => {
+      options?.initialize?.()
+      return () => {}
+    }
   )
   const runtime = {
     onClientEvent,
@@ -47,7 +50,8 @@ describe('runtime.clientEvents.subscribe', () => {
     )
 
     expect(onClientEvent).toHaveBeenCalledWith(expect.any(Function), {
-      consumesTerminalSideEffects: false
+      consumesTerminalSideEffects: false,
+      initialize: expect.any(Function)
     })
     cleanups.forEach((cleanup) => cleanup())
     await done
@@ -63,8 +67,44 @@ describe('runtime.clientEvents.subscribe', () => {
     )
 
     expect(onClientEvent).toHaveBeenCalledWith(expect.any(Function), {
-      consumesTerminalSideEffects: true
+      consumesTerminalSideEffects: true,
+      initialize: expect.any(Function)
     })
+    cleanups.forEach((cleanup) => cleanup())
+    await done
+  })
+
+  it('publishes the historical baseline before availability can synchronously publish live facts', async () => {
+    const historical: RuntimeClientEvent[] = []
+    const live: RuntimeClientEvent = {
+      type: 'terminalSideEffects',
+      batch: {
+        ptyId: 'physical',
+        seq: 1,
+        facts: [{ kind: 'bell' }]
+      }
+    }
+    const bus = new RuntimeClientEventBus({
+      makeTitleGateKey: (raw) => raw,
+      onConsumerAvailabilityChanged: () => {
+        if (bus.countTerminalSideEffectConsumers()) {
+          bus.emit(live)
+        }
+      }
+    })
+    const { runtime, cleanups } = makeRuntime()
+    runtime.onClientEvent = bus.on.bind(bus)
+    runtime.getTerminalSideEffectClientEventSnapshot = () => []
+    const done = subscribeMethod.handler(
+      undefined,
+      {
+        runtime,
+        connectionId: 'ordering',
+        clientCapabilities: ['terminal-side-effect-state.v1']
+      } as RpcContext,
+      (event) => historical.push(event)
+    )
+    expect(historical.map((event) => event.type)).toEqual(['ready', 'terminalSideEffects'])
     cleanups.forEach((cleanup) => cleanup())
     await done
   })

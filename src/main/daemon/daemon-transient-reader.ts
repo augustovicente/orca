@@ -6,8 +6,6 @@ import type { DaemonEvent } from './daemon-stream-events'
 export class DaemonTransientReader {
   private disposed = false
   constructor(private readonly emit: (event: DaemonEvent) => void) {}
-  confirm(_sessionId: string, _incarnationId: string): void {}
-  detach(_sessionId: string): void {}
   dispose(): void {
     this.disposed = true
   }

@@ -63,7 +63,7 @@ export function installSessionReconcileDispose(session: ConnectPanePtySession): 
 
   return {
     syncProcessTracking() {
-      session.agentCompletionCoordinator.startProcessTracking()
+      session.agentCompletionCoordinator?.startProcessTracking()
       // Why: the hidden-delivery gate must follow every pane visibility flip.
       session.syncHiddenRendererPtyDelivery()
       if (!session.deps.isVisibleRef.current) {
@@ -79,8 +79,8 @@ export function installSessionReconcileDispose(session: ConnectPanePtySession): 
       consumeRestartReplacement(session)
       session.resumeDeferredSpawnOnReveal()
       session.mainPaneStartOnReveal?.()
-      session.requestKnownWindowsShiftEnterReconfirmation()
-      session.sampleVisiblePaneForegroundAgent()
+      session.requestKnownWindowsShiftEnterReconfirmation?.()
+      session.sampleVisiblePaneForegroundAgent?.()
     },
     reassertPtySizeAfterWindowWake() {
       session.armVisibleRemoteViewportClaim()
@@ -125,8 +125,8 @@ export function installSessionReconcileDispose(session: ConnectPanePtySession): 
       return null
     },
     sampleForegroundAgentOnFocus() {
-      session.requestKnownWindowsShiftEnterReconfirmation()
-      session.sampleVisiblePaneForegroundAgent()
+      session.requestKnownWindowsShiftEnterReconfirmation?.()
+      session.sampleVisiblePaneForegroundAgent?.()
     },
     requestWindowsShiftEnterReconfirmation() {
       if (session.shiftEnterReconfirmTimer !== null) {
@@ -135,8 +135,8 @@ export function installSessionReconcileDispose(session: ConnectPanePtySession): 
       // Why: confirm the composer only after the Shift+Enter burst goes idle, preserving rapid multiline input.
       session.shiftEnterReconfirmTimer = setTimeout(() => {
         session.shiftEnterReconfirmTimer = null
-        session.requestKnownWindowsShiftEnterReconfirmation()
-        session.sampleVisiblePaneForegroundAgent()
+        session.requestKnownWindowsShiftEnterReconfirmation?.()
+        session.sampleVisiblePaneForegroundAgent?.()
       }, SHIFT_ENTER_RECONFIRM_IDLE_MS)
     },
     markShortcutTerminalInputSent() {
@@ -199,9 +199,8 @@ export function installSessionReconcileDispose(session: ConnectPanePtySession): 
         })
       }
       session.detachSemanticPresentation?.()
-      if (!session.semanticResident) {
-        session.semanticPolicy.dispose()
-      }
+      session.clearPendingTerminalInputIntent()
+      session.releaseTerminalInputWriter?.()
       if (session.shiftEnterReconfirmTimer !== null) {
         clearTimeout(session.shiftEnterReconfirmTimer)
         session.shiftEnterReconfirmTimer = null

@@ -181,7 +181,8 @@ export function registerPersistedResidentAuthorityTests(fixture: {
           )
         )
         expect(transport.getPtyId()).toBeNull()
-        const input = scenario === 'working-interrupt' ? '\x03' : 'answer\r'
+        const input =
+          scenario === 'working-interrupt' ? '\x03' : scenario === 'question' ? '\r' : 'answer\r'
         expect(signalUserInput).toBeTypeOf('function')
         signalUserInput?.()
         sendTerminalInputThroughPane(pane, input)

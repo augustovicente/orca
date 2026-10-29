@@ -15,6 +15,7 @@ import {
 } from './terminal-resident-attention-callbacks'
 import { createTerminalResidentSnapshotCallbacks } from './terminal-resident-snapshot-callbacks'
 import { TerminalResidentLegacySource } from './terminal-resident-legacy-source'
+import { TerminalResidentPresentations } from './terminal-resident-presentations'
 import { createTerminalResidentStatusObserver } from './terminal-resident-status-observer'
 import { registerRendererOwnedAgentStatusPane } from './renderer-owned-agent-status-registry'
 import { parseRemoteRuntimePtyId } from '../../../../shared/remote-runtime/remote-runtime-pty-id'
@@ -37,16 +38,8 @@ import type { TerminalResidentIdentity } from './terminal-resident-registry'
 
 import type { PtyTransport } from './pty-transport-types'
 
-import type {
-  TerminalResidentBinding,
-  TerminalResidentPresentation,
-  TerminalResidentServices
-} from './terminal-resident-binding'
-export type {
-  TerminalResidentBinding,
-  TerminalResidentPresentation,
-  TerminalResidentServices
-} from './terminal-resident-binding'
+import type { TerminalResidentBinding, TerminalResidentServices } from './terminal-resident-binding'
+export type { TerminalResidentBinding, TerminalResidentServices } from './terminal-resident-binding'
 
 /** Store policy survives presentation loss; all async callbacks keep this captured execution. */
 export function createTerminalResidentPolicy(
@@ -60,7 +53,7 @@ export function createTerminalResidentPolicy(
   let workspaceOwner = resolveInitialTerminalResidentOwner(binding, initialIdentity)
   let ended = false
   const isLive = () => !ended && executionIsLive()
-  let presentation: TerminalResidentPresentation | null = null
+  const presentationPorts = new TerminalResidentPresentations()
   let currentTitle: string | null = binding.initialTitle ?? null
   let displayPaneId: number | null = null
   let acceptedInputGeneration = 0
@@ -74,11 +67,11 @@ export function createTerminalResidentPolicy(
   }
   const getPtyId = () => (isLive() ? (identity?.ptyId ?? transport?.getPtyId() ?? null) : null)
   const clearSuppressedTitleSideEffects = () => owner.clearSuppressedTitleSideEffects()
-  const queueAgentIdleTerminalModeReset = () => presentation?.resetInputModes()
+  const queueAgentIdleTerminalModeReset = () => presentationPorts.current?.resetInputModes()
   const setFocusReportSuppressionForAgentCompletion = (
     title: string | undefined,
     agentType: AgentType | undefined
-  ) => presentation?.setFocusReportSuppression(title, agentType)
+  ) => presentationPorts.current?.setFocusReportSuppression(title, agentType)
   const context: TerminalResidentPolicyContext = {
     binding,
     services,
@@ -102,9 +95,7 @@ export function createTerminalResidentPolicy(
     set ended(value) {
       ended = value
     },
-    set presentation(value) {
-      presentation = value
-    },
+    presentationPorts,
     set displayPaneId(value) {
       displayPaneId = value
     },
@@ -121,7 +112,7 @@ export function createTerminalResidentPolicy(
       return identity
     },
     get presentation() {
-      return presentation
+      return presentationPorts.current
     },
     get currentTitle() {
       return currentTitle
@@ -172,7 +163,7 @@ export function createTerminalResidentPolicy(
     startAcceptedInferredCommand: (agent) => foreground.startAcceptedInferredCommand(agent),
     setFocusReportSuppressionForAgentCompletion,
     queueAgentIdleTerminalModeReset,
-    clearFocusReportSuppression: () => presentation?.clearFocusReportSuppression()
+    clearFocusReportSuppression: () => presentationPorts.current?.clearFocusReportSuppression()
   })
   const shellInput = createTerminalShellInputPolicy({
     ...binding,
@@ -186,16 +177,17 @@ export function createTerminalResidentPolicy(
   })
   const input = createTerminalInputPolicy({
     paneKey: binding.paneKey,
+    isLive,
     clearInferredInterruptWorkingTitle: () => resetAgentTitle(false),
     observeTitleOnlyInterrupt: shellInput.observeTitleOnlyInterrupt,
-    markBracketedPasteInterrupted: () => presentation?.markBracketedPasteInterrupted()
+    markBracketedPasteInterrupted: () => presentationPorts.current?.markBracketedPasteInterrupted()
   })
   const foreground = createTerminalForegroundPolicy({
     ...binding,
     startup: binding.startup ?? null,
     getPtyId,
     getExpectedIncarnationId: () => identity?.incarnationId ?? null,
-    isVisible: () => presentation?.isVisible() === true,
+    isVisible: () => presentationPorts.current?.isVisible() === true,
     getCommandInferredAgent: () => owner.commandInferredPaneAgent,
     observeForegroundAgentProcess: (process) => completion.observeForegroundAgentProcess(process),
     clearCommandInferredPaneAgentAfterPtySideEffects:
@@ -218,7 +210,7 @@ export function createTerminalResidentPolicy(
     getPtyId,
     getExpectedIncarnationId: () => identity?.incarnationId ?? null,
     isLive,
-    isVisible: () => presentation?.isVisible() === true,
+    isVisible: () => presentationPorts.current?.isVisible() === true,
     clearSuppressedTitleSideEffects,
     setFocusReportSuppressionForAgentCompletion,
     queueAgentIdleTerminalModeReset,

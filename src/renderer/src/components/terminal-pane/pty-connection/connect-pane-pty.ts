@@ -20,6 +20,7 @@ import type { ConnectPanePtySession } from './connect-pane-pty-session'
 
 import { installRunDeferredConnect } from './run-deferred-connect'
 
+import { installTerminalPaneInput } from './terminal-pane-input'
 import { installTerminalResidentPolicy } from './terminal-resident-presentation'
 import { installSleepingRecordAccess } from './sleeping-record-access'
 import { installShellCommandInference } from './shell-command-inference'
@@ -151,6 +152,7 @@ export function connectPanePty(
   installShellCommandInference(session)
   installAgentTaskCompleteNotify(session)
   installTerminalResidentPolicy(session)
+  installTerminalPaneInput(session)
   installInterruptInputIntent(session)
   installTerminalKeydownFit(session)
   installPtyExitHibernate(session)

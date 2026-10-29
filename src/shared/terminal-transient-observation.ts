@@ -54,7 +54,6 @@ const fact = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('program-facet'), facet: facet.nullable(), activity }),
   z.object({ kind: z.literal('command-code-working'), prompt }),
   z.object({ kind: z.literal('command-code-done'), prompt }),
-  z.object({ kind: z.literal('opencode-status'), payload: statusPayload, startedAt: time }),
   z.object({ kind: z.literal('2031-subscribe') }),
   z.object({ kind: z.literal('2031-unsubscribe') }),
   z.object({
@@ -83,9 +82,7 @@ export const terminalEffectKeys = [
   'program-done',
   'program-removal',
   'command-code-working',
-  'command-code-done',
-  'opencode-working',
-  'opencode-done'
+  'command-code-done'
 ] as const
 export type TerminalEffectKey = (typeof terminalEffectKeys)[number]
 const effect = z.object({
@@ -120,15 +117,7 @@ const current = z.object({
     phase: z.enum(['unseen', 'working', 'done']),
     turnOrdinal: ordinal,
     observedAt: time
-  }),
-  openCodeRun: z
-    .object({
-      agent: z.enum(['opencode', 'opencode2']),
-      commandOrdinal: ordinal,
-      startedAt: time,
-      observedAt: time
-    })
-    .nullable()
+  })
 })
 export type TerminalTransientCurrent = z.infer<typeof current>
 export const terminalSnapshotSchema = z.object({
@@ -165,8 +154,6 @@ export function terminalEffectKey(fact: TerminalTransientFact): TerminalEffectKe
       return fact.removesProgramStatusRow
         ? 'program-removal'
         : `${fact.fromProgramStatus ? 'program' : 'status'}-${fact.payload.state}`
-    case 'opencode-status':
-      return fact.payload.state === 'working' ? 'opencode-working' : 'opencode-done'
     case 'title':
     case 'program-facet':
     case '2031-subscribe':

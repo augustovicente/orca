@@ -1,3 +1,4 @@
+import type { DaemonStreamSource } from './daemon-client-ndjson-readers'
 import type { Socket } from 'node:net'
 import { readDaemonClientToken } from './daemon-client-token'
 import { randomUUID } from 'node:crypto'
@@ -36,7 +37,6 @@ export type DaemonClientOptions = {
   socketPath: string
   tokenPath: string
   protocolVersion?: number
-  resolveTransientSession?: (incarnationId: string) => string | undefined
 }
 
 export class DaemonClient {
@@ -55,18 +55,13 @@ export class DaemonClient {
   private terminalState = false
   private transientReader: DaemonTransientReader | undefined
 
-  confirmTransientBinding(sessionId: string, incarnationId: string): void {
-    this.transientReader?.confirm(sessionId, incarnationId)
-  }
-
-  hasTerminalState(): boolean {
-    return this.connected && this.terminalState
-  }
   private daemonResizeModel: string | null | undefined
   private observedAuthenticatedDisconnect = false
 
   private pendingRequests = new DaemonPendingRequests()
-  private eventListeners = new DaemonClientListeners<(event: unknown) => void>()
+  private eventListeners = new DaemonClientListeners<
+    (event: unknown, source?: DaemonStreamSource) => void
+  >()
   private disconnectedListeners = new DaemonClientListeners<() => void>()
   private requestCounter = 0
   private cleanupSocketListeners: (() => void) | null = null
@@ -166,14 +161,16 @@ export class DaemonClient {
         throw new DaemonProtocolError('Daemon identity changed during connection')
       }
       this.terminalState = streamHello.terminalState === true
-      const emit = (event: DaemonEvent): void => {
-        this.eventListeners.each((listener) => listener(event))
+      const emit = (event: DaemonEvent, source?: DaemonStreamSource): void => {
+        if (this.streamSocket !== pendingStreamSocket) {
+          return
+        }
+        this.eventListeners.each((listener) => listener(event, source))
       }
       const { transientReader, streamReader } = attachTransientStreamReader(
         this.streamSocket,
         streamHello,
-        emit,
-        this.opts.resolveTransientSession
+        emit
       )
       this.transientReader = transientReader
       pendingListenerCleanups.push(streamReader.detach)
@@ -271,7 +268,7 @@ export class DaemonClient {
     })
   }
 
-  onEvent(listener: (event: unknown) => void): () => void {
+  onEvent(listener: (event: unknown, source?: DaemonStreamSource) => void): () => void {
     return this.eventListeners.add(listener)
   }
 

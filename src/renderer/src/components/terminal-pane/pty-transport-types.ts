@@ -17,6 +17,7 @@ import type {
 import type { StartupCommandDelivery } from '../../../../shared/codex-startup-delivery'
 import type { ProjectExecutionRuntimeResolution } from '../../../../shared/project-execution-runtime'
 import type { EventProps } from '../../../../shared/telemetry-events'
+import type { TerminalInputCall } from './terminal-input-call'
 import type { TerminalInputKind } from '../../../../shared/terminal-input-kind'
 import type { TerminalOscColorQueryReplyColors } from '../../../../shared/terminal-osc-color-reply'
 import type { TuiAgent } from '../../../../shared/tui-agent'
@@ -202,7 +203,7 @@ export type PtyTransport = {
     callbacks: PtyCallbacks
   }) => void
   disconnect: () => void
-  sendInput: (data: string, inputKind: TerminalInputKind) => boolean
+  sendInput: (data: string, inputKind: TerminalInputKind, call?: TerminalInputCall) => boolean
   // Send query replies immediately, after flushing earlier input in order; debounce can miss raw-mode reads and leak replies at shell prompts (#7329).
   sendInputImmediate: (data: string) => boolean
   sendInputAccepted?: (
@@ -266,6 +267,8 @@ export type PtyTransport = {
 }
 
 export type IpcPtyTransportOptions = {
+  /** Actual accepted provider/source result, before data and input publication. */
+  onSourceAdmitted?: (ptyId: string, incarnationId?: string | null) => void
   cwd?: string
   /** Retain bounded user input until the pane's first PTY connection binds. */
   bufferInputUntilConnect?: boolean

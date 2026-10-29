@@ -20,6 +20,8 @@ export const CLIENT_EVENT_METHODS = [
         clientCapabilities?.includes(TERMINAL_SIDE_EFFECT_STATE_CAPABILITY) === true
       await new Promise<void>((resolve) => {
         // Mobile discards terminalSideEffects; filter per-OSC batch frames before they cross the relay.
+        const seq = ++clientEventSubscriptionSeq
+        const subscriptionId = `runtime-client-events-${connectionId ?? 'inproc'}-${seq}`
         const unsubscribe = runtime.onClientEvent(
           (event) => {
             if (
@@ -35,11 +37,36 @@ export const CLIENT_EVENT_METHODS = [
               emit(event)
             }
           },
-          { consumesTerminalSideEffects: clientKind !== 'mobile' }
+          {
+            consumesTerminalSideEffects: clientKind !== 'mobile',
+            initialize: () => {
+              // Install the baseline before live callbacks and consumer-availability reentry.
+              for (const event of runtime.getTerminalSleepClientEventSnapshot?.() ?? []) {
+                emit(event)
+              }
+              for (const event of runtime.getNativeChatLaunchDraftResolutionClientEventSnapshot?.() ??
+                []) {
+                emit(event)
+              }
+              const sshStates = listRegisteredSshTargets().flatMap((target) => {
+                const state = getPublicSshState(getRegisteredSshState(target.id) ?? null)
+                return state ? [{ targetId: target.id, state }] : []
+              })
+              // The synchronous baseline/live cut does not expose private target configuration.
+              emit({
+                type: 'ready',
+                subscriptionId,
+                snapshot: {
+                  sshStates,
+                  ...(terminalState
+                    ? { terminalSideEffects: runtime.getTerminalSideEffectClientEventSnapshot() }
+                    : {})
+                }
+              })
+            }
+          }
         )
 
-        const seq = ++clientEventSubscriptionSeq
-        const subscriptionId = `runtime-client-events-${connectionId ?? 'inproc'}-${seq}`
         runtime.registerSubscriptionCleanup(
           subscriptionId,
           () => {
@@ -49,30 +76,6 @@ export const CLIENT_EVENT_METHODS = [
           },
           connectionId
         )
-
-        // Listen before snapshotting to close the subscribe race and replay sleep state missed during disconnect.
-        for (const event of runtime.getTerminalSleepClientEventSnapshot?.() ?? []) {
-          emit(event)
-        }
-        for (const event of runtime.getNativeChatLaunchDraftResolutionClientEventSnapshot?.() ??
-          []) {
-          emit(event)
-        }
-        const sshStates = listRegisteredSshTargets().flatMap((target) => {
-          const state = getPublicSshState(getRegisteredSshState(target.id) ?? null)
-          return state ? [{ targetId: target.id, state }] : []
-        })
-        // Why: attaching the listener before snapshotting closes the reload gap without exposing HUB-private target configuration.
-        emit({
-          type: 'ready',
-          subscriptionId,
-          snapshot: {
-            sshStates,
-            ...(terminalState
-              ? { terminalSideEffects: runtime.getTerminalSideEffectClientEventSnapshot() }
-              : {})
-          }
-        })
       })
     }
   }),

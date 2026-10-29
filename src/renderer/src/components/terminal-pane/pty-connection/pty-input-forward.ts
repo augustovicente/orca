@@ -1,3 +1,8 @@
+import {
+  getTerminalSemanticResident,
+  type TerminalSemanticResident
+} from '../terminal-semantic-residents'
+import type { TerminalInputCall } from '../terminal-input-call'
 import { installPtyResizeForward } from './pty-resize-forward'
 
 import { subscribeToTerminalInputData } from '../terminal-user-input-signal'
@@ -19,6 +24,18 @@ import { initializePaneGeometry, readPaneSize } from './read-pane-size'
 import type { ConnectPanePtySession } from './connect-pane-pty-session'
 
 export function installPtyInputForward(session: ConnectPanePtySession): void {
+  type InterruptWriter = ReturnType<
+    TerminalSemanticResident['policy']['input']['createInterruptWriter']
+  >
+  let writer: { resident: TerminalSemanticResident; inference: InterruptWriter } | undefined
+  const writerFor = (resident: TerminalSemanticResident) => {
+    if (writer?.resident !== resident) {
+      writer?.inference.release()
+      writer = { resident, inference: resident.policy.input.createInterruptWriter() }
+    }
+    return writer.inference
+  }
+  session.releaseTerminalInputWriter = () => writer?.inference.release()
   session.forwardPtyInput = (data: string, wasUserInput = false): void => {
     // During replay, drop query replies and pointer-generated mouse/arrows but preserve typing; stale TUI modes could send reports or recall history in the fresh shell (replay-guard.ts).
     if (
@@ -74,79 +91,108 @@ export function installPtyInputForward(session: ConnectPanePtySession): void {
     const intent = session.pendingTerminalInputIntentFor(data)
     // Missed DOM keydowns can still yield exact Ctrl+C/Escape bytes; infer only on acknowledged transports, excluding fire-and-forget SSH.
     const acknowledgedIntent = intent ?? session.inferIntentFromExactTerminalInput(data)
-    if (acknowledgedIntent && session.transport.sendInputAccepted) {
-      const interruptStatusBaseline =
-        useAppStore.getState().agentStatusByPaneKey[session.cacheKey] ?? null
-      // Why: equal snapshots retain double-Escape semantics while older snapshots lose ack races.
-      if (session.sequencedInterruptStatusBaseline !== interruptStatusBaseline) {
-        session.sequencedInterruptStatusBaseline = interruptStatusBaseline
-        session.interruptStatusBaselineSequence += 1
-      }
-      const capturedBaselineSequence = session.interruptStatusBaselineSequence
-      session.claimViewportForUserActivity(data)
-      if (acknowledgedIntent === 'ctrl-c') {
-        // Async acknowledgments must not delay fresh inference after cancelling an oversized line.
-        session.cancelSuspendedShellCommandInference()
-      }
-      session.clearPendingTerminalInputIntent()
-      const capturedPolicy = session.semanticPolicy
-      const capturedTransport = session.transport
-      const capturedPtyId = capturedTransport.getPtyId()
-      const view = new WeakRef(session)
-      const writePromise = capturedTransport
-        .sendInputAccepted(data, inputKind)
-        .then((accepted): boolean | Promise<boolean> | null => {
-          if (accepted) {
-            const writtenPtyId = capturedPtyId ?? capturedTransport.getPtyId()
-            if (
-              !capturedPolicy.isLive() ||
-              (writtenPtyId && capturedPolicy.getPtyId() !== writtenPtyId)
-            ) {
-              return null
-            }
-            capturedPolicy.acceptInput(data, acknowledgedIntent)
-            const immediateResult = capturedPolicy.input.interruptInference.observeInputIntent(
-              acknowledgedIntent,
-              interruptStatusBaseline,
-              capturedBaselineSequence
-            )
-            capturedPolicy.shellInput.observeTitleOnlyInterrupt()
-            const mounted = view.deref()
-            if (mounted && !mounted.disposed && mounted.semanticPolicy === capturedPolicy) {
-              mounted.markAcceptedTerminalInputSent()
-            }
-            return immediateResult ?? null
+    const baseline = useAppStore.getState().agentStatusByPaneKey[session.cacheKey] ?? null
+    const launch = useAppStore.getState().agentLaunchConfigByPaneKey[session.cacheKey]
+    const capturedTransport = session.transport
+    const acknowledged =
+      acknowledgedIntent !== null && capturedTransport.sendInputAccepted !== undefined
+    let folded = false
+    let dispatched:
+      | { resident: TerminalSemanticResident; inference: InterruptWriter; group: number }
+      | undefined
+    const pending = acknowledged ? Promise.withResolvers<boolean | null>() : undefined
+    const call: TerminalInputCall = {
+      onEligible: (ptyId) => {
+        if (folded || acknowledged) {
+          return
+        }
+        const resident = getTerminalSemanticResident(ptyId)
+        if (resident?.isLive) {
+          folded = true
+          resident.policy.acceptInput(data)
+        }
+      },
+      onDispatch: (ptyId) => {
+        if (!acknowledgedIntent && !intent) {
+          return
+        }
+        const resident = getTerminalSemanticResident(ptyId)
+        if (!resident?.isLive || dispatched) {
+          return
+        }
+        if (acknowledged) {
+          resident.policy.recordInputDispatch()
+        }
+        dispatched = {
+          resident,
+          inference: writerFor(resident),
+          group: resident.policy.input.reserveInterruptBaseline(baseline)
+        }
+        if (pending) {
+          const release = dispatched.inference.retain()
+          resident.policy.input.setPendingTerminalInputWrite(pending.promise)
+          void pending.promise.finally(release)
+          if (session.disposed) {
+            dispatched.inference.release()
           }
-          // Why: Esc/Ctrl+C are the first keys users press on a frozen pane;
-          // an unbound-transport reject here must arm recovery too.
-          view.deref()?.requestRecoveryForUndeliverableInput()
-          return null
-        })
-        .catch((err) => {
-          console.warn('[agent-interrupt] acknowledged terminal input failed:', err)
-          return null
-        })
-      session.setPendingTerminalInputWrite(writePromise)
-      return
-    }
-    if (intent) {
-      session.claimViewportForUserActivity(data)
-      if (session.transport.sendInput(data, inputKind)) {
-        session.markAcceptedTerminalInputSent()
-        session.semanticPolicy.acceptInput(data, intent)
-      } else {
-        session.requestRecoveryForUndeliverableInput()
+        }
       }
-      session.clearPendingTerminalInputIntent()
-      return
     }
     session.claimViewportForUserActivity(data)
-    if (session.transport.sendInput(data, inputKind)) {
+    session.clearPendingTerminalInputIntent()
+    if (acknowledgedIntent && capturedTransport.sendInputAccepted && pending) {
+      const view = new WeakRef(session)
+      const paneEffects = session.observePaneInputEffects
+      void capturedTransport
+        .sendInputAccepted(data, inputKind, { call })
+        .then((accepted) => {
+          if (!accepted) {
+            const mounted = view.deref()
+            if (!mounted?.disposed) {
+              mounted?.requestRecoveryForUndeliverableInput()
+            }
+            return null
+          }
+          const captured = dispatched
+          if (!captured?.resident.isLive) {
+            return null
+          }
+          const policy = captured.resident.policy
+          policy.acceptInput(data, acknowledgedIntent)
+          // Pane effects retain the original true-receipt stage even after presentation closes.
+          paneEffects(data, baseline)
+          const result = captured.inference.observeInputIntent(
+            acknowledgedIntent,
+            baseline,
+            captured.group
+          )
+          const current = useAppStore.getState()
+          if (
+            (current.agentStatusByPaneKey[policy.binding.paneKey] ?? null) === baseline &&
+            current.agentLaunchConfigByPaneKey[policy.binding.paneKey] === launch
+          ) {
+            policy.shellInput.observeTitleOnlyInterrupt()
+          }
+          const mounted = view.deref()
+          if (mounted && !mounted.disposed) {
+            mounted.markAcceptedTerminalInputSent()
+          }
+          return result ?? null
+        })
+        .then(pending.resolve, (error) => {
+          console.warn('[agent-interrupt] acknowledged terminal input failed:', error)
+          pending.resolve(null)
+        })
+      return
+    }
+    if (capturedTransport.sendInput(data, inputKind, call)) {
       session.markAcceptedTerminalInputSent()
-      session.semanticPolicy.acceptInput(data)
-      session.observeSentTerminalInputIntent(data)
+      session.observePaneInputEffects(data, baseline)
+      if (intent && dispatched?.resident.isLive) {
+        dispatched.inference.observeInputIntent(intent, baseline, dispatched.group)
+        dispatched.resident.policy.shellInput.observeTitleOnlyInterrupt()
+      }
     } else {
-      session.clearPendingTerminalInputIntent()
       session.requestRecoveryForUndeliverableInput()
     }
   }

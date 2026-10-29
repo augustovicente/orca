@@ -1,3 +1,4 @@
+import type { TerminalInputCall } from './terminal-input-call'
 import type { TerminalInputKind } from '../../../../shared/terminal-input-kind'
 import {
   createPtyPreconnectInputBuffer,
@@ -37,7 +38,12 @@ export type RemoteRuntimeRecoveryInputHold = {
   isHolding: () => boolean
   hasPendingInput: () => boolean
   isHoldingBeforeBind: () => boolean
-  enqueue: (endpoint: HeldEndpoint, data: string, inputKind: TerminalInputKind) => boolean
+  enqueue: (
+    endpoint: HeldEndpoint,
+    data: string,
+    inputKind: TerminalInputKind,
+    call?: TerminalInputCall
+  ) => boolean
   enqueueAccepted: (
     endpoint: HeldEndpoint,
     data: string,
@@ -118,8 +124,8 @@ export function createRemoteRuntimeRecoveryInputHold(
     isHolding: () => held?.buffer.isBuffering() === true,
     hasPendingInput: () => held?.buffer.hasPendingInput() === true,
     isHoldingBeforeBind: () => held?.beforeBind === true && held.buffer.isBuffering(),
-    enqueue: (endpoint, data, inputKind) =>
-      bufferFor(endpoint).enqueue(data, 'ordinary', inputKind),
+    enqueue: (endpoint, data, inputKind, call) =>
+      bufferFor(endpoint).enqueue(data, 'ordinary', inputKind, undefined, call),
     enqueueAccepted: (endpoint, data, inputKind, acceptedOptions) =>
       bufferFor(endpoint).enqueueAccepted(data, inputKind, undefined, acceptedOptions),
     expect(endpoint) {

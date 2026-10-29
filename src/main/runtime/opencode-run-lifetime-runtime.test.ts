@@ -1,14 +1,6 @@
 import { TerminalSnapshotState } from '../../shared/terminal-snapshot-state'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-
-const { readCommandLineMock } = vi.hoisted(() => ({ readCommandLineMock: vi.fn() }))
-
-vi.mock('./local-pty-foreground-command-line', () => ({
-  readLocalPtyForegroundCommandLine: readCommandLineMock
-}))
-
 import { OrcaRuntimeService } from './orca-runtime'
-import { FOREGROUND_COMMAND_READS } from '../../shared/foreground-command-settle'
 import type { RuntimeTerminalAgentStatusEvent } from './runtime-terminal-contracts'
 
 const WORKTREE_ID = 'repo::/worktree'
@@ -60,130 +52,95 @@ const summary = (statuses: RuntimeTerminalAgentStatusEvent[]): string[] =>
       `${event.paneKey}:${event.payload.state}${event.payload.interrupted ? ':interrupted' : ''}:${event.origin}`
   )
 
-describe('OpenCode run process lifetime in the runtime', () => {
-  beforeEach(() => {
-    vi.useFakeTimers()
-    readCommandLineMock.mockReset()
-    readCommandLineMock.mockResolvedValue('opencode run fix the bug')
-  })
-
-  afterEach(() => {
-    vi.useRealTimers()
-  })
-
-  it('posts Working after the command starts and Done when it finishes, on its own pane', async () => {
-    const { runtime, statuses } = createRuntime()
-
-    runtime.onPtyData('pty-1', '\x1b]133;C\x07', 100)
-    await vi.advanceTimersByTimeAsync(FOREGROUND_COMMAND_READS.settleMs)
-    runtime.onPtyData('pty-1', 'done\x1b]133;D;0\x07', 101)
-
-    expect(summary(statuses)).toEqual([`${PANE_KEY}:working:process`, `${PANE_KEY}:done:process`])
-    expect(readCommandLineMock).toHaveBeenCalledWith('pty-1', 'opencode')
-    expect(statuses[0]?.yieldsToHookSince).toBe(statuses[1]?.yieldsToHookSince)
-  })
-
-  // Renderer command-finished handling drops rows unless a newer agent status follows.
-  it("publishes the run's Done after the command-finished fact of the same chunk", async () => {
-    const { runtime, channelOrder } = createRuntime()
-
-    runtime.onPtyData('pty-1', '\x1b]133;C\x07', 100)
-    await vi.advanceTimersByTimeAsync(FOREGROUND_COMMAND_READS.settleMs)
-    runtime.onPtyData('pty-1', 'done\x1b]133;D;0\x07', 101)
-
-    expect(channelOrder).toEqual([
-      'fact:command-started',
-      'status:working',
-      'fact:command-finished',
-      'status:done'
-    ])
-  })
-
+describe('generic terminal observation authority', () => {
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => vi.useRealTimers())
   it('keeps installed observations authoritative across a display gap and later visibility marker', async () => {
     const { runtime, statuses, channelOrder } = createRuntime()
     const source = new TerminalSnapshotState()
     runtime.applyTerminalTransientObservation('pty-1', 'incarnation', source.snapshot())
-    await vi.advanceTimersByTimeAsync(FOREGROUND_COMMAND_READS.settleMs)
     expect(statuses).toEqual([])
     expect(channelOrder).toEqual([])
     runtime.onPtyData('pty-1', '\x1b]133;C\x07', 100)
     source.record({ kind: 'command-started' }, 100)
     source.record(
       {
-        kind: 'opencode-status',
-        payload: { state: 'working', prompt: '', agentType: 'opencode' },
-        startedAt: 100
+        kind: 'agent-status',
+        payload: { state: 'working', prompt: '', agentType: 'opencode' }
       },
       101
     )
     runtime.applyTerminalTransientObservation('pty-1', 'incarnation', source.snapshot())
-    await vi.advanceTimersByTimeAsync(FOREGROUND_COMMAND_READS.settleMs)
     runtime.notePtyDataGap('pty-1', 1000)
     runtime.setPtyTransientFactDelegation('pty-1', false)
     runtime.onPtyData('pty-1', '\x1b]133;D;0\x07\x1b]133;A\x07', 101)
-    expect(summary(statuses)).toEqual([`${PANE_KEY}:working:process`])
+    expect(summary(statuses)).toEqual([`${PANE_KEY}:working:undefined`])
     source.record({ kind: 'command-finished', exitCode: 0 }, 102)
     source.record(
       {
-        kind: 'opencode-status',
-        payload: { state: 'done', prompt: '', agentType: 'opencode' },
-        startedAt: 100
+        kind: 'agent-status',
+        payload: { state: 'done', prompt: '', agentType: 'opencode' }
       },
       103
     )
     runtime.applyTerminalTransientObservation('pty-1', 'incarnation', source.snapshot())
-    expect(summary(statuses)).toEqual([`${PANE_KEY}:working:process`, `${PANE_KEY}:done:process`])
-    expect(readCommandLineMock).not.toHaveBeenCalled()
+    expect(summary(statuses)).toEqual([
+      `${PANE_KEY}:working:undefined`,
+      `${PANE_KEY}:done:undefined`
+    ])
     expect(channelOrder).toEqual([
       'fact:command-started',
       'status:working',
+      'fact:agent-status',
       'fact:command-finished',
-      'status:done'
+      'status:done',
+      'fact:agent-status'
     ])
   })
 
-  it('posts Done from the daemon fact when the pane finished while hidden', async () => {
+  it('keeps projection counters continuous through an actual provider source replacement and rollback', () => {
+    const { runtime, channelOrder } = createRuntime()
+    const first = new TerminalSnapshotState()
+    const capable = { provider: {}, stream: {}, terminalState: true }
+    runtime.applyTerminalTransientObservation('pty-1', 'physical', first.snapshot(), capable)
+    first.record({ kind: 'bell' }, 10)
+    runtime.applyTerminalTransientObservation('pty-1', 'physical', first.snapshot(), capable)
+    const before = runtime.getTerminalSideEffectSnapshot('pty-1')?.terminalState?.snapshot
+    expect(before?.effects.bell?.count).toBe(1)
+    const legacy = { provider: {}, stream: {}, terminalState: false }
+    runtime.selectPtyLegacySemanticSource('pty-1', legacy)
+    runtime.onPtyData('pty-1', '\x07', 20)
+    expect(channelOrder.filter((kind) => kind === 'fact:bell')).toHaveLength(2)
+    const replacement = new TerminalSnapshotState()
+    replacement.record({ kind: 'bell' }, 30)
+    const newSource = { provider: legacy.provider, stream: {}, terminalState: true }
+    runtime.applyTerminalTransientObservation(
+      'pty-1',
+      'physical',
+      replacement.snapshot(),
+      newSource
+    )
+    expect(channelOrder.filter((kind) => kind === 'fact:bell')).toHaveLength(2)
+    replacement.record({ kind: 'bell' }, 40)
+    runtime.applyTerminalTransientObservation(
+      'pty-1',
+      'physical',
+      replacement.snapshot(),
+      newSource
+    )
+    const after = runtime.getTerminalSideEffectSnapshot('pty-1')?.terminalState?.snapshot
+    expect(after?.effects.bell?.count).toBe(3)
+    expect(channelOrder.filter((kind) => kind === 'fact:bell')).toHaveLength(3)
+    runtime.onPtyExit('pty-1', 0)
+  })
+
+  it('does not synthesize a status for an exited one-shot command', async () => {
     const { runtime, statuses, channelOrder } = createRuntime()
-
     runtime.onPtyData('pty-1', '\x1b]133;C\x07', 100)
-    await vi.advanceTimersByTimeAsync(FOREGROUND_COMMAND_READS.settleMs)
-    runtime.emitDaemonPtyTransientFact('pty-1', { kind: 'command-finished', exitCode: 130 })
-
-    expect(channelOrder.slice(-2)).toEqual(['fact:command-finished', 'status:done'])
-    expect(summary(statuses)).toEqual([
-      `${PANE_KEY}:working:process`,
-      `${PANE_KEY}:done:interrupted:process`
-    ])
-  })
-
-  it('stays silent for an SSH pane', async () => {
-    const { runtime, statuses } = createRuntime()
-    runtime.registerPty('pty-1', WORKTREE_ID, 'ssh-conn-1')
-
-    runtime.onPtyData('pty-1', '\x1b]133;C\x07', 100)
-    await vi.advanceTimersByTimeAsync(FOREGROUND_COMMAND_READS.settleMs)
-    runtime.onPtyData('pty-1', '\x1b]133;D;0\x07', 101)
-
+    await vi.advanceTimersByTimeAsync(5000)
+    runtime.onPtyData('pty-1', 'done\x1b]133;D;0\x07', 101)
+    await vi.advanceTimersByTimeAsync(5000)
     expect(statuses).toEqual([])
-    expect(readCommandLineMock).not.toHaveBeenCalled()
-  })
-
-  it('reports a local Windows pane from its own foreground', async () => {
-    const platform = Object.getOwnPropertyDescriptor(process, 'platform')
-    Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
-    try {
-      const { runtime, statuses } = createRuntime()
-      readCommandLineMock.mockResolvedValue('"C:\\Tools\\opencode.exe" run fix it')
-
-      runtime.onPtyData('pty-1', '\x1b]133;C\x07', 100)
-      await vi.advanceTimersByTimeAsync(FOREGROUND_COMMAND_READS.settleMs)
-      runtime.onPtyData('pty-1', '\x1b]133;D;0\x07\x1b]133;A\x07', 101)
-
-      expect(summary(statuses)).toEqual([`${PANE_KEY}:working:process`, `${PANE_KEY}:done:process`])
-    } finally {
-      if (platform) {
-        Object.defineProperty(process, 'platform', platform)
-      }
-    }
+    expect(channelOrder).toEqual(['fact:command-started', 'fact:command-finished'])
   })
 })

@@ -231,15 +231,7 @@ export abstract class DaemonPtyRuntimeState {
     this.client = new DaemonClient({
       socketPath: opts.socketPath,
       tokenPath: opts.tokenPath,
-      protocolVersion: opts.protocolVersion,
-      resolveTransientSession: (incarnationId) => {
-        for (const [sessionId, current] of this.sessionIncarnations) {
-          if (current === incarnationId) {
-            return sessionId
-          }
-        }
-        return undefined
-      }
+      protocolVersion: opts.protocolVersion
     })
     const client = this.client
     this.historyManager = opts.historyPath

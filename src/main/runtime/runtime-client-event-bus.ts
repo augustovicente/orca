@@ -20,8 +20,9 @@ export class RuntimeClientEventBus {
 
   on(
     listener: (event: RuntimeClientEvent) => void,
-    options?: { consumesTerminalSideEffects?: boolean }
+    options?: { consumesTerminalSideEffects?: boolean; initialize?: () => void }
   ): () => void {
+    options?.initialize?.()
     this.listeners.add(listener)
     if (options?.consumesTerminalSideEffects === false) {
       this.excludedTerminalSideEffectListeners.add(listener)

@@ -1,5 +1,6 @@
 import { TerminalSnapshotConsumption } from '../../../../shared/terminal-snapshot-consumption'
 import type { TerminalSideEffectBatch } from '../../../../shared/terminal-side-effect-facts'
+import type { TerminalFactSubject } from './terminal-fact-subject'
 import type {
   TerminalSnapshotEffect,
   TerminalTransientCurrent,
@@ -15,8 +16,17 @@ export type TerminalResidentIdentity = {
 }
 
 export type TerminalResidentPolicy = {
-  restoreCurrent: (current: TerminalTransientCurrent, first: boolean, complete?: boolean) => void
-  applyEffect: (effect: TerminalSnapshotEffect, current: TerminalTransientCurrent) => void
+  restoreCurrent: (
+    current: TerminalTransientCurrent,
+    first: boolean,
+    complete?: boolean,
+    subject?: TerminalFactSubject | null
+  ) => void
+  applyEffect: (
+    effect: TerminalSnapshotEffect,
+    current: TerminalTransientCurrent,
+    subject?: TerminalFactSubject | null
+  ) => void
   observePrLink: (url: string) => void
   dispose: () => void
 }
@@ -26,6 +36,7 @@ export class TerminalResident<Policy extends TerminalResidentPolicy> {
   private consumption = new TerminalSnapshotConsumption()
   readonly policy: Policy
   private ended = false
+  private readonly endListeners = new Set<(captured: TerminalResident<Policy>) => void>()
 
   constructor(
     private physicalIdentity: Readonly<TerminalResidentIdentity>,
@@ -40,6 +51,39 @@ export class TerminalResident<Policy extends TerminalResidentPolicy> {
 
   get identity(): Readonly<TerminalResidentIdentity> {
     return this.physicalIdentity
+  }
+
+  onEnd(listener: (captured: TerminalResident<Policy>) => void): () => void {
+    if (this.ended) {
+      listener(this)
+      return () => {}
+    }
+    this.endListeners.add(listener)
+    return () => {
+      this.endListeners.delete(listener)
+    }
+  }
+
+  installSource(batch: TerminalSideEffectBatch): boolean {
+    const source = batch.terminalState
+    if (
+      this.ended ||
+      !source ||
+      (this.identity.incarnationId !== null && this.identity.incarnationId !== source.incarnationId)
+    ) {
+      return false
+    }
+    if (this.identity.runtimeId === source.runtimeId) {
+      return true
+    }
+    this.physicalIdentity = Object.freeze({
+      ...this.identity,
+      runtimeId: source.runtimeId,
+      incarnationId: source.incarnationId
+    })
+    this.consumption.install(source.snapshot)
+    this.policy.restoreCurrent(source.snapshot.current, true)
+    return true
   }
 
   admitIdentity(identity: TerminalResidentIdentity): boolean {
@@ -67,7 +111,7 @@ export class TerminalResident<Policy extends TerminalResidentPolicy> {
     return true
   }
 
-  consume(batch: TerminalSideEffectBatch): void {
+  consume(batch: TerminalSideEffectBatch, subject?: TerminalFactSubject): void {
     if (
       this.ended ||
       !batch.terminalState ||
@@ -79,29 +123,52 @@ export class TerminalResident<Policy extends TerminalResidentPolicy> {
     ) {
       return
     }
-    this.consumeSnapshot(batch.terminalState.snapshot)
+    this.consumeSnapshot(
+      batch.terminalState.snapshot,
+      this.policy.applyEffect,
+      true,
+      batch.replay
+        ? undefined
+        : batch.facts.map((fact) =>
+            fact.kind === 'pr-link' ? { kind: 'pr-link', url: fact.link.url } : fact
+          ),
+      subject
+    )
   }
 
   consumeSnapshot(
     snapshot: TerminalTransientObservation,
     applyEffect = this.policy.applyEffect,
-    complete = true
+    complete = true,
+    liveFacts?: Parameters<TerminalSnapshotConsumption['consumeLive']>[1],
+    subject?: TerminalFactSubject
   ): void {
     if (this.ended) {
       return
     }
-    const consumed = this.consumption.consume(snapshot)
+    const consumed = liveFacts
+      ? this.consumption.consumeLive(snapshot, liveFacts)
+      : this.consumption.consume(snapshot)
     if (!consumed) {
       return
     }
     const current = snapshot.current
     for (const effect of consumed.effects) {
-      applyEffect(effect, current)
+      const eligible = subject?.isCurrent()
+      applyEffect(effect, current, subject)
+      if (eligible) {
+        subject = subject?.captureCurrent()
+      }
     }
     for (const link of consumed.links) {
       this.policy.observePrLink(link.url)
     }
-    this.policy.restoreCurrent(current, consumed.first, complete)
+    this.policy.restoreCurrent(
+      current,
+      consumed.first && liveFacts === undefined,
+      complete,
+      subject
+    )
   }
 
   dispose(): void {
@@ -110,6 +177,11 @@ export class TerminalResident<Policy extends TerminalResidentPolicy> {
     }
     this.ended = true
     this.policy.dispose()
+    const listeners = [...this.endListeners]
+    this.endListeners.clear()
+    for (const listener of listeners) {
+      listener(this)
+    }
   }
 }
 

@@ -50,15 +50,6 @@ export async function requestDaemonRpc<T>(opts: DaemonRpcRequestOptions): Promis
         : payload
   })
 
-  if (
-    type === 'detach' &&
-    payload &&
-    typeof payload === 'object' &&
-    'sessionId' in payload &&
-    typeof payload.sessionId === 'string'
-  ) {
-    transientReader?.detach(payload.sessionId)
-  }
   return result
 }
 

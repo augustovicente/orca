@@ -16,6 +16,12 @@ type HandoffFactBuffer = {
 }
 const handoffFactBuffersByPtyId = new Map<string, HandoffFactBuffer>()
 
+/** Raw startup retention captures the same original subject without admitting an execution. */
+export function captureHandoffFactSubject(ptyId: string): TerminalFactSubject | undefined {
+  const binding = handoffFactBuffersByPtyId.get(ptyId)?.binding
+  return binding ? captureTerminalFactSubject(binding.paneKey) : undefined
+}
+
 export function deleteHandoffFactBuffer(ptyId: string): void {
   const buffer = handoffFactBuffersByPtyId.get(ptyId)
   if (buffer) {
