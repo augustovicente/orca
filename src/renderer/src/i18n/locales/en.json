@@ -20482,6 +20482,8 @@
       "stepCheck": "Check"
     },
     "orchestrationCrew": {
+      "title": "Orchestration",
+      "sendingUnavailable": "Sending unavailable",
       "workers": "{{total}} workers",
       "managedByNames": "Managed by {{names}}",
       "talkingWithNames": "Talking with {{names}}",

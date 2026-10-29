@@ -17,7 +17,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
-import { AgentIcon } from '@/lib/agent-catalog'
+import { AgentIcon, getAgentLabel } from '@/lib/agent-catalog'
+import { formatAgentTypeLabel } from '../../../../shared/agent-type-label'
+import { isAgentStatusState } from '../../../../shared/agent-status-types'
+import { mapAgentStatusStateToVisualStatus } from '@/lib/agent-status'
+import StatusIndicator from '../sidebar/StatusIndicator'
 import { isTuiAgent } from '../../../../shared/tui-agent-config'
 import type {
   OrchestrationCrewRow,
@@ -32,28 +36,43 @@ import { hasVisibleOverlay } from '@/lib/visible-overlay'
 import { isImeOwnedKeyboardEvent } from '@/lib/ime-composition-keyboard-event'
 import { CrewRowDetails, CrewRowTime as Time } from './CrewRowDetails'
 
-function Avatar({ row }: { row: OrchestrationCrewRow }) {
-  return (
+function Avatar({ row, tooltip = false }: { row: OrchestrationCrewRow; tooltip?: boolean }) {
+  const agent = isTuiAgent(row.agentKind) ? row.agentKind : null
+  const label = agent ? getAgentLabel(agent) : formatAgentTypeLabel(row.agentKind)
+  const description = row.hostLabel ? `${label} · ${row.hostLabel}` : label
+  const icon = (
     <span
-      aria-hidden="true"
+      aria-hidden={tooltip ? undefined : true}
+      role={tooltip ? 'img' : undefined}
+      aria-label={tooltip ? description : undefined}
       className="inline-flex size-6 shrink-0 items-center justify-center rounded-full border border-border bg-muted text-muted-foreground"
     >
-      <AgentIcon agent={isTuiAgent(row.agentKind) ? row.agentKind : null} />
+      <AgentIcon agent={agent} />
     </span>
   )
+  return tooltip ? (
+    <Tooltip>
+      <TooltipTrigger asChild>{icon}</TooltipTrigger>
+      <TooltipContent side="top" sideOffset={4}>
+        {description}
+      </TooltipContent>
+    </Tooltip>
+  ) : (
+    icon
+  )
 }
-function Dot({ row }: { row: OrchestrationCrewRow }) {
+function CrewStatusIndicator({ row }: { row: OrchestrationCrewRow }) {
   return (
-    <span
+    <StatusIndicator
       aria-label={row.status}
-      className={cn(
-        'inline-block size-1.5 shrink-0 rounded-full',
-        row.pendingQuestion || row.status === 'waiting' || row.status === 'blocked'
-          ? 'bg-status-warning'
-          : row.status === 'working'
-            ? 'bg-status-success'
-            : 'bg-muted-foreground'
-      )}
+      showTooltip={false}
+      status={
+        row.pendingQuestion
+          ? 'permission'
+          : isAgentStatusState(row.status)
+            ? mapAgentStatusStateToVisualStatus(row.status)
+            : 'inactive'
+      }
     />
   )
 }
@@ -181,7 +200,10 @@ function CrewPanelContent({
           aria-label={translate('components.orchestrationCrew.label', 'Agent crew')}
           className="flex h-full w-80 max-w-full flex-col border-l border-border bg-card text-card-foreground shadow-xs"
         >
-          <div className="flex h-9 shrink-0 items-center justify-end border-b border-border px-2">
+          <div className="flex h-9 shrink-0 items-center justify-between border-b border-border px-2">
+            <span className="text-xs font-medium">
+              {translate('components.orchestrationCrew.title', 'Orchestration')}
+            </span>
             <IconButton
               ref={collapse}
               label={translate('components.orchestrationCrew.collapse', 'Collapse crew panel')}
@@ -229,7 +251,7 @@ function CrewPanelContent({
               <span className="truncate">{label}</span>
               <span className="flex gap-0.5">
                 {managing.map((row) => (
-                  <Dot key={row.partyKey} row={row} />
+                  <CrewStatusIndicator key={row.partyKey} row={row} />
                 ))}
               </span>
               {pending > 0 ? (
@@ -250,13 +272,9 @@ function CrewPanelContent({
               ) : null}
             </Button>
           </TooltipTrigger>
-          {managedBy.length > 0 ? (
-            <TooltipContent>
-              {translate('components.orchestrationCrew.managedByNames', 'Managed by {{names}}', {
-                names: managedBy.map((row) => row.label).join(', ')
-              })}
-            </TooltipContent>
-          ) : null}
+          <TooltipContent side="top" sideOffset={4}>
+            {translate('components.orchestrationCrew.title', 'Orchestration')}
+          </TooltipContent>
         </Tooltip>
       )}
     </div>
@@ -283,15 +301,11 @@ function CrewRowView({ row, target }: { row: OrchestrationCrewRow; target: Runti
           aria-expanded={expanded}
           onClick={() => setDisclosure({ question, expanded: !expanded })}
         >
-          <Avatar row={row} />
+          <Avatar row={row} tooltip />
           <span className="min-w-0 flex-1">
             <span className="flex items-center gap-1.5">
-              <Dot row={row} />
+              <CrewStatusIndicator row={row} />
               <span className="truncate text-sm font-medium">{row.label}</span>
-            </span>
-            <span className="block truncate text-2xs font-normal text-muted-foreground">
-              {row.agentKind}
-              {row.hostLabel ? ` · ${row.hostLabel}` : ''}
             </span>
             <span
               className={cn(
@@ -370,6 +384,11 @@ function CrewRowView({ row, target }: { row: OrchestrationCrewRow; target: Runti
           </div>
         </div>
       </div>
+      {!row.sendAddress ? (
+        <p className="px-3 pb-2 text-xs text-muted-foreground">
+          {translate('components.orchestrationCrew.sendingUnavailable', 'Sending unavailable')}
+        </p>
+      ) : null}
       {expanded ? <CrewRowDetails row={row} /> : null}
     </div>
   )
