@@ -15,20 +15,28 @@ import { getDefaultWorkspaceSession } from '../../../../shared/constants'
 import * as loader from '../../../../shared/workspace-layout/workspace-layout-load'
 import * as paneQuery from './pty-pane-query'
 import * as surfaceIndex from './terminal-surface-index'
+import { HEADLESS_RUNTIME_WINDOW_ID } from '../../../../shared/runtime-types'
+import { agentHookServer } from '../../../agent-hooks/server'
+import * as providerRebound from '../../../ipc/pty/provider/local-provider-rebound'
+import type { ResolvedWorktree } from '../../runtime-worktree-path-identity'
 
 vi.mock('../../../../shared/layout-owner-switch', () => ({ ORCA_LAYOUT_OWNER_IS_MAIN: true }))
 const leaf = (i: number) => `aaaaaaaa-aaaa-4aaa-8aaa-${String(i).padStart(12, '0')}`
 const pane = `tab-main-0:${leaf(0)}`
 
 class DefaultPaneRuntime extends OrcaRuntimeService {
+  protected override async getResolvedWorktreeMap(): Promise<Map<string, ResolvedWorktree>> {
+    const worktree = this.buildResolvedWorktreeFromId(FIXTURE_GIT_WORKTREE_ID)
+    return new Map(worktree ? [[worktree.id, worktree]] : [])
+  }
   ordinaryFallback = false
   captures = 0
   protected captureTerminalPaneReader(): paneQuery.PtyPaneOf {
     this.captures++
     return this.ordinaryFallback ? (pty) => this.paneOfPty(pty) : super.captureTerminalPaneReader()
   }
-  seed(id: string, handle: string): void {
-    this.recordPtyWorktree(id, FIXTURE_GIT_WORKTREE_ID, { connected: true })
+  seed(id: string, handle: string, spawnPaneKey?: string, connected = true): void {
+    this.recordPtyWorktree(id, FIXTURE_GIT_WORKTREE_ID, { connected, spawnPaneKey })
     this.terminalIdentity.bindPty(id, handle)
     this.terminalIdentity.setHandle(handle, {
       handle,
@@ -40,6 +48,21 @@ class DefaultPaneRuntime extends OrcaRuntimeService {
       ptyId: id,
       ptyGeneration: 0
     })
+  }
+  defaultConsumers(id: string) {
+    const pty = this.ptysById.get(id)
+    if (!pty) {
+      throw new Error('Expected seeded PTY')
+    }
+    return {
+      summary: this.buildPtyTerminalSummary(pty, new Map()),
+      target: this.getPtyLaneMailboxTargetForPty(pty),
+      mailbox: this.getOrchestrationMailboxLeafForHandle(this.handleByPtyId.get(id)!),
+      close: this.getPtyIdsForExplicitTabClose(FIXTURE_GIT_WORKTREE_ID, 'tab-main-0')
+    }
+  }
+  follow() {
+    this.followExportedPaneKeys()
   }
   identityState() {
     return {
@@ -94,6 +117,29 @@ async function fixture(population: number, ordinary: boolean) {
   }
   return {
     runtime,
+    session: () => store.getWorkspaceSession(),
+    addCloseLeaf: async () => {
+      const next = structuredClone(store.getWorkspaceSession())
+      const layout = next.terminalLayoutsByTabId['tab-main-0']
+      if (!layout.root) {
+        throw new Error('Expected seeded layout')
+      }
+      layout.root = {
+        type: 'split',
+        direction: 'vertical',
+        first: layout.root,
+        second: { type: 'leaf', leafId: leaf(98) }
+      }
+      layout.ptyIdsByLeafId = { ...layout.ptyIdsByLeafId, [leaf(98)]: 'leaf-only' }
+      store.setWorkspaceSession(next, 'local')
+      await store.flushPendingOrThrowAsync()
+    },
+    name: async () => {
+      const next = structuredClone(store.getWorkspaceSession())
+      next.tabsByWorktree[FIXTURE_GIT_WORKTREE_ID][0].customTitle = 'Saved manual name'
+      store.setWorkspaceSession(next, 'local')
+      await store.flushPendingOrThrowAsync()
+    },
     rebind,
     normalize: (value: unknown) =>
       JSON.stringify(value)
@@ -179,6 +225,141 @@ it('bounds the real public default fallback separately from captured Crew and pr
     }
   } finally {
     vi.useRealTimers()
+  }
+})
+
+it('keeps loaded default title, headless target/refusal, exported hooks and ordered close union at their actual owners', async () => {
+  const f = await fixture(3, false)
+  const oldPane = `old-tab:${leaf(99)}`
+  const transfer = vi.spyOn(agentHookServer, 'transferPaneAuthority').mockImplementation(() => {})
+  const returned = vi.spyOn(agentHookServer, 'returnPaneAuthority').mockImplementation(() => {})
+  try {
+    await f.name()
+    f.runtime.seed('pty-main-0', 'term_main_0', oldPane)
+    f.runtime.syncWindowGraph(HEADLESS_RUNTIME_WINDOW_ID, { tabs: [], leaves: [] })
+    const initial = f.runtime.defaultConsumers('pty-main-0')
+    expect(initial.summary).toMatchObject({
+      title: 'Saved manual name',
+      tabId: 'tab-main-0',
+      leafId: leaf(0),
+      orphaned: false
+    })
+    expect(initial.target).toBeNull()
+    expect(initial.mailbox).toMatchObject({
+      tabId: 'tab-main-0',
+      leafId: leaf(0),
+      ptyId: 'pty-main-0'
+    })
+    expect(initial.close).toEqual(['pty-main-0'])
+    expect(transfer.mock.calls.map(([from, to, id]) => [from, to, id])).toEqual([
+      [oldPane, pane, 'pty-main-0']
+    ])
+    transfer.mockClear()
+    f.runtime.follow()
+    expect(transfer.mock.calls.map(([from, to, id]) => [from, to, id])).toEqual([
+      [oldPane, pane, 'pty-main-0']
+    ])
+    expect(returned).not.toHaveBeenCalled()
+    f.runtime.seed('leaf-only', 'term_leaf_only', undefined, false)
+    await f.addCloseLeaf()
+    f.runtime.attachWindow(1)
+    f.runtime.syncWindowGraph(1, {
+      tabs: [
+        {
+          tabId: 'tab-main-0',
+          worktreeId: FIXTURE_GIT_WORKTREE_ID,
+          title: 'Terminal',
+          activeLeafId: leaf(0),
+          layout: null
+        }
+      ],
+      leaves: [
+        {
+          tabId: 'tab-main-0',
+          worktreeId: FIXTURE_GIT_WORKTREE_ID,
+          leafId: leaf(0),
+          paneRuntimeId: 1,
+          ptyId: 'pty-main-0'
+        },
+        {
+          tabId: 'tab-main-0',
+          worktreeId: FIXTURE_GIT_WORKTREE_ID,
+          leafId: leaf(98),
+          paneRuntimeId: 2,
+          ptyId: 'leaf-only'
+        }
+      ]
+    })
+    const shown = f.runtime.defaultConsumers('pty-main-0')
+    expect(shown.target).toBeNull()
+    expect(shown.close).toEqual(['pty-main-0', 'leaf-only'])
+    expect(shown.summary.title).toBe('Saved manual name')
+  } finally {
+    transfer.mockRestore()
+    returned.mockRestore()
+    await f.close()
+  }
+})
+
+it('follows an exported key after the real accepted placement has persisted and recorded its pane', async () => {
+  const f = await fixture(1, false)
+  const exported = `exported:${leaf(97)}`
+  const events: string[] = []
+  const rebound = vi.spyOn(providerRebound, 'onLocalPtyProviderRebound')
+  const transfer = vi
+    .spyOn(agentHookServer, 'transferPaneAuthority')
+    .mockImplementation((_from, _to, id) => {
+      events.push(`follow:${id}`)
+    })
+  const apply = f.runtime.applyLayoutCommand.bind(f.runtime)
+  const applied = vi.spyOn(f.runtime, 'applyLayoutCommand').mockImplementation(async (command) => {
+    const reply = await apply(command)
+    events.push(`applied:${reply.ok}`)
+    return reply
+  })
+  try {
+    f.runtime.seed('restored', 'term_restored', exported)
+    f.runtime.setPtyController({
+      write: () => true,
+      kill: () => true,
+      getForegroundProcess: async () => null,
+      listProcesses: async () => [
+        {
+          id: 'restored',
+          cwd: '/fixture/local',
+          title: 'shell',
+          worktreeId: FIXTURE_GIT_WORKTREE_ID,
+          paneKey: exported
+        }
+      ]
+    })
+    await expect(f.runtime.placeUnshownLiveTerminals()).resolves.toEqual({
+      placed: ['restored'],
+      declined: []
+    })
+    const command = applied.mock.calls[0][0]
+    if (command.type !== 'createTerminalTab' || !command.tabId || !command.leafId) {
+      throw new Error('Expected the actual restored create command')
+    }
+    const placedPane = `${command.tabId}:${command.leafId}`
+    expect(f.session().terminalLayoutsByTabId[command.tabId].ptyIdsByLeafId?.[command.leafId]).toBe(
+      'restored'
+    )
+    expect(transfer).toHaveBeenCalledWith(exported, placedPane, 'restored', expect.any(Number), {
+      authorityVerified: true
+    })
+    expect(events.indexOf('follow:restored')).toBeGreaterThan(events.indexOf('applied:true'))
+    expect(f.runtime.getPaneKeyForTerminalHandle('term_restored')).toBe(placedPane)
+  } finally {
+    for (const result of rebound.mock.results) {
+      if (result.type === 'return') {
+        result.value()
+      }
+    }
+    rebound.mockRestore()
+    transfer.mockRestore()
+    applied.mockRestore()
+    await f.close()
   }
 })
 
