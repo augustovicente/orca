@@ -53,8 +53,7 @@ export function registerRuntimeEnvironmentSubscriptionHandlers(
         )
         const { environment, pairingRevision } = resolveSubscriptionEnvironment(
           getUserDataPath(),
-          args,
-          crewResult
+          args
         )
         const transportGeneration = getRuntimeEnvironmentTransportGeneration(environment.id)
         const transportIsCurrent = (): boolean =>

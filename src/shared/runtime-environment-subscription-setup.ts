@@ -3,42 +3,10 @@ import type { RuntimeRpcResponse } from './runtime-rpc-envelope'
 /** Local setup facts; remote protocol and saved host records do not carry them. */
 type SetupFact =
   | { kind: 'cancelled' | 'source-retired' | 'manual-disconnect' | 'input' | 'host-unsupported' }
-  | {
-      kind: 'wsl'
-      reason:
-        | 'launch-closed'
-        | 'disabled'
-        | 'server-files-missing'
-        | 'pending-stop'
-        | 'parked'
-        | 'removing'
-        | 'unavailable'
-        | 'launch-deferred'
-        | 'not-running'
-    }
-  | {
-      kind: 'binding'
-      reason:
-        | 'missing-dependency'
-        | 'services-unavailable'
-        | 'registration-changed'
-        | 'wrong-owner'
-        | 'wrong-port'
-    }
-  | {
-      kind: 'ssh'
-      decision:
-        | 'stopped'
-        | 'exhausted-transient'
-        | 'busy'
-        | 'retired'
-        | 'manual-disconnect'
-        | 'credential-declined'
-    }
   | { kind: 'remote'; code: string }
   | {
       kind: 'operation'
-      operation: 'environment-resolution' | 'managed-preparation' | 'subscription'
+      operation: 'environment-resolution' | 'subscription'
     }
 
 export type CrewSetupFact = Readonly<SetupFact>
@@ -76,10 +44,6 @@ export type RuntimeEnvironmentSetupFailure = Readonly<{
   fact: CrewSetupFact
 }>
 
-export type RuntimeEnvironmentSetupOutcome<T> =
-  | Readonly<{ ok: true; value: T }>
-  | Readonly<{ ok: false; failure: RuntimeEnvironmentSetupFailure }>
-
 export function runtimeEnvironmentSetupFailure(
   error: unknown,
   operation: Extract<CrewSetupFact, { kind: 'operation' }>['operation']
@@ -112,44 +76,10 @@ export function isCrewSetupFact(value: unknown): value is CrewSetupFact {
       return true
     case 'remote':
       return 'code' in value && typeof value.code === 'string'
-    case 'wsl':
-      return (
-        'reason' in value &&
-        (value.reason === 'launch-closed' ||
-          value.reason === 'disabled' ||
-          value.reason === 'server-files-missing' ||
-          value.reason === 'pending-stop' ||
-          value.reason === 'parked' ||
-          value.reason === 'removing' ||
-          value.reason === 'unavailable' ||
-          value.reason === 'launch-deferred' ||
-          value.reason === 'not-running')
-      )
-    case 'binding':
-      return (
-        'reason' in value &&
-        (value.reason === 'missing-dependency' ||
-          value.reason === 'services-unavailable' ||
-          value.reason === 'registration-changed' ||
-          value.reason === 'wrong-owner' ||
-          value.reason === 'wrong-port')
-      )
-    case 'ssh':
-      return (
-        'decision' in value &&
-        (value.decision === 'stopped' ||
-          value.decision === 'exhausted-transient' ||
-          value.decision === 'busy' ||
-          value.decision === 'retired' ||
-          value.decision === 'manual-disconnect' ||
-          value.decision === 'credential-declined')
-      )
     case 'operation':
       return (
         'operation' in value &&
-        (value.operation === 'environment-resolution' ||
-          value.operation === 'managed-preparation' ||
-          value.operation === 'subscription')
+        (value.operation === 'environment-resolution' || value.operation === 'subscription')
       )
     default:
       return false

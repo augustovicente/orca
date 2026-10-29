@@ -98,17 +98,14 @@ describe('SshConnectionManager on a password host', () => {
     await manager.disconnectAll()
   })
 
-  it('reports the actual submitted-password stop and busy attempt without changing their errors', async () => {
+  it('preserves submitted-password stop and busy-attempt errors', async () => {
     await manager.disconnect('target-1')
     onCredentialRequest.mockResolvedValueOnce('incorrect-fixture-password')
     const refused = authFailure()
     ssh2Mock.connectSequence = [authFailure(), refused]
-    const observed = vi.fn()
-    await expect(manager.connect(createTarget(), undefined, observed)).rejects.toBe(refused)
-    expect(observed).toHaveBeenCalledExactlyOnceWith({
-      error: refused,
-      fact: { kind: 'ssh', decision: 'stopped' }
-    })
+
+    await expect(manager.connect(createTarget())).rejects.toBe(refused)
+
     expect(onCredentialRequest).toHaveBeenCalledTimes(2)
     expect(manager.hasCachedCredential(createTarget())).toBe(false)
     expect(manager.getConnection('target-1')).toBeUndefined()
@@ -119,16 +116,13 @@ describe('SshConnectionManager on a password host', () => {
     const pending = manager.connect(createTarget())
     const pendingResult = expect(pending).rejects.toThrow()
     await vi.waitFor(() => expect(onCredentialRequest).toHaveBeenCalledTimes(3))
-    const busy = vi.fn()
-    await expect(manager.connect(createTarget(), undefined, busy)).rejects.toThrow(
-      'already in progress'
-    )
-    expect(busy.mock.calls[0][0].fact).toEqual({ kind: 'ssh', decision: 'busy' })
+
+    await expect(manager.connect(createTarget())).rejects.toThrow('already in progress')
     answer.resolve(null)
     await pendingResult
   })
 
-  it('keeps default-started nested repair occurrences distinct through real SSH stop/exhaustion and reused Error', async () => {
+  it('preserves default-started nested repair joins through real SSH stop/exhaustion and reused Error', async () => {
     await manager.disconnect('target-1')
     vi.useFakeTimers()
     const root = mkdtempSync(join(tmpdir(), 'orca-D2-repair-owner-'))
@@ -184,7 +178,7 @@ describe('SshConnectionManager on a password host', () => {
         await release.promise
       })
       ssh2Mock.connectSequence = [reused]
-      const firstObservation = vi.fn()
+
       const firstCreated = nextSshClientCreation()
       const first = repairs.repair('repair-1', 1)
       expect(repairs.repair('repair-1', 999)).toBe(first)
@@ -203,22 +197,16 @@ describe('SshConnectionManager on a password host', () => {
         'repair-1',
         async () => {
           throw new OrcadManagedPairingRejectedError('sealed refusal')
-        },
-        firstObservation
+        }
       )
       const recoveredResult = expect(firstRecovery).rejects.toBe(reused)
-      expect(firstObservation).not.toHaveBeenCalled()
+
       reused.code = 'ECONNREFUSED'
       ssh2Mock.connectSequence = Array.from({ length: 5 }, () => reused)
-      const secondObservation = vi.fn()
+
       const secondCreated = nextSshClientCreation()
       const second = repairs.repair('repair-2', 1)
-      const secondObserved = repairs.repairObserved('repair-2', 1).then((outcome) => {
-        if (!outcome.ok) {
-          secondObservation(outcome.failure)
-        }
-        return outcome
-      })
+      expect(repairs.repair('repair-2', 1)).toBe(second)
       const secondResult = expect(second).rejects.toBe(reused)
       await secondCreated
       await vi.advanceTimersByTimeAsync(1)
@@ -226,40 +214,25 @@ describe('SshConnectionManager on a password host', () => {
         await advanceToNextSshClient(2_000)
       }
       await secondResult
-      await secondObserved
-      expect(secondObservation).toHaveBeenCalledExactlyOnceWith({
-        error: reused,
-        fact: { kind: 'ssh', decision: 'exhausted-transient' }
-      })
+
       release.resolve()
       await firstResult
       await recoveredResult
-      expect(firstObservation).toHaveBeenCalledExactlyOnceWith({
-        error: reused,
-        fact: { kind: 'ssh', decision: 'stopped' }
-      })
+
       expect(manager.getConnection('target-1')).toBeUndefined()
       expect(manager.getConnection('target-2')).toBeUndefined()
       delete reused.code
       ssh2Mock.connectSequence = [reused]
-      const sequentialObservation = vi.fn()
+
       const sequentialCreated = nextSshClientCreation()
       const sequential = repairs.repair('repair-1', 1)
       expect(sequential).not.toBe(first)
-      const sequentialObserved = repairs.repairObserved('repair-1', 1).then((outcome) => {
-        if (!outcome.ok) {
-          sequentialObservation(outcome.failure)
-        }
-      })
+      expect(repairs.repair('repair-1', 1)).toBe(sequential)
       const sequentialResult = expect(sequential).rejects.toBe(reused)
       await sequentialCreated
       await vi.advanceTimersByTimeAsync(1)
       await sequentialResult
-      await sequentialObserved
-      expect(sequentialObservation).toHaveBeenCalledExactlyOnceWith({
-        error: reused,
-        fact: { kind: 'ssh', decision: 'stopped' }
-      })
+
       expect(readReadiness).not.toHaveBeenCalled()
     } finally {
       rmSync(root, { recursive: true, force: true })
@@ -307,20 +280,17 @@ describe('SshConnectionManager on a password host', () => {
       const ordinaryResult = expect(ordinary).rejects.toBe(firstFailure)
       await firstCreated
       const firstClient = clientInstances.at(-1)!
-      const observe = vi.fn()
-      const crew = tunnels.ensure(environment, () => environment, true, observe)
-      const crewResult = expect(crew).rejects.toBe(finalFailure)
+
+      const joined = tunnels.ensure(environment, () => environment)
+      const joinedResult = expect(joined).rejects.toBe(finalFailure)
       const replacementCreated = nextSshClientCreation()
       firstClient.emit('error', firstFailure)
       await ordinaryResult
       await replacementCreated
-      expect(observe).not.toHaveBeenCalled()
+
       clientInstances.at(-1)!.emit('error', finalFailure)
-      await crewResult
-      expect(observe).toHaveBeenCalledExactlyOnceWith({
-        error: finalFailure,
-        fact: { kind: 'ssh', decision: 'stopped' }
-      })
+      await joinedResult
+
       expect(manager.getConnection(target.id)).toBeUndefined()
     } finally {
       await tunnels.shutdown()
@@ -329,26 +299,20 @@ describe('SshConnectionManager on a password host', () => {
     }
   })
 
-  it('preserves the stopped primary observation through actual startup cleanup failure', async () => {
+  it('preserves primary and cleanup errors through actual startup cleanup failure', async () => {
     await manager.disconnect('target-1')
     const startup = new Error('untyped primary failure')
     const cleanup = new Error('cleanup failed')
     vi.spyOn(manager, 'disconnectConnection').mockRejectedValueOnce(cleanup)
     ssh2Mock.connectSequence = [startup]
-    const observe = vi.fn()
-    const result: unknown = await manager
-      .connect(createTarget(), undefined, observe)
-      .catch((error: unknown) => error)
+
+    const result: unknown = await manager.connect(createTarget()).catch((error: unknown) => error)
     expect(result).toBeInstanceOf(AggregateError)
     if (!(result instanceof AggregateError)) {
       throw new Error('Expected startup/cleanup aggregate')
     }
     expect(result.errors).toEqual([startup, cleanup])
     expect(result.message).toBe('ssh_connection_startup_cleanup_failed')
-    expect(observe).toHaveBeenCalledExactlyOnceWith({
-      error: result,
-      fact: { kind: 'ssh', decision: 'stopped' }
-    })
   })
 
   it('does not ask again when a background dial lands while the dropped connection reconnects', async () => {

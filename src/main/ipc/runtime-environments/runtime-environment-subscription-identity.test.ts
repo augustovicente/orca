@@ -259,7 +259,7 @@ it('fences an already-gone frame and a changed source, while preserving early-cl
 })
 
 it('distinguishes no observation from an observed undefined rejection without changing default rejection', async () => {
-  const fact = { kind: 'ssh', decision: 'stopped' } as const
+  const fact = { kind: 'remote', code: 'unauthorized' } as const
   expect(
     crewSubscriptionSetupFailure('crew', undefined, undefined, 'subscription', undefined)
   ).toEqual({

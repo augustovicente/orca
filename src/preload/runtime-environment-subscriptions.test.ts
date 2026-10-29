@@ -389,7 +389,7 @@ describe('opt-in crew setup registration', () => {
       const failure = {
         subscriptionId: 'crew',
         ok: false,
-        failure: { message: 'stopped', fact: { kind: 'ssh', decision: 'stopped' } }
+        failure: { message: 'revoked', fact: { kind: 'remote', code: 'unauthorized' } }
       }
       pending.resolve(failure)
       await expect(first).resolves.toBe(failure)

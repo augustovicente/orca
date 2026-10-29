@@ -1,4 +1,3 @@
-import { RuntimeEnvironmentSetupGuardError } from '../../shared/runtime-environment-subscription-setup'
 import {
   formatWslHostsPolicyBlockedArgument,
   formatWslHostsServeOnlyArgument,
@@ -150,10 +149,7 @@ export function assertWslHostReachable(environment: {
   orcadDeployment?: OrcadDeploymentLink | null
 }): void {
   if (isGatedOffWslHost(environment)) {
-    throw new RuntimeEnvironmentSetupGuardError(WSL_HOSTS_GATED_OFF_MESSAGE, {
-      kind: 'wsl',
-      reason: 'launch-closed'
-    })
+    throw new Error(WSL_HOSTS_GATED_OFF_MESSAGE)
   }
 }
 
@@ -164,18 +160,10 @@ export function assertWslHostRunAllowed(
 ): void {
   const refusal = wslHostRunRefusal(gate)
   if (refusal || removing.has(environmentId)) {
-    throw new RuntimeEnvironmentSetupGuardError(refusal?.message ?? WSL_HOST_REMOVING_MESSAGE, {
-      kind: 'wsl',
-      reason:
-        refusal?.kind === 'disabled'
-          ? 'disabled'
-          : refusal?.kind === 'server-files-missing'
-            ? 'server-files-missing'
-            : 'removing'
-    })
+    throw new Error(refusal?.message ?? WSL_HOST_REMOVING_MESSAGE)
   }
 }
 
-export function wslHostRuntimeCallGuard(message: string, reason: 'parked' | 'unavailable'): Error {
-  return new RuntimeEnvironmentSetupGuardError(message, { kind: 'wsl', reason })
+export function wslHostRuntimeCallGuard(message: string, _reason: 'parked' | 'unavailable'): Error {
+  return new Error(message)
 }

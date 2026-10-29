@@ -14,17 +14,10 @@ import {
   resolveEnvironment,
   RuntimeEnvironmentStoreError
 } from '../../../shared/runtime-environment-store'
-import { OrcadHostUnsupportedError } from '../../orcad/orcad-host-unavailable'
-import {
-  WslDistroNotRunningError,
-  WslOrcadLaunchDeferredError
-} from '../../wsl/wsl-orcad-connection-errors'
-import {
-  OrcadManagedIdentityError,
-  OrcadManagedPairingRejectedError
-} from '../../managed-server/lifecycle/orcad-managed-tunnel-identity'
-import { OrcadManagedPairingRepairFailedError } from '../../managed-server/lifecycle/orcad-managed-pairing-repair-failure'
-import { isRuntimeEnvironmentManuallyDisconnected } from './runtime-environment-connectivity-handlers'
+import { isRuntimeEnvironmentManuallyDisconnected } from './runtime-environment-manual-disconnect'
+import { getPreferredPairedRuntimeConnection } from '../../../shared/runtime-environments'
+import { getAcceptedRuntimeEnvironmentCapabilityOutcome } from './runtime-environment-capability-evidence'
+import { getRuntimeEnvironmentStatusSnapshot } from './runtime-environment-request-connections'
 
 export type RuntimeEnvironmentSubscribeArgs = {
   selector: string
@@ -70,8 +63,7 @@ export function assertCrewSubscriptionInputs(
 
 export function resolveSubscriptionEnvironment(
   userDataPath: string,
-  args: RuntimeEnvironmentSubscribeArgs,
-  crewResult: boolean
+  args: RuntimeEnvironmentSubscribeArgs
 ) {
   const environment = resolveEnvironment(userDataPath, args.selector)
   if (isRuntimeEnvironmentManuallyDisconnected(environment.id)) {
@@ -91,7 +83,6 @@ export function resolveSubscriptionEnvironment(
   }
   if (
     args.expectedEnvironmentRuntimeId !== undefined &&
-    (!crewResult || args.expectedEnvironmentRuntimeId !== null) &&
     environment.runtimeId !== args.expectedEnvironmentRuntimeId
   ) {
     throw new RuntimeEnvironmentSetupGuardError(
@@ -140,7 +131,7 @@ export function assertCrewSubscriptionCurrent(
   if (
     !transportIsCurrent() ||
     (current.pairingRevision ?? current.createdAt) !== pairingRevision ||
-    (args.expectedEnvironmentRuntimeId != null &&
+    (args.expectedEnvironmentRuntimeId !== undefined &&
       current.runtimeId !== args.expectedEnvironmentRuntimeId)
   ) {
     throw new RuntimeEnvironmentSetupGuardError(
@@ -167,18 +158,9 @@ export function crewSubscriptionSetupFailure(
     ? { kind: 'cancelled' as const }
     : error instanceof RuntimeEnvironmentStoreError && error.code === 'invalid_argument'
       ? { kind: 'input' as const }
-      : error instanceof OrcadHostUnsupportedError
-        ? { kind: 'host-unsupported' as const }
-        : error instanceof WslOrcadLaunchDeferredError
-          ? { kind: 'wsl' as const, reason: 'launch-deferred' as const }
-          : error instanceof WslDistroNotRunningError
-            ? { kind: 'wsl' as const, reason: 'not-running' as const }
-            : error instanceof RemoteRuntimeClientError ||
-                error instanceof OrcadManagedIdentityError ||
-                error instanceof OrcadManagedPairingRejectedError ||
-                error instanceof OrcadManagedPairingRepairFailedError
-              ? { kind: 'remote' as const, code: error.code }
-              : observed.fact
+      : error instanceof RemoteRuntimeClientError
+        ? { kind: 'remote' as const, code: error.code }
+        : observed.fact
   const code =
     error instanceof Error && 'code' in error && typeof error.code === 'string'
       ? error.code
@@ -283,3 +265,32 @@ export type {
   CrewSubscriptionSetupResult,
   RuntimeEnvironmentSetupFailure
 } from '../../../shared/runtime-environment-subscription-setup'
+
+export function assertCrewSourceCurrent(environment: ReturnType<typeof resolveEnvironment>): void {
+  const connection = getPreferredPairedRuntimeConnection(environment)
+  const accepted = getAcceptedRuntimeEnvironmentCapabilityOutcome(
+    environment.id,
+    connection,
+    environment.runtimeId
+  )
+  if (accepted?.kind === 'unsupported') {
+    throw new RuntimeEnvironmentSetupGuardError('Shared control is unavailable on this server', {
+      kind: 'host-unsupported'
+    })
+  }
+  const snapshot = getRuntimeEnvironmentStatusSnapshot(environment.id)
+  if (
+    accepted?.kind !== 'supported' ||
+    environment.runtimeId === null ||
+    !snapshot ||
+    snapshot.retired ||
+    snapshot.verification !== 'verified' ||
+    snapshot.transport !== 'ready' ||
+    snapshot.pairingRevision !== (environment.pairingRevision ?? environment.createdAt) ||
+    snapshot.status?.runtimeId !== environment.runtimeId
+  ) {
+    throw new RuntimeEnvironmentSetupGuardError('The verified runtime session is unavailable', {
+      kind: 'source-retired'
+    })
+  }
+}

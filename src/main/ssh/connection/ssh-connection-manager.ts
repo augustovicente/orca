@@ -8,11 +8,7 @@ import {
 } from '../ssh-credential-decline'
 import { createSshUserDisconnectedError, isSshUserDisconnected } from '../ssh-user-disconnect'
 import { SSH_CONNECT_IN_PROGRESS_SUFFIX } from '../../../shared/ssh-sign-in-required-copy'
-import {
-  markSshSessionStartFailure,
-  type SshConnectDecision,
-  type SshSessionStartObserver
-} from '../ssh-session-start-failure'
+import { markSshSessionStartFailure } from '../ssh-session-start-failure'
 
 /** A remembered sign-in only applies to the endpoint it was given for; an edited host must ask. */
 function signInEndpoint(target: SshTarget): string {
@@ -43,36 +39,20 @@ export class SshConnectionManager {
   }
 
   /** `probe`: a user's connection test, which a Disconnect does not refuse. */
-  async connect(
-    target: SshTarget,
-    options?: { probe?: boolean },
-    observeFailure?: SshSessionStartObserver
-  ): Promise<SshConnection> {
-    let decision: SshConnectDecision | undefined
+  async connect(target: SshTarget, options?: { probe?: boolean }): Promise<SshConnection> {
     try {
-      return await this.openSession(target, options, (value) => {
-        decision = value
-      })
+      return await this.openSession(target, options)
     } catch (error) {
-      const original = markSshSessionStartFailure(error)
-      observeFailure?.({
-        error: original,
-        fact: decision
-          ? { kind: 'ssh', decision }
-          : { kind: 'operation', operation: 'managed-preparation' }
-      })
-      throw original
+      throw markSshSessionStartFailure(error)
     }
   }
 
   private async openSession(
     target: SshTarget,
-    options?: { probe?: boolean },
-    observeDecision?: (decision: SshConnectDecision) => void
+    options?: { probe?: boolean }
   ): Promise<SshConnection> {
     // Refuse user-disconnected hosts before pool reuse, including transports opened by connection tests (#30086).
     if (!options?.probe && isSshUserDisconnected(target.id)) {
-      observeDecision?.('manual-disconnect')
       throw createSshUserDisconnectedError(target.label)
     }
     const existing = this.connections.get(target.id)
@@ -83,13 +63,11 @@ export class SshConnectionManager {
 
     // Do not repeatedly redial or reprompt after the user declines a background sign-in.
     if (isSshCredentialDeclined(target.id)) {
-      observeDecision?.('credential-declined')
       throw createSshCredentialDeclinedError(target.id, target.label)
     }
 
     // Reusing/replacing an active credential request would close the dialog the user is answering.
     if (this.connectingTargets.has(target.id) || existing?.isAwaitingCredential()) {
-      observeDecision?.('busy')
       throw new Error(`Connection to ${target.label} ${SSH_CONNECT_IN_PROGRESS_SUFFIX}`)
     }
 
@@ -102,7 +80,6 @@ export class SshConnectionManager {
         await existing.disconnect()
         // A Disconnect/Remove during old close must not let this attempt revive the host.
         if (this.connectingTargets.get(target.id) !== attempt) {
-          observeDecision?.('retired')
           throw new Error(`Connection to ${target.label} was cancelled`)
         }
       }
@@ -112,7 +89,7 @@ export class SshConnectionManager {
       this.connections.set(target.id, conn)
 
       try {
-        await conn.connect(observeDecision)
+        await conn.connect()
       } catch (err) {
         // Failed startup may retain sockets; close quietly so cleanup cannot overwrite its published error.
         try {

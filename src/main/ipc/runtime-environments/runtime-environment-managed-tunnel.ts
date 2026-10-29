@@ -1,4 +1,3 @@
-import type { SshSessionStartObserver } from '../../ssh/ssh-session-start-failure'
 import { resolveEnvironment } from '../../../shared/runtime-environment-store'
 import {
   getOrcadSshDeployment,
@@ -40,8 +39,7 @@ export type ManagedRuntimeCallPreparation = { wslStart?: 'never' }
 export async function resolveManagedRuntimeEnvironment(
   userDataPath: string,
   selector: string,
-  preparation?: ManagedRuntimeCallPreparation,
-  observeFailure?: SshSessionStartObserver
+  preparation?: ManagedRuntimeCallPreparation
 ): Promise<ReturnType<typeof resolveEnvironment>> {
   const environment = resolveEnvironment(userDataPath, selector)
   // Enforce the WSL gate for calls, subscriptions and status probes.
@@ -52,7 +50,7 @@ export async function resolveManagedRuntimeEnvironment(
       await prepareWslHostForCall(environment, preparation)
       break
     case 'network':
-      await prepareNetworkServerForCall(userDataPath, environment, observeFailure)
+      await prepareNetworkServerForCall(userDataPath, environment)
       break
   }
   return resolveEnvironment(userDataPath, environment.id)
@@ -91,12 +89,9 @@ async function prepareWslHostForCall(
 
 async function prepareNetworkServerForCall(
   userDataPath: string,
-  environment: KnownRuntimeEnvironment,
-  observeFailure?: SshSessionStartObserver
+  environment: KnownRuntimeEnvironment
 ): Promise<void> {
-  await (observeFailure
-    ? ensureOrcadManagedTunnel(userDataPath, environment.id, observeFailure)
-    : ensureOrcadManagedTunnel(userDataPath, environment.id))
+  await ensureOrcadManagedTunnel(userDataPath, environment.id)
   restoreForwardsOverTunnel(environment)
   // Calls must restart managed servers stopped by idle timeout, kill or host reboot.
   const serving = await verifyOrcadManagedServing(userDataPath, environment.id)
@@ -116,9 +111,7 @@ async function prepareNetworkServerForCall(
         await forgetLaunchSessionVerdictLazily(targetId)
       }
       // Redeployment may change the server port behind the existing forward.
-      await (observeFailure
-        ? rebuildOrcadManagedTunnel(userDataPath, environment.id, observeFailure)
-        : rebuildOrcadManagedTunnel(userDataPath, environment.id))
+      await rebuildOrcadManagedTunnel(userDataPath, environment.id)
     }
   } else {
     // Auto-restored hosts may never get an SSH connect to trigger their update.

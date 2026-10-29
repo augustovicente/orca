@@ -78,9 +78,6 @@ describe('forwardToVerifiedOrcad', () => {
     })
     const result = forwardToVerifiedOrcad(state.args)
     await expect(result).rejects.toThrow('unexpected local port')
-    await expect(result).rejects.toMatchObject({
-      setupFact: { kind: 'binding', reason: 'wrong-port' }
-    })
     expect(state.removeForwardAndWait).toHaveBeenCalledExactlyOnceWith('wrong-forward')
     expect(state.verify).not.toHaveBeenCalled()
     expect(state.rereadRemotePort).not.toHaveBeenCalled()

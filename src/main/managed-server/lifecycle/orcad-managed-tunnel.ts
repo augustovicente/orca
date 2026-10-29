@@ -1,8 +1,3 @@
-import type { SshSessionStartObserver } from '../../ssh/ssh-session-start-failure'
-import {
-  runtimeEnvironmentSetupFailure,
-  type RuntimeEnvironmentSetupFailure
-} from '../../../shared/runtime-environment-subscription-setup'
 import type { KnownRuntimeEnvironment } from '../../../shared/runtime-environments'
 import { resolveEnvironment } from '../../../shared/runtime-environment-store'
 import type { SshTarget } from '../../../shared/ssh-types'
@@ -53,12 +48,9 @@ function pairingRecovery(userDataPath: string): ManagedOrcadPairingRecovery {
   return {
     resolve: (environmentId) => resolveEnvironment(userDataPath, environmentId),
     repairs,
-    ensure: (environment, observeFailure) =>
-      managedTunnels.ensure(
-        environment,
-        () => resolveEnvironmentOrNull(userDataPath, environment.id),
-        true,
-        observeFailure
+    ensure: (environment) =>
+      managedTunnels.ensure(environment, () =>
+        resolveEnvironmentOrNull(userDataPath, environment.id)
       )
   }
 }
@@ -66,73 +58,27 @@ function pairingRecovery(userDataPath: string): ManagedOrcadPairingRecovery {
 /** Return stored credentials: tunnel repair may have replaced the pairing. */
 export async function ensureOrcadManagedTunnel(
   userDataPath: string,
-  selector: string,
-  observeFailure?: SshSessionStartObserver
+  selector: string
 ): Promise<KnownRuntimeEnvironment> {
   const { id } = resolveEnvironment(userDataPath, selector)
-  await buildManagedTunnel(
-    userDataPath,
-    id,
-    (environment, observe) =>
-      managedTunnels.ensure(
-        environment,
-        () => resolveEnvironmentOrNull(userDataPath, id),
-        true,
-        observe
-      ),
-    observeFailure
+  await buildOnBindableLocalPort(userDataPath, id, () =>
+    buildWithPairingRepair(pairingRecovery(userDataPath), id, (environment) =>
+      managedTunnels.ensure(environment, () => resolveEnvironmentOrNull(userDataPath, id))
+    )
   )
   return resolveEnvironment(userDataPath, id)
 }
 
 export async function rebuildOrcadManagedTunnel(
   userDataPath: string,
-  selector: string,
-  observeFailure?: SshSessionStartObserver
+  selector: string
 ): Promise<'built' | 'repaired'> {
   const { id } = resolveEnvironment(userDataPath, selector)
-  return buildManagedTunnel(
-    userDataPath,
-    id,
-    (environment, observe) =>
-      managedTunnels.rebuild(
-        environment,
-        () => resolveEnvironmentOrNull(userDataPath, id),
-        observe
-      ),
-    observeFailure
-  )
-}
-
-async function buildManagedTunnel(
-  userDataPath: string,
-  id: string,
-  build: ManagedOrcadPairingRecovery['ensure'],
-  observeFailure?: SshSessionStartObserver
-): Promise<'built' | 'repaired'> {
-  let failure: RuntimeEnvironmentSetupFailure | undefined
-  try {
-    return await buildOnBindableLocalPort(userDataPath, id, () => {
-      failure = undefined
-      return buildWithPairingRepair(
-        pairingRecovery(userDataPath),
-        id,
-        build,
-        observeFailure
-          ? (value) => {
-              failure = value
-            }
-          : undefined
-      )
-    })
-  } catch (error) {
-    observeFailure?.(
-      failure !== undefined && failure.error === error
-        ? failure
-        : runtimeEnvironmentSetupFailure(error, 'managed-preparation')
+  return buildOnBindableLocalPort(userDataPath, id, () =>
+    buildWithPairingRepair(pairingRecovery(userDataPath), id, (environment) =>
+      managedTunnels.rebuild(environment, () => resolveEnvironmentOrNull(userDataPath, id))
     )
-    throw error
-  }
+  )
 }
 
 /** Reprove pinned-server refusal before repair; foreign servers must fail identity validation. */
