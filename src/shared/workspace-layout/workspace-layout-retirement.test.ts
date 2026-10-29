@@ -27,6 +27,16 @@ import {
 
 vi.mock('../layout-owner-switch', () => ({ ORCA_LAYOUT_OWNER_IS_MAIN: true }))
 
+function expectOriginalFailure(action: () => unknown, fault: unknown): void {
+  let thrown: unknown
+  try {
+    action()
+  } catch (error) {
+    thrown = error
+  }
+  expect(thrown).toBe(fault)
+}
+
 function comparePhase(input: ReturnType<typeof phaseInput>) {
   const before = graph({ model: input.model, session: input.session })
   const copy = structuredClone(input)
@@ -213,7 +223,10 @@ it('runs the actual loader G/C/Z callbacks and compares complete save/report, al
   for (const fail of [`editor:${GIT_KEY}`, 'id:tab:cohort', `generation:${leaf(1)}`]) {
     const fault = new Error(fail)
     const prefix: string[] = []
-    expect(() => loadWorkspaceLayout('local', stored, context(prefix, fail, fault))).toThrow(fault)
+    expectOriginalFailure(
+      () => loadWorkspaceLayout('local', stored, context(prefix, fail, fault)),
+      fault
+    )
     expect(prefix).toEqual(actualEvents.slice(0, actualEvents.indexOf(fail) + 1))
   }
   const z = addWorkspace(emptySession(), GIT_KEY, [
@@ -245,10 +258,12 @@ it('keeps containment short-circuit ahead of a hidden branch and never acquires 
     applyLegacySurfaceTombstones(input.model, input.session, input.carried)
   ).not.toThrow()
   input.session.terminalSurfaceTombstonesByPaneKey.replaced.ptyId = 'pty-a'
-  expect(() =>
-    retirement.retireLoadedLegacySurfaces(input.model, input.session, input.carried)
-  ).toThrow(fault)
-  expect(() => applyLegacySurfaceTombstones(input.model, input.session, input.carried)).toThrow(
+  expectOriginalFailure(
+    () => retirement.retireLoadedLegacySurfaces(input.model, input.session, input.carried),
+    fault
+  )
+  expectOriginalFailure(
+    () => applyLegacySurfaceTombstones(input.model, input.session, input.carried),
     fault
   )
 })
@@ -281,10 +296,10 @@ it('keeps the collector fresh, ordered and complete with duplicate/shared leaves
       return paneLeaf('b')
     }
   })
-  expect(() => collectLayoutLeafIdsInOrder(root)).toThrow(fault)
+  expectOriginalFailure(() => collectLayoutLeafIdsInOrder(root), fault)
   expect(events).toEqual(['first'])
   events.length = 0
-  expect(() => old(root)).toThrow(fault)
+  expectOriginalFailure(() => old(root), fault)
   expect(events).toEqual(['first'])
 })
 
