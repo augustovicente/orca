@@ -20,14 +20,7 @@ import type { ConnectPanePtySession } from './connect-pane-pty-session'
 
 export function installPtyInputForward(session: ConnectPanePtySession): void {
   session.forwardPtyInput = (data: string, wasUserInput = false): void => {
-    // Why: replaying recorded PTY bytes makes xterm auto-reply to embedded
-    // queries (DA1/DECRQM/OSC 10-11/CPR) via onData; those must not leak into
-    // the shell, but keystrokes typed mid-restore must survive. Pointer input
-    // stays dropped even though xterm flags it as user input: replayed bytes can
-    // leave mouse tracking armed until the guarded mode reset lands (a click
-    // would print SGR fragments on the fresh prompt), and a wheel over a
-    // replayed alt-screen frame becomes cursor keys that would recall history
-    // at that prompt once ?1049l lands. See replay-guard.ts.
+    // During replay, drop query replies and pointer-generated mouse/arrows but preserve typing; stale TUI modes could send reports or recall history in the fresh shell (replay-guard.ts).
     if (
       isPaneReplaying(session.deps.replayingPanesRef, session.pane.id) &&
       (!wasUserInput ||
@@ -42,12 +35,7 @@ export function installPtyInputForward(session: ConnectPanePtySession): void {
       session.sendDesktopQueryReplyImmediate(data)
       return
     }
-    // Why: after a Codex account switch, the runtime auth has already moved to
-    // the newly selected account. Stale panes must not keep sending input until
-    // they restart, or work can execute under the wrong account while the UI
-    // still says the pane is stale. Fall back to the tab's persisted PTY ID so
-    // the block still holds during reconnect races before the live transport has
-    // updated its local PTY binding.
+    // Account switches change runtime auth; block stale-pane typing until restart, using persisted IDs during unbound reconnect windows.
     if (
       isCodexPaneStale({
         tabId: session.deps.tabId,
@@ -58,9 +46,7 @@ export function installPtyInputForward(session: ConnectPanePtySession): void {
       session.clearPendingTerminalInputIntent()
       return
     }
-    // Why: presence-lock input drop. While mobile is the driver for this
-    // PTY, desktop keystrokes must not reach the shell; the visible overlay's
-    // explicit Take back action owns restoring desktop input and dimensions.
+    // Mobile driver lock withholds desktop input until explicit Take back restores input and dimensions.
     if (currentPtyId && isPtyLocked(currentPtyId)) {
       session.clearPendingTerminalInputIntent()
       return
@@ -74,22 +60,19 @@ export function installPtyInputForward(session: ConnectPanePtySession): void {
       // disabling the mode would permanently silence focus events on resume.
       return
     }
-    // Why after the query-reply branch: device replies are not user input and
-    // must always reach the shell, or a program querying during reattach hangs.
-    // Why at all: a replaced endpoint reattaches to a fresh shell, so the tail
-    // of the interrupted line would be submitted by the user's own Enter and a
-    // compound command could run its surviving half (#10065 follow-up).
+    // Reply to device queries before blocking stale-line tails; dropping replies hangs TUIs, but replaying a replaced shell’s partial command could execute its suffix (#10065).
     if (shouldDropQuarantinedTerminalInput(session.deps.tabId, data)) {
+      session.clearPendingTerminalInputIntent()
+      return
+    }
+    if (session.captureAgentPreReadyInput?.(data, wasUserInput)) {
       session.clearPendingTerminalInputIntent()
       return
     }
     // Why xterm's provenance: its own focus reports reach onData too, and no person typed them.
     const inputKind = wasUserInput ? 'driving' : 'query-reply'
     const intent = session.pendingTerminalInputIntentFor(data)
-    // Why: real xterm can deliver the terminal byte even when our DOM keydown
-    // listener missed the press. Exact Ctrl+C/Escape bytes are still safe to
-    // infer for local/remote acknowledged writes; SSH fire-and-forget remains
-    // excluded because those transports do not expose sendInputAccepted.
+    // Missed DOM keydowns can still yield exact Ctrl+C/Escape bytes; infer only on acknowledged transports, excluding fire-and-forget SSH.
     const acknowledgedIntent = intent ?? session.inferIntentFromExactTerminalInput(data)
     if (acknowledgedIntent && session.transport.sendInputAccepted) {
       const interruptStatusBaseline =
@@ -102,8 +85,7 @@ export function installPtyInputForward(session: ConnectPanePtySession): void {
       const capturedBaselineSequence = session.interruptStatusBaselineSequence
       session.claimViewportForUserActivity(data)
       if (acknowledgedIntent === 'ctrl-c') {
-        // Why: the accepted-write callback is async; let the next command be
-        // inferred if the user cancelled an oversized line and immediately typed.
+        // Async acknowledgments must not delay fresh inference after cancelling an oversized line.
         session.cancelSuspendedShellCommandInference()
       }
       session.clearPendingTerminalInputIntent()
@@ -168,8 +150,7 @@ export function installPtyInputForward(session: ConnectPanePtySession): void {
       session.requestRecoveryForUndeliverableInput()
     }
   }
-  // Why bind once: provenance must survive deferPtyInput's later callback, and
-  // this is the per-keystroke hot path, so no closure allocation per onData event.
+  // Bind once so provenance survives deferred input without allocating per-keystroke closures.
   const forwardUserInput = (data: string): void => session.forwardPtyInput(data, true)
   const forwardUnclassifiedInput = (data: string): void => session.forwardPtyInput(data, false)
   session.onDataDisposable = subscribeToTerminalInputData(

@@ -1,4 +1,4 @@
-// oxlint-disable anti-slop/no-module-mocking -- Test-only mocks shared by PTY connection registration suites.
+import type { createRemoteRuntimePtyTransport } from './remote-runtime-pty-transport'
 import type * as React from 'react'
 import { vi } from 'vitest'
 import type { Mock } from 'vitest'
@@ -9,6 +9,7 @@ type StoreSubscriber = (state: StoreState) => void
 
 type PtyConnectionTestBindings = {
   getState: () => StoreState
+  getRemoteTransportFactory?: () => typeof createRemoteRuntimePtyTransport | undefined
   getTransportQueue: () => MockTransport[]
   getTransportOptions: () => Record<string, unknown>[]
   getStoreSubscribers: () => StoreSubscriber[]
@@ -195,7 +196,10 @@ vi.mock('./remote-runtime-pty-transport', async () => {
   const create = await transportMockFactory()
   return {
     createRemoteRuntimePtyTransport: vi.fn(
-      (_environmentId: string, options: Record<string, unknown>) => create(options)
+      (environmentId: string, options: Record<string, unknown>) => {
+        const real = fixture.current().getRemoteTransportFactory?.()
+        return real ? real(environmentId, options) : create(options)
+      }
     )
   }
 })

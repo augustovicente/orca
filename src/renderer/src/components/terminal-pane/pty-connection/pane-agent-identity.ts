@@ -87,9 +87,7 @@ export function createTerminalForegroundPolicy(services: TerminalForegroundServi
       }
       return
     }
-    // Why: only a pane whose agent process the host can check keeps its row on an unanswered read;
-    // every other pane keeps today's cleanup until the renderer reads the owner record (step 2).
-    // The drop stays armed while main answers, so a new command start still cancels it.
+    // Host-verifiable owners retain rows on unanswered reads; other panes keep cleanup. Keep the drop armed so a new command can cancel it.
     const dropUnlessVerifiable = (verifiable: boolean): void => {
       if (deferredCommandFinishedStatusDrop !== dropStatus) {
         return
@@ -118,8 +116,7 @@ export function createTerminalForegroundPolicy(services: TerminalForegroundServi
     const tab = (state.tabsByWorktree[services.worktreeId] ?? []).find(
       (candidate) => candidate.id === services.tabId
     )
-    // Why: WSL and remote-runtime panes can never authorize native ConPTY
-    // bytes, so do not pay for Windows process scans that cannot affect routing.
+    // WSL/remote panes cannot authorize native ConPTY bytes, so skip Windows scans that cannot affect routing.
     return isLocalNativeWindowsConpty({
       userAgent: navigator.userAgent,
       connectionId: getConnectionId(services.worktreeId) ?? null,
@@ -211,10 +208,7 @@ export function createTerminalForegroundPolicy(services: TerminalForegroundServi
       services.dropCommandFinishedStatusIfSameTurn(entry)
     }
     if (shouldDeferStatusDrop) {
-      // Why: keep the concrete pane identity routable while the local process
-      // check distinguishes a leaked nested-shell D from a genuine agent exit.
-      // Anchor the accepted-status ordinal once, here — not per rung of the confirm ladder, which
-      // can span seconds — so the gate tolerates churn across the whole window.
+      // Retain identity through local shell confirmation, anchoring accepted-status ordinal once across the whole retry ladder.
       const armedAcceptedStatusSeq = entry?.acceptedStatusSeq
       deferredCommandFinishedStatusDrop = dropStatus
       deferredConfirmedShellReconcile = () =>

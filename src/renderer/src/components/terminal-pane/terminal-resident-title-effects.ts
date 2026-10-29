@@ -61,15 +61,17 @@ export function createTerminalResidentTitleEffects(context: TerminalResidentPoli
       paneId: context.displayPaneId ?? undefined
     })
     const ptyId = getPtyId()
-    if (
-      sleeping &&
-      !(ptyId && state.suppressedPtyExitIds[ptyId]) &&
-      !context.presentation?.preservesSleepingRecord?.(sleeping.record, ptyId)
-    ) {
+    const isHibernationWakeRecord =
+      (ptyId && state.suppressedPtyExitIds[ptyId]) ||
+      (sleeping && context.presentation?.preservesSleepingRecord?.(sleeping.record, ptyId))
+    if (sleeping && !isHibernationWakeRecord) {
       clearSleepingRecordProviderDuplicates(state, sleeping)
     }
     resetAgentTitle(true)
     context.presentation?.confirmedShell?.()
+    if (!isHibernationWakeRecord) {
+      context.presentation?.onAgentExited?.()
+    }
     if (reason === 'visible-pty' || reason === 'process-exit') {
       useAppStore.getState().clearAgentLaunchConfig(binding.paneKey)
     }

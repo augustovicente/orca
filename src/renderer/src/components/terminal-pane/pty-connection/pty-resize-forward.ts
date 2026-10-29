@@ -1,4 +1,4 @@
-import { isRemoteRuntimePtyId } from '../../../../../shared/remote-runtime-pty-id'
+import { isRemoteRuntimePtyId } from '../../../../../shared/remote-runtime/remote-runtime-pty-id'
 import type { ManagedPaneInternal } from '@/lib/pane-manager/pane-manager-types'
 
 import { safeFitAndThen } from '@/lib/pane-manager/pane-tree-ops'
@@ -141,24 +141,6 @@ export function installPtyResizeForward(session: ConnectPanePtySession): void {
   }
   session.pendingForegroundGridDriftCheckRaf = null
   session.lastForegroundGridDriftCheckAt = Number.NEGATIVE_INFINITY
-  session.readProposedTerminalGrid = (): { cols: number; rows: number } | null => {
-    try {
-      const proposed = session.pane.fitAddon.proposeDimensions()
-      if (!proposed || proposed.cols <= 0 || proposed.rows <= 0) {
-        return null
-      }
-      return proposed
-    } catch {
-      return null
-    }
-  }
-  session.terminalGridDriftedFromFit = (): boolean => {
-    const proposed = session.readProposedTerminalGrid()
-    return Boolean(
-      proposed &&
-      (session.pane.terminal.cols !== proposed.cols || session.pane.terminal.rows !== proposed.rows)
-    )
-  }
   session.scheduleForegroundGridDriftCheck = (force = false): void => {
     if (
       session.disposed ||

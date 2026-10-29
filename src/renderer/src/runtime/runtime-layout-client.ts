@@ -1,6 +1,4 @@
-// The one layout client (design 3.1): the `layout.subscribe` stream over the same transport-agnostic
-// RPC path for the local runtime and a remote server. It holds no layout; frames go to the caller's
-// read-only cache. Unused until the switch.
+// One transport-neutral layout.subscribe client for local/paired main. Caller owns read-only cache; this client stores no layout.
 
 import { hasRuntimeRpcErrorCode } from '../../../shared/runtime-rpc-error-code'
 import {
@@ -23,16 +21,15 @@ export type RuntimeLayoutStreamStatus =
 // An older host without the method, or a caller scope denied it: a retry gets the same answer.
 const REFUSAL_CODES = ['method_not_found', 'forbidden'] as const
 
-/** First wait before a lost local stream reopens; it doubles to the cap until a snapshot comes. */
-const LOCAL_REOPEN_DELAY_MS = 1_000
-const LOCAL_REOPEN_DELAY_CAP_MS = 30_000
+/** First wait before a lost stream reopens; it doubles to the cap until a snapshot comes. */
+const REOPEN_DELAY_MS = 1_000
+const REOPEN_DELAY_CAP_MS = 30_000
 /** Immediate resubscribes allowed before a frame applies cleanly; then the loss path's backoff. */
 const RESYNC_BUDGET = 3
 
 /**
- * Opens the stream; `onFrame` gets a snapshot first, then that stream's changes. A lost local
- * stream reports `lost`, then reopens, and its snapshot replaces what the caller holds. A remote
- * stream that drops reports `lost`; reopening it belongs to the connection's reconnect.
+ * Opens the stream; `onFrame` gets a snapshot first, then that stream's changes. A lost stream
+ * reports `lost`, then reopens after a backoff, and its snapshot replaces what the caller holds.
  *
  * A live stream that misses a frame resubscribes at once for a fresh snapshot: a records frame of
  * another epoch or out of sequence, an unreadable frame, or one `onFrame` cannot apply.
@@ -51,7 +48,7 @@ export function subscribeRuntimeLayout(
   let handle: { unsubscribe: () => void } | null = null
   let state: RuntimeLayoutStreamStatus['state'] = 'connecting'
   let reopenTimer: ReturnType<typeof setTimeout> | null = null
-  let reopenDelay = LOCAL_REOPEN_DELAY_MS
+  let reopenDelay = REOPEN_DELAY_MS
   /** The snapshot's epoch and the last position this stream applied, once a host sends epochs. */
   let epoch: string | undefined
   let lastSeq: number | undefined
@@ -85,14 +82,13 @@ export function subscribeRuntimeLayout(
     }
     const refusal = REFUSAL_CODES.find((code) => hasRuntimeRpcErrorCode(error, code))
     stop(refusal ? { state: 'refused', code: refusal } : { state: 'lost' })
-    // Why: layout.apply still reaches main without the stream, so only main's own changes would
-    // go unseen until a relaunch.
-    if (!refusal && target.kind === 'local') {
+    // Main still accepts layout.apply during stream loss; resubscribe or local changes stay invisible until relaunch (paired changes until reconnect).
+    if (!refusal) {
       reopenTimer = setTimeout(() => {
         reopenTimer = null
         void open()
       }, reopenDelay)
-      reopenDelay = Math.min(reopenDelay * 2, LOCAL_REOPEN_DELAY_CAP_MS)
+      reopenDelay = Math.min(reopenDelay * 2, REOPEN_DELAY_CAP_MS)
     }
   }
 
@@ -154,7 +150,7 @@ export function subscribeRuntimeLayout(
     if (frame.type === 'snapshot') {
       // During a resync storm the backoff keeps growing; a snapshot alone proves nothing.
       if (!storm) {
-        reopenDelay = LOCAL_REOPEN_DELAY_MS
+        reopenDelay = REOPEN_DELAY_MS
       }
       epoch = frame.epoch
       lastSeq = frame.seq
@@ -177,7 +173,7 @@ export function subscribeRuntimeLayout(
       resyncs = 0
       if (storm) {
         storm = false
-        reopenDelay = LOCAL_REOPEN_DELAY_MS
+        reopenDelay = REOPEN_DELAY_MS
       }
       return
     }

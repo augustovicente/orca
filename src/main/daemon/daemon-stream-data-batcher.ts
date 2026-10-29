@@ -18,10 +18,10 @@ import type { DaemonStreamDataBatcherOptions } from './daemon-stream-data-batche
 import type { ConnectedDaemonClient } from './daemon-client-connections'
 import type { TerminalTransientSink } from '../../shared/terminal-transient-observation'
 
-// Why framing rides the client: frames are encoded at flush time, so a replacement stream gets its own.
+// Resolve framing at flush time so replacement streams use their own negotiated format.
 type StreamDataClient = Pick<ConnectedDaemonClient, 'streamSocket' | 'streamFraming'>
 
-// 2ms: each chunk waits a half-window here AND again in main's PTY batch; a smaller interval still coalesces bursts while cutting the fixed latency tax (~8ms of the measured ~19ms DSR-under-load latency).
+// Both daemon and main batch output; a short interval limits their combined echo delay.
 const STREAM_DATA_BATCH_INTERVAL_MS = 2
 
 export class DaemonStreamDataBatcher {
@@ -134,8 +134,7 @@ export class DaemonStreamDataBatcher {
     this.getClient = getClient
     this.maxLineBytes = Math.max(1, options.maxLineBytes ?? NDJSON_MAX_LINE_BYTES)
     const isBackgroundDroppable = options.isSessionDroppable ?? (() => false)
-    // A stall-released session is droppable for as long as its backlog survives, whether or not main
-    // has backgrounded it: keep-tail thinning is what lets its producer run past an unreachable client.
+    // Keep-tail dropping also lets stalled foreground producers run past unreachable consumers.
     this.isSessionDroppable = (sessionId) =>
       this.backpressure?.isStallReleased(sessionId) === true || isBackgroundDroppable(sessionId)
     this.salvageDroppedData = options.salvageDroppedData ?? (() => '')
@@ -188,7 +187,7 @@ export class DaemonStreamDataBatcher {
     }
   }
 
-  /** Append a pre-shaped stream event at the current position in the session's byte order (scan handoff markers, gaps, transient facts). */
+  /** Preserve control events at their position in the session stream. */
   enqueueControlEvent(clientId: string, sessionId: string, control: DaemonEvent): void {
     const client = this.getClient(clientId)
     if (!client?.streamSocket || client.streamSocket.destroyed) {
@@ -241,7 +240,7 @@ export class DaemonStreamDataBatcher {
 
     const client = this.getClient(clientId)
     if (!client?.streamSocket || client.streamSocket.destroyed) {
-      // A vanished stream socket drops the batch — the model owns the bytes and reconnect restores from a snapshot.
+      // Reconnection restores from the daemon model, so the disconnected stream copy can be discarded.
       this.clear(clientId)
       return
     }

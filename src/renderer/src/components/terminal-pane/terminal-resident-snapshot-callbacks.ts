@@ -1,7 +1,7 @@
 import type { TerminalResidentPolicyContext } from './terminal-resident-policy-context'
 import { useAppStore } from '@/store'
 import { detectAgentStatusFromTitle } from '../../../../shared/agent-detection'
-import { parseRemoteRuntimePtyId } from '../../../../shared/remote-runtime-pty-id'
+import { parseRemoteRuntimePtyId } from '../../../../shared/remote-runtime/remote-runtime-pty-id'
 import { dispatchTerminalCommandFinishedEvent } from '@/hooks/terminal-command-finished-event'
 import type {
   TerminalSnapshotEffect,

@@ -1,3 +1,6 @@
+import type { TerminalSideEffectBatch } from '../../../../shared/terminal-side-effect-facts'
+import { captureTerminalFactSubject, type TerminalFactSubject } from './terminal-fact-subject'
+import { dispatchTerminalCommandFinishedEvent } from '@/hooks/terminal-command-finished-event'
 import { useAppStore } from '@/store'
 import { dispatchTerminalNotification } from './use-notification-dispatch'
 import type { TerminalResidentBinding, TerminalResidentServices } from './terminal-resident-binding'
@@ -5,7 +8,7 @@ import type { TerminalResidentPolicyContext } from './terminal-resident-policy-c
 import type { TerminalResidentPolicy } from './terminal-resident-registry'
 import type { TerminalResidentLegacySource } from './terminal-resident-legacy-source'
 import type { createTerminalResidentStatusCallbacks } from './terminal-resident-attention-callbacks'
-import { parseRemoteRuntimePtyId } from '../../../../shared/remote-runtime-pty-id'
+import { parseRemoteRuntimePtyId } from '../../../../shared/remote-runtime/remote-runtime-pty-id'
 import { captureNotificationTransportOwner } from '@/attention/notification-subject-owner'
 import type { TerminalResidentPresentation } from './terminal-resident-binding'
 import type { AgentInterruptInputIntent } from '../../../../shared/agent-interrupt-intent'
@@ -30,12 +33,12 @@ export function terminalResidentLegacyCallbacks(
   const { restoreCurrent, applyEffect, observePrLink } = callbacks
   return {
     restoreCurrent: (current, first, complete) => {
-      if (isLive() && !context.identity?.runtimeId) {
+      if (isLive()) {
         restoreCurrent(current, first, complete)
       }
     },
     applyEffect: (effect, current) => {
-      if (!isLive() || context.identity?.runtimeId) {
+      if (!isLive()) {
         return
       }
       if (effect.fact.kind === 'command-finished') {
@@ -45,7 +48,7 @@ export function terminalResidentLegacyCallbacks(
       }
     },
     observePrLink: (url) => {
-      if (isLive() && !context.identity?.runtimeId) {
+      if (isLive()) {
         observePrLink(url)
       }
     },
@@ -109,8 +112,22 @@ export function createTerminalResidentPolicyMethods(
         legacySource.byteSource = !(paused && supported)
       }
     },
+    observeRetainedFacts(batch: TerminalSideEffectBatch, original: TerminalFactSubject): void {
+      let subject = original
+      for (const fact of batch.facts) {
+        const current = subject.isCurrent()
+        if (current || fact.kind === 'bell' || fact.kind === 'pr-link') {
+          legacySource.observeFacts({ ...batch, facts: [fact] })
+          if (current) {
+            subject = captureTerminalFactSubject(binding.paneKey)
+          }
+        } else if (fact.kind === 'command-finished') {
+          dispatchTerminalCommandFinishedEvent(binding.worktreeId, fact.exitCode)
+        }
+      }
+    },
     observeLegacyData(data: string, meta?: PtyDataMeta): void {
-      if (!isLive() || context.identity?.runtimeId) {
+      if (!isLive()) {
         return
       }
       context.completion.observeOutputActivity()

@@ -9,10 +9,9 @@ import { OrcaRuntimeService } from './orca-runtime'
 import { makeStore } from './runtime-rpc-worktree-store-fixtures'
 import { parsePaneKey } from '../../shared/stable-pane-id'
 import { spawnedPtyEnv } from './spawned-pty-env-fixtures'
+import { committingSpawn } from './bind-first-pane.test-fixture'
 
-// STA-4557: #14866 deferred command-finished retirement for OpenCode panes behind an
-// async "is the foreground still OpenCode?" read. These pin the two ways a finished
-// session then kept or regained orchestration authority (the #14943 revert reason).
+// STA-4557: deferred OpenCode foreground reads retained/revived finished authority (#14866, reverted in #14943).
 
 const WORKTREE_PATH = '/tmp/worktree-a'
 const WORKTREE = {
@@ -67,7 +66,10 @@ async function launchOpenCodePane(options: {
   retireAgentHookCompatibilityAuthority?: (paneKey: string) => void
   attestAgentHookCompatibilityAuthority?: OrcaRuntimeServiceDeps['attestAgentHookCompatibilityAuthority']
 }): Promise<LaunchedOpenCodePane> {
-  const spawn = vi.fn().mockResolvedValue({ id: options.ptyId, incarnationId: 'incarnation-1' })
+  const spawn = vi.fn(async (_args: { worktreeId?: string; tabId?: string; leafId?: string }) => ({
+    id: options.ptyId,
+    incarnationId: 'incarnation-1'
+  }))
   const runtime = new OrcaRuntimeService(makeStore() as never, undefined, {
     captureAgentHookCompatibilityRetirement: options.captureAgentHookCompatibilityRetirement,
     attestAgentHookCompatibilityAuthority:
@@ -78,7 +80,7 @@ async function launchOpenCodePane(options: {
       : {})
   })
   runtime.setPtyController({
-    spawn,
+    spawn: committingSpawn(runtime, spawn),
     write: () => true,
     kill: () => true,
     getForegroundProcess: options.getForegroundProcess,
@@ -115,7 +117,6 @@ function connectAuthority(server: AgentHookServer, runtime: OrcaRuntimeService):
 
 type OrcaRuntimeServiceDeps = NonNullable<ConstructorParameters<typeof OrcaRuntimeService>[2]>
 
-/** Drain the microtask + timer queues the deferred foreground read chains through. */
 async function settle(ticks = 40): Promise<void> {
   for (let tick = 0; tick < ticks; tick += 1) {
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -194,7 +195,7 @@ describe('OpenCode finished-session launch authority (STA-4557)', () => {
     await server.start({ env: 'production' })
     const pane = await launchOpenCodePane({
       ptyId: 'pty-opencode-reuse',
-      // OpenCode is a TUI: it is still the foreground process when its command completes.
+      // OpenCode remains foreground when an internal TUI command completes.
       getForegroundProcess: async () => 'opencode',
       retireAgentHookCompatibilityAuthority: (paneKey) => server.retirePaneAuthority(paneKey),
       attestAgentHookCompatibilityAuthority: (candidate) =>
@@ -234,8 +235,7 @@ describe('OpenCode finished-session launch authority (STA-4557)', () => {
     pane.runtime.onPtyData(pane.ptyId, '\x1b]133;D;0\x07\x1b]133;A\x07', 100)
     await settle()
 
-    // Every later process in this shell inherits ORCA_AGENT_LAUNCH_TOKEN from the PTY env,
-    // so the finished session's token must stop attesting once its command completed.
+    // Every later shell child inherits the launch token; finished sessions must stop attesting it.
     expect(
       server.attestCompatibilityAuthority({
         paneKey: pane.paneKey,
@@ -431,8 +431,7 @@ describe('OpenCode finished-session launch authority (STA-4557)', () => {
     servers.push(restarted)
     await restarted.start({ env: 'production', userDataPath })
 
-    // After a restart the PTY survives with ORCA_AGENT_LAUNCH_TOKEN still in its env and
-    // pty.launchToken gone, so a persisted commitment is the whole proof of authority.
+    // Restart retains token in PTY env but loses pty.launchToken; persisted commitment is the only authority proof.
     expect(
       restarted.attestCompatibilityAuthority({
         paneKey: pane.paneKey,

@@ -8,9 +8,7 @@ export function subscribeToPtyData(
   watcher: (data: string, meta?: PtyDataMeta) => void
 ): () => void {
   ensurePtyDispatcher()
-  // Why: a sidecar is, by definition, a raw-byte consumer — its registration
-  // doubles as the delivery-interest signal that suppresses main's
-  // hidden-delivery gate (terminal-side-effect-authority.md, Open Items).
+  // Raw-byte sidecars declare delivery interest so main cannot gate their hidden output.
   const releaseDeliveryInterest = acquirePtyDeliveryInterest(ptyId)
   let set = ptyDataSidecars.get(ptyId)
   if (!set) {

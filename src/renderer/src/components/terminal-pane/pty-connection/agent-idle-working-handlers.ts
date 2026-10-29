@@ -42,8 +42,7 @@ export function installAgentIdleWorkingHandlers(session: ConnectPanePtySession):
     ...session.paneIdentityEnv
   }
 
-  // Why: folder workspaces can inherit their SSH target from child repos, so
-  // use the shared resolver instead of only looking up repo-backed worktrees.
+  // Folder workspaces can inherit SSH targets from child repos; use the shared resolver.
   session.worktree = getWorktreeMapFromState(session.state).get(session.deps.worktreeId)
   session.worktreeConnectionId = getConnectionId(session.deps.worktreeId)
   session.tab = (session.state.tabsByWorktree[session.deps.worktreeId] ?? []).find(
@@ -53,11 +52,7 @@ export function installAgentIdleWorkingHandlers(session: ConnectPanePtySession):
     session.deps.restoredLeafId && session.deps.restoredPtyIdByLeafId
       ? (session.deps.restoredPtyIdByLeafId[session.deps.restoredLeafId] ?? null)
       : null
-  // Why: the floating terminal and inline setup/onboarding terminals are host-agnostic synthetic
-  // ids with no worktree/repo row, so the strict owner resolver reports them as unresolved. The
-  // shared terminal router scopes them to their floating owner (local for the floating terminal,
-  // the active runtime for setup terminals so remote skill installs land there) and returns null
-  // only for a genuinely unknown/stale worktree that must fail closed (#9994).
+  // Synthetic floating/setup IDs lack catalog rows; shared routing scopes their host and only rejects genuinely unresolved workspaces (#9994).
   session.terminalWorktreeRoute = resolveTerminalWorktreeRoute(
     session.state,
     session.deps.worktreeId
@@ -80,11 +75,7 @@ export function installAgentIdleWorkingHandlers(session: ConnectPanePtySession):
     : session.mirroredRuntimeEnvironmentId
       ? session.mirroredRuntimeEnvironmentId
       : null
-  // Why: host-agnostic synthetic ids (floating terminal, inline setup panels) have no repo
-  // row by design, and a worktree row stamped 'local' proves its host on its own — both are
-  // resolved-local, not pending hydration (#10151). Only when nothing names the host does
-  // `undefined` mean the repo hasn't merged yet; coalescing that to null would fail-open a
-  // remote cwd onto the local daemon (ENOENT on Docker SSH paths).
+  // Synthetic IDs and local-stamped rows already resolve; only unnamed hosts await hydration, or remote cwd could fail open to local (#10151).
   session.hostAgnosticTerminalWorktree =
     session.deps.worktreeId === FLOATING_TERMINAL_WORKTREE_ID ||
     isEphemeralSetupTerminalWorktreeId(session.deps.worktreeId)
@@ -95,18 +86,14 @@ export function installAgentIdleWorkingHandlers(session: ConnectPanePtySession):
     !session.worktreeProvesLocalHost &&
     session.runtimeEnvironmentId === null &&
     session.worktreeConnectionId === undefined
-  // Why: an SSH host nested under a HUB is execution identity, not permission for the paired client to dial that host.
-  // A set id is a relay-era `ssh:` row not yet converted to its managed runtime: the pane never
-  // spawns there, the reconnect overlay owns it, and the converted row remounts the pane.
+  // HUB-nested SSH identity grants no direct dial authority; unconverted relay rows wait for the overlay to convert and remount.
   session.unservedSshTargetId =
     !session.terminalOwnerUnresolved &&
     !session.connectionOwnerHydrating &&
     session.runtimeEnvironmentId === null
       ? (session.worktreeConnectionId ?? null)
       : null
-  // Generation is part of ownership: a recovery remount must not join a spawn
-  // started by the pane instance it replaced, while StrictMode remounts keep
-  // the same generation and may still share their in-flight spawn.
+  // Recovery generations cannot join replaced spawns; StrictMode preserves generation and may share in-flight work.
   session.pendingSpawnKey = JSON.stringify([session.cacheKey, session.tabGeneration])
   session.settlePaneAttachAttempt = (status: 'success' | 'failed' | 'timed-out'): void => {
     settleTerminalPaneRecovery(session.deps.tabId, session.terminalRecoveryGeneration, status)

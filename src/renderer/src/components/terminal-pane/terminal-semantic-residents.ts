@@ -8,6 +8,7 @@ export type TerminalSemanticResident = TerminalResident<
 export const residentRegistry = new TerminalResidentRegistry<
   ReturnType<typeof createTerminalResidentPolicy>
 >()
+export const sourceSubscriptionsByPtyId = new Map<string, { close?: () => void }>()
 export const residentsByPtyId = new Map<string, TerminalSemanticResident>()
 export const legacySourcesByPtyId = new Map<
   string,
@@ -36,12 +37,18 @@ export function retireCapturedResident(resident: TerminalSemanticResident): void
     return
   }
   residentsByPtyId.delete(resident.identity.ptyId)
+  sourceSubscriptionsByPtyId.get(resident.identity.ptyId)?.close?.()
+  sourceSubscriptionsByPtyId.delete(resident.identity.ptyId)
   disposeLegacySource(resident.identity.ptyId)
   residentRegistry.retire(resident)
 }
 
 export function retireTerminalSemanticResident(ptyId: string, incarnationId?: string): void {
   const resident = residentsByPtyId.get(ptyId)
+  if (!resident && incarnationId === undefined) {
+    sourceSubscriptionsByPtyId.get(ptyId)?.close?.()
+    sourceSubscriptionsByPtyId.delete(ptyId)
+  }
   if (
     !resident ||
     (incarnationId !== undefined && resident.identity.incarnationId !== incarnationId)

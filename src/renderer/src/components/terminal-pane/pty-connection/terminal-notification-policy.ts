@@ -1,6 +1,6 @@
+import type { TerminalNotificationServices } from './terminal-notification-services'
 import { useAppStore } from '@/store'
-import type { NotificationWorkspaceOwner } from '../../../../../shared/notification-source'
-import type { PtyConnectionDeps } from '../pty-connection-types'
+import { hasPendingHookLaneCompletion } from '@/hooks/agent-hook-completion-notifications'
 import { isFreshNonDoneAgentStatus } from '../../../../../shared/agent-status-types'
 import type {
   AgentCompletionDispatchMeta,
@@ -17,17 +17,7 @@ import {
   isAgentTaskCompleteTrackingEnabled
 } from './agent-task-complete-settings'
 
-export function createTerminalNotificationPolicy(services: {
-  paneKey: string
-  worktreeId: string
-  tabId: string
-  getWorkspaceOwner: () => NotificationWorkspaceOwner | undefined
-  getPtyId: () => string | null
-  isLive: () => boolean
-  hasPendingHookDoneCompletion: () => boolean
-  markTerminalBell: PtyConnectionDeps['markTerminalBell']
-  dispatchNotification: PtyConnectionDeps['dispatchNotification']
-}) {
+export function createTerminalNotificationPolicy(services: TerminalNotificationServices) {
   let agentTaskCompleteNotificationGraceTimer: ReturnType<typeof setTimeout> | null = null
   let agentTaskCompleteNotificationMaxTimer: ReturnType<typeof setTimeout> | null = null
   let agentTaskCompleteStatusUnsubscribe: (() => void) | null = null
@@ -36,6 +26,7 @@ export function createTerminalNotificationPolicy(services: {
   let requiresFreshWorkingForAgentTaskCompleteNotification: boolean =
     !wasAgentTaskCompleteTrackingEnabled
   let wasAgentTaskCompleteOsNotificationEnabled: boolean = isAgentTaskCompleteNotificationEnabled()
+  let hookOwnedIdleAbsorbsBell = false
   let pendingTerminalBellNotification: boolean = false
   let terminalBellNotificationTimer: ReturnType<typeof setTimeout> | null = null
   // ─── Attention signal: BEL ────────────────────────────────────────────
@@ -65,6 +56,9 @@ export function createTerminalNotificationPolicy(services: {
     // Why: agent CLIs often emit BEL in the same completion burst as their
     // working->idle title change. Delay only the OS notification so the richer
     // agent-complete notification can win the main-process worktree cooldown.
+    if (hookOwnedIdleAbsorbsBell === true) {
+      return
+    }
     pendingTerminalBellNotification = true
     if (!hasPendingAgentTaskCompleteNotification()) {
       scheduleTerminalBellNotification()
@@ -92,6 +86,12 @@ export function createTerminalNotificationPolicy(services: {
         return
       }
       pendingTerminalBellNotification = false
+      if (
+        isAgentTaskCompleteNotificationEnabled() &&
+        hasPendingHookLaneCompletion(services.paneKey, services.getPtyId())
+      ) {
+        return
+      }
       services.dispatchNotification({
         source: 'terminal-bell',
         paneKey: services.paneKey,
@@ -117,10 +117,24 @@ export function createTerminalNotificationPolicy(services: {
       clearTimeout(agentTaskCompleteNotificationMaxTimer)
       agentTaskCompleteNotificationMaxTimer = null
     }
+    hookOwnedIdleAbsorbsBell = false
     if (agentTaskCompleteStatusUnsubscribe !== null) {
       agentTaskCompleteStatusUnsubscribe()
       agentTaskCompleteStatusUnsubscribe = null
     }
+  }
+
+  const absorbBurstBellForHookOwnedIdle = (): void => {
+    if (hasPendingAgentTaskCompleteNotification()) {
+      return
+    }
+    pendingTerminalBellNotification = false
+    clearTerminalBellNotificationTimer()
+    hookOwnedIdleAbsorbsBell = true
+    agentTaskCompleteNotificationMaxTimer = setTimeout(() => {
+      agentTaskCompleteNotificationMaxTimer = null
+      hookOwnedIdleAbsorbsBell = false
+    }, AGENT_TASK_COMPLETE_NOTIFICATION_MAX_WAIT_MS)
   }
 
   const syncAgentTaskCompleteTrackingEnabled = (): boolean => {
@@ -253,6 +267,7 @@ export function createTerminalNotificationPolicy(services: {
     )
   }
   return {
+    absorbBurstBellForHookOwnedIdle,
     onBell,
     clearTerminalBellNotificationTimer,
     scheduleTerminalBellNotification,

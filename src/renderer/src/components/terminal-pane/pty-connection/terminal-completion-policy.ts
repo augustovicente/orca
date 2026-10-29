@@ -1,5 +1,12 @@
 import { useAppStore } from '@/store'
-import { inspectRuntimeTerminalProcess } from '@/runtime/runtime-terminal-inspection'
+import {
+  confirmRuntimeTerminalForegroundProcess,
+  inspectRuntimeTerminalProcess
+} from '@/runtime/runtime-terminal-inspection'
+import {
+  hookLaneOwnsAgentTurnEnds,
+  hookLaneTitleTurnEndEvidence
+} from '@/hooks/agent-hook-turn-end-ownership'
 import { isFreshNonDoneAgentStatus } from '../../../../../shared/agent-status-types'
 import { createAgentCompletionCoordinator } from '../agent-completion-coordinator'
 import type { AgentCompletionCoordinatorOptions } from '../agent-completion-coordinator-types'
@@ -16,6 +23,7 @@ export function createTerminalCompletionPolicy(
     AgentCompletionCoordinatorOptions,
     'paneKey' | 'getPtyId' | 'getExpectedIncarnationId' | 'isLive' | 'onForegroundAgentExited'
   > & {
+    absorbBurstBellForHookOwnedIdle: () => void
     isVisible: () => boolean
     clearSuppressedTitleSideEffects: () => void
     setFocusReportSuppressionForAgentCompletion: (
@@ -35,9 +43,16 @@ export function createTerminalCompletionPolicy(
     isRemotePtyId: isRemoteExecutionHostPtyId,
     getExpectedIncarnationId: services.getExpectedIncarnationId,
     inspectProcess: inspectRuntimeTerminalProcess,
+    confirmForegroundProcess: confirmRuntimeTerminalForegroundProcess,
+    titleTurnEndEvidence: (title, foregroundAgent) =>
+      hookLaneTitleTurnEndEvidence(services.paneKey, services.getPtyId(), title, foregroundAgent),
+    onHookOwnedTitleIdle: services.absorbBurstBellForHookOwnedIdle,
     dispatchHookLifecycle: (payload) =>
       dispatchAgentHookTerminalLifecycle(services.paneKey, payload),
-    shouldSuppressProcessReplacementCompletion: (_exited, replacement) => {
+    shouldSuppressProcessReplacementCompletion: (exited, replacement) => {
+      if (hookLaneOwnsAgentTurnEnds(services.paneKey, services.getPtyId(), exited.agent)) {
+        return true
+      }
       const currentStatus = useAppStore.getState().agentStatusByPaneKey[services.paneKey]
       const currentAgentForReplacement = resolveCompatibleAgentTypeForOwner(
         currentStatus?.agentType,
@@ -48,6 +63,9 @@ export function createTerminalCompletionPolicy(
       )
     },
     shouldSuppressConfirmedProcessExitCompletion: (exited) => {
+      if (hookLaneOwnsAgentTurnEnds(services.paneKey, services.getPtyId(), exited.agent)) {
+        return true
+      }
       const currentStatus = useAppStore.getState().agentStatusByPaneKey[services.paneKey]
       const currentAgentForExited = resolveCompatibleAgentTypeForOwner(
         currentStatus?.agentType,
@@ -97,8 +115,7 @@ export function createTerminalCompletionPolicy(
       const ptyId = services.getPtyId()
       return !isRemoteExecutionHostPtyId(ptyId)
     },
-    isProcessInspectionCostly: () =>
-      isAgentProcessInspectionCostly(navigator.userAgent, services.getPtyId()),
+    isProcessInspectionCostly: () => isAgentProcessInspectionCostly(services.getPtyId()),
     isLive: services.isLive
   })
 }

@@ -293,9 +293,7 @@ describe('terminal Command Code status policy', () => {
     policy.dispose()
   })
 
-  // Why: reveal disposes the watcher mid-settle. Flushing would complete the turn early
-  // and the same-prompt-done guard then drops the genuine working repaint, so the window
-  // transfers to the remounted pane instead — the row stays 'working' across the boundary.
+  // Reveal inherits the settle deadline; flushing early would make the same-prompt guard reject a genuine working repaint.
   it('dispose hands the pending settle to the remounted pane instead of completing it early', async () => {
     mockStoreState.agentStatusByPaneKey[PANE_KEY] = makeStatusEntry({
       state: 'working',
@@ -316,8 +314,7 @@ describe('terminal Command Code status policy', () => {
     expect(revealedPaneSettle).toHaveBeenCalledExactlyOnceWith('Fix the spinner')
   })
 
-  // Why: the transferred window is still a settle window — a working repaint from the
-  // revealed pane before the original deadline must cancel it, not race it.
+  // A revealed pane’s working repaint before the inherited deadline must still cancel completion.
   it('lets a working repaint after the handoff cancel the transferred settle', async () => {
     mockStoreState.agentStatusByPaneKey[PANE_KEY] = makeStatusEntry({
       state: 'working',
@@ -406,8 +403,7 @@ describe('readInFlightCommandCodeTurn', () => {
     })
     expect(readInFlightCommandCodeTurn(PANE_KEY)).toEqual({ prompt: 'Fix the spinner' })
 
-    // Why 'done' excluded: a stale done row would arm the scrape against whatever
-    // process replaced the Command Code TUI.
+    // Done rows cannot seed a live detector: a replacement process could be scraped as Command Code.
     mockStoreState.agentStatusByPaneKey[PANE_KEY] = makeStatusEntry({
       state: 'done',
       prompt: 'Fix the spinner',

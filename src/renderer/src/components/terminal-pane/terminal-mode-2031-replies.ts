@@ -8,8 +8,7 @@ function sendMode2031Reply(
   transport: Mode2031ReplyTransport,
   mode: TerminalColorSchemeMode
 ): boolean {
-  // Why: fish stops reading mode-2031 replies quickly; remote input batching
-  // can otherwise deliver this terminal response after the shell regains input.
+  // Send replies promptly: fish can stop reading before remote batches arrive, leaking the response into shell input.
   return transport.sendInputImmediate(mode2031SequenceFor(mode))
 }
 

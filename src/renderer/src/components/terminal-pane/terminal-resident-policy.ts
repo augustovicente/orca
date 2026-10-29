@@ -17,13 +17,13 @@ import { createTerminalResidentSnapshotCallbacks } from './terminal-resident-sna
 import { TerminalResidentLegacySource } from './terminal-resident-legacy-source'
 import { createTerminalResidentStatusObserver } from './terminal-resident-status-observer'
 import { registerRendererOwnedAgentStatusPane } from './renderer-owned-agent-status-registry'
-import { parseRemoteRuntimePtyId } from '../../../../shared/remote-runtime-pty-id'
+import { parseRemoteRuntimePtyId } from '../../../../shared/remote-runtime/remote-runtime-pty-id'
 
 import { createTerminalOwnerPolicy } from './pty-connection/terminal-owner-policy'
 import { createTerminalShellInputPolicy } from './pty-connection/terminal-shell-input-policy'
 
 import { useAppStore } from '@/store'
-import { resolveTerminalNotificationOwner } from '@/attention/notification-subject-owner'
+import { resolveInitialTerminalResidentOwner } from './terminal-resident-binding'
 
 import type { AgentType } from '../../../../shared/agent-status-types'
 
@@ -57,14 +57,7 @@ export function createTerminalResidentPolicy(
 ) {
   let identity: TerminalResidentPolicyContext['identity'] = initialIdentity
   let transport: PtyTransport | undefined
-  let workspaceOwner =
-    binding.workspaceOwner ??
-    (initialIdentity
-      ? (resolveTerminalNotificationOwner(useAppStore.getState(), binding.worktreeId, {
-          paneKey: binding.paneKey,
-          ptyId: initialIdentity.ptyId
-        }) ?? undefined)
-      : undefined)
+  let workspaceOwner = resolveInitialTerminalResidentOwner(binding, initialIdentity)
   let ended = false
   const isLive = () => !ended && executionIsLive()
   let presentation: TerminalResidentPresentation | null = null
@@ -230,6 +223,7 @@ export function createTerminalResidentPolicy(
     setFocusReportSuppressionForAgentCompletion,
     queueAgentIdleTerminalModeReset,
     scheduleAgentTaskCompleteNotification: notification.scheduleAgentTaskCompleteNotification,
+    absorbBurstBellForHookOwnedIdle: notification.absorbBurstBellForHookOwnedIdle,
     onForegroundAgentExited: titleEffects.onForegroundAgentExited
   })
   if (binding.initialTitle) {

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -31,6 +31,12 @@ function spawnLine(threadId: string, agentPath: string): string {
 }
 
 describe('AgentHookServer Codex subagent transcript polling', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({
+      toFake: ['Date', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'performance']
+    })
+  })
+
   const dirs: string[] = []
 
   afterEach(() => {
@@ -38,6 +44,7 @@ describe('AgentHookServer Codex subagent transcript polling', () => {
       rmSync(dir, { recursive: true, force: true })
     }
     dirs.length = 0
+    vi.useRealTimers()
   })
 
   it.each(['immediate', 'delayed', 'revoked'])(
@@ -90,6 +97,7 @@ describe('AgentHookServer Codex subagent transcript polling', () => {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            Connection: 'close',
             'X-Orca-Agent-Hook-Token': env.ORCA_AGENT_HOOK_TOKEN
           },
           body: JSON.stringify({
@@ -178,7 +186,7 @@ describe('AgentHookServer Codex subagent transcript polling', () => {
     }
   )
 
-  // Why: the poll re-arms off the object it just stored; if that identity ever drifts it stops after the first change.
+  // Poll rearming depends on retaining the identity of the stored roster object.
   it('keeps polling across successive roster changes', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'agent-hook-codex-subagent-'))
     dirs.push(dir)
@@ -197,6 +205,7 @@ describe('AgentHookServer Codex subagent transcript polling', () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          Connection: 'close',
           'X-Orca-Agent-Hook-Token': env.ORCA_AGENT_HOOK_TOKEN
         },
         body: JSON.stringify({
@@ -214,28 +223,20 @@ describe('AgentHookServer Codex subagent transcript polling', () => {
       expect(server.getStatusSnapshot()[0]?.subagents).toHaveLength(1)
 
       appendFileSync(parentPath, spawnLine(SECOND_CHILD_ID, '/root/perf_audit'))
-      await vi.waitFor(
-        () => {
-          expect(server.getStatusSnapshot()[0]?.subagents).toHaveLength(2)
-        },
-        { timeout: 3_000, interval: 50 }
-      )
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(server.getStatusSnapshot()[0]?.subagents).toHaveLength(2)
 
       const complete = line({ type: 'event_msg', payload: { type: 'task_complete' } })
       appendFileSync(childPath, complete)
       appendFileSync(secondChildPath, complete)
-      await vi.waitFor(
-        () => {
-          expect(server.getStatusSnapshot()[0]?.subagents).toBeUndefined()
-        },
-        { timeout: 3_000, interval: 50 }
-      )
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(server.getStatusSnapshot()[0]?.subagents).toBeUndefined()
     } finally {
       server.stop()
     }
   })
 
-  // Why: a nested non-codex CLI inherits the pane's ORCA_PANE_KEY, so its hook must not tear down the codex poll.
+  // Nested CLIs inherit the pane key and must not tear down the owning Codex poll.
   it('keeps polling when a nested non-codex hook lands on the same pane', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'agent-hook-codex-subagent-'))
     dirs.push(dir)
@@ -252,6 +253,7 @@ describe('AgentHookServer Codex subagent transcript polling', () => {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            Connection: 'close',
             'X-Orca-Agent-Hook-Token': env.ORCA_AGENT_HOOK_TOKEN
           },
           body: JSON.stringify({ paneKey: PANE_KEY, tabId: 'tab-1', worktreeId: 'wt-1', payload })
@@ -271,17 +273,12 @@ describe('AgentHookServer Codex subagent transcript polling', () => {
         transcript_path: join(dir, 'nested-copilot-transcript.jsonl')
       })
       expect(nested.status).toBe(204)
-      // The nested completion is suppressed, so the pane is still the same live codex turn.
       expect(server.getStatusSnapshot()[0]?.agentType).toBe('codex')
       expect(server.getStatusSnapshot()[0]?.subagents).toHaveLength(1)
 
       appendFileSync(childPath, line({ type: 'event_msg', payload: { type: 'task_complete' } }))
-      await vi.waitFor(
-        () => {
-          expect(server.getStatusSnapshot()[0]?.subagents).toBeUndefined()
-        },
-        { timeout: 3_000, interval: 50 }
-      )
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(server.getStatusSnapshot()[0]?.subagents).toBeUndefined()
     } finally {
       server.stop()
     }

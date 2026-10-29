@@ -1,10 +1,11 @@
+import type { TerminalResidentIdentity } from './terminal-resident-registry'
 import type { AgentType } from '../../../../shared/agent-status-types'
 import type { NotificationWorkspaceOwner } from '../../../../shared/notification-source'
 import type { PtyPaneStartup, PtyConnectionDeps } from './pty-connection-types'
 import { useAppStore } from '@/store'
 import { resolveWorkspaceDirectory } from '@/lib/workspace-directory'
 import { getPtyExecutionHost } from '../../../../shared/terminal-execution-host'
-import { parseRemoteRuntimePtyId } from '../../../../shared/remote-runtime-pty-id'
+import { parseRemoteRuntimePtyId } from '../../../../shared/remote-runtime/remote-runtime-pty-id'
 import { parseExecutionHostId, toSshExecutionHostId } from '../../../../shared/execution-host'
 import { resolveTerminalNotificationOwner } from '@/attention/notification-subject-owner'
 
@@ -73,4 +74,19 @@ export function resolveTerminalResidentBinding(options: {
         runtimeEnvironmentId
       }
   }
+}
+
+export function resolveInitialTerminalResidentOwner(
+  binding: TerminalResidentBinding,
+  initialIdentity: Readonly<TerminalResidentIdentity> | null
+): NotificationWorkspaceOwner | undefined {
+  return (
+    binding.workspaceOwner ??
+    (initialIdentity
+      ? (resolveTerminalNotificationOwner(useAppStore.getState(), binding.worktreeId, {
+          paneKey: binding.paneKey,
+          ptyId: initialIdentity.ptyId
+        }) ?? undefined)
+      : undefined)
+  )
 }

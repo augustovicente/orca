@@ -19,8 +19,7 @@ const PANE_ID = 1
 // Mirrors PARKED_NOTIFICATION_GRACE_MS / AGENT_TASK_COMPLETE_NOTIFICATION_GRACE_MS.
 const NOTIFICATION_GRACE_MS = 250
 
-// Real agent-detection titles: braille spinner classifies as working,
-// the "✳ " Claude prefix as idle, and both as Claude agents.
+// Real titles classify braille spinners as working and Claude’s ✳ prefix as idle.
 const WORKING_TITLE_OSC = '\x1b]0;⠋ Build feature\x07'
 const IDLE_TITLE = '✳ Build feature'
 const IDLE_TITLE_OSC = `\x1b]0;${IDLE_TITLE}\x07`
@@ -42,6 +41,7 @@ const dispatchTerminalNotification = vi.fn()
 let mockStoreState: MockStoreState
 
 const remoteNeedsSnapshots = vi.fn().mockResolvedValue(true)
+let holdRemoteAdmission = false
 const remoteSubscriptions: {
   data: (data: string, meta?: PtyDataMeta) => void
   options?: RuntimeTerminalDataSubscriptionOptions
@@ -61,6 +61,9 @@ vi.mock('@/runtime/runtime-terminal-stream', () => ({
     ) => {
       const close = vi.fn()
       remoteSubscriptions.push({ data, options, close })
+      if (!holdRemoteAdmission) {
+        options?.onAdmitted?.()
+      }
       return close
     }
   )
@@ -108,7 +111,8 @@ function createMockStoreState(): MockStoreState {
     markTerminalBell: vi.fn(),
     setCacheTimerStartedAt: vi.fn(),
     observeTerminalGitHubPullRequestLink: vi.fn(),
-    agentStatusByPaneKey: {}
+    agentStatusByPaneKey: {},
+    paneForegroundAgentByPaneKey: {}
   }
 }
 
@@ -153,6 +157,7 @@ describe('startParkedTerminalByteWatcher', () => {
     dispatchTerminalNotification.mockClear()
     onData = null
     remoteSubscriptions.length = 0
+    holdRemoteAdmission = false
     remoteNeedsSnapshots.mockResolvedValue(true)
     mockStoreState = createMockStoreState()
     ;(globalThis as { window: typeof window }).window = {
@@ -188,6 +193,64 @@ describe('startParkedTerminalByteWatcher', () => {
     }
   })
 
+  it.each([
+    ['local main-authority', 'pty-parked-1'],
+    ['SSH through main', 'ssh:connection-1@@pty-1'],
+    ['WSL facts', 'wsl-pty-1'],
+    ['parked paired', 'remote:env-1@@terminal-1']
+  ])('production Uprime retains the bounded old-host bell: %s', async (_route, ptyId) => {
+    mockStoreState.settings = {
+      ...mockStoreState.settings,
+      terminalMainSideEffectAuthority: true
+    }
+    const pty = window.api.pty
+    const admission = Promise.withResolvers<boolean>()
+    Object.assign(pty, { hasPty: vi.fn(() => admission.promise) })
+    holdRemoteAdmission = true
+    const pinned = process.env.ORCA_PR31182_PINNED_MAIN_PARITY === '1'
+    const pinnedRoot =
+      '/Users/brennanbenson/orca-qa/linear-agent-status-1026/workers/r31182-fixer/pinned-main-parity'
+    const watcher = pinned
+      ? await import(/* @vite-ignore */ `${pinnedRoot}/parked-terminal-byte-watcher.ts`)
+      : await import('./parked-terminal-byte-watcher')
+    const handler = pinned
+      ? await import(/* @vite-ignore */ `${pinnedRoot}/terminal-side-effect-facts-handler.ts`)
+      : await import('./terminal-side-effect-facts-handler')
+    const options = {
+      ptyId,
+      tabId: TAB_ID,
+      worktreeId: WORKTREE_ID,
+      leafId: LEAF_ID,
+      paneId: PANE_ID
+    }
+    // Reveal removes presentation before the next watcher; the bell has no consumer.
+    const first = watcher.startParkedTerminalByteWatcher(options)
+    first()
+    handler.dispatchTerminalSideEffectBatch({ ptyId, seq: 1, facts: [{ kind: 'bell' }] })
+    expect(mockStoreState.markTerminalBell).not.toHaveBeenCalled()
+    const next = watcher.startParkedTerminalByteWatcher(options)
+    admission.resolve(true)
+    for (const subscription of remoteSubscriptions) {
+      subscription.options?.onAdmitted?.()
+    }
+    await vi.advanceTimersByTimeAsync(AGENT_TASK_COMPLETE_NOTIFICATION_MAX_WAIT_MS)
+    expect.soft(mockStoreState.markTerminalBell).toHaveBeenCalledOnce()
+    expect
+      .soft(dispatchTerminalNotification)
+      .toHaveBeenCalledWith(
+        WORKTREE_ID,
+        expect.objectContaining({ source: 'terminal-bell', ptyId, paneKey: PANE_KEY })
+      )
+    console.info('production-Uprime', {
+      pinned,
+      route: _route,
+      attention: mockStoreState.markTerminalBell.mock.calls.length,
+      notifications: dispatchTerminalNotification.mock.calls.length
+    })
+    next()
+    handler._resetTerminalSideEffectFactConsumersForTest()
+  })
+
   it('forwards every OSC title in order to the pane and tab title store actions', async () => {
     const { dispose } = await startWatcher()
 
@@ -205,8 +268,7 @@ describe('startParkedTerminalByteWatcher', () => {
     dispose()
   })
 
-  // Why: a hookless Cursor pane has no other identity, so the literal reaches the store
-  // once (#10258); its redraw repeats must not stomp a synthesized Cursor title.
+  // Publish hookless Cursor identity once; redraws must not overwrite its synthesized status title (#10258).
   it('stores the bare cursor-agent native title once, then keeps the synthetic title', async () => {
     const { dispose } = await startWatcher()
 
@@ -305,7 +367,7 @@ describe('startParkedTerminalByteWatcher', () => {
     dispose()
   })
 
-  it('suppresses the completion OS notification when only terminal attention is on', async () => {
+  it('forwards completion to notification policy when only terminal attention is on', async () => {
     mockStoreState.settings = {
       ...mockStoreState.settings,
       experimentalTerminalAttention: true,
@@ -390,9 +452,7 @@ describe('startParkedTerminalByteWatcher', () => {
     dispose()
   })
 
-  // Regression pin (#9993): DECSET 2031 subscribes to future color changes — it is not a
-  // query (that is CSI ?996n). A parked tab has no view to answer with and any reply lands
-  // after fish withdrew the mode, painting `?997;1n` at the prompt.
+  // DECSET 2031 subscribes rather than queries; replying after fish withdraws paints the reply at the prompt (#9993).
   it('never writes a color-scheme reply for a DECSET 2031 subscribe', async () => {
     const { dispose, ptyWrite } = await startWatcher()
 
@@ -451,8 +511,7 @@ describe('startParkedTerminalByteWatcher', () => {
   })
 
   it('fires completion when seeded with a working title and the agent goes idle while parked', async () => {
-    // Why: the pane was working at park time; the watcher's fresh tracker
-    // must be seeded or this working→idle transition can never fire.
+    // Seed prior working state so the recreated tracker can recognize working→idle.
     const { dispose } = await startWatcher({ initialTitle: '⠋ Build feature' })
 
     emit(IDLE_TITLE_OSC)

@@ -19,8 +19,7 @@ export const CLIENT_EVENT_METHODS = [
         clientKind !== 'mobile' &&
         clientCapabilities?.includes(TERMINAL_SIDE_EFFECT_STATE_CAPABILITY) === true
       await new Promise<void>((resolve) => {
-        // Why: mobile discards terminalSideEffects; excluding it stops the
-        // per-OSC batch frames from crossing the relay.
+        // Mobile discards terminalSideEffects; filter per-OSC batch frames before they cross the relay.
         const unsubscribe = runtime.onClientEvent(
           (event) => {
             if (
@@ -51,7 +50,7 @@ export const CLIENT_EVENT_METHODS = [
           connectionId
         )
 
-        // Why: listener-first snapshotting closes the subscribe race while restoring state missed during disconnects.
+        // Listen before snapshotting to close the subscribe race and replay sleep state missed during disconnect.
         for (const event of runtime.getTerminalSleepClientEventSnapshot?.() ?? []) {
           emit(event)
         }

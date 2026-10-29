@@ -81,7 +81,6 @@ describe('Last-status persistence', () => {
           { launchToken: 'launch-bearer-must-not-persist' }
         )
       )
-      // Synchronous flush via stop() captures the trailing-debounced write.
       server.flushStatusPersistSync()
       expect(existsSync(lastStatusPath())).toBe(true)
       const file = JSON.parse(readFileSync(lastStatusPath(), 'utf8'))

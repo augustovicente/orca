@@ -40,8 +40,7 @@ describe('maybePushMode2031Flip', () => {
 })
 describe('applyTerminalAppearance theme assignment', () => {
   // xterm rebuilds the palette on any new theme-object identity (wiping OSC color mutations), so the assignment must be value-gated.
-  // Measurable by default: metric options (fontSize/fontFamily/…) only land on
-  // panes that can measure; unmeasurable panes defer them until fit/reveal.
+  // Metric writes require a measurable pane; hidden panes defer until fit/reveal.
   function makePane(id: number, overrides?: { measurable?: boolean }): ManagedPane {
     const measurable = overrides?.measurable ?? true
     // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: this fixture supplies the pane members exercised by appearance logic.
@@ -61,8 +60,7 @@ describe('applyTerminalAppearance theme assignment', () => {
   function makeManager(panes: ManagedPane[]): PaneManager {
     // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: this fixture supplies the manager members exercised by appearance logic.
     return {
-      // Mirrors the real getPanes(), which allocates a fresh toPublicPane()
-      // wrapper per call over a shared terminal — per-pane state must survive that.
+      // Real getPanes returns fresh wrappers around the same terminal; per-pane state must survive wrapper changes.
       getPanes: () => panes.map((pane) => ({ ...pane })),
       setPaneLigaturesEnabled: vi.fn(),
       setPaneInlineImagesEnabled: vi.fn(),
@@ -121,8 +119,7 @@ describe('applyTerminalAppearance theme assignment', () => {
     expect(pane.terminal.options.theme?.background).toBe('#102030')
   })
 
-  // #7934: contrast correction rescues invisible white text on light backgrounds but over-corrects on dark;
-  // gate by the composed theme's background luminance (either theme slot can hold either kind of theme).
+  // Contrast correction should follow composed background luminance, since either theme slot may hold light or dark (#7934).
   it('keeps xterm contrast correction on light themes', () => {
     const pane = makePane(1)
     const settings = getDefaultSettings('/tmp')
@@ -133,8 +130,7 @@ describe('applyTerminalAppearance theme assignment', () => {
   })
 
   it('applies the mild dark-background contrast floor on dark themes', () => {
-    // #10104: a floor of 3 rescues near-background body text (e.g. Antigravity's #262b30 on #1e242a)
-    // without the 4.5-floor over-brightening of vibrant ANSI colors that #7934 fixed.
+    // A floor of 3 rescues near-background text without over-brightening vibrant ANSI colors (#10104, #7934).
     const pane = makePane(1)
     const settings = getDefaultSettings('/tmp')
 
@@ -173,8 +169,7 @@ describe('applyTerminalAppearance theme assignment', () => {
     expect(pane.terminal.options.minimumContrastRatio).toBe(4.5)
   })
 
-  // #10754: a Powerline statusline draws its segment separators in the neighbouring segment's
-  // background color, so the automatic floor turns every invisible seam into a bright line.
+  // Contrast correction turns same-color Powerline segment seams into bright lines (#10754).
   it('lets the user setting disable contrast correction on a dark theme', () => {
     const pane = makePane(1)
     const settings = getDefaultSettings('/tmp')
@@ -238,9 +233,7 @@ describe('applyTerminalAppearance theme assignment', () => {
   })
 
   it('defers metric options on an unmeasurable pane and lands them on the next fit', () => {
-    // A metric write makes xterm clear, resize and full-refresh; on a pane with
-    // no usable box that repaint is wasted and the cols/rows re-fit that must
-    // follow it cannot run. The write waits for a measurable pane.
+    // Unmeasurable panes cannot fit after a metric-triggered clear/resize/refresh; defer that work.
     let measurable = false
     const pane = {
       id: 1,
@@ -260,7 +253,6 @@ describe('applyTerminalAppearance theme assignment', () => {
 
     expect(pane.terminal.options.fontSize).toBeUndefined()
     expect(pane.terminal.options.fontFamily).toBeUndefined()
-    // Non-metric options are safe while hidden and must not be deferred with them.
     expect(pane.terminal.options.cursorStyle).toBeDefined()
 
     measurable = true
@@ -302,7 +294,6 @@ describe('applyTerminalAppearance theme assignment', () => {
     measurable = true
     safeFit(pane)
 
-    // Latest wins, exactly one write: intermediate hidden values never touch xterm.
     expect(writes).toEqual([21])
   })
 })

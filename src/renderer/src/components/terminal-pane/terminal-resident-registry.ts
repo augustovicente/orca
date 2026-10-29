@@ -45,8 +45,11 @@ export class TerminalResident<Policy extends TerminalResidentPolicy> {
   admitIdentity(identity: TerminalResidentIdentity): boolean {
     if (
       this.ended ||
-      (this.identity.runtimeId !== null && this.identity.runtimeId !== identity.runtimeId) ||
+      (this.identity.runtimeId !== null &&
+        identity.runtimeId !== null &&
+        this.identity.runtimeId !== identity.runtimeId) ||
       (this.identity.incarnationId !== null &&
+        identity.incarnationId !== null &&
         this.identity.incarnationId !== identity.incarnationId)
     ) {
       return false
@@ -55,14 +58,25 @@ export class TerminalResident<Policy extends TerminalResidentPolicy> {
       this.identity.runtimeId !== identity.runtimeId ||
       this.identity.incarnationId !== identity.incarnationId
     ) {
-      this.physicalIdentity = Object.freeze({ ...identity })
-      this.consumption = new TerminalSnapshotConsumption()
+      this.physicalIdentity = Object.freeze({
+        ...this.identity,
+        runtimeId: this.identity.runtimeId ?? identity.runtimeId,
+        incarnationId: this.identity.incarnationId ?? identity.incarnationId
+      })
     }
     return true
   }
 
   consume(batch: TerminalSideEffectBatch): void {
-    if (this.ended || !batch.terminalState) {
+    if (
+      this.ended ||
+      !batch.terminalState ||
+      !this.admitIdentity({
+        ...this.identity,
+        runtimeId: batch.terminalState.runtimeId,
+        incarnationId: batch.terminalState.incarnationId
+      })
+    ) {
       return
     }
     this.consumeSnapshot(batch.terminalState.snapshot)
@@ -117,7 +131,9 @@ export class TerminalResidentRegistry<Policy extends TerminalResidentPolicy> {
     if (existing?.admitIdentity(identity)) {
       return existing
     }
-    existing?.dispose()
+    if (existing) {
+      return existing
+    }
     const resident = new TerminalResident(Object.freeze({ ...identity }), createPolicy)
     this.residents.set(key, resident)
     return resident

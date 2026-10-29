@@ -1,8 +1,6 @@
 import { attachTerminalResidentPresentation } from './terminal-resident-presentation'
 import { captureNotificationTransportOwner } from '@/attention/notification-subject-owner'
-import { isRemoteRuntimePtyId } from '../../../../../shared/remote-runtime-pty-id'
-import { makePaneKey } from '../../../../../shared/stable-pane-id'
-import { useAppStore } from '@/store'
+import { isRemoteRuntimePtyId } from '../../../../../shared/remote-runtime/remote-runtime-pty-id'
 import { safeFit } from '@/lib/pane-manager/pane-tree-ops'
 import { bindPanePtyId, getFitOverrideForPty } from '@/lib/pane-manager/mobile-fit-overrides'
 import { isCtrlCKeyEvent, isPlainEscapeKeyEvent } from '../agent-interrupt-inference'
@@ -46,18 +44,12 @@ export function installTerminalKeydownFit(session: ConnectPanePtySession): void 
     ) {
       return
     }
-    // Why: user shell frameworks (bash-preexec/iTerm2) can replace Orca's
-    // OSC 133;C hook, so a manually launched agent produces no command-start
-    // signal at all. Enter at a shell-foreground prompt is the user-side
-    // equivalent; the sample is gated to panes with no live agent identity
-    // and publishes nothing for an idle shell.
+    // Enter at shell foreground backs up OSC 133;C hooks replaced by shell frameworks; confirm only panes without live agent identity.
     if (event.key === 'Enter' && !event.metaKey && !event.ctrlKey && !event.altKey) {
       session.sampleVisiblePaneForegroundAgent()
     }
   }
-  // Why: infer only from focused xterm key events. Raw PTY bytes cannot
-  // distinguish plain Escape from Alt/meta sequences, and programmatic writes
-  // should not clear agent status.
+  // Infer from focused key events; raw bytes conflate Escape with Alt/meta and programmatic writes must not clear status.
   session.terminalKeyTarget = session.pane.terminal.element ?? session.pane.container
   session.terminalKeyTargetSupportsEvents =
     typeof session.terminalKeyTarget?.addEventListener === 'function' &&
@@ -94,15 +86,11 @@ export function installTerminalKeydownFit(session: ConnectPanePtySession): void 
   // before this PTY bound (newborn race). Null disables the guard (fail-safe).
   session.activePanePtyBindingBoundAt = null
 
-  // Why: with main side-effect authority on, the pane's title/bell/agent
-  // policy callbacks consume pty:sideEffect facts instead of transport byte
-  // parsers (which stay unregistered) — same policy code, single consumer.
-  // restoreTitleOnRegister replaces the eager-replay title restore: main's
-  // title-only snapshot carries the no-attention-replay rule.
+  // Main-authority facts replace byte parsers as the single policy consumer; title snapshots restore metadata without attention replay.
   session.unregisterSideEffectFactConsumer = null
   session.registerSideEffectFactConsumerForPty = (
     ptyId: string,
-    remoteOutputPaused = false
+    _remoteOutputPaused = false
   ): void => {
     if (session.disposed) {
       return
@@ -134,8 +122,7 @@ export function installTerminalKeydownFit(session: ConnectPanePtySession): void 
         incarnationId: session.remotePtyIncarnationId,
         binding,
         byteSource: true,
-        services,
-        policy: session.semanticPolicy
+        services
       })
     }
     if (isRemoteRuntimePtyId(ptyId)) {
@@ -143,8 +130,7 @@ export function installTerminalKeydownFit(session: ConnectPanePtySession): void 
         ptyId,
         binding,
         byteSource: true,
-        services,
-        policy: session.semanticPolicy
+        services
       })
     }
     session.unregisterSideEffectFactConsumer?.()
@@ -152,41 +138,6 @@ export function installTerminalKeydownFit(session: ConnectPanePtySession): void 
       ptyId,
       binding,
       services,
-      policy: session.semanticPolicy,
-      callbacks: {
-        onTitleChange: session.onTitleChange,
-        onBell: session.onBell,
-        onAgentBecameIdle: session.onAgentBecameIdle,
-        onAgentBecameWorking: session.onAgentBecameWorking,
-        onAgentExited: session.onAgentExited,
-        onCommandStarted: session.handleCommandStarted,
-        onCommandFinished: session.handleCommandFinished,
-        onPrLink: (link) =>
-          useAppStore
-            .getState()
-            .observeTerminalGitHubPullRequestLink(session.deps.worktreeId, link, {
-              tabId: session.deps.tabId,
-              paneKey: makePaneKey(session.deps.tabId, session.pane.leafId),
-              ptyId: session.transport.getPtyId(),
-              executionHostId: session.transport.getExecutionHostId?.() ?? undefined
-            }),
-        // Why: the Command Code settle policy stays here — the done settle
-        // timer must consult the live store row (which hook events and
-        // renderer seeds also write), so main only emits scrape facts.
-        onCommandCodeWorking: session.seedCommandCodeOutputWorkingStatus,
-        onCommandCodeDone: session.scheduleCommandCodeOutputDoneStatus,
-        ...(session.shouldOwnAgentStatusInRenderer
-          ? { onAgentStatus: (payload) => session.handleRendererOwnedAgentStatus(payload) }
-          : {}),
-        // Why: gated hidden panes never see the subscribe bytes; the fact
-        // replaces the byte scan (and the old post-latch subscribe drop).
-        ...(session.hiddenDeliveryGateActive || remoteOutputPaused
-          ? {
-              onMode2031Subscribe: session.handleHiddenMode2031SubscribeFact,
-              onMode2031Unsubscribe: session.handleHiddenMode2031UnsubscribeFact
-            }
-          : {})
-      },
       onResident: (resident) => attachTerminalResidentPresentation(session, resident),
       restoreTitleOnRegister: true
     })
@@ -197,8 +148,7 @@ export function installTerminalKeydownFit(session: ConnectPanePtySession): void 
     session.remoteOutputFactConsumerPtyId = null
   }
   session.clearPanePtyFitBinding = (): void => {
-    // Why: fit bindings live in a module-level map, so pane teardown must
-    // clear them explicitly instead of relying on DOM removal.
+    // Clear module-level fit bindings explicitly; DOM removal cannot release them.
     bindPanePtyId(session.pane.id, null, session.deps.tabId)
     session.visibleRemoteViewportClaimPtyId = null
     session.pendingVisibleRemoteViewportClaim = false

@@ -1,7 +1,8 @@
 import type { NotificationWorkspaceOwner } from '../../../../shared/notification-source'
 import { makePaneKey } from '../../../../shared/stable-pane-id'
 import { useAppStore } from '@/store'
-import { isRemoteRuntimePtyId } from '../../../../shared/remote-runtime-pty-id'
+import { hasPreHandlerPtyExit } from './pty-pre-handler-buffer'
+import { isRemoteRuntimePtyId } from '../../../../shared/remote-runtime/remote-runtime-pty-id'
 import { isRendererHiddenPtyDeliveryGateEnabled } from './terminal-hidden-delivery-gate'
 import { acquireHiddenRendererPtyDeliveryClaim } from './pty-renderer-delivery-claims'
 import { resolveTerminalResidentBinding } from './terminal-resident-binding'
@@ -17,13 +18,13 @@ export type ParkedTerminalByteWatcherOptions = {
   ptyId: string
   tabId: string
   worktreeId: string
-  /** Stable terminal-layout leaf UUID; combined with tabId into the paneKey for cache-timer, unread, and notification attribution. */
+  /** Stable leaf UUID combined with tabId for cache, unread and notification attribution. */
   leafId: string
-  /** PaneManager pane id the unmounted pane used; the watcher must write this same slot or a stale "working" title strands. */
+  /** Reuse the unmounted pane’s numeric title slot so stale working status cannot strand. */
   paneId: number
   /** Whether this PTY's pane was the tab's active split — only the focused split drives the tab title. */
   drivesTabTitle?: boolean
-  /** Last runtime title at park time; seeds the agent tracker so an agent working at unmount still fires completion when it goes idle. */
+  /** Seed working state so the recreated tracker recognizes completion after park. */
   initialTitle?: string
   /** Pull main's title-only snapshot when a watcher starts before its pane ever mounted (ordinary park cycles already have a title). */
   restoreTitleOnRegister?: boolean
@@ -50,8 +51,17 @@ export function startParkedTerminalByteWatcher(
     worktreeId,
     binding: { initialTitle: options.initialTitle, workspaceOwner: options.workspaceOwner }
   })
-  if (!mainAuthority && !remote) {
-    admitLegacyTerminalSemanticResident({ ptyId, binding, byteSource: true })
+  if (!remote) {
+    const hasPty = window.api.pty.hasPty
+    if (typeof hasPty === 'function') {
+      void hasPty(ptyId)
+        .then((present) => {
+          if (present === true && !hasPreHandlerPtyExit(ptyId)) {
+            admitLegacyTerminalSemanticResident({ ptyId, binding, byteSource: !mainAuthority })
+          }
+        })
+        .catch(() => {})
+    }
   }
   if (remote) {
     void admitRemoteTerminalSemanticResident({ ptyId, binding, byteSource: true })
@@ -68,7 +78,6 @@ export function startParkedTerminalByteWatcher(
   const unregister = registerTerminalSideEffectFactConsumer({
     ptyId,
     binding,
-    callbacks: { onTitleChange: showTitle },
     restoreTitleOnRegister: options.restoreTitleOnRegister === true,
     onResident: (resident) =>
       resident.policy.attachPresentation({

@@ -5,10 +5,10 @@ import type * as ShellAloneModule from './run-terminal-shell-alone'
 import { OrcaRuntimeService } from './orca-runtime'
 import { makeStore } from './runtime-rpc-worktree-store-fixtures'
 import { spawnedPtyEnv } from './spawned-pty-env-fixtures'
+import { committingSpawn } from './bind-first-pane.test-fixture'
+import { partialRuntimeStore } from './runtime-store-partial-fixture'
 
-// #10923: every OMP user bubble ends with OSC 133 `B C D;0`. Read as the shell's command
-// finishing, that retired the pane's hook authority mid-turn, which deleted its status row and
-// with it the provider session the phone's chat view addresses the transcript by.
+// #10923: OMP user bubbles emit OSC 133 B C D;0; treating it as shell completion retires live hook/session authority.
 const OMP_TRANSCRIPT = readFileSync(
   join(__dirname, '__fixtures__/omp-user-bubble-osc133-zone.txt'),
   'utf8'
@@ -41,9 +41,11 @@ async function launchOmpPane(): Promise<{
 }> {
   const retire = vi.fn()
   shellAlone.mockReset().mockResolvedValue(false)
-  const spawn = vi.fn().mockResolvedValue({ id: 'pty-omp', incarnationId: 'incarnation-1' })
-  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: makeStore serves the repo reads terminal creation makes; the rest of Store is unreached.
-  const runtime = new OrcaRuntimeService(makeStore() as never, undefined, {
+  const spawn = vi.fn(async (_args: { worktreeId?: string; tabId?: string; leafId?: string }) => ({
+    id: 'pty-omp',
+    incarnationId: 'incarnation-1'
+  }))
+  const runtime = new OrcaRuntimeService(partialRuntimeStore(makeStore()), undefined, {
     attestAgentHookCompatibilityAuthority: (candidate) => ({
       paneKey: candidate.paneKey,
       source: 'current_hook' as const
@@ -51,7 +53,7 @@ async function launchOmpPane(): Promise<{
     retireAgentHookCompatibilityAuthority: retire
   })
   runtime.setPtyController({
-    spawn,
+    spawn: committingSpawn(runtime, spawn),
     write: () => true,
     kill: () => true,
     getForegroundProcess: async () => 'omp',

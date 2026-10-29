@@ -37,6 +37,7 @@ export abstract class OrcaRuntimeWithTerminalSnapshotApplication extends OrcaRun
     provenance?:
       | { origin: 'process'; yieldsToHookSince: number }
       | { renewsProgramStatusLease: true },
+    recordsPromptLifecycle?: boolean,
     observedAt?: number
   ): void
 
@@ -173,6 +174,7 @@ export abstract class OrcaRuntimeWithTerminalSnapshotApplication extends OrcaRun
               : {})
           },
           undefined,
+          true,
           qualification?.observedAt
         )
         this.recordTerminalSideEffectFact(ptyId, { kind: 'agent-status', payload }, qualification)
@@ -198,6 +200,7 @@ export abstract class OrcaRuntimeWithTerminalSnapshotApplication extends OrcaRun
             ptyId,
             { payloads: [fact.payload] },
             { origin: 'process', yieldsToHookSince: fact.startedAt },
+            true,
             qualification?.observedAt
           )
         }

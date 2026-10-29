@@ -1,7 +1,8 @@
+import type { TerminalAttachmentLaunchResult } from '../../../../shared/terminal-attachment-launch-result'
 import { runtimeEnvironmentSupportsCapability } from '@/runtime/runtime-rpc-client'
 import { subscribeToRuntimeTerminalData } from '@/runtime/runtime-terminal-stream'
 import { TERMINAL_SIDE_EFFECT_STATE_CAPABILITY } from '../../../../shared/terminal-transient-observation'
-import { parseRemoteRuntimePtyId } from '../../../../shared/remote-runtime-pty-id'
+import { parseRemoteRuntimePtyId } from '../../../../shared/remote-runtime/remote-runtime-pty-id'
 import {
   RemoteRuntimePtyRecoveryState,
   registerRemoteRuntimePtyControlReadyReviver
@@ -26,13 +27,22 @@ export async function remoteTerminalNeedsLegacySource(ptyId: string): Promise<bo
 }
 
 /** Older hosts keep a live-tail reader owned by the execution, including while no view exists. */
-export function subscribeResidentRemoteSource(resident: TerminalSemanticResident): () => void {
-  const { ptyId, endpoint } = resident.identity
+export function subscribeResidentRemoteSource(
+  ptyId: string,
+  admit: (result?: TerminalAttachmentLaunchResult) => TerminalSemanticResident
+): () => void {
+  const endpoint = parseRemoteRuntimePtyId(ptyId)?.environmentId
+  if (!endpoint) {
+    return () => {}
+  }
+  let resident: TerminalSemanticResident | undefined
+  let disposed = false
+  const isLive = () => !disposed && (!resident || resident.isLive)
   const revision = getRuntimeEnvironmentRevision(endpoint)
   const recovery = new RemoteRuntimePtyRecoveryState()
   let unsubscribe: (() => void) | undefined
   const reconnect = (epoch: number): void => {
-    if (!resident.isLive || !recovery.ownsEpoch(epoch)) {
+    if (!isLive() || !recovery.ownsEpoch(epoch)) {
       return
     }
     if (
@@ -47,16 +57,29 @@ export function subscribeResidentRemoteSource(resident: TerminalSemanticResident
       ptyId,
       `desktop:semantic:${ptyId}`,
       (data, meta) => {
-        if (resident.isLive) {
+        if (resident?.isLive) {
           resident.policy.observeLegacyData(data, meta)
         }
       },
       {
         startAtLiveTail: true,
+        onAdmitted: (result) => {
+          if (
+            !isLive() ||
+            !recovery.ownsEpoch(epoch) ||
+            resolveContinuedRuntimeEnvironmentRevision(endpoint, revision) !==
+              getRuntimeEnvironmentRevision(endpoint)
+          ) {
+            return
+          }
+          resident = admit(result)
+        },
         onSnapshot: () => {},
         onEnd: (verdict) => {
           if (verdict === 'exited') {
-            retireCapturedResident(resident)
+            if (resident) {
+              retireCapturedResident(resident)
+            }
           } else {
             retry(epoch)
           }
@@ -65,11 +88,7 @@ export function subscribeResidentRemoteSource(resident: TerminalSemanticResident
       }
     )
       .then((close) => {
-        if (
-          !resident.isLive ||
-          !recovery.ownsEpoch(epoch) ||
-          recovery.currentPhase !== 'recovering'
-        ) {
+        if (!isLive() || !recovery.ownsEpoch(epoch) || recovery.currentPhase !== 'recovering') {
           close()
         } else {
           unsubscribe = close
@@ -77,7 +96,7 @@ export function subscribeResidentRemoteSource(resident: TerminalSemanticResident
         }
       })
       .catch((error: unknown) => {
-        if (!resident.isLive) {
+        if (!isLive()) {
           return
         }
         console.warn('[terminal-status] Could not follow remote terminal output:', error)
@@ -85,7 +104,7 @@ export function subscribeResidentRemoteSource(resident: TerminalSemanticResident
       })
   }
   const retry = (epoch: number): void => {
-    if (!resident.isLive || !recovery.ownsEpoch(epoch)) {
+    if (!isLive() || !recovery.ownsEpoch(epoch)) {
       return
     }
     if (recovery.currentPhase === 'disconnected') {
@@ -96,7 +115,7 @@ export function subscribeResidentRemoteSource(resident: TerminalSemanticResident
     recovery.schedule(next, reconnect)
   }
   const revive = () => {
-    if (!resident.isLive || recovery.currentPhase !== 'disconnected') {
+    if (!isLive() || recovery.currentPhase !== 'disconnected') {
       return false
     }
     return recovery.retryNow()
@@ -104,6 +123,7 @@ export function subscribeResidentRemoteSource(resident: TerminalSemanticResident
   const releaseReviver = registerRemoteRuntimePtyControlReadyReviver(endpoint, revive)
   reconnect(recovery.begin())
   return () => {
+    disposed = true
     recovery.dispose()
     releaseReviver()
     unsubscribe?.()
