@@ -34,9 +34,10 @@ export function projectAgentLaunchProfile(
     (typed || input.choices?.permissionMode !== undefined ? '' : (YOLO_TUI_AGENT_ARGS[agent] ?? ''))
   const choices = resolveAgentChoiceLayers({
     agent,
-    defaults: typed
-      ? { permissionMode: resolveAgentPermission(agent, settings).choice }
-      : undefined,
+    defaults: {
+      ...settings?.agentLaunchChoices?.[agent],
+      ...(typed ? { permissionMode: resolveAgentPermission(agent, settings).choice } : {})
+    },
     explicit: input.choices,
     userArgs,
     argumentOwner: input.userArgs === undefined ? 'defaults' : 'launch',

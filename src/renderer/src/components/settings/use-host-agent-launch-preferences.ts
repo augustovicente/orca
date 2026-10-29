@@ -22,6 +22,7 @@ import {
 export type AgentLaunchPreferences = Readonly<{
   defaultTuiAgent: GlobalSettings['defaultTuiAgent'] | undefined
   disabledTuiAgents: GlobalSettings['disabledTuiAgents'] | undefined
+  agentLaunchChoices?: GlobalSettings['agentLaunchChoices']
 }>
 type Snapshot = AgentLaunchPreferences | 'desktop'
 type Resource = {
@@ -85,7 +86,10 @@ function refresh(entry: Resource): void {
         entry.answer = settings
           ? {
               defaultTuiAgent: settings.defaultTuiAgent,
-              disabledTuiAgents: settings.disabledTuiAgents
+              disabledTuiAgents: settings.disabledTuiAgents,
+              ...(settings.agentChoices
+                ? { agentLaunchChoices: settings.agentChoices.defaults }
+                : {})
             }
           : 'desktop'
         settle(entry, entry.answer)
@@ -163,7 +167,10 @@ function cachedSnapshot(environmentId: string | undefined, key: string): Snapsho
 function preferencesForWorkspace(state: AppState, workspace: ProspectiveWorkspace) {
   const desktop: AgentLaunchPreferences = {
     defaultTuiAgent: state.settings?.defaultTuiAgent,
-    disabledTuiAgents: state.settings?.disabledTuiAgents
+    disabledTuiAgents: state.settings?.disabledTuiAgents,
+    ...(state.settings?.agentLaunchChoices !== undefined
+      ? { agentLaunchChoices: state.settings.agentLaunchChoices }
+      : {})
   }
   const host = parseExecutionHostId(
     buildAgentLaunchRouteInput(state, { agent: 'claude', workspace }).executionHostId
@@ -297,7 +304,8 @@ export function useHostAgentMenuSettings(
     settings: {
       ...desktopSettings,
       defaultTuiAgent: snapshot.defaultTuiAgent,
-      disabledTuiAgents: snapshot.disabledTuiAgents
+      disabledTuiAgents: snapshot.disabledTuiAgents,
+      agentLaunchChoices: snapshot.agentLaunchChoices
     }
   }
 }

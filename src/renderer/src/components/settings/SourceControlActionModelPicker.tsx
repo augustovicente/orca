@@ -28,6 +28,9 @@ export type AgentChoiceControlsProps = {
   agent: TuiAgent | null | undefined
   value: AgentDedicatedChoices | undefined
   disabled?: boolean
+  onOpenChange?: (open: boolean) => void
+  optionIds?: readonly string[]
+  defaultLabels?: { model?: string; options?: Record<string, string> }
   layout?: 'stacked' | 'contents'
   onChange: (value: AgentDedicatedChoices | undefined) => void
 }
@@ -36,6 +39,9 @@ export function AgentChoiceControls({
   agent,
   value,
   disabled,
+  onOpenChange,
+  optionIds,
+  defaultLabels,
   layout = 'stacked',
   onChange
 }: AgentChoiceControlsProps): React.JSX.Element | null {
@@ -55,7 +61,9 @@ export function AgentChoiceControls({
   const unlistedModel = catalog && selected?.model && !model ? selected.model : undefined
   const options = sourceControlActionOptions(agent, selected?.model ?? '').filter(
     // CLI carrier mappings remain available to Args badges without advertising a mode control.
-    ({ option }) => Boolean(model) || option.category !== 'mode'
+    ({ option }) =>
+      (Boolean(model) || option.category !== 'mode') &&
+      (!optionIds || optionIds.includes(option.id))
   )
   const defaultLabel = translate('settings.sourceControl.actionModel.effortDefault', 'Default')
   return (
@@ -65,6 +73,7 @@ export function AgentChoiceControls({
           label={translate('settings.sourceControl.actionModel.model', 'Model')}
         >
           <Select
+            onOpenChange={onOpenChange}
             value={selected?.model ?? AGENT_DEFAULT_VALUE}
             disabled={disabled}
             onValueChange={(model) =>
@@ -85,12 +94,14 @@ export function AgentChoiceControls({
               label={
                 selected?.model
                   ? (model?.label ?? selected.model)
-                  : translate('settings.sourceControl.actionModel.agentDefault', 'Agent default')
+                  : (defaultLabels?.model ??
+                    translate('settings.sourceControl.actionModel.agentDefault', 'Agent default'))
               }
             />
             <SelectContent>
               <SelectItem value={AGENT_DEFAULT_VALUE}>
-                {translate('settings.sourceControl.actionModel.agentDefault', 'Agent default')}
+                {defaultLabels?.model ??
+                  translate('settings.sourceControl.actionModel.agentDefault', 'Agent default')}
               </SelectItem>
               {catalog.models.map((model) => (
                 <SelectItem key={model.id} value={model.id}>
@@ -126,6 +137,7 @@ export function AgentChoiceControls({
             hint={sourceControlActionRouteHint(route)}
           >
             <Select
+              onOpenChange={onOpenChange}
               value={current ?? AGENT_DEFAULT_VALUE}
               disabled={disabled}
               onValueChange={(next) => {
@@ -149,11 +161,13 @@ export function AgentChoiceControls({
                 label={
                   current
                     ? (choices.find((choice) => choice.value === current)?.label ?? current)
-                    : defaultLabel
+                    : (defaultLabels?.options?.[option.id] ?? defaultLabel)
                 }
               />
               <SelectContent>
-                <SelectItem value={AGENT_DEFAULT_VALUE}>{defaultLabel}</SelectItem>
+                <SelectItem value={AGENT_DEFAULT_VALUE}>
+                  {defaultLabels?.options?.[option.id] ?? defaultLabel}
+                </SelectItem>
                 {choices.map((choice) => (
                   <SelectItem key={choice.value} value={choice.value}>
                     {choice.label}

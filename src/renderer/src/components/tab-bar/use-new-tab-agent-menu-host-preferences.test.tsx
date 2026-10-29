@@ -42,10 +42,12 @@ vi.mock('@/hooks/useDetectedAgents', () => ({
 const initial = useAppStore.getState()
 const server = projectAgentLaunchSettings({
   defaultTuiAgent: 'codex',
-  disabledTuiAgents: ['opencode']
+  disabledTuiAgents: ['opencode'],
+  agentLaunchChoices: { codex: { model: 'host-model', options: { effort: 'low' } } }
 })
 const raw = {
   ...server,
+  agentLaunchChoices: server.agentChoices?.defaults,
   agentPermissionDefault: 'ask' as const,
   agentDefaultEnv: {
     claude: Object.fromEntries(Array.from({ length: 20 }, (_, i) => [`K${i}`, 'private']))
@@ -340,7 +342,8 @@ it('stops waiting on a stalled host, then applies its late answer', async () => 
 it('gives the new-agent shortcut and badge the default the host menu applied', async () => {
   expect(readAgentLaunchPreferencesForWorktree(useAppStore.getState(), 'wt')).toEqual({
     defaultTuiAgent: 'opencode',
-    disabledTuiAgents: ['codex']
+    disabledTuiAgents: ['codex'],
+    agentLaunchChoices: {}
   })
   const hook = renderHook(() =>
     useNewTabAgentMenuRows('wt', true, { kind: 'runtime', environmentId: 'alpha' })
@@ -351,7 +354,8 @@ it('gives the new-agent shortcut and badge the default the host menu applied', a
   )
   expect(readAgentLaunchPreferencesForWorktree(useAppStore.getState(), 'wt')).toEqual({
     defaultTuiAgent: 'codex',
-    disabledTuiAgents: ['opencode']
+    disabledTuiAgents: ['opencode'],
+    agentLaunchChoices: server.agentChoices?.defaults
   })
 })
 

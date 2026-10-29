@@ -1,3 +1,4 @@
+import { agentLaunchChoiceUpdates } from './agent-launch-choice-updates'
 import { agentPermissionHostPlatform, permissionEnvNameMatches } from './agent-permission-env'
 import {
   agentEnvironmentMutationUpdates,
@@ -80,6 +81,9 @@ export function legacyArgumentsUpdates(
   agent: TuiAgent,
   value: string
 ): AgentLaunchSettingsSource {
+  if (settings.agentLaunchChoices !== undefined) {
+    return agentLaunchChoiceUpdates(settings, agent, { userArgs: value }, 'terminal')
+  }
   if (value.trim() === resolveTuiAgentLaunchArgs(agent, settings).trim()) {
     return {}
   }
@@ -115,6 +119,7 @@ export function legacyLaunchTextUpdates(
   const args: Partial<Record<TuiAgent, string>> = {}
   const envs: Partial<Record<TuiAgent, Record<string, string>>> = {}
   let overrides = settings.agentPermissionOverrides
+  let agentLaunchChoices = settings.agentLaunchChoices
   if (updates.agentDefaultArgs !== undefined) {
     for (const agent of new Set([
       ...Object.keys(published.agentDefaultArgs),
@@ -123,7 +128,12 @@ export function legacyLaunchTextUpdates(
       if (!isTuiAgent(agent)) {
         continue
       }
-      const change = legacyArgumentsUpdates(settings, agent, updates.agentDefaultArgs[agent] ?? '')
+      const change = legacyArgumentsUpdates(
+        { ...settings, agentLaunchChoices, agentPermissionOverrides: overrides },
+        agent,
+        updates.agentDefaultArgs[agent] ?? ''
+      )
+      agentLaunchChoices = change.agentLaunchChoices ?? agentLaunchChoices
       if (Object.hasOwn(updates.agentDefaultArgs, agent)) {
         args[agent] = change.agentDefaultArgs?.[agent] ?? settings.agentDefaultArgs?.[agent] ?? ''
       }
@@ -157,7 +167,8 @@ export function legacyLaunchTextUpdates(
   return {
     ...(updates.agentDefaultArgs !== undefined ? { agentDefaultArgs: args } : {}),
     ...(updates.agentDefaultEnv !== undefined ? { agentDefaultEnv: envs } : {}),
-    agentPermissionOverrides: overrides
+    agentPermissionOverrides: overrides,
+    ...(agentLaunchChoices !== undefined ? { agentLaunchChoices } : {})
   }
 }
 

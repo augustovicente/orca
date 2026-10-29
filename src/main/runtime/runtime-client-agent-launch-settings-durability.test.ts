@@ -130,7 +130,8 @@ describe('durable execution-host launch settings', () => {
     const controller = new RuntimeClientSettingsController(store)
     await controller.update({ agentDefaultArgs: { codex: '--model new' } })
     expect(store.getSettings()).toMatchObject({
-      agentDefaultArgs: { codex: '--model new' },
+      agentDefaultArgs: { codex: '' },
+      agentLaunchChoices: { codex: { model: 'new' } },
       agentDefaultEnv: {
         claude: { ANTHROPIC_BASE_URL: 'http://old-proxy' },
         goose: { KEEP: 'custom' }
@@ -140,7 +141,8 @@ describe('durable execution-host launch settings', () => {
     expect(store.getSettings().agentDefaultArgs).not.toHaveProperty('claude')
     await controller.update({ agentDefaultEnv: { goose: { GOOSE_MODE: 'auto', KEEP: 'new' } } })
     expect(store.getSettings().agentDefaultEnv).toEqual({ goose: { KEEP: 'new' } })
-    expect(store.getSettings().agentDefaultArgs).toEqual({ codex: '--model new' })
+    expect(store.getSettings().agentDefaultArgs).toEqual({ codex: '' })
+    expect(controller.get().agentDefaultArgs?.codex).toBe('-m new')
     expect(resolveTuiAgentLaunchEnv('goose', store.getSettings())).toEqual({
       GOOSE_MODE: 'auto',
       KEEP: 'new'
@@ -340,30 +342,35 @@ describe('durable execution-host launch settings', () => {
     })
   })
 
-  it('rejects a failed disk write, rolls back its settings, and allows an explicit retry', async () => {
+  it('rolls back a failed coupled launch choice and persists an explicit retry', async () => {
     const { store, authority, readState } = await fixture()
     const controller = new RuntimeClientSettingsController(store)
-    const before = store.getSettings().agentDefaultArgs?.claude
+    const before = store.getSettings()
+    const mutation = {
+      type: 'launch-choices',
+      agent: 'claude',
+      patch: { model: 'sonnet', options: { effort: 'high' }, permissionMode: 'ask' },
+      userArgs: '--model sonnet --effort high --verbose'
+    } as const
     authority.failNextWrite()
     try {
-      await expect(
-        controller.mutateAgentLaunch({
-          type: 'arguments',
-          agent: 'claude',
-          value: '--retry-marker'
-        })
-      ).rejects.toThrow('profile_state_write_failed')
+      await expect(controller.mutateAgentLaunch(mutation)).rejects.toThrow(
+        'profile_state_write_failed'
+      )
     } finally {
       await store.flushPendingOrThrowAsync().catch(() => {})
     }
-    expect(store.getSettings().agentDefaultArgs?.claude).toBe(before)
-    expect(readState().settings.agentDefaultArgs.claude).toBe(before)
-    await controller.mutateAgentLaunch({
-      type: 'arguments',
-      agent: 'claude',
-      value: '--retry-marker'
+    for (const settings of [store.getSettings(), readState().settings]) {
+      expect(settings.agentDefaultArgs?.claude).toBe(before.agentDefaultArgs?.claude)
+      expect(settings.agentLaunchChoices).toEqual(before.agentLaunchChoices)
+      expect(settings.agentPermissionOverrides).toEqual(before.agentPermissionOverrides)
+    }
+    await controller.mutateAgentLaunch(mutation)
+    expect(readState().settings).toMatchObject({
+      agentDefaultArgs: { claude: '--verbose' },
+      agentLaunchChoices: { claude: { model: 'sonnet', options: { effort: 'high' } } }
     })
-    expect(readState().settings.agentDefaultArgs.claude).toBe('--retry-marker')
+    expect(newChatPermissionModeForSettings('claude', store.getSettings())).toBe('ask')
   })
 
   it('rolls back the new-chat default with a failed permission preset', async () => {

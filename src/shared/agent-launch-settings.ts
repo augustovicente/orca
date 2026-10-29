@@ -1,3 +1,7 @@
+import { isTuiAgent } from './tui-agent-config'
+import { agentLaunchChoiceUpdates } from './agent-launch-choice-updates'
+import { projectAgentLaunchProfile } from './agent-launch-profile'
+import type { AgentLaunchChoices, AgentChoicePatch } from './agent-launch-choices'
 import { agentEnvironmentMutationUpdates, choiceUpdate } from './agent-launch-environment-updates'
 import type { GlobalSettings } from './global-settings-types'
 import type { TuiAgent } from './tui-agent'
@@ -37,6 +41,7 @@ export type AgentLaunchSettingsSource = Partial<
     | 'newWorkspaceSetupOnly'
     | 'disabledTuiAgents'
     | 'agentCmdOverrides'
+    | 'agentLaunchChoices'
     | 'agentDefaultArgs'
     | 'agentDefaultEnv'
     | 'agentPermissionDefault'
@@ -57,6 +62,7 @@ export type AgentLaunchSettings = {
   /** With Auto on: the combined mode of agents Auto doesn't cover. Absent from older hosts. */
   nonAutoPermissionMode?: 'manual' | 'yolo' | 'mixed'
   /** Stored permission and user Arguments exclude Orca flags; agentDefaultArgs retains them for older clients. Absent on hosts storing permissions as text. */
+  agentChoices?: { defaults: AgentLaunchChoices; userArgs: Partial<Record<TuiAgent, string>> }
   agentPermission?: {
     default: AgentPermissionChoice
     overrides: Partial<Record<TuiAgent, AgentPermissionChoice>>
@@ -88,6 +94,7 @@ export type AgentLaunchSettingsMutation =
   | { type: 'arguments'; agent: TuiAgent; value: string }
   /** Only the user's own text; a permission flag Orca recognizes in it becomes the choice. */
   | { type: 'user-arguments'; agent: TuiAgent; value: string }
+  | { type: 'launch-choices'; agent: TuiAgent; patch?: AgentChoicePatch; userArgs?: string }
   | { type: 'environment-set'; agent: TuiAgent; name: string; value: string }
   | { type: 'environment-remove'; agent: TuiAgent; name: string }
 
@@ -117,12 +124,27 @@ export function projectAgentLaunchSettings(
           nonAutoPermissionMode: resolveNonAutoAgentPermissionMode(composed)
         }
       : {}),
+    ...(settings.agentLaunchChoices !== undefined
+      ? {
+          agentChoices: {
+            defaults: settings.agentLaunchChoices,
+            userArgs: normalizeTuiAgentArgsRecord(settings.agentDefaultArgs)
+          }
+        }
+      : {}),
     ...(hasTypedAgentPermission(settings)
       ? {
           agentPermission: {
             default: settings.agentPermissionDefault ?? 'own',
             overrides: { ...settings.agentPermissionOverrides },
-            userArgs: normalizeTuiAgentArgsRecord(settings.agentDefaultArgs)
+            userArgs: Object.fromEntries(
+              Object.keys(composed.agentDefaultArgs)
+                .filter(isTuiAgent)
+                .map((agent) => [
+                  agent,
+                  projectAgentLaunchProfile(agent, settings, { target: 'legacy-permission' }).args
+                ])
+            )
           }
         }
       : {})
@@ -193,7 +215,17 @@ export function agentLaunchSettingsMutationUpdates(
       }
       return { agentCmdOverrides: commands }
     }
+    case 'launch-choices':
+      return agentLaunchChoiceUpdates(settings, mutation.agent, mutation)
     case 'arguments':
+      if (settings.agentLaunchChoices !== undefined) {
+        return agentLaunchChoiceUpdates(
+          settings,
+          mutation.agent,
+          { userArgs: mutation.value },
+          'terminal'
+        )
+      }
       if (hasTypedAgentPermission(settings)) {
         return legacyArgumentsUpdates(settings, mutation.agent, mutation.value)
       }
@@ -204,6 +236,14 @@ export function agentLaunchSettingsMutationUpdates(
         })
       }
     case 'user-arguments': {
+      if (settings.agentLaunchChoices !== undefined) {
+        return agentLaunchChoiceUpdates(
+          settings,
+          mutation.agent,
+          { userArgs: mutation.value },
+          'legacy-permission'
+        )
+      }
       if (!hasTypedAgentPermission(settings)) {
         throw new Error('This host stores permissions in launch arguments')
       }

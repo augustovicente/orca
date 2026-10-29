@@ -273,10 +273,10 @@ export function useAgentMenuObservation(
           key: JSON.stringify([workspace, launchCwd, facts])
         }
       }
-  const { defaultTuiAgent, disabledTuiAgents } = settings ?? {}
+  const { defaultTuiAgent, disabledTuiAgents, agentLaunchChoices } = settings ?? {}
   return {
     model,
-    preferences: { defaultTuiAgent, disabledTuiAgents },
+    preferences: { defaultTuiAgent, disabledTuiAgents, agentLaunchChoices },
     preferencesPending,
     detection,
     contextKey: JSON.stringify([workspace, launchCwd, facts]),

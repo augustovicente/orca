@@ -216,7 +216,7 @@ it.each(['global', 'repo'] as const)(
       },
       '--verbose'
     )
-    expect(screen.getByRole('combobox', { name: 'Agent default' })).toBeDefined()
+    expect(screen.getByRole('combobox', { name: 'Same as Claude · Agent default' })).toBeDefined()
     fireEvent.click(screen.getByText('Discard'))
     expect(screen.getByRole('combobox', { name: 'Fable' })).toBeDefined()
     expect(reopened).toHaveProperty('value', '--verbose')
@@ -241,7 +241,7 @@ it.each(['global', 'repo'] as const)(
       },
       undefined
     )
-    expect(screen.getByRole('combobox', { name: 'Default' })).toBeDefined()
+    expect(screen.getByRole('combobox', { name: 'Same as Claude · Default' })).toBeDefined()
     fireEvent.click(screen.getByText('Save'))
     await waitFor(() => expect(write).toHaveBeenCalledTimes(2))
     expect(saved()?.launchPreferences).toEqual({
@@ -518,13 +518,13 @@ it('edits and saves a sparse repository model without authoring the inherited pe
   const saved = { value: { actionOverrides: { fixChecks: { agentArgs: '--verbose' } } } }
   const view = () => <RepoHarness saved={saved} source={source} />
   const rendered = render(view())
-  expect(screen.getByRole('combobox', { name: 'Agent default' })).toBeDefined()
-  expect(screen.getByRole('combobox', { name: 'Default' })).toBeDefined()
-  await userEvent.click(screen.getByRole('combobox', { name: 'Agent default' }))
+  expect(screen.getByRole('combobox', { name: 'Same as Claude · Agent default' })).toBeDefined()
+  expect(screen.getByRole('combobox', { name: 'Same as Claude · Default' })).toBeDefined()
+  await userEvent.click(screen.getByRole('combobox', { name: 'Same as Claude · Agent default' }))
   await userEvent.click(screen.getByRole('option', { name: 'Haiku' }))
   fireEvent.click(screen.getByText('Discard'))
-  expect(screen.getByRole('combobox', { name: 'Agent default' })).toBeDefined()
-  await userEvent.click(screen.getByRole('combobox', { name: 'Agent default' }))
+  expect(screen.getByRole('combobox', { name: 'Same as Claude · Agent default' })).toBeDefined()
+  await userEvent.click(screen.getByRole('combobox', { name: 'Same as Claude · Agent default' }))
   await userEvent.click(screen.getByRole('option', { name: 'Haiku' }))
   fireEvent.click(screen.getByText('Save'))
   await waitFor(() => expect(write).toHaveBeenCalledTimes(1))
@@ -585,7 +585,7 @@ it.each(['global', 'repo'] as const)(
     fireEvent.click(screen.getByText('Discard'))
     expect(screen.getByRole('combobox', { name: 'High' })).toBeDefined()
     fireEvent.click(screen.getByRole('button', { name: 'Reset' }))
-    expect(screen.getByRole('combobox', { name: 'Agent default' })).toBeDefined()
+    expect(screen.getByRole('combobox', { name: 'Same as Claude · Agent default' })).toBeDefined()
     fireEvent.click(screen.getByText('Save'))
     await waitFor(() => expect(write).toHaveBeenCalledTimes(2))
     expect(saved().agentArgs).toBe('')
@@ -650,7 +650,7 @@ it('removes inherited keys without pinning untouched choices across Save, reopen
   }
   const view = render(<RepoHarness saved={saved} />)
   fireEvent.click(screen.getByRole('button', { name: 'Remove --model sonnet' }))
-  expect(screen.getByRole('combobox', { name: 'Agent default' })).toBeDefined()
+  expect(screen.getByRole('combobox', { name: 'Same as Claude · Agent default' })).toBeDefined()
   expect(screen.getByRole('button', { name: 'Remove --effort high' })).toBeDefined()
   fireEvent.click(screen.getByText('Save'))
   await waitFor(() => expect(write).toHaveBeenCalledTimes(1))
@@ -666,7 +666,7 @@ it('removes inherited keys without pinning untouched choices across Save, reopen
   })
   view.unmount()
   const reopened = render(<RepoHarness saved={saved} />)
-  expect(screen.getByRole('combobox', { name: 'Agent default' })).toBeDefined()
+  expect(screen.getByRole('combobox', { name: 'Same as Claude · Agent default' })).toBeDefined()
   const source = normalizeSourceControlAiSettings({
     ...initial,
     actions: {
@@ -695,4 +695,30 @@ it('removes inherited keys without pinning untouched choices across Save, reopen
   expect(screen.queryByRole('button', { name: /Remove --(model|effort)/ })).toBeNull()
   fireEvent.click(screen.getByText('Save'))
   expect(write).toHaveBeenCalledTimes(2)
+})
+
+it('labels the inherited model and effort with the supplied owning host choices', () => {
+  const props = {
+    agent: 'claude',
+    value: '',
+    onArgsChange: vi.fn(),
+    onPreferencesChange: vi.fn()
+  } as const
+  const view = render(
+    <TooltipProvider>
+      <SourceControlActionArguments
+        {...props}
+        agentLaunchChoices={{ claude: { model: 'opus', options: { effort: 'high' } } }}
+      />
+    </TooltipProvider>
+  )
+  expect(screen.getByRole('combobox', { name: 'Same as Claude · Opus' })).toBeDefined()
+  expect(screen.getByRole('combobox', { name: 'Same as Claude · High' })).toBeDefined()
+  view.rerender(
+    <TooltipProvider>
+      <SourceControlActionArguments {...props} agentLaunchChoices={null} />
+    </TooltipProvider>
+  )
+  expect(screen.getByRole('combobox', { name: 'Agent default' })).toBeDefined()
+  expect(screen.getByRole('combobox', { name: 'Default' })).toBeDefined()
 })

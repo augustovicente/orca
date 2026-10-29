@@ -850,7 +850,8 @@
       "installCliForTerminal": "Install the {{value0}} CLI to open it in a terminal.",
       "chatRuntime": "Chat runtime",
       "chatChoiceTitle": "Open as chat or CLI",
-      "chatChoiceDescription": "Choose whether each agent opens as a chat or in its CLI."
+      "chatChoiceDescription": "Choose whether each agent opens as a chat or in its CLI.",
+      "sameAsChoice": "Same as {{agent}} · {{choice}}"
     },
     "followSymlinkedDirectoriesKeywords": {
       "symlink": "symlink",

@@ -1,3 +1,4 @@
+import { AgentLaunchChoiceEditor } from './AgentLaunchChoiceEditor'
 import {
   agentChatPermissionModes,
   savedChatPermissionMode
@@ -71,6 +72,7 @@ export function AgentLaunchSettingsCatalog({
   renderPermissions,
   refreshSettings,
   autoSupported = true,
+  choicesSupported = true,
   nativeChatPermissionsSupported = false,
   chatOwnSupported = false,
   local
@@ -82,6 +84,7 @@ export function AgentLaunchSettingsCatalog({
   renderPermissions: AgentPermissionsRenderer
   refreshSettings?: () => void
   autoSupported?: boolean
+  choicesSupported?: boolean
   nativeChatPermissionsSupported?: boolean
   chatOwnSupported?: boolean
   local?: {
@@ -230,9 +233,12 @@ export function AgentLaunchSettingsCatalog({
     isEnabled: isTuiAgentEnabled(agent.id, settings.disabledTuiAgents),
     isDefault: isDetected && settings.defaultTuiAgent === agent.id,
     cmdOverride: isDetected ? settings.agentCmdOverrides[agent.id] : undefined,
-    argsOverride: typed
-      ? (typed.userArgs[agent.id] ?? '')
-      : resolveTuiAgentLaunchArgs(agent.id, settings),
+    argsOverride:
+      choicesSupported && settings.agentChoices
+        ? (settings.agentChoices.userArgs[agent.id] ?? '')
+        : typed
+          ? (typed.userArgs[agent.id] ?? '')
+          : resolveTuiAgentLaunchArgs(agent.id, settings),
     launchArgs: typed ? (settings.agentDefaultArgs[agent.id] ?? '') : undefined,
     envOverride: !local
       ? {}
@@ -241,6 +247,22 @@ export function AgentLaunchSettingsCatalog({
         : resolveTuiAgentLaunchEnv(agent.id, { agentDefaultEnv: local.settings.agentDefaultEnv }),
     permission: typed ? undefined : permissions.rows.get(agent.id),
     permissionChoice: choiceRow(agent.id),
+    launchChoiceEditor:
+      choicesSupported && settings.agentChoices
+        ? (permissionControlRef) => (
+            <AgentLaunchChoiceEditor
+              permissionControlRef={permissionControlRef}
+              agent={agent.id}
+              label={agent.label}
+              choices={settings.agentChoices?.defaults[agent.id]}
+              userArgs={settings.agentChoices?.userArgs[agent.id] ?? ''}
+              permission={choiceRow(agent.id)}
+              save={(patch, userArgs) =>
+                mutate({ type: 'launch-choices', agent: agent.id, patch, userArgs })
+              }
+            />
+          )
+        : undefined,
     onSetDefault: () =>
       save({
         type: 'default',
