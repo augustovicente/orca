@@ -38,25 +38,26 @@ export type LibprocQuery = {
 export type LibprocAddon = {
   /** Reads on a libuv worker thread; argv for a whole table costs ~20ms of syscalls. */
   readProcessTable: (query: LibprocQuery) => Promise<LibprocProcessRow[] | null>
-  /** PROC_PIDVNODEPATHINFO and proc_pidpath can block on a dead network mount, so both run on a worker thread. */
-  readProcessCwd: (pid: number) => Promise<string | null>
-  readProcessPath: (pid: number) => Promise<string | null>
+  /** PROC_PIDVNODEPATHINFO and proc_pidpath can block on a dead network mount, so both run on a worker thread.
+   * Absent from a #35987 pty.node, which still reads the table: cwd and path then come from lsof. */
+  readProcessCwd?: (pid: number) => Promise<string | null>
+  readProcessPath?: (pid: number) => Promise<string | null>
 }
 
 const requireFromHere = createRequire(__filename)
 let cachedAddon: LibprocAddon | null | undefined
 let addonOverride: LibprocAddon | null | undefined
 
+function hasAsyncPathReads(addon: LibprocAddon): boolean {
+  return typeof addon.readProcessCwd === 'function' && typeof addon.readProcessPath === 'function'
+}
+
 function isLibprocAddon(native: unknown): native is LibprocAddon {
   return (
     typeof native === 'object' &&
     native !== null &&
     'readProcessTable' in native &&
-    typeof native.readProcessTable === 'function' &&
-    'readProcessCwd' in native &&
-    typeof native.readProcessCwd === 'function' &&
-    'readProcessPath' in native &&
-    typeof native.readProcessPath === 'function'
+    typeof native.readProcessTable === 'function'
   )
 }
 
@@ -81,8 +82,12 @@ export function loadLibprocAddon(): LibprocAddon | null {
       typeof utils.loadNativeModule === 'function'
         ? utils.loadNativeModule('pty')?.module
         : null
-    // An older pty.node exports positional processTable() or synchronous processCwd() instead; it must not match.
+    // An older pty.node exports positional processTable() instead; it must not match. Its synchronous processCwd and
+    // processPath are never called: they can block the event loop on a dead mount.
     cachedAddon = isLibprocAddon(native) ? native : null
+    if (cachedAddon && !hasAsyncPathReads(cachedAddon)) {
+      console.warn('[process-table] node-pty lacks the async cwd/path reader; using lsof for those')
+    }
   } catch {
     cachedAddon = null
   }
@@ -99,7 +104,8 @@ export function setLibprocAddonForTests(addon: LibprocAddon | null | undefined):
 
 // A lookup stuck on a dead mount pins its worker thread in the kernel; cap them so the rest of the libuv pool stays free.
 const MAX_OUTSTANDING_PATH_READS = 2
-// Path lookups take microseconds; past this the mount is wedged and lsof -b, which never stats, answers instead.
+// Path lookups take microseconds; past this the mount is wedged and lsof -b answers instead. lsof can block in the same
+// PROC_PIDVNODEPATHINFO, but in a child process (one per pid), not on this process's thread pool.
 const PATH_READ_TIMEOUT_MS = 250
 let outstandingPathReads = 0
 
@@ -109,12 +115,13 @@ export async function readLibprocProcessFilePath(
   pid: number
 ): Promise<string | null | undefined> {
   const addon = loadLibprocAddon()
-  if (!addon || outstandingPathReads >= MAX_OUTSTANDING_PATH_READS) {
+  const read = which === 'cwd' ? addon?.readProcessCwd : addon?.readProcessPath
+  if (!read || outstandingPathReads >= MAX_OUTSTANDING_PATH_READS) {
     return undefined
   }
   let pending: Promise<string | null>
   try {
-    pending = which === 'cwd' ? addon.readProcessCwd(pid) : addon.readProcessPath(pid)
+    pending = read(pid)
   } catch {
     return undefined
   }

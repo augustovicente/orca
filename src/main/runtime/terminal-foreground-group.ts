@@ -90,7 +90,8 @@ export function judgeTerminalForeground(
     return 'unknown'
   }
   const front = rows.filter((row) => row.pgid === foregroundGroup)
-  if (front.length === 0) {
+  // ps prints `(comm)` for argv it could not read (another user's, or exiting): that could be a root shell.
+  if (front.length === 0 || front.some((row) => /^\(.*\)$/.test(row.command.trim()))) {
     return 'unknown'
   }
   return front.some(

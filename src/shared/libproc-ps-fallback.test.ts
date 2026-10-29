@@ -1,12 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { runProcess } = vi.hoisted(() => ({ runProcess: vi.fn() }))
+const { runProcess, execFile } = vi.hoisted(() => ({ runProcess: vi.fn(), execFile: vi.fn() }))
 vi.mock('@orca/process-host', () => ({ runProcess }))
+vi.mock('node:child_process', () => ({ execFile }))
 
 import { setLibprocAddonForTests, type LibprocAddon } from './libproc-addon'
 import { resetNativeReadsForTests } from './libproc-native-reads'
 import { runPsInProcess } from './libproc-process-table'
 import { resetPsFallbackForTests } from './libproc-ps-fallback'
+import { captureProcessTable } from './process-table-ps-capture'
+import { PS_ARGS } from './process-table-snapshot'
 
 const POLL_MS = 750
 const STREAMS = 13
@@ -20,22 +23,30 @@ function installAddon(readProcessTable: LibprocAddon['readProcessTable']): void 
   })
 }
 
-/** The call-site shape every poller uses: the in-process reader, else its own ps. */
-async function poll(pid: number): Promise<void> {
+/** The call-site shape every poller uses: the in-process reader, else its own ps. True when ps answered. */
+async function poll(pid: number): Promise<boolean> {
   const args = ['-o', 'pid=,ppid=,pgid=,lstart=', '-p', String(pid)]
   const options = { env: ENV, timeoutMs: 2000, maxOutputBytes: 4096 }
-  if (!(await runPsInProcess(args, options))) {
-    await runProcess({ program: 'ps', args, ...options })
-  }
+  const result =
+    (await runPsInProcess(args, options)) ?? (await runProcess({ program: 'ps', args, ...options }))
+  return !result.timedOut
 }
 
-async function forksOverOneMinute(): Promise<number> {
+async function overOneMinute(): Promise<{ forks: number; servedPerStream: number[] }> {
+  const servedPerStream = Array<number>(STREAMS).fill(0)
   const timers = Array.from({ length: STREAMS }, (_, stream) =>
-    setInterval(() => void poll(7000 + stream), POLL_MS)
+    setInterval(
+      () =>
+        void poll(7000 + stream).then((served) => {
+          servedPerStream[stream] += Number(served)
+        }),
+      POLL_MS
+    )
   )
   await vi.advanceTimersByTimeAsync(60_000)
   timers.forEach(clearInterval)
-  return runProcess.mock.calls.length
+  await vi.advanceTimersByTimeAsync(2_000)
+  return { forks: runProcess.mock.calls.length, servedPerStream }
 }
 
 beforeEach(() => {
@@ -67,11 +78,10 @@ describe('ps fallback budget', () => {
     })
     installAddon(readProcessTable)
 
-    const forks = await forksOverOneMinute()
-    console.info(
-      `[fork-budget] native rejection: ${forks} ps/min, ${readProcessTable.mock.calls.length} native reads`
-    )
+    const { forks, servedPerStream } = await overOneMinute()
     expect(forks).toBeLessThanOrEqual(70)
+    // Invocations take turns, so no poller is starved while another wins every token.
+    expect(Math.min(...servedPerStream)).toBeGreaterThanOrEqual(4)
     // Backoff: rejection stops being retried on every poll.
     expect(readProcessTable.mock.calls.length).toBeLessThan(15)
   })
@@ -85,9 +95,9 @@ describe('ps fallback budget', () => {
     await vi.advanceTimersByTimeAsync(50)
     runProcess.mockClear()
 
-    const forks = await forksOverOneMinute()
-    console.info(`[fork-budget] breaker open: ${forks} ps/min`)
+    const { forks, servedPerStream } = await overOneMinute()
     expect(forks).toBeLessThanOrEqual(70)
+    expect(Math.min(...servedPerStream)).toBeGreaterThanOrEqual(4)
   })
 
   it('never answers a request with a fallback ps spawned before it, but shares one spawned after', async () => {
@@ -119,5 +129,34 @@ describe('ps fallback budget', () => {
       ' 4242\n',
       ' 4242\n'
     ])
+  })
+
+  it('sends forced subprocess captures (a held naming pass) through the same budget', async () => {
+    const platform = Object.getOwnPropertyDescriptor(process, 'platform')!
+    Object.defineProperty(process, 'platform', { configurable: true, value: 'darwin' })
+    try {
+      execFile.mockImplementation((_file, _args, _options, callback) =>
+        callback(null, { stdout: ' 1 0\n', stderr: '' })
+      )
+      let captured = 0
+      // captureDarwinProcessTable's subprocessCapture while a naming pass is held, from five readers.
+      const timers = Array.from({ length: 5 }, () =>
+        setInterval(
+          () =>
+            void captureProcessTable(PS_ARGS, 2000, true).then(
+              () => (captured += 1),
+              () => {}
+            ),
+          POLL_MS
+        )
+      )
+      await vi.advanceTimersByTimeAsync(60_000)
+      timers.forEach(clearInterval)
+      expect(execFile).not.toHaveBeenCalled()
+      expect(runProcess.mock.calls.length).toBeLessThanOrEqual(65)
+      expect(captured).toBeGreaterThan(runProcess.mock.calls.length)
+    } finally {
+      Object.defineProperty(process, 'platform', platform)
+    }
   })
 })

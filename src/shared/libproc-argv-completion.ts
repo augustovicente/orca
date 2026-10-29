@@ -1,7 +1,7 @@
-import { runProcess } from '@orca/process-host'
 import type { LibprocProcessRow } from './libproc-addon'
 import { DEADLINE_PASSED, beforeDeadline, monotonicNow } from './deadline-settle-notifier'
 import { NODEV, P_WEXIT, SIDL, SZOMB } from './libproc-ps-format'
+import { runArgvRecoveryPs } from './libproc-ps-fallback'
 
 const MAX_ANCESTOR_DEPTH = 64
 
@@ -50,7 +50,8 @@ function needsRecovery(
 
 /** One ps run's answer for a process; undefined when ps omitted it or failed. */
 type Recovery = { startedAtMs: number; command: Promise<string | undefined> }
-type Recovered = { startedAtMs: number; command: string | undefined }
+/** A positive answer ages from when ps started reading; a failure from when it ended, however long ps took. */
+type Recovered = { startedAtMs: number; settledAtMs: number; command: string | undefined }
 
 // exec can keep pid, start time and comm (node → node with another script) and no cheap field shows it, so display
 // reads trust recovered argv for 30s; fresh readers take only argv ps read after their request.
@@ -84,16 +85,14 @@ function remember(key: string, entry: Recovered): void {
 async function readCommands(
   pids: readonly number[],
   env: NodeJS.ProcessEnv,
-  timeoutMs: number
+  deadline: number
 ): Promise<ReadonlyMap<number, string> | null> {
   try {
-    const result = await runProcess({
-      program: '/bin/ps',
-      args: ['-ww', '-o', 'pid=,command=', '-p', pids.join(',')],
-      env,
-      timeoutMs,
-      maxOutputBytes: 1024 * 1024
-    })
+    const result = await runArgvRecoveryPs(
+      ['-ww', '-o', 'pid=,command=', '-p', pids.join(',')],
+      { env, maxOutputBytes: 1024 * 1024 },
+      deadline
+    )
     if (result.timedOut || result.outputTruncated || (result.code !== 0 && result.code !== 1)) {
       return null
     }
@@ -130,14 +129,13 @@ export async function completeCommands(
     }
     const key = commandKey(ctype, row)
     const known = recovered.get(key)
-    const age = known ? now - known.startedAtMs : Number.POSITIVE_INFINITY
     // A failure only withholds argv, never serves stale argv, so fresh readers honour it too.
-    if (known?.command === undefined && age < UNRECOVERED_TTL_MS) {
+    if (known && known.command === undefined && now - known.settledAtMs < UNRECOVERED_TTL_MS) {
       continue
     }
     if (
       known?.command !== undefined &&
-      age < RECOVERED_TTL_MS &&
+      now - known.startedAtMs < RECOVERED_TTL_MS &&
       (notBeforeMs === undefined || known.startedAtMs >= notBeforeMs)
     ) {
       row.command = known.command
@@ -150,8 +148,7 @@ export async function completeCommands(
       missing.push({ row, key })
     }
   }
-  const timeoutMs = Math.floor(deadline - monotonicNow())
-  if (timeoutMs <= 0) {
+  if (deadline <= monotonicNow()) {
     return
   }
   if (missing.length > 0) {
@@ -159,7 +156,7 @@ export async function completeCommands(
     const read = readCommands(
       missing.map(({ row }) => row.pid),
       env,
-      timeoutMs
+      deadline
     )
     for (const { row, key } of missing) {
       const recovery: Recovery = {
@@ -168,7 +165,7 @@ export async function completeCommands(
       }
       recovering.set(key, recovery)
       void recovery.command.then((command) => {
-        remember(key, { startedAtMs, command })
+        remember(key, { startedAtMs, settledAtMs: monotonicNow(), command })
         if (recovering.get(key) === recovery) {
           recovering.delete(key)
         }

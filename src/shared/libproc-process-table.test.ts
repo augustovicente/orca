@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { runProcess } = vi.hoisted(() => ({ runProcess: vi.fn() }))
 vi.mock('@orca/process-host', () => ({ runProcess }))
@@ -116,6 +116,15 @@ function installAddon(overrides: Partial<LibprocAddon> = {}): LibprocAddon {
   return addon
 }
 
+// Orca's euid is pinned, so neither a root runner nor Windows (no geteuid) changes whose argv is "own".
+const OWN_UID = 501
+const OTHER_UID = 502
+const realGeteuid = process.geteuid
+
+beforeEach(() => {
+  process.geteuid = () => OWN_UID
+})
+
 const PS_RESULT = {
   code: 0,
   signal: null,
@@ -126,6 +135,7 @@ const PS_RESULT = {
 }
 
 afterEach(() => {
+  process.geteuid = realGeteuid
   setLibprocAddonForTests(undefined)
   resetNativeReadsForTests()
   resetPsFallbackForTests()
@@ -408,12 +418,11 @@ describe('runPsInProcess', () => {
   })
 
   it('leaves argv of the user’s own mid-exec processes and of exiting ones to (comm), asking ps only for other users', async () => {
-    const own = process.geteuid!()
-    const foreign = { ppid: 4242, tdev: TTYS004, uid: 0, flags: 0x2 }
+    const foreign = { ppid: 4242, tdev: TTYS004, uid: OTHER_UID, flags: 0x2 }
     const table = [
       ...TABLE,
       // A pane looping short commands: our own child between fork and exec reads like another user's.
-      row({ pid: 4800, ppid: 4242, tdev: TTYS004, uid: own, comm: 'git', command: '(git)' }),
+      row({ pid: 4800, ppid: 4242, tdev: TTYS004, uid: OWN_UID, comm: 'git', command: '(git)' }),
       row({ ...foreign, pid: 4801, flags: 0x2 | 0x2000, comm: 'sudo', command: '(sudo)' }),
       row({ ...foreign, pid: 4802, status: 1, comm: 'sudo', command: '(sudo)' }),
       row({ ...foreign, pid: 4803, comm: 'node', command: '(node)' })
@@ -440,7 +449,7 @@ describe('runPsInProcess', () => {
       pid: 4900,
       ppid: 4242,
       tdev: TTYS004,
-      uid: 0,
+      uid: OTHER_UID,
       comm: 'node',
       command: '(node)'
     })
@@ -468,7 +477,7 @@ describe('runPsInProcess', () => {
       pid: 5100,
       ppid: 4242,
       tdev: TTYS004,
-      uid: 0,
+      uid: OTHER_UID,
       comm: 'node',
       command: '(node)'
     })
@@ -493,5 +502,66 @@ describe('runPsInProcess', () => {
       'node /srv/server.js\n'
     )
     expect(runProcess).toHaveBeenCalledTimes(2)
+  })
+
+  it('waits out a failed recovery from when ps gave up, however long it ran', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] })
+    const sudo = row({
+      pid: 5200,
+      ppid: 4242,
+      tdev: TTYS004,
+      uid: OTHER_UID,
+      comm: 'su',
+      command: '(su)'
+    })
+    installAddon({
+      readProcessTable: vi.fn(async (query: LibprocQuery) => tableFor(query, [...TABLE, sudo]))
+    })
+    // A loaded host: ps takes 6s, then omits the process.
+    let finish: () => void = () => {}
+    runProcess.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = () => resolve({ code: 1, signal: null, stdout: '', stderr: '', timedOut: false })
+        })
+    )
+    const read = () => runPsInProcess(['-p', '5200', '-o', 'command='], { timeoutMs: 10_000 })
+
+    const slow = read()
+    await vi.advanceTimersByTimeAsync(6_000)
+    finish()
+    await slow
+    await read()
+    expect(runProcess).toHaveBeenCalledTimes(1)
+  })
+
+  it('charges fresh argv reads of a su pane to the recovery budget, not one ps each', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] })
+    const su = row({
+      pid: 5300,
+      ppid: 4242,
+      tdev: TTYS004,
+      uid: OTHER_UID,
+      comm: 'su',
+      command: '(su)'
+    })
+    installAddon({
+      readProcessTable: vi.fn(async (query: LibprocQuery) => tableFor(query, [...TABLE, su]))
+    })
+    runProcess.mockResolvedValue({
+      code: 0,
+      signal: null,
+      stdout: ' 5300 su\n',
+      stderr: '',
+      timedOut: false
+    })
+    const args = ['-o', 'pid=,ppid=,pgid=,tpgid=,stat=,command=', '-t', 'ttys004']
+
+    for (let poll = 0; poll < 20; poll += 1) {
+      void runPsInProcess(args, { ...BUDGET, freshCommands: true })
+      await vi.advanceTimersByTimeAsync(750)
+    }
+    // A burst of 2, then one every 2s, over 15s.
+    expect(runProcess.mock.calls.length).toBeLessThanOrEqual(10)
   })
 })

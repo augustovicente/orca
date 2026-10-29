@@ -236,15 +236,7 @@ export async function runPsInProcess(
   }
 }
 
-/** execFile-shaped: rejects on a nonzero exit or timeout like a failed ps child; null when ps must run. */
-export async function readPsStdoutInProcess(
-  args: readonly string[],
-  options: InProcessPsOptions
-): Promise<string | null> {
-  const result = await runPsInProcess(args, options)
-  if (!result) {
-    return null
-  }
+function stdoutLikeExecFile(args: readonly string[], result: LibprocPsResult): string {
   if (result.timedOut || result.code !== 0) {
     throw Object.assign(
       new Error(
@@ -259,4 +251,29 @@ export async function readPsStdoutInProcess(
     })
   }
   return result.stdout
+}
+
+/** execFile-shaped: rejects on a nonzero exit or timeout like a failed ps child; null when ps must run. */
+export async function readPsStdoutInProcess(
+  args: readonly string[],
+  options: InProcessPsOptions
+): Promise<string | null> {
+  const result = await runPsInProcess(args, options)
+  return result ? stdoutLikeExecFile(args, result) : null
+}
+
+/** execFile-shaped /bin/ps through the shared fork budget, for captures that must run ps (a held naming pass);
+ * only a ps spawned after this call answers it. */
+export async function readPsStdoutBudgeted(
+  args: readonly string[],
+  options: { env: NodeJS.ProcessEnv; timeoutMs: number; maxOutputBytes?: number }
+): Promise<string> {
+  const registered = registerPsFallbackRequest()
+  const result = await runPsFallback(
+    args,
+    { env: options.env, maxOutputBytes: options.maxOutputBytes },
+    registered,
+    monotonicNow() + options.timeoutMs
+  )
+  return stdoutLikeExecFile(args, result)
 }
