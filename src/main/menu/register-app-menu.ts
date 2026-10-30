@@ -208,12 +208,16 @@ function buildAndApplyMenu(options: RegisterAppMenuOptions): void {
   const viewMenu: Electron.MenuItemConstructorOptions = {
     label: translateMain('menu.view', 'View'),
     submenu: [
-      ...createAppMenuReloadAndDevToolsItems({
-        forceReloadShortcutLabel: shortcutLabel('app.forceReload'),
-        onBeforeReload,
-        toggleFocusedPageDevTools: options.toggleFocusedPageDevTools
-      }),
-      { type: 'separator' },
+      ...(editionSupports('developerTools')
+        ? [
+            ...createAppMenuReloadAndDevToolsItems({
+              forceReloadShortcutLabel: shortcutLabel('app.forceReload'),
+              onBeforeReload,
+              toggleFocusedPageDevTools: options.toggleFocusedPageDevTools
+            }),
+            { type: 'separator' as const }
+          ]
+        : []),
       {
         label: `${translateMain('menu.resetSize', 'Reset Size')}\t${shortcutLabel('zoom.reset')}`,
         click: () => onZoomReset()

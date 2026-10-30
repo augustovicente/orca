@@ -9,12 +9,10 @@
  * - Do not add a new `TopLevelView` value for this; it renders inside the existing
  *   `terminal` view slot resolved by `resolveTopLevelView`.
  */
-import { translate } from '@/i18n/i18n'
-
 export function ClientHomePlaceholder(): React.JSX.Element {
   return (
     <div className="flex flex-1 items-center justify-center p-8 text-muted-foreground">
-      <p>{translate('auto.contadorca.clientHome.placeholder', 'Client workspace')}</p>
+      <p>Client workspace</p>
     </div>
   )
 }

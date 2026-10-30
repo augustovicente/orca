@@ -231,7 +231,7 @@ export const AppRootSurfaces = memo(function AppRootSurfaces(props: {
           </ModalBoundary>
         ) : null}
       </Suspense>
-      {shouldMountSetupGuideTelemetryObserver ? (
+      {shouldMountSetupGuideTelemetryObserver && editionSupports('onboarding') ? (
         <Suspense fallback={null}>
           <SetupGuideTelemetryObserver />
         </Suspense>
@@ -351,7 +351,7 @@ export const AppRootSurfaces = memo(function AppRootSurfaces(props: {
             document.body
           )
         : null}
-      {shouldMountDictationController ? (
+      {shouldMountDictationController && editionSupports('dictation') ? (
         <Suspense fallback={null}>
           <OverlayBoundary boundaryId="overlay.dictation" resetKey={activeView}>
             <DictationController />
@@ -362,9 +362,11 @@ export const AppRootSurfaces = memo(function AppRootSurfaces(props: {
         <RecentTabSwitcher />
       </OverlayBoundary>
       {/* Its live terminal requires the link-routing preference context. */}
-      <OverlayBoundary boundaryId="overlay.skill-freshness-update-dialog">
-        <SkillFreshnessUpdateDialog />
-      </OverlayBoundary>
+      {editionSupports('skills') && (
+        <OverlayBoundary boundaryId="overlay.skill-freshness-update-dialog">
+          <SkillFreshnessUpdateDialog />
+        </OverlayBoundary>
+      )}
       <Suspense fallback={null}>
         <OverlayBoundary boundaryId="overlay.remote-server-update-dialog">
           <RemoteServerUpdateDialog />

@@ -1,6 +1,7 @@
 import { canShowRightSidebarForView } from '@/lib/right-sidebar-visibility'
 import { showTerminalShortcutCaptureNotification } from '@/lib/terminal-shortcut-capture-notification'
 import { TOGGLE_FLOATING_TERMINAL_EVENT } from '@/lib/floating-terminal'
+import { editionSupports } from '../../../../shared/edition'
 import { subscribeToUnpairedDeviceAuthNotification } from '../unpaired-device-auth-notification'
 import { translate } from '@/i18n/i18n'
 import { toast } from 'sonner'
@@ -161,15 +162,17 @@ export function registerSettingsAndSidebarIpcBridge(unsubs: (() => void)[]): voi
     })
   )
 
-  unsubs.push(
-    window.api.ui.onToggleRightSidebar(() => {
-      const store = useAppStore.getState()
-      if (!canShowRightSidebarForView(store.activeView)) {
-        return
-      }
-      store.toggleRightSidebar()
-    })
-  )
+  if (editionSupports('rightSidebar')) {
+    unsubs.push(
+      window.api.ui.onToggleRightSidebar(() => {
+        const store = useAppStore.getState()
+        if (!canShowRightSidebarForView(store.activeView)) {
+          return
+        }
+        store.toggleRightSidebar()
+      })
+    )
+  }
 
   unsubs.push(
     window.api.ui.onToggleWorktreePalette(() => {

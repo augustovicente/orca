@@ -100,9 +100,11 @@ export async function initializeReadyRuntimeServices(): Promise<void> {
     runtime.finishInterruptedWorktreeRemovals()
   }, WORKTREE_TRASH_SWEEP_FALLBACK_MS)
   // Defer noncritical plugin-file refresh past first paint.
-  runAfterFirstWindowShown(() => {
-    refreshInstalledOpenCodeStatusPlugins(store.getSettings())
-  }, WORKTREE_TRASH_SWEEP_FALLBACK_MS)
+  if (editionSupports('plugins')) {
+    runAfterFirstWindowShown(() => {
+      refreshInstalledOpenCodeStatusPlugins(store.getSettings())
+    }, WORKTREE_TRASH_SWEEP_FALLBACK_MS)
+  }
   if (editionSupports('telemetry')) {
     runAfterFirstWindowShown(() => {
       new WslUsageReporter(store, app.getPath('userData')).start()

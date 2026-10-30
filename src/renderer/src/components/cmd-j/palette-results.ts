@@ -1,5 +1,7 @@
 import { translate } from '@/i18n/i18n'
 import type { SettingsNavIcon, SettingsNavSection } from '@/lib/settings-navigation-types'
+import { ORCA_EDITION_ID } from '../../../../shared/edition'
+import { filterCommandsForEdition } from './edition-command-allowlist'
 import type { CmdJQuickAction } from './quick-actions'
 import { isClipboardTextByteLengthOverLimit } from '../../../../shared/clipboard-text'
 import {
@@ -132,7 +134,7 @@ function targetEntryKeywordParts(entryTitle: string): string[] {
 export function buildCmdJSettingsResults(
   sections: readonly SettingsNavSection[]
 ): CmdJSettingsResult[] {
-  return sections.flatMap((section, order) => {
+  const results = sections.flatMap((section, order) => {
     const paneResult: CmdJSettingsResult = {
       id: `settings:${section.id}`,
       kind: 'settings',
@@ -162,6 +164,7 @@ export function buildCmdJSettingsResults(
 
     return [paneResult, ...targetedResults]
   })
+  return filterCommandsForEdition(results, ORCA_EDITION_ID)
 }
 
 export function buildCmdJActionResults(actions: readonly CmdJQuickAction[]): CmdJActionResult[] {
