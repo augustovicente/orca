@@ -146,8 +146,9 @@ const HANDLERS: Record<PluginHostMethodName, BoundPluginHostMethod> = {
   'storage.compareAndSet': bind(
     api['storage.compareAndSet'],
     async ({ key, expected, value }, { pluginId, services }) => {
-      if (!isDeepStrictEqual(services.storage.get(pluginId, key) ?? null, expected))
+      if (!isDeepStrictEqual(services.storage.get(pluginId, key) ?? null, expected)) {
         return { swapped: false }
+      }
       okOrThrow(services.storage.set(pluginId, key, value))
       return { swapped: true }
     }
