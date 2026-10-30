@@ -138,27 +138,15 @@ describe('blocking abandonment boundary', () => {
     }
     expect(scanner.current().blocking).toBeNull()
     expect(
-      scanPendingAsks([
-        rows[0]!,
-        rows[1]!,
-        {
-          ...boundary,
-          from: undefined,
-          queued: false,
-          unsent: false,
-          stoppedBeforeStart: false,
-          awaitsRetry: false,
-          sentWhileStopping: false
-        }
-      ]).blocking
+      scanPendingAsks([rows[0]!, rows[1]!, userTurn('human', 'never mind, do this instead')])
+        .blocking
     ).toBeNull()
   })
 
   // Normalized source-shaped inputs: OMP toolCall.arguments and OpenCode pending state.input; no decoder imports.
   // Grok question definition copied from src/main/acp/fixtures/s5-plan-approved.jsonl:6 (recorded ACP, not terminal delivery).
   it.each([
-    ['OMP', 'ask', QUESTIONS_INPUT],
-    ['OpenCode family', 'question', QUESTIONS_INPUT],
+    ['OMP/OpenCode canonical shape', 'ask', QUESTIONS_INPUT],
     [
       'Grok',
       'ask_user_question',
