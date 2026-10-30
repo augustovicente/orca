@@ -484,7 +484,7 @@ it('backfills and compacts a closed chat and sweeps retired epochs', async () =>
   expect(database.db.prepare('SELECT 1 FROM journal_items').get()).toBeUndefined()
 })
 
-it('paces closed-chat backfill with the default monotonic clock across calendar rollback', async () => {
+it('paces closed-chat backfill and retirement with the default monotonic clock across calendar rollback', async () => {
   const rows: JournalRow[] = [
     { ...base(1), kind: 'epoch', reason: 'session_created', providerHandle }
   ]
@@ -539,22 +539,37 @@ it('paces closed-chat backfill with the default monotonic clock across calendar 
       }
     })
     calendar.mockReturnValue(0)
-    await running
+    const result = await running
     progress.push('complete')
-    expect(rests).toStrictEqual([{ ms: 270, pageRows: [32] }])
-    expect(progress).toEqual(['rest', 'task', 'wake', 'complete'])
-    expect(pageRows).toEqual([32, 32, 1])
-    expect(readPage.mock.calls.map((call) => [call[3], call[4]])).toEqual([
+    expect(result).toEqual({ deleted: 62 })
+    expect(rests[0]).toStrictEqual({ ms: 270, pageRows: [32] })
+    expect(progress).toEqual([
+      'rest',
+      'task',
+      'wake',
+      ...rests.slice(1).flatMap(() => ['rest', 'wake']),
+      'complete'
+    ])
+    const reads = readPage.mock.calls.map((call) => [call[3], call[4]])
+    expect(pageRows.slice(0, 3)).toEqual([32, 32, 1])
+    expect(reads.slice(0, 3)).toEqual([
       [Number.MIN_SAFE_INTEGER, 32],
       [32, 32],
       [64, 32]
     ])
+    expect(reads.every((call) => call[1] === 32)).toBe(true)
+    expect(pageRows.every((size) => size <= 32)).toBe(true)
     expect(checkpointOpen.mock.calls).toEqual([[identity.sessionId], [identity.sessionId]])
     const saved = requireState(readJournalSavedState(database.db, identity.sessionId, epoch))
     expect(saved.lastSequence).toBe(65)
     expectSameState(saved, expected)
     expect(retained).toHaveLength(65)
-    expect(liveTestJournalRows(database.db, identity.sessionId)).toStrictEqual(retained)
+    const remaining = liveTestJournalRows(database.db, identity.sessionId)
+    expect(remaining.map((row) => row.seq)).toEqual([1, 2, 65])
+    expect(remaining).toStrictEqual(retained.filter((row) => [1, 2, 65].includes(row.seq)))
+    const restored = restoreJournal(database.db, identity.sessionId)
+    expect(restored).toMatchObject({ damage: null, newer: null })
+    expectSameState(requireState(restored?.state), expected)
   } finally {
     elapsed.mockRestore()
     calendar.mockRestore()
