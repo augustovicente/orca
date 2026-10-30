@@ -115,7 +115,8 @@ export function connectMobileRelayRpcSession(args: {
     async sendRequest(method, params, options) {
       throwIfSignalAborted(options?.signal)
       const budget = openRpcRequestBudget(options)
-      await waitForPromiseWithSignal(connectWaiters.wait(budget.timeoutMs), options?.signal)
+      const connectTimeoutMs = budget.timeoutMs ?? requestTimeoutMs
+      await waitForPromiseWithSignal(connectWaiters.wait(connectTimeoutMs), options?.signal)
       throwIfSignalAborted(options?.signal)
       options?.beforeSend?.()
       const timeoutMs = resolvePostConnectRequestTimeout(budget, requestTimeoutMs)
