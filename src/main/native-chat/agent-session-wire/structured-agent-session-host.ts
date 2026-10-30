@@ -191,6 +191,8 @@ export class StructuredAgentSessionHost extends StructuredAgentSessionHostContex
       deps: this.deps,
       cancel: this.cancel,
       switchGeneration: this.switchGeneration,
+      guardSwitchWork: this.guardSwitchWork,
+      startFlights: this.runtimeState.startFlights,
       now: this.now,
       lifetime: this.lifetime,
       sessions: this.sessions,

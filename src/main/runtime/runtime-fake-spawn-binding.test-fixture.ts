@@ -57,7 +57,12 @@ export function captureFakeSpawnBinding(
       'incarnationId' in result && typeof result.incarnationId === 'string'
         ? result.incarnationId
         : undefined
-    runtime.assertPtyRegistrationAllowed(result.id, incarnationId)
+    try {
+      runtime.assertPtyRegistrationAllowed(result.id, incarnationId)
+    } catch (error) {
+      runtime.releaseRejectedPtyRegistrationFence(result.id, incarnationId)
+      throw error
+    }
     const current = sessions.get(hostId)
     const bound = current.terminalLayoutsByTabId[tabId]?.ptyIdsByLeafId?.[leafId]
     const stamp = current.terminalPtyIncarnationsByPaneKey?.[paneKey]

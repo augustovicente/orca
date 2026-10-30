@@ -92,7 +92,8 @@ export type OwnedMobileTerminalCreateOptions = {
   resumeOrigin?: 'saved' | 'switch'
   spawnIntent?: SpawnIntent
   launchRuntime?: AgentLaunchRuntime
-  switchExecution?: AgentSessionSwitchAuthority
+  switchExecution?: AgentSessionSwitchAuthority &
+    Pick<NonNullable<MobileTerminalCreateOptions['switchExecution']>, 'viewerSelection'>
   signal?: AbortSignal
   refuseSleptWorktree?: boolean
   resumesSleepingRecord?: true

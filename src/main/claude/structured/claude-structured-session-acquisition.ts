@@ -202,6 +202,7 @@ export async function acquireClaudeSession({
         },
         {
           onMessage,
+          onPhysicalExit: input.onPhysicalExit,
           canUseTool,
           onUserDialog,
           onFault: (error) => {

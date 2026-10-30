@@ -10,7 +10,9 @@ import { registerTerminalUiRoutingIpcBridge } from '@/hooks/ipc-events/terminal-
 import { applyWebSessionTabsStorePatch } from './web-session-tabs-sync/store-patch'
 import {
   createWebSessionTabsSnapshotPatch,
-  applyWebSessionTabsSnapshot
+  applyWebSessionTabsSnapshot,
+  decideWebSessionTabsSnapshotOperations,
+  applyWebSessionTabsSnapshotOperations
 } from './web-session-tabs-sync/snapshot-api'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { useAppStore } from '@/store'
@@ -22,6 +24,8 @@ import { refreshWebRuntimeSessionTabsSnapshot } from './web-runtime-session-snap
 import { toWebTerminalSurfaceTabId } from '../../../shared/terminal-surface-id'
 import { makePaneKey } from '../../../shared/stable-pane-id'
 import { resetWebSessionTabsSnapshotFreshnessForTests } from './web-session-tabs-sync/tracking-lifecycle'
+import { countOpenPlacementWork } from './main-loaded-layout-frames.test-fixture'
+import { hostSessionTabIdsByLocalTabForWorktree } from './web-session-tabs-sync/tracking-mappings'
 
 const ENV = 'paired-placement',
   WT = 'repo::/repo'
@@ -207,6 +211,134 @@ it.each([{ pinned: false }, { pinned: true }])(
   }
 )
 
+it.each([10, 100])(
+  'indexes retained metadata once on an admitted unchanged snapshot replay (%i destinations)',
+  (count) => {
+    disposeViewerSelection()
+    useAppStore.setState(useAppStore.getInitialState(), true)
+    useAppStore.setState({
+      activeWorktreeId: WT,
+      activeView: 'terminal',
+      settings: createGlobalSettingsFixture({ activeRuntimeEnvironmentId: ENV })
+    })
+    const leafId = '10000000-0000-4000-8000-000000000001'
+    const terminal = (id: string) => ({
+      type: 'terminal' as const,
+      id: `${id}::${leafId}`,
+      parentTabId: id,
+      leafId,
+      title: id,
+      terminal: `term_${id}`,
+      isActive: false,
+      status: 'ready' as const
+    })
+    let snapshot: RuntimeMobileSessionTabsResult = {
+      worktree: WT,
+      publicationEpoch: 'metadata-replay',
+      snapshotVersion: 1,
+      activeGroupId: 'G',
+      activeTabId: 'C',
+      activeTabType: 'terminal',
+      tabs: [terminal('C')],
+      tabGroups: [{ id: 'G', activeTabId: 'C', tabOrder: ['C'] }]
+    }
+    const applyAdmitted = () => {
+      const operations = decideWebSessionTabsSnapshotOperations([{ environmentId: ENV, snapshot }])
+      expect(operations[0].decision.apply).toBe(true)
+      applyWebSessionTabsStorePatch(
+        (state, keys, offerOpenSelection) =>
+          applyWebSessionTabsSnapshotOperations(state, operations, keys, { offerOpenSelection }),
+        { frames: [] }
+      )()
+    }
+    applyAdmitted()
+    const groupId = useAppStore.getState().groupsByWorktree[WT][0].id
+    const deadline = agentSessionSwitchDeadline(Date.now)
+    let counter: ReturnType<typeof countOpenPlacementWork> | undefined
+    try {
+      const requests = Array.from({ length: count }, (_, i) => {
+        const request = beginViewerSelectionRequest(`retained-${i}`, deadline)
+        request.accept()
+        return request
+      })
+      snapshot = {
+        ...snapshot,
+        snapshotVersion: 2,
+        tabs: [
+          terminal('C'),
+          ...requests.map((request, i) => ({
+            ...terminal(`D-${i}`),
+            openPlacement: {
+              invocationId: `retained-${i}`,
+              generation: `generation-${i}`,
+              placement: { groupId, index: i + 1 },
+              activate: true,
+              viewerSelection: request.token,
+              source: {
+                worktreeId: WT,
+                tabId: `absent-source-${i}`,
+                leafId,
+                createdAt: 1,
+                generation: 0,
+                hasLeaf: true,
+                ptyId: `source-pty-${i}`,
+                incarnationId: null
+              }
+            }
+          }))
+        ],
+        tabGroups: [
+          { id: 'G', activeTabId: 'C', tabOrder: ['C', ...requests.map((_, i) => `D-${i}`)] }
+        ]
+      }
+      applyAdmitted()
+      expect(requests.map((request) => viewerSelectionOutcome(request.token))).toEqual([
+        ...Array.from({ length: count - 1 }, () => 'superseded'),
+        'fulfilled'
+      ])
+      const before = useAppStore.getState()
+      const order = before.groupsByWorktree[WT][0].tabOrder
+      const selected = before.activeTabIdByWorktree[WT]
+      const mappingCount = hostSessionTabIdsByLocalTabForWorktree(ENV, WT).size
+      expect(before.unifiedTabsByWorktree[WT]).toHaveLength(count + 1)
+      expect(before.tabsByWorktree[WT]).toHaveLength(count + 1)
+      expect(mappingCount).toBe(count + 1)
+      counter = countOpenPlacementWork()
+      // The host republishes unchanged inventory at a newer admitted version, after selection settled.
+      snapshot = { ...snapshot, snapshotVersion: 3 }
+      applyAdmitted()
+      expect(counter.visits).toEqual([{ pass: 'snapshot', worktreeId: WT, rows: count + 1 }])
+      expect(counter.reads).toEqual([
+        {
+          pass: 'snapshot',
+          worktreeId: WT,
+          tabRows: 2 * (count + 1),
+          terminalRows: count + 1,
+          snapshotRows: count + 1,
+          mappingCopies: mappingCount,
+          mappingRows: mappingCount,
+          sourceChecks: count,
+          viewerChecks: count,
+          destinationLookups: count
+        }
+      ])
+      expect(counter.fingerprints()).toBe(0)
+      const after = useAppStore.getState()
+      expect(after.groupsByWorktree[WT][0].tabOrder).toEqual(order)
+      expect(after.activeTabIdByWorktree[WT]).toBe(selected)
+      expect(after.tabsByWorktree[WT]).toHaveLength(count + 1)
+      expect(after.tabsByWorktree[WT].some((tab) => tab.id.startsWith('absent-source-'))).toBe(
+        false
+      )
+      expect(viewerSelectionOutcome(requests.at(-1)!.token)).toBe('fulfilled')
+    } finally {
+      counter?.stop()
+      deadline.dispose()
+      disposeViewerSelection()
+    }
+  }
+)
+
 it.each([
   {
     owner: 'local-structured-session',
@@ -248,6 +380,7 @@ it.each([
         snapshotVersion: 1,
         activeGroupId: 'G',
         activeTabId: source.id,
+        activeTabType: source.type,
         tabs: [source, terminal('B'), terminal('C')],
         tabGroups: [
           {

@@ -92,13 +92,17 @@ export function historyConversationSwitch(
 }
 
 function historyPaneSource(session: AiVaultSession, pane?: AiVaultOriginalPaneTarget | null) {
+  const agent = session.agent
+  if (!adoptsCliConversations(agent)) {
+    return null
+  }
   const location =
     pane ??
     collectAgentPaneConversations(useAppStore.getState(), adoptsCliConversations).find(
       (candidate) =>
         candidate.executionHostId === session.executionHostId &&
         candidate.providerSession.id === session.sessionId &&
-        cliConversationRowsShareAgent(candidate.agent, session.agent)
+        cliConversationRowsShareAgent(candidate.agent, agent)
     )
   if (!location) {
     return null
@@ -108,10 +112,9 @@ function historyPaneSource(session: AiVaultSession, pane?: AiVaultOriginalPaneTa
     paneKey: location.paneKey
   })
   return source &&
-    adoptsCliConversations(session.agent) &&
     source.executionHostId === session.executionHostId &&
     source.providerSessionId === session.sessionId &&
-    cliConversationRowsShareAgent(source.agent, session.agent)
+    cliConversationRowsShareAgent(source.agent, agent)
     ? source
     : null
 }

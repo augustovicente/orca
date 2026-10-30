@@ -254,9 +254,9 @@ describe('Windows shell fallback over node-pty ConPTY', () => {
     nodePty.spawn.mockReturnValueOnce(broken).mockImplementationOnce(() => {
       throw new Error('retry exported no handle')
     })
-    await expect(spawnNativeDaemonPty({ ...args, creationWork })).rejects.toThrow(
-      'retry exported no handle'
-    )
+    await expect(
+      spawnNativeDaemonPty({ ...args, windowsFallbackAttempts: attempts.slice(0, 1), creationWork })
+    ).rejects.toThrow('retry exported no handle')
     await creationWork.finish()
     const disposition = await creationWork.completion
     if (disposition.kind !== 'failed') {

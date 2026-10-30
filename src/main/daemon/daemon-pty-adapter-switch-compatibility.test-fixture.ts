@@ -35,14 +35,13 @@ export function registerDaemonSwitchCompatibilityTests(fixture: {
         expect(
           await fixture.adapter.spawn({ sessionId: 'legacy-ordinary', cols: 80, rows: 24 })
         ).toMatchObject({ id: 'legacy-ordinary' })
-        await expect(
-          fixture.adapter.spawn({
-            sessionId: 'switch-destination',
-            cols: 80,
-            rows: 24,
-            switchExecution: { invocationId: 'new-click', ...deadline }
-          })
-        ).resolves.toMatchObject({ id: 'switch-destination' })
+        const switched = await fixture.adapter.spawn({
+          sessionId: 'switch-destination',
+          cols: 80,
+          rows: 24,
+          switchExecution: { invocationId: 'new-click', ...deadline }
+        })
+        expect(switched).toMatchObject({ id: 'switch-destination' })
         expect(spawn).toHaveBeenCalledTimes(2)
         const creates = request.mock.calls.filter(([type]) => type === 'createOrAttach')
         if (protocolVersion < 55) {
@@ -55,7 +54,24 @@ export function registerDaemonSwitchCompatibilityTests(fixture: {
           expect(creates[1]?.[1]).toMatchObject({ switchExecution: { phase: 'prepare' } })
           expect(creates[2]?.[1]).toMatchObject({ switchExecution: { phase: 'commit' } })
         }
-        expect(request.mock.calls.some(([type]) => type === 'cancelCreateOrAttach')).toBe(false)
+        const releases = () =>
+          request.mock.calls.filter(([type]) => type === 'cancelCreateOrAttach')
+        if (protocolVersion < 55) {
+          expect(releases()).toEqual([])
+        } else {
+          await vi.waitFor(() => expect(releases()).toHaveLength(1))
+          expect(releases()[0]?.[1]).toEqual({
+            sessionId: 'switch-destination',
+            requestId: expect.any(String),
+            release: {
+              invocationId: 'new-click',
+              anchor: expect.any(String),
+              endpoint: fixture.adapter.getDaemonIdentity(),
+              outcome: 'adopted',
+              incarnationId: switched.incarnationId
+            }
+          })
+        }
       } finally {
         deadline.dispose()
         request.mockRestore()

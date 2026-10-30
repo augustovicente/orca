@@ -122,6 +122,7 @@ const SOURCE: CliChatResumeSource = {
 }
 const tabs = () => useAppStore.getState().unifiedTabsByWorktree['wt-1'] ?? []
 let main: TabsDrawnFromMain | undefined
+let snapshotVersion = 0
 afterEach(() => {
   vi.unstubAllGlobals()
   main?.close()
@@ -144,6 +145,7 @@ function refuse(reason: 'transcriptNotFound' | 'transcriptUnreadable'): AgentSes
 }
 
 beforeEach(async () => {
+  snapshotVersion = 0
   vi.clearAllMocks()
   resetLocalStructuredSessionVersionForTests()
   resetWebSessionTabsSnapshotFreshnessForTests()
@@ -171,7 +173,7 @@ function snapshot(sessionId?: string): RuntimeMobileSessionTabsResult {
   return {
     worktree: 'wt-1',
     publicationEpoch: 'publication-test',
-    snapshotVersion: Date.now(),
+    snapshotVersion: ++snapshotVersion,
     activeGroupId: null,
     activeTabId: null,
     activeTabType: null,
@@ -537,9 +539,7 @@ describe('CLI identity resume through the existing launch owner', () => {
       ).toEqual(expectedOrder)
       expect(useAppStore.getState().activeGroupIdByWorktree['wt-1']).toBe(other.groupId)
       useAppStore.getState().moveUnifiedTabToGroup(slotId, other.groupId)
-      applyStructuredSessionTabSnapshots([
-        { ...snapshot(sessionId), snapshotVersion: Date.now() + 1 }
-      ])
+      applyStructuredSessionTabSnapshots([snapshot(sessionId)])
       expect(tabs().find((tab) => tab.entityId === sessionId)?.groupId).toBe(other.groupId)
     }
   )

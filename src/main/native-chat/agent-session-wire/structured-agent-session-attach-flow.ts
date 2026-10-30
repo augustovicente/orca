@@ -96,6 +96,7 @@ export type AttachFlowInput = {
   eventSink?: StructuredAgentSessionEventSink
   /** Prevent acquisition-window events from reaching superseded journals. */
   onAcquiring?: () => Promise<void> | void
+  onPhysicalExit?: (exited: Promise<void>) => void
   /** Refuses the spawn while a terminal may still be writing the record's conversation. */
   assertNoTerminalWriter?: (record: AgentSessionRecord) => Promise<void>
   /** Settles writes already captured by the superseded journal before opening another. */

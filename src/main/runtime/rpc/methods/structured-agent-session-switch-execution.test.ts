@@ -25,6 +25,7 @@ import {
 } from '../../main-owned-workspace-runtime-fixture'
 import { executeStructuredSessionSwitch } from './structured-agent-session-switch-execution'
 import { DaemonRequestTimeoutError } from '../../../daemon/daemon-errors'
+import type { RuntimeMobileSessionTerminalTab } from '../../../../shared/runtime-mobile-session-tab-contracts'
 
 let rig: RestTestRig
 beforeEach(async () => {
@@ -62,11 +63,10 @@ async function savedTranscript() {
         payload: { type: 'task_started', turn_id: 'cli-turn' }
       },
       {
-        type: 'response_item',
+        type: 'event_msg',
         payload: {
-          type: 'message',
-          role: 'user',
-          content: [{ type: 'input_text', text: 'A terminal prompt' }]
+          type: 'user_message',
+          message: 'A terminal prompt'
         }
       },
       {
@@ -294,10 +294,11 @@ it.each([
     await rig.host.switchToChat(id)
     const stopping = Promise.withResolvers<void>()
     const stopped = Promise.withResolvers<void>()
-    rig.adapter.closeSession.mockImplementation(async () => {
+    const close = rig.adapter.closeSession.getMockImplementation()!
+    rig.adapter.closeSession.mockImplementation(async (...args) => {
       stopping.resolve()
       await stopped.promise
-      return true
+      return close(...args)
     })
     const spawn = vi
       .spyOn(runtime, 'createTerminal')
@@ -379,8 +380,10 @@ it.each([
     )
     if (viewerSelection) {
       expect(
-        snapshot.tabs.find((tab) => tab.type === 'terminal' && tab.ptyId === 'switch-destination')
-          ?.openPlacement
+        snapshot.tabs.find(
+          (tab): tab is RuntimeMobileSessionTerminalTab =>
+            tab.type === 'terminal' && tab.ptyId === 'switch-destination'
+        )?.openPlacement
       ).toMatchObject({
         activate: true,
         viewerSelection

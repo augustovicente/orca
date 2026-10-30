@@ -525,8 +525,7 @@ describe('adopting a conversation recorded outside Orca', () => {
         transcriptPath: file,
         source: {
           providerSessionId: '0198c2a4-7d1e-7c3a-9a4b-1f2e3d4c5b6a',
-          workspaceCwd: '/repos/workspace-1',
-          conversationStore: accountHome
+          workspaceCwd: '/repos/workspace-1'
         }
       })
 

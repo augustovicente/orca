@@ -42,8 +42,10 @@ import { openWorkspaceLayoutFrameSync } from './workspace-layout-frame-sync'
 import {
   layoutSnapshotFrame,
   mainLayoutFrameSender,
-  mainLoadedLayouts
+  mainLoadedLayouts,
+  countOpenPlacementWork
 } from './main-loaded-layout-frames.test-fixture'
+import * as frameFlushPlan from './workspace-layout-frame-flush-plan'
 import { installLayoutFrameApplyCheck } from './workspace-layout-frame-apply-check.test-fixture'
 
 vi.mock('sonner', () => ({ toast: { info: vi.fn(), success: vi.fn(), error: vi.fn() } }))
@@ -532,6 +534,148 @@ it.each([false, true])(
     } finally {
       deadline.dispose()
       sync.close()
+    }
+  }
+)
+
+it.each([10, 100])(
+  'bounds retained undrawn metadata discovery on an unrelated coalesced frame flush (%i destinations)',
+  async (count) => {
+    const visible = addWorkspace(emptySession(), GIT_KEY, [
+      { id: 'visible', tabs: [{ id: 'C', leaves: [[leaf(1), 'pty-C']] }] }
+    ])
+    const store = createTestStore()
+    await bootWindowFromPartitions(store, [{ hostId: 'local', session: visible }])
+    const session = structuredClone(visible)
+    const undrawnKeys = ['folder:undrawn-one', 'folder:undrawn-two']
+    for (const [workspaceIndex, key] of undrawnKeys.entries()) {
+      addWorkspace(session, key, [
+        {
+          id: `undrawn-${workspaceIndex}`,
+          tabs: Array.from(
+            { length: count / 2 },
+            (_, i): { id: string; leaves: [string, string][] } => {
+              const n = (workspaceIndex * count) / 2 + i
+              return {
+                id: `D-${n}`,
+                leaves: [
+                  [`10000000-0000-4000-8000-${String(n + 2).padStart(12, '0')}`, `pty-D-${n}`]
+                ]
+              }
+            }
+          )
+        }
+      ])
+    }
+    const layouts = mainLoadedLayouts('local', session)
+    const deadline = agentSessionSwitchDeadline(Date.now)
+    const sync = openWorkspaceLayoutFrameSync(store)
+    let counter: ReturnType<typeof countOpenPlacementWork> | undefined
+    let restorePlan: (() => void) | undefined
+    try {
+      const tokens: string[] = []
+      for (const key of undrawnKeys) {
+        for (const tab of layouts[key].tabs) {
+          const request = beginViewerSelectionRequest(`cached-${tab.id}`, deadline)
+          request.accept()
+          tokens.push(request.token)
+          tab.openPlacement = {
+            invocationId: `cached-${tab.id}`,
+            generation: `generation-${tab.id}`,
+            placement: { groupId: layouts[key].groups[0].id, index: 0 },
+            activate: true,
+            viewerSelection: request.token,
+            source: {
+              worktreeId: key,
+              tabId: `absent-source-${tab.id}`,
+              leafId: leaf(1),
+              createdAt: 1,
+              generation: 0,
+              hasLeaf: true,
+              ptyId: `source-pty-${tab.id}`,
+              incarnationId: null
+            }
+          }
+        }
+      }
+      const visibleRequest = beginViewerSelectionRequest('visible-choice', deadline)
+      visibleRequest.accept()
+      // An unchanged startup patch is discarded before the selection writer; publish a real change.
+      layouts[GIT_KEY].tabs[0].customTitle = 'initial publication'
+      layouts[GIT_KEY].tabs[0].openPlacement = {
+        invocationId: 'visible-choice',
+        generation: 'visible-generation',
+        placement: { groupId: 'visible', index: 0 },
+        activate: true,
+        viewerSelection: visibleRequest.token
+      }
+      const frames = mainLayoutFrameSender()
+      stream.onFrame!(frames.snapshot(layouts))
+      sync.start()
+      await flushMicrotasks()
+      expect(viewerSelectionOutcome(visibleRequest.token)).toBe('fulfilled')
+      expect(tokens.map(viewerSelectionOutcome)).toEqual(
+        Array.from({ length: count }, () => 'superseded')
+      )
+      for (const key of undrawnKeys) {
+        expect(store.getState().unifiedTabsByWorktree[key]).toBeUndefined()
+        expect(store.getState().tabsByWorktree[key]).toBeUndefined()
+      }
+      counter = countOpenPlacementWork()
+      const plan = vi.spyOn(frameFlushPlan, 'planLayoutFrameFlush')
+      restorePlan = () => plan.mockRestore()
+      const changed = structuredClone(layouts[GIT_KEY])
+      changed.tabs[0].customTitle = 'first update'
+      stream.onFrame!(frames.records(GIT_KEY, changed))
+      changed.tabs[0].customTitle = 'second update'
+      stream.onFrame!(frames.records(GIT_KEY, changed))
+      await flushMicrotasks()
+      expect(plan).toHaveBeenCalledTimes(1)
+      expect(plan.mock.results[0].value).toMatchObject({ fullBuilt: [], workspaceBuilt: [GIT_KEY] })
+      expect(counter.builtKeys).toEqual([[GIT_KEY]])
+      expect(counter.visits).toEqual([
+        ...undrawnKeys.map((worktreeId) => ({ pass: 'discovery', worktreeId, rows: count / 2 })),
+        { pass: 'writer', worktreeId: GIT_KEY, rows: 2 }
+      ])
+      expect(counter.reads).toEqual([
+        ...undrawnKeys.map((worktreeId) => ({
+          pass: 'discovery',
+          worktreeId,
+          tabRows: 0,
+          terminalRows: 0,
+          snapshotRows: 0,
+          mappingCopies: 0,
+          mappingRows: 0,
+          sourceChecks: 0,
+          viewerChecks: count / 2,
+          destinationLookups: 0
+        })),
+        {
+          pass: 'writer',
+          worktreeId: GIT_KEY,
+          tabRows: 2,
+          terminalRows: 1,
+          snapshotRows: 0,
+          mappingCopies: 0,
+          mappingRows: 0,
+          sourceChecks: 0,
+          viewerChecks: 1,
+          destinationLookups: 0
+        }
+      ])
+      expect(counter.fingerprints()).toBe(0)
+      expect(store.getState().groupsByWorktree[GIT_KEY][0].activeTabId).toBe('C')
+      expect(store.getState().tabsByWorktree[GIT_KEY][0].customTitle).toBe('second update')
+      for (const key of undrawnKeys) {
+        expect(store.getState().unifiedTabsByWorktree[key]).toBeUndefined()
+        expect(store.getState().tabsByWorktree[key]).toBeUndefined()
+      }
+      expect(viewerSelectionOutcome(visibleRequest.token)).toBe('fulfilled')
+    } finally {
+      restorePlan?.()
+      counter?.stop()
+      sync.close()
+      deadline.dispose()
     }
   }
 )

@@ -75,9 +75,10 @@ it.each([false, true])(
     db.markWorkerDispatchReady(dispatch.id)
     const entered = Promise.withResolvers<void>()
     const exit = Promise.withResolvers<boolean>()
-    rig.adapter.closeSession.mockImplementation(async () => {
+    const close = rig.adapter.closeSession.getMockImplementation()!
+    rig.adapter.closeSession.mockImplementation(async (...args) => {
       entered.resolve()
-      return exit.promise
+      return (await exit.promise) ? close(...args) : false
     })
     const stopping = rig.host.stopForSwitch(id, caller, deadline)
     const observed = stopping.then(

@@ -61,7 +61,7 @@ it('streams a valid source past 128 MiB, retaining recent bounded history and cl
         payload: {
           type: 'message',
           role: 'assistant',
-          content: [{ type: 'output_text', text: 'recent answer' }]
+          content: [{ type: 'text', text: 'recent answer' }]
         }
       })}\n`
     )

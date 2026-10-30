@@ -17,11 +17,13 @@ import type { AgentSessionSwitchDeadline } from '../../../shared/agent-session-s
 import type { StructuredAgentSessionHost } from './structured-agent-session-host'
 import type { StructuredAgentSessionConversationLifetimeHost } from './structured-agent-session-conversation-lifetime-host'
 import type { StructuredAgentSessionConversationLifetime } from './structured-agent-session-conversation-lifetime'
+import type { StructuredAgentSessionStartFlights } from './structured-agent-session-start-flight'
 type SwitchSourceContext = Pick<
   StructuredAgentSessionHost,
-  'deps' | 'cancel' | 'switchGeneration'
+  'deps' | 'cancel' | 'switchGeneration' | 'guardSwitchWork'
 > & {
   now: () => number
+  startFlights: Pick<StructuredAgentSessionStartFlights, 'physicalExit'>
   lifetime: Pick<StructuredAgentSessionConversationLifetime, 'conversation' | 'stopAgent'>
   sessions: StructuredAgentSessionConversationLifetimeHost['sessions']
   serialize: StructuredAgentSessionConversationLifetimeHost['serialize']
@@ -55,6 +57,12 @@ export function structuredAgentSessionSwitchSource(context: SwitchSourceContext)
       let admitted = context.deps.store.admittedSendCount(sessionId)
       let accepted = false
       const command = context.switchGeneration(sessionId)
+      const workCurrent = () =>
+        !deadline.signal.aborted &&
+        deadline.remaining() > 0 &&
+        context.deps.store.admittedSendCount(sessionId) === admitted &&
+        context.switchGeneration(sessionId) === command
+      context.guardSwitchWork(sessionId, workCurrent)
       const record = context.deps.store.getRecord(sessionId)
       if (!record) {
         throw agentSessionRefusalError('agent_session_identity_required', {
@@ -93,10 +101,12 @@ export function structuredAgentSessionSwitchSource(context: SwitchSourceContext)
         if (!answer.ok) {
           throw new AgentSessionRefusalError(answer.refusal)
         }
-        await context.serialize(sessionId, async () => {
+        const source = await context.serialize(sessionId, async () => {
+          deadline.check()
           const current = context.sessions.get(sessionId)?.child
           if (
             context.deps.store.admittedSendCount(sessionId) !== admitted ||
+            context.switchGeneration(sessionId) !== command ||
             (current && current !== child)
           ) {
             throw agentSessionRefusalError('agent_session_operation_invalid', {
@@ -127,8 +137,41 @@ export function structuredAgentSessionSwitchSource(context: SwitchSourceContext)
               reason: 'ownerUnproven'
             })
           }
+          const physical = context.startFlights.physicalExit(
+            sessionId,
+            lease.deathEvidence?.kind === 'kill-delivered'
+          )
+          return { physical }
         })
+        // Source completion cannot occupy the serializer or the destination-work barrier.
+        for (;;) {
+          await deadline.wait(source.physical.wait())
+          const complete = await context.serialize(sessionId, async () => {
+            deadline.check()
+            const current = context.sessions.get(sessionId)?.child
+            if (
+              context.deps.store.admittedSendCount(sessionId) !== admitted ||
+              context.switchGeneration(sessionId) !== command ||
+              (current && current !== child)
+            ) {
+              throw agentSessionRefusalError('agent_session_operation_invalid', {
+                reason: 'messagesUnsettled'
+              })
+            }
+            const lease = context.deps.store.getRecord(sessionId)?.lease
+            if (!lease || agentSessionLeasePossiblyWriting(lease)) {
+              throw agentSessionRefusalError('agent_session_ownership_unknown', {
+                reason: 'ownerUnproven'
+              })
+            }
+            return source.physical.current()
+          })
+          if (complete) {
+            break
+          }
+        }
         proven = true
+        return () => workCurrent() && source.physical.current()
       } finally {
         try {
           settleWorker?.(proven)
@@ -140,12 +183,6 @@ export function structuredAgentSessionSwitchSource(context: SwitchSourceContext)
           })
         }
       }
-
-      return () =>
-        !deadline.signal.aborted &&
-        deadline.remaining() > 0 &&
-        context.deps.store.admittedSendCount(sessionId) === admitted &&
-        context.switchGeneration(sessionId) === command
     },
     refreshSwitchTranscript: async (
       sessionId: string,

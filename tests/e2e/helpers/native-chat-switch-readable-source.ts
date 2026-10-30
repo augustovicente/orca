@@ -32,11 +32,10 @@ export async function prepareReadableSwitchSource(rig: RestTestRig, workspaceId:
       { type: 'session_meta', payload: { id: nativeId } },
       { type: 'event_msg', payload: { type: 'task_started', turn_id: 'terminal-turn' } },
       {
-        type: 'response_item',
+        type: 'event_msg',
         payload: {
-          type: 'message',
-          role: 'assistant',
-          content: [{ type: 'output_text', text: 'Readable before Codex is ready' }]
+          type: 'agent_message',
+          message: 'Readable before Codex is ready'
         }
       },
       { type: 'event_msg', payload: { type: 'task_complete', turn_id: 'terminal-turn' } }
