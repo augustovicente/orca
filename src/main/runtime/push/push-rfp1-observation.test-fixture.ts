@@ -1,6 +1,5 @@
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, mkdirSync, renameSync, rmdirSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { createHash } from 'node:crypto'
 import { deriveRelayHostId } from '../mobile-cloud-relay/relay-http-client'
@@ -80,11 +79,13 @@ function redacted(value: unknown): unknown {
 }
 
 export async function runRfp1Observation() {
-  const scratch = mkdtempSync(join(tmpdir(), 'pr35901-rfp1-'))
   const captureRoot = resolve(
     process.env.ORCA_PUSH_OWNER_CAPTURE_DIR ?? 'test-results/pr35901-rfp1'
   )
   mkdirSync(captureRoot, { recursive: true })
+  const cacheRoot = resolve(import.meta.dirname, '../../../../tests/e2e/.cross-version-checkouts')
+  mkdirSync(cacheRoot, { recursive: true })
+  const scratch = mkdtempSync(join(cacheRoot, 'pr35901-rfp1-'))
   const native = observationNativePorts(scratch)
   const bridge = createOwnerBridge()
   let base = ''
