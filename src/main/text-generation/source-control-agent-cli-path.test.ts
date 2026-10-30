@@ -1,12 +1,36 @@
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync
+} from 'node:fs'
+import * as fs from 'node:fs'
+import type * as NodeFs from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { runProcess } from '@orca/process-host'
+import { setSpawnObserver } from '@orca/process-host/spawn-observer'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { resolveCliCommandAsync } from '../../shared/node-cli-command-async-resolution'
 import { resolveCliCommand, resolveCliCommands } from '../../shared/node-cli-command-resolution'
-import { createProviderSpawnSpec } from '../provider-process/provider-process-supervisor'
+import {
+  createProviderSpawnSpec,
+  POSIX_PROVIDER_SUPERVISOR_SCRIPT
+} from '../provider-process/provider-process-supervisor'
 import { generateConversationNameFromContext } from './commit-message-text-generation'
+
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof NodeFs>()
+  return {
+    ...actual,
+    statSync: vi.fn(actual.statSync),
+    readdirSync: vi.fn(actual.readdirSync)
+  }
+})
 
 let root: string
 beforeEach(() => {
@@ -14,6 +38,7 @@ beforeEach(() => {
   vi.stubEnv('HOME', root)
 })
 afterEach(() => {
+  setSpawnObserver(null)
   vi.unstubAllEnvs()
   rmSync(root, { recursive: true, force: true })
 })
@@ -65,11 +90,19 @@ describe.skipIf(process.platform === 'win32')('installed one-shot naming CLI', (
     }
   )
 
-  it.each(['codex', 'claude'] as const)(
-    'names a chat with %s installed only under nvm, using its sibling Node',
-    async (agentId) => {
-      const bin = join(root, '.nvm', 'versions', 'node', 'v20.1.0', 'bin')
-      mkdirSync(bin, { recursive: true })
+  it.each([
+    { agentId: 'codex', versions: 10 },
+    { agentId: 'codex', versions: 100 },
+    { agentId: 'claude', versions: 10 },
+    { agentId: 'claude', versions: 100 }
+  ] as const)(
+    'names a chat with $agentId at the last of $versions nvm versions in linear probes',
+    async ({ agentId, versions }) => {
+      const inventory = join(root, '.nvm', 'versions', 'node')
+      for (let version = 1; version <= versions; version++) {
+        mkdirSync(join(inventory, `v20.${version}.0`, 'bin'), { recursive: true })
+      }
+      const bin = join(inventory, 'v20.1.0', 'bin')
       symlinkSync(process.execPath, join(bin, 'node'))
       const program = join(bin, agentId)
       writeFileSync(
@@ -82,25 +115,83 @@ process.stdin.on('end', () => console.log('Fix login flow'))
 `
       )
       chmodSync(program, 0o755)
-      const result = await generateConversationNameFromContext(
-        { firstPrompt: 'Fix login' },
-        { agentId, model: agentId === 'codex' ? 'gpt-5.5' : 'sonnet' },
-        {
-          kind: 'local',
-          cwd: root,
-          env: {
-            ...process.env,
-            PATH: '/usr/bin:/bin',
-            CODEX_HOME: join(root, '.codex'),
-            CLAUDE_CONFIG_DIR: join(root, '.claude')
+      const request = async (pathEnv = '/usr/bin:/bin', literal?: string) => {
+        const stats = vi.mocked(fs.statSync).mockClear()
+        const directories = vi.mocked(fs.readdirSync).mockClear()
+        // Snapshot real resolver operations at the supervisor admission, before its CLI answers.
+        const spawn = vi.fn((command: string, args: readonly string[]) => ({
+          command,
+          args,
+          enumerations: directories.mock.calls.filter(([path]) => String(path) === inventory)
+            .length,
+          entries: directories.mock.results.reduce(
+            (count, result, index) =>
+              count +
+              (String(directories.mock.calls[index][0]) === inventory && result.type === 'return'
+                ? result.value.length
+                : 0),
+            0
+          ),
+          candidates: stats.mock.calls.filter(([path]) => String(path).endsWith(`/${agentId}`))
+            .length,
+          nvmCandidates: stats.mock.calls.filter(
+            ([path]) =>
+              String(path).startsWith(`${inventory}/`) && String(path).endsWith(`/${agentId}`)
+          ).length,
+          aliasReads: stats.mock.calls.filter(([path]) =>
+            String(path).startsWith(`${join(root, '.nvm', 'alias')}/`)
+          ).length
+        }))
+        setSpawnObserver((command, args) => {
+          if (args[1] === POSIX_PROVIDER_SUPERVISOR_SCRIPT) {
+            spawn(command, args)
           }
-        }
-      )
-      expect(result).toEqual({
-        success: true,
-        name: 'Fix login flow',
-        agentLabel: agentId === 'codex' ? 'Codex' : 'Claude'
-      })
+        })
+        const result = await generateConversationNameFromContext(
+          { firstPrompt: 'Fix login' },
+          literal
+            ? { agentId: 'custom', model: '', customAgentCommand: `"${literal}"` }
+            : { agentId, model: agentId === 'codex' ? 'gpt-5.5' : 'sonnet' },
+          {
+            kind: 'local',
+            cwd: root,
+            env: {
+              ...process.env,
+              PATH: pathEnv,
+              CODEX_HOME: join(root, '.codex'),
+              CLAUDE_CONFIG_DIR: join(root, '.claude')
+            }
+          }
+        )
+        expect(result).toMatchObject({ success: true, name: 'Fix login flow' })
+        expect(spawn).toHaveBeenCalledTimes(1)
+        const admission = spawn.mock.results[0].value
+        expect(admission.command).toBe(process.execPath)
+        return admission
+      }
+      const scan = await request()
+      expect(scan.args).toContain(program)
+      expect(scan.enumerations).toBe(1)
+      expect(scan.entries).toBe(versions)
+      expect(scan.nvmCandidates).toBe(versions)
+      expect(scan.candidates).toBeLessThanOrEqual(2 + versions + 16)
+      expect(scan.aliasReads).toBeLessThanOrEqual(11)
+
+      if (agentId === 'codex' && versions === 10) {
+        expect(await request(`${bin}:/usr/bin:/bin`)).toMatchObject({ enumerations: 0, entries: 0 })
+        expect(await request('/usr/bin:/bin', program)).toMatchObject({
+          enumerations: 0,
+          entries: 0,
+          candidates: 0,
+          aliasReads: 0
+        })
+        const newer = join(inventory, 'v20.10.0', 'bin', agentId)
+        copyFileSync(program, newer)
+        symlinkSync(process.execPath, join(inventory, 'v20.10.0', 'bin', 'node'))
+        expect((await request()).args).toContain(newer)
+        unlinkSync(newer)
+        expect((await request()).args).toContain(program)
+      }
     }
   )
 })
