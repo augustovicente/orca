@@ -30,6 +30,15 @@ export function describeLaunchedAgentHost(
   return { remote, windows, shellAloneProvable: windows && !remote && pty?.isWsl === false }
 }
 
+/** Unverifiable reasons that still saw an agent row in the pane's foreground group. Anything else (an unreadable
+ * table, a missing anchor, another terminal such as `sudo -i`'s pty, withheld argv, a reason this build does not know)
+ * proves nothing, so a cached name cannot fill the gap. */
+const NAME_COMPLETES_EVIDENCE: ReadonlySet<string> = new Set([
+  'ambiguous_foreground_group',
+  'multiplexer_boundary',
+  'candidate_start_time_missing'
+])
+
 function isLaunchShell(processName: string): boolean {
   return isShellProcess(processName.replace(/^-/, ''))
 }
@@ -70,10 +79,13 @@ export async function readLaunchedAgentForeground(
     }
     const askedAt = Date.now()
     const evidence = (await controller.inspectProcess?.(ptyId))?.foregroundProcessEvidence
+    const fresh =
+      evidence !== undefined &&
+      Date.now() - evidence.capturedAgeMs >= askedAt - PROCESS_TABLE_SNAPSHOT_MAX_STALENESS_MS
     if (
-      evidence?.verdict === 'live' &&
+      fresh &&
+      evidence.verdict === 'live' &&
       evidence.fence.platform === 'posix' &&
-      Date.now() - evidence.capturedAgeMs >= askedAt - PROCESS_TABLE_SNAPSHOT_MAX_STALENESS_MS &&
       evidence.processName &&
       isLaunchedAgent(evidence.processName, agent)
     ) {
@@ -89,12 +101,17 @@ export async function readLaunchedAgentForeground(
     ) {
       return 'shell'
     }
-    // The name may be the tracker's display cache, so it cannot overrule evidence that saw the group (stale, or no
-    // agent in it) or a withheld argv (a root `su` shell). Structural refusals (two agent rows, tmux) keep the name.
-    const declined =
-      evidence?.verdict === 'live' ||
-      (evidence?.verdict === 'unverifiable' && evidence.reason === 'argv_unreadable')
-    return declined ? 'unknown' : 'agent'
+    // Relays that send no evidence (older versions) keep the name; it may be the tracker's display cache.
+    if (!evidence) {
+      return 'agent'
+    }
+    // Otherwise the name only completes fresh evidence that saw an agent row but could not fence it alone.
+    return fresh &&
+      evidence.verdict === 'unverifiable' &&
+      NAME_COMPLETES_EVIDENCE.has(evidence.reason) &&
+      isLaunchedAgent(foreground, agent)
+      ? 'agent'
+      : 'unknown'
   } catch {
     return 'unknown'
   }

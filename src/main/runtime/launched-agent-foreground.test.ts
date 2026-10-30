@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { RemoteForegroundEvidence } from '../../shared/foreground-process-evidence'
 import type { ProcessTableRow } from '../../shared/process-table-snapshot'
 import type * as TerminalForegroundGroup from './terminal-foreground-group'
+import { resolveRemoteForegroundEvidence } from '../providers/agent-foreground-process-batch'
 import { readLaunchedAgentForeground } from './launched-agent-foreground'
 
 const paneTerminal = vi.hoisted(() => {
@@ -87,31 +88,86 @@ describe('the relay’s foreground group as proof of a launched agent', () => {
     }
   }
 
+  // A cached name completes only fresh evidence that saw an agent row; it never fills an observation gap.
   it.each([
-    // npm Codex (`node …/codex.js` spawning native `codex`) and Gemini relaunching itself both put two agent rows in the group.
-    ['ambiguous_foreground_group', 'codex'],
-    ['multiplexer_boundary', 'codex']
-  ] as const)('keeps the relay’s agent name when the group is %s', async (reason, name) => {
-    const controller = {
-      ...controllerAnswering(async () => unverifiable(reason)),
-      getForegroundProcess: async () => name
+    ['ambiguous_foreground_group', 0, 'codex', 'codex', 'agent'],
+    ['multiplexer_boundary', 0, 'claude', 'claude', 'agent'],
+    ['candidate_start_time_missing', 0, 'claude', 'claude', 'agent'],
+    ['ambiguous_foreground_group', 1_500, 'codex', 'codex', 'unknown'],
+    // Another agent's name never completes the launched one's evidence.
+    ['multiplexer_boundary', 0, 'codex', 'claude', 'unknown'],
+    // ps failed (EAGAIN) after the tracker cached `claude` and the foreground became bash.
+    ['process_table_unreadable', 0, 'claude', 'claude', 'unknown'],
+    ['anchor_missing', 0, 'claude', 'claude', 'unknown'],
+    // `sudo -i` with use_pty: the root shell is on a new pty.
+    ['tty_boundary', 0, 'sudo', 'claude', 'unknown'],
+    ['fence_incomplete', 0, 'claude', 'claude', 'unknown'],
+    ['argv_unreadable', 0, 'claude', 'claude', 'unknown'],
+    ['a_reason_this_build_does_not_know', 0, 'claude', 'claude', 'unknown']
+  ] as const)(
+    '%s evidence %ims old with the relay name %s, launching %s: %s',
+    async (reason, capturedAgeMs, name, agent, found) => {
+      const controller = {
+        ...controllerAnswering(async () => ({ ...unverifiable(reason), capturedAgeMs })),
+        getForegroundProcess: async () => name
+      }
+
+      await expect(
+        readLaunchedAgentForeground(controller, POSIX_SSH, 'pty-1', agent)
+      ).resolves.toBe(found)
     }
+  )
 
-    await expect(readLaunchedAgentForeground(controller, POSIX_SSH, 'pty-1', name)).resolves.toBe(
-      'agent'
-    )
-  })
+  it.each([
+    [
+      'npm Codex',
+      'codex',
+      ['node /usr/local/bin/codex', '/usr/local/lib/node_modules/@openai/codex/bin/codex']
+    ],
+    [
+      'Gemini relaunching itself',
+      'gemini',
+      ['node /usr/local/bin/gemini', 'node --max-old-space-size=8192 /usr/local/bin/gemini']
+    ]
+  ] as const)(
+    'proves %s from the relay’s two rows of one agent, even when the relay’s name is node',
+    async (_label, agent, commands) => {
+      const row = (pid: number, ppid: number, command: string): ProcessTableRow => ({
+        pid,
+        ppid,
+        pgid: 40210,
+        tpgid: 40210,
+        stat: 'S+',
+        tty: 'pts/7',
+        startTime: `start-${pid}`,
+        command
+      })
+      const evidence = resolveRemoteForegroundEvidence(
+        { rootPid: 40100, fallbackProcess: 'zsh' },
+        {
+          ptyId: 'pty-1',
+          ptyIncarnationId: 'inc-1',
+          authorityGeneration: 'gen-1',
+          observationEpoch: 1,
+          capturedAgeMs: 0,
+          platform: 'linux'
+        },
+        [
+          { ...row(40100, 1, '-zsh'), pgid: 40100, stat: 'Ss' },
+          row(40210, 40100, commands[0]),
+          row(40211, 40210, commands[1])
+        ]
+      )
+      const controller = {
+        ...controllerAnswering(async () => evidence),
+        getForegroundProcess: async () => 'node'
+      }
 
-  it('refuses a withheld foreground argv, which could be a root shell, whatever the cached name', async () => {
-    const controller = {
-      ...controllerAnswering(async () => unverifiable('argv_unreadable')),
-      getForegroundProcess: async () => 'claude'
+      await expect(
+        readLaunchedAgentForeground(controller, POSIX_SSH, 'pty-1', agent)
+      ).resolves.toBe('agent')
     }
-
-    await expect(
-      readLaunchedAgentForeground(controller, POSIX_SSH, 'pty-1', 'claude')
-    ).resolves.toBe('unknown')
-  })
+  )
 
   it('refuses a stale capture without letting the cached display name restore authority', async () => {
     // zsh → su → root bash → Claude: the tracker cached `claude` just before Claude exited to the root bash.
