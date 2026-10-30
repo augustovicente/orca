@@ -18,7 +18,8 @@ import { projectJournalBatch } from './agent-session-journal-batch'
 import { readQueuePublication } from './structured-agent-session-queued-publication'
 import { CLIENT_HISTORY_READER } from './agent-session-item-wire-form'
 import { StructuredAgentSessionCurrentWork } from './structured-agent-session-current-work'
-import { liveTestJournalRows } from '../agent-session-journal/journal-host-database-test-support'
+import { readCurrentRequestsPiece } from './agent-session-current-requests'
+import { isAdmissibleAgentJournalRenderItem } from '../../../shared/agent-session-journal-schemas'
 import Database from '../../sqlite/sync-database'
 import {
   AGENT_SESSION_JOURNAL_SCHEMA_VERSION,
@@ -31,6 +32,7 @@ import {
   createTrackedJournalOpener,
   openTestJournalHostDatabase,
   insertTestJournalRow,
+  liveTestJournalRows,
   publishTestJournalEpoch,
   deleteTestJournalRow,
   updateTestJournalRowJson
@@ -245,7 +247,21 @@ it.each([
       })
     }
     const expected = Array.from({ length: 16 }, (_, sequence) => projection(sequence))
+    const originalJournal = scenario.journal
     const original = scenario.journal.snapshot()
+    const promptInventory = original.items.filter(
+      (item) =>
+        (item.body.kind === 'approval' || item.body.kind === 'question') &&
+        item.body.resolution.state === 'pending'
+    )
+    expect(promptInventory).toHaveLength(1)
+    const originalRequests = new StructuredAgentSessionCurrentWork(
+      originalJournal,
+      1,
+      0
+    ).requestProjection(COMPACTION_IDENTITY.sessionId)
+    const originalMarker = structuredClone(originalRequests.marker)
+    expect(originalRequests.items).toEqual(promptInventory)
     const runSubscriber = (sequence: number) => {
       const events: AgentSessionSubscribeEvent[] = []
       const subscribers = new AgentSessionSubscribers({
@@ -288,6 +304,13 @@ it.each([
       return { events, state }
     }
     const baseline = Array.from({ length: 16 }, (_, sequence) => runSubscriber(sequence).state)
+    if (capabilities.readsCurrentRequests) {
+      for (const state of baseline) {
+        expect(state.requestMarker).toEqual(originalMarker)
+        expect(state.currentRequests).toEqual([])
+        expect(state.requestAuthority).toBeUndefined()
+      }
+    }
     const tailBefore = readAgentSessionHistory(scenario.journal, {
       sessionId: COMPACTION_IDENTITY.sessionId,
       direction: 'tail',
@@ -306,16 +329,93 @@ it.each([
       )
     ).toEqual(COMPACTION_RETAINED_SEQUENCES)
     expect(scenario.journal.snapshot()).toEqual(original)
+    expect(scenario.journal).not.toBe(originalJournal)
+    const reopenedRequests = new StructuredAgentSessionCurrentWork(
+      scenario.journal,
+      1,
+      0
+    ).requestProjection(COMPACTION_IDENTITY.sessionId)
+    const reopenedMarker = structuredClone(reopenedRequests.marker)
+    expect(reopenedMarker).toEqual({
+      contract: originalMarker.contract,
+      sessionId: originalMarker.sessionId,
+      epoch: originalMarker.epoch,
+      publisher: reopenedMarker.publisher,
+      revision: 1,
+      owner: `${reopenedMarker.publisher}:1`,
+      version: reopenedMarker.version
+    })
+    expect(reopenedMarker.publisher).not.toBe('')
+    expect(reopenedMarker.version).not.toBe('')
+    expect(reopenedMarker.publisher).not.toBe(originalMarker.publisher)
+    expect(reopenedMarker.owner).not.toBe(originalMarker.owner)
+    expect(reopenedMarker.version).not.toBe(originalMarker.version)
+    expect(reopenedRequests.items).toEqual(promptInventory)
+    const repeatedRequests = new StructuredAgentSessionCurrentWork(
+      scenario.journal,
+      1,
+      0
+    ).requestProjection(COMPACTION_IDENTITY.sessionId)
+    expect(repeatedRequests).toBe(reopenedRequests)
+    expect(repeatedRequests.marker).toEqual(reopenedMarker)
     for (let sequence = 0; sequence <= 15; sequence++) {
       expect(projection(sequence)).toEqual(expected[sequence])
       const delivered = runSubscriber(sequence)
-      expect(delivered.state).toEqual(baseline[sequence])
+      expect(delivered.state).toEqual(
+        capabilities.readsCurrentRequests
+          ? { ...baseline[sequence], requestMarker: reopenedMarker }
+          : baseline[sequence]
+      )
       expect(delivered.state.cursor).toEqual(original.cursor)
       expect(delivered.state.items).toEqual(original.items)
       expect(delivered.state.items.some((item) => item.itemId === 'removed')).toBe(false)
       expect(delivered.state.actionablePromptIds).toEqual(['prompt'])
       expect(delivered.state.working).toBe(true)
       expect(delivered.state.queuedMessages?.map((card) => card.messageId)).toEqual(['draft'])
+      if (capabilities.readsCurrentRequests && sequence === 0) {
+        expect(
+          readCurrentRequestsPiece(reopenedRequests, {
+            sessionId: COMPACTION_IDENTITY.sessionId,
+            version: originalMarker.version,
+            cursor: 0
+          })
+        ).toEqual({ marker: reopenedMarker, json: '', nextCursor: 0, restart: true })
+        const piece = readCurrentRequestsPiece(reopenedRequests, {
+          sessionId: COMPACTION_IDENTITY.sessionId,
+          version: reopenedMarker.version,
+          cursor: 0
+        })
+        expect(piece).toEqual({
+          marker: reopenedMarker,
+          json: JSON.stringify(promptInventory),
+          nextCursor: null
+        })
+        const items: unknown = JSON.parse(piece.json)
+        if (!Array.isArray(items) || !items.every(isAdmissibleAgentJournalRenderItem)) {
+          throw new Error('expected complete current-request inventory')
+        }
+        const staleCompletion = reduceStructuredAgentSession(
+          delivered.state,
+          {
+            type: 'requests-complete',
+            marker: originalMarker,
+            items: originalRequests.items
+          },
+          0
+        )
+        expect(staleCompletion).toEqual(delivered.state)
+        expect(
+          reduceStructuredAgentSession(
+            staleCompletion,
+            { type: 'requests-complete', marker: piece.marker, items },
+            0
+          )
+        ).toEqual({
+          ...delivered.state,
+          currentRequests: promptInventory,
+          requestAuthority: reopenedMarker
+        })
+      }
       let cursor = { epoch: scenario.journal.epoch, sequence }
       for (let pageCount = 0; pageCount < 16; pageCount++) {
         const result = readAgentSessionHistory(scenario.journal, {
@@ -449,6 +549,12 @@ it.each([
       const fallback = runSubscriber(7)
       expect(fallback.events[0]?.type).toBe('snapshot')
       expect(fallback.events.some((event) => event.type === 'reset')).toBe(false)
+      expect(fallback.state.requestMarker).toEqual(reopenedMarker)
+      expect(
+        new StructuredAgentSessionCurrentWork(scenario.journal, 1, 0).requestProjection(
+          COMPACTION_IDENTITY.sessionId
+        )
+      ).toBe(reopenedRequests)
       const current = scenario.journal.snapshot()
       expect(fallback.state.items).toEqual(current.items)
       expect(fallback.state.submissions).toEqual(current.submissions)
