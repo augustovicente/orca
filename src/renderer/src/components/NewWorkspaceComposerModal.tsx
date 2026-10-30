@@ -217,11 +217,7 @@ function QuickTabBody({
     quickAgentPick.agent === quickAgent && quickAgentPick.contextKey === observation.contextKey
       ? quickAgentPick.draft
       : undefined
-  const quickAgentSurface =
-    quickAgentPick.agent === quickAgent &&
-    (!quickAgentPick.contextKey || quickAgentPick.contextKey === observation.contextKey)
-      ? quickAgentPick.surface
-      : undefined
+  const quickAgentSurface = quickAgentPick.agent === quickAgent ? quickAgentPick.surface : undefined
   const launchSelection = observation.selectionFor(quickAgent, quickAgentSurface)
   const createDisabled = formDisabled || !launchSelection.ready
 
