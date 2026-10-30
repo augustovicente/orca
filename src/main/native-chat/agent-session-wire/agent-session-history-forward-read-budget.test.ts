@@ -5,7 +5,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { openCompactionConsumerJournal } from '../agent-session-journal/journal-compaction-consumers.test-support'
 import {
   COMPACTION_IDENTITY,
+  COMPACTION_ROWS,
   COMPACTION_RETAINED_SEQUENCES,
+  admitCompactionRow,
   compactionTransportCorpus
 } from '../../../shared/journal-compaction-frames.test-fixture'
 import {
@@ -219,6 +221,14 @@ it.each([
 ])(
   'delivers an actually retired/reopened journal through old/new client capabilities: %j',
   async (capabilities) => {
+    const prompt = COMPACTION_ROWS.find((row) => row.seq === 15)
+    if (!prompt || prompt.kind !== 'item' || prompt.body.kind !== 'approval') {
+      throw new Error('expected approval fixture')
+    }
+    const { options: _options, ...missingOptions } = prompt.body
+    expect(() =>
+      admitCompactionRow(prompt.seq, JSON.stringify({ ...prompt, body: missingOptions }))
+    ).toThrow('Invalid compaction fixture row at sequence 15')
     root = await mkdtemp(join(tmpdir(), 'orca-compaction-consumers-'))
     const scenario = await openCompactionConsumerJournal(journals, root)
     const canonical = (id: string) => scenario.journal.canonicalItemId(id)

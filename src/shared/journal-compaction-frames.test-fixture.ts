@@ -12,7 +12,11 @@ import {
   createJournalReducerState
 } from '../main/native-chat/agent-session-journal/journal-reducer'
 import { readJournalPublicView } from '../main/native-chat/agent-session-journal/journal-public-read'
-import type { JournalRow } from '../main/native-chat/agent-session-journal/journal-row-schema'
+import {
+  parseJournalRow,
+  serializeJournalRow,
+  type JournalRow
+} from '../main/native-chat/agent-session-journal/journal-row-schema'
 import type { AgentSessionJournal } from '../main/native-chat/agent-session-journal/journal-store'
 import {
   readAgentSessionHistory,
@@ -45,7 +49,7 @@ const reply = (seq: number, revision: number): JournalRow => ({
   revision,
   body: said(`answer ${revision}`)
 })
-export const COMPACTION_ROWS: readonly JournalRow[] = [
+const rawRows: readonly JournalRow[] = [
   {
     ...row(1),
     kind: 'epoch',
@@ -143,10 +147,25 @@ export const COMPACTION_ROWS: readonly JournalRow[] = [
       kind: 'approval',
       title: 'Run it?',
       detail: null,
+      options: [
+        { id: 'allow', label: 'Allow' },
+        { id: 'deny', label: 'Deny' }
+      ],
       resolution: { state: 'pending', selectedOptionId: null, resolvedBy: null, resolvedAt: null }
     }
   }
 ]
+export function admitCompactionRow(sequence: number, serialized: string): JournalRow {
+  const parsed = parseJournalRow(serialized)
+  if (!parsed.ok) {
+    throw new Error(`Invalid compaction fixture row at sequence ${sequence}`)
+  }
+  return parsed.row
+}
+
+export const COMPACTION_ROWS: readonly JournalRow[] = rawRows.map((entry) =>
+  admitCompactionRow(entry.seq, serializeJournalRow(entry))
+)
 export const COMPACTION_RETAINED_SEQUENCES = [1, 2, 3, 4, 5, 6, 7, 9, 12, 13, 14, 15]
 
 export function compactionTransportCorpus(through = 15) {
