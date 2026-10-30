@@ -21,6 +21,8 @@ export type WorkerTerminalRetainedReason =
   | 'ownership_transferred'
   | 'user_takeover'
   | 'user_requested'
+  // The user saw the terminal; unlike a coordinator's retain, it survives reuse by a new Dispatch.
+  | 'user_seen'
   | 'no_owned_resource'
   | 'identity_unproven'
   | 'legacy_ambiguous'

@@ -104,15 +104,12 @@ export function formatOrchestrationCheckText(
     const empty = prepared.acknowledged ? `Acknowledged ${prepared.acknowledged}.` : 'No messages.'
     return `${legacyHeader}${empty}${deliveryNotice}`
   }
-  const rendered = prepared.messages
-    .map(
-      (message) =>
-        `${message.id}${formatMessageReadOnlyTag(
-          message,
-          compatibilityActive
-        )} [${message.type ?? 'status'}] from=${message.from_handle} "${message.subject}"`
-    )
-    .join('\n')
+  // Current hosts acknowledge the batch on read, so plain text must carry every body and payload.
+  const rendered = formatLegacyAwareCheckMessages(
+    prepared.messages,
+    checkedTerminal,
+    compatibilityActive
+  )
   const output = prepared.deliveryId ? `Delivery ${prepared.deliveryId}\n${rendered}` : rendered
   return `${legacyHeader}${output}${deliveryNotice}`
 }

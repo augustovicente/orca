@@ -127,6 +127,36 @@ describe('orchestration worker automatic release', () => {
     expect(h.runtime.closeTerminal).toHaveBeenCalledTimes(1)
   })
 
+  it('keeps a seen terminal reused for another Dispatch, since its pane reports only once', async () => {
+    setupWithFakeClock()
+    await h.startSettledWorker()
+    await h.call('orchestration.workerChatTouch', { paneKey: h.workerPaneKey })
+
+    const reuse = await h.startWorker({ terminal: 'term_worker' })
+    h.settle(reuse.taskId, reuse.dispatchId, 'succeeded')
+    await vi.advanceTimersByTimeAsync(2 * GRACE_MS)
+
+    expect(h.runtime.closeTerminal).not.toHaveBeenCalled()
+    expect(h.db.getWorkerTerminalResourceByOwner(reuse.dispatchId)).toMatchObject({
+      release_state: 'retained',
+      auto_release_at: null
+    })
+    await h.call('orchestration.workerRelease', { dispatch: reuse.dispatchId })
+    expect(h.runtime.closeTerminal).toHaveBeenCalledTimes(1)
+  })
+
+  it('arms a never-viewed terminal reused after a coordinator retained it for the prior Dispatch', async () => {
+    setupWithFakeClock()
+    const retained = await h.startSettledWorker()
+    await h.call('orchestration.workerRetain', { dispatch: retained.dispatchId })
+
+    const reuse = await h.startWorker({ terminal: 'term_worker' })
+    h.settle(reuse.taskId, reuse.dispatchId, 'succeeded')
+    await vi.advanceTimersByTimeAsync(GRACE_MS)
+
+    await vi.waitFor(() => expect(h.runtime.closeTerminal).toHaveBeenCalledTimes(1))
+  })
+
   it('keeps a terminal the user typed into while its output was being captured', async () => {
     setupWithFakeClock()
     const { dispatchId } = await h.startSettledWorker()

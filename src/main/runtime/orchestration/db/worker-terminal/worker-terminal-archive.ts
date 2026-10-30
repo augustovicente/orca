@@ -178,16 +178,18 @@ export function retainTerminalResourceInTransaction(
   database: OrchestrationDb,
   resourceId: string,
   dispatchId: string,
-  retainableSql = "release_state IN ('not_requested', 'retained', 'requested')"
+  retainableSql = "release_state IN ('not_requested', 'retained', 'requested')",
+  reason: Extract<WorkerTerminalRetainedReason, 'user_requested' | 'user_seen'> = 'user_requested'
 ): boolean {
   const { changes } = database.db
     .prepare(
       `UPDATE worker_terminal_resources
-       SET release_state = 'retained', retained_reason = 'user_requested',
-           auto_release_at = NULL, updated_at = datetime('now')
+       SET retained_reason = CASE WHEN release_state = 'retained' AND retained_reason = 'user_seen'
+             THEN retained_reason ELSE ? END,
+           release_state = 'retained', auto_release_at = NULL, updated_at = datetime('now')
        WHERE id = ? AND ${retainableSql}`
     )
-    .run(resourceId)
+    .run(reason, resourceId)
   if (changes > 0) {
     // A stopped worker's terminal is closed; the archive taken before stop is its only output.
     const dropped = database.db

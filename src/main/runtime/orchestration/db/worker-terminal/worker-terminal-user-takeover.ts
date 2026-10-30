@@ -84,7 +84,8 @@ function keepForUser(database: OrchestrationDb, paneKey: string, keepableSql: st
           database,
           candidate.id,
           candidate.owner_dispatch_id,
-          keepableSql
+          keepableSql,
+          'user_seen'
         )
       ) {
         changed += 1
