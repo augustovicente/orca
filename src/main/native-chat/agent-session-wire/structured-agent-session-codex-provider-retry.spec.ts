@@ -301,7 +301,7 @@ export function registerCodexProviderRetry(get: () => Rig): void {
       const readFailures = rig.host['clientDelivery'].requestFailures.observe
       const countedFailures = vi
         .spyOn(rig.host['clientDelivery'].requestFailures, 'observe')
-        .mockImplementation((id, current, rows, applied) => {
+        .mockImplementation((id: string, current, rows, applied) => {
           count('failure-observe', `${id}:rows=${rows?.length ?? 'adoption'}`)
           return readFailures(id, current, rows, applied)
         })

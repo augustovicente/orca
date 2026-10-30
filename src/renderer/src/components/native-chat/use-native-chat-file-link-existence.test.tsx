@@ -1,12 +1,12 @@
-import { NativeChatFileLinkExistenceProvider } from './use-native-chat-file-link-existence'
+import {
+  NativeChatFileLinkExistenceProvider,
+  useNativeChatFileLinkExists,
+  useRecheckNativeChatFileLinksWhenTurnEnds
+} from './use-native-chat-file-link-existence'
 import type * as TerminalFileLinkTarget from '@/components/terminal-pane/terminal-file-link-target'
 import { cleanup, render, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type * as ExistenceModule from './native-chat-file-link-existence'
-import {
-  useNativeChatFileLinkExists,
-  useRecheckNativeChatFileLinksWhenTurnEnds
-} from './use-native-chat-file-link-existence'
 import type { NativeChatFileLinkContext } from './native-chat-file-link'
 
 // @vitest-environment happy-dom

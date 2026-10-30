@@ -1,6 +1,8 @@
-import type { AgentSessionQueuePause } from '../../../shared/agent-session-wire'
+import type {
+  AgentSessionQueuePause,
+  AgentSessionMutationEnvelope
+} from '../../../shared/agent-session-wire'
 import type { StructuredAgentSessionHost } from './structured-agent-session-host'
-import type { AgentSessionMutationEnvelope } from '../../../shared/agent-session-wire'
 import { hostTestOperationId } from './structured-agent-session-host-test-data'
 export function queuedMessageRigQueueOperations(
   host: () => StructuredAgentSessionHost,

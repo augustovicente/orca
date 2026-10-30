@@ -1,5 +1,11 @@
 import type { AgentSessionTransientFailure } from '../../shared/agent-session-provider-retry-policy'
-import { codexTurnLifecycleIdentity } from './codex-structured-journal-translation-turns'
+import {
+  codexTurnLifecycleIdentity,
+  codexTurnLifecycleState,
+  codexTurnOutcome,
+  codexTurnUserItemId,
+  publishCodexTurnLifecycle
+} from './codex-structured-journal-translation-turns'
 import type {
   AgentJournalTurnLifecycle,
   AgentJournalTurnOutcome
@@ -20,12 +26,6 @@ import {
   type CodexJournalActiveTurns
 } from './codex-structured-journal-translation-turn-state'
 import type { CodexDispatchRequestOrigin } from './codex-structured-dispatch-echo'
-import {
-  codexTurnLifecycleState,
-  codexTurnOutcome,
-  codexTurnUserItemId,
-  publishCodexTurnLifecycle
-} from './codex-structured-journal-translation-turns'
 import type { CodexPendingJournalPrompt } from './codex-structured-journal-settlement'
 import {
   readCodexTurnDurationMs,

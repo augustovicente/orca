@@ -5,17 +5,15 @@ import type {
 import type { AgentSessionJournal } from '../agent-session-journal/journal-store'
 import type {
   AgentJournalRenderItem,
-  AgentJournalTurnLifecycle
-} from '../../../shared/agent-session-journal-types'
-import type { StructuredAgentSessionEventSink } from '../agent-session-wire/structured-agent-session-event-sink'
-import type { ProviderTimelineSink } from './provider-timeline-plan'
-import { agentJournalItemKey } from '../../../shared/agent-session-journal-item-key'
-import type {
+  AgentJournalTurnLifecycle,
   AgentJournalApprovalItem,
   AgentJournalItemBody,
   AgentJournalMessageItem,
   AgentJournalToolCallItem
 } from '../../../shared/agent-session-journal-types'
+import type { StructuredAgentSessionEventSink } from '../agent-session-wire/structured-agent-session-event-sink'
+import type { ProviderTimelineSink } from './provider-timeline-plan'
+import { agentJournalItemKey } from '../../../shared/agent-session-journal-item-key'
 import { backgroundTaskFallbackText } from '../../../shared/native-chat/input/native-chat-background-task-row'
 import { isBackgroundTaskBlock } from '../../../shared/native-chat-types'
 import type { NativeChatBackgroundTaskBlock } from '../../../shared/native-chat-types'
