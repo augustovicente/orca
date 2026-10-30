@@ -72,8 +72,6 @@ it.each(['claude', 'codex'] as const)(
         agent === 'codex' ? codexProviderHandle('thread-1') : claudeProviderHandle('claude-1', null)
     }
     const journal = await journals.open({ identity, stateDirectory: root, now: () => at })
-    // A new chat's first saved state comes from its scheduled repair; publish it now.
-    await journal.repairProjection()
     let commits = 0
     let planRevisions = 0
     journal.observeCommits((rows) => {

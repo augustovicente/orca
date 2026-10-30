@@ -1,6 +1,6 @@
 // Delete and replace epochs atomically; retaining superseded rows would grow history without bound.
 
-import { clearJournalSavedState } from './journal-saved-state'
+import { clearJournalSavedState, publishJournalEpochState } from './journal-saved-state'
 import { journalRowSchemaVersion } from '../../../shared/agent-session-journal-types'
 import type { AgentSessionJournalIdentity } from '../../../shared/agent-session-journal-types'
 import { agentSessionJournalProviderHandle } from '../../../shared/agent-session-provider-handle-encoding'
@@ -52,6 +52,8 @@ export function publishNewEpoch(input: {
       rows.push(card)
     }
   }
+  state.oldestSequence = 1
+  let projectionThrough = 0
   input.database.transaction((db) => {
     clearJournalSavedState(db, sessionId)
     const retired = readJournalSessionEpoch(db, sessionId)
@@ -63,10 +65,10 @@ export function publishNewEpoch(input: {
     }
     input.queue.receipt.write(db)
     publishJournalSessionEpoch(db, input.identity, input.epoch)
+    projectionThrough = publishJournalEpochState(db, state)
   })
 
   // Adopt committed state before fallible work can leave writers targeting the deleted epoch.
   input.queue.receipt.committed()
-  state.oldestSequence = 1
-  input.onPublished({ state, newer: null, damage: null })
+  input.onPublished({ state, newer: null, damage: null, projectionThrough })
 }

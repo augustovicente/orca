@@ -106,9 +106,10 @@ it('keeps recovery writes behind coverage zero, repairs the current epoch after 
   }
   expectProjectionMatches(database, recovered.state)
 
-  // A scheduled retry must capture the new epoch rather than the state from failed bootstrap.
-  database.db.exec('DROP TRIGGER fail_bootstrap')
+  // A rollover keeps its epoch when its saved state fails; the repair then captures the new epoch.
   await journal.rollEpoch('session_created', 1)
+  expect(readJournalSavedState(database.db, sessionId, 'rolled')).toBeNull()
+  database.db.exec('DROP TRIGGER fail_bootstrap')
   await vi.advanceTimersByTimeAsync(1_000)
   expect(readJournalSavedState(database.db, sessionId, 'rolled')?.lastSequence).toBe(
     journal.cursor().sequence

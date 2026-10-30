@@ -1,4 +1,4 @@
-import { clearJournalSavedState } from './journal-saved-state'
+import { clearJournalSavedState, publishJournalEpochState } from './journal-saved-state'
 import {
   journalItemEchoFields,
   journalItemEchoRestatement,
@@ -193,6 +193,8 @@ export function replaceJournalEpoch(input: {
   const { sessionId } = input.identity
   const receipt = input.receipt?.({ epoch, sequence: state.lastSequence })
   const claimsCommitted: (() => void)[] = []
+  state.oldestSequence = 1
+  let projectionThrough = 0
   input.database.transaction((db) => {
     clearJournalSavedState(db, sessionId)
     const retired = readJournalSessionEpoch(db, sessionId)
@@ -216,12 +218,12 @@ export function replaceJournalEpoch(input: {
     input.queue.receipt.write(db)
     publishJournalSessionEpoch(db, input.identity, epoch)
     receipt?.write(db)
+    projectionThrough = publishJournalEpochState(db, state)
   })
   claimsCommitted.forEach((commit) => commit())
   input.queue.receipt.committed()
 
   // Adopt the committed epoch immediately; later failures must not leave writers targeting deleted rows.
-  state.oldestSequence = 1
-  input.onPublished({ state, newer: null, damage: null })
+  input.onPublished({ state, newer: null, damage: null, projectionThrough })
   receipt?.committed()
 }

@@ -279,8 +279,6 @@ it.each(clients)(
     if (!resumeCursor) {
       throw new Error('Missing pre-close history cursor')
     }
-    // Publish now what the chat's scheduled repair would write a second after it opened.
-    await journal.repairProjection()
     await active.host.close(SESSION, 'evict')
     expect(active.host.hasSession(SESSION)).toBe(false)
     const database = openTestJournalHostDatabase(active.root)

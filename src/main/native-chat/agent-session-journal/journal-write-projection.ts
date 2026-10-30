@@ -11,7 +11,8 @@ import { restoreJournal } from './journal-open'
 import {
   logJournalProjectionFailure,
   saveJournalState,
-  unrefJournalProjectionTimer
+  unrefJournalProjectionTimer,
+  writeJournalProjectionSavepoint
 } from './journal-saved-state'
 
 // Each failed publication or savepoint quadruples the wait, so a full disk never rewrites a whole
@@ -149,23 +150,8 @@ export class JournalWriteProjection {
     db: Database.Database,
     transition: ReturnType<typeof isolateJournalTransition>
   ): boolean {
-    db.exec('SAVEPOINT journal_projection')
-    try {
+    return writeJournalProjectionSavepoint(db, transition.state.sessionId, () =>
       writeJournalProjection(db, transition.state, transition.changes())
-    } catch (error) {
-      // Only statement-local failures can preserve the append. An aborted outer transaction cannot.
-      if (!db.isTransaction) {
-        throw error
-      }
-      db.exec('ROLLBACK TO journal_projection')
-      db.exec('RELEASE journal_projection')
-      if (!db.isTransaction) {
-        throw error
-      }
-      logJournalProjectionFailure(transition.state.sessionId, error)
-      return false
-    }
-    db.exec('RELEASE journal_projection')
-    return true
+    )
   }
 }

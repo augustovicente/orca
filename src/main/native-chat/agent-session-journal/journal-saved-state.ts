@@ -108,6 +108,43 @@ export function sweepJournalSavedState(database: JournalHostDatabase): void {
   })
 }
 
+/** Only statement-local failures can keep the outer write; an aborted transaction still throws. */
+export function writeJournalProjectionSavepoint(
+  db: Database.Database,
+  sessionId: string,
+  write: () => void
+): boolean {
+  db.exec('SAVEPOINT journal_projection')
+  try {
+    write()
+  } catch (error) {
+    if (!db.isTransaction) {
+      throw error
+    }
+    db.exec('ROLLBACK TO journal_projection')
+    db.exec('RELEASE journal_projection')
+    if (!db.isTransaction) {
+      throw error
+    }
+    logJournalProjectionFailure(sessionId, error)
+    return false
+  }
+  db.exec('RELEASE journal_projection')
+  return true
+}
+
+/** Epoch publishers write the new epoch's saved state with its rows; returns the coverage. */
+export function publishJournalEpochState(
+  db: Database.Database,
+  state: JournalReducerState
+): number {
+  return writeJournalProjectionSavepoint(db, state.sessionId, () =>
+    publishJournalProjection(db, state)
+  )
+    ? state.lastSequence
+    : 0
+}
+
 export function logJournalProjectionFailure(sessionId: string, error: unknown): void {
   console.warn('[agent-session-journal] could not save chat state', { sessionId, error })
 }
