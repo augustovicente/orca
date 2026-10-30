@@ -17,12 +17,7 @@ import type { GitRemoteExec } from './worktree-push-target-cleanup'
 import { prepareWorktreePushTargetWithExec } from './worktree-push-target-setup'
 
 const execFileAsync = promisify(execFile)
-const isolatedGitEnv = {
-  ...process.env,
-  GIT_DIR: undefined,
-  GIT_WORK_TREE: undefined,
-  GIT_COMMON_DIR: undefined
-}
+let isolatedGitEnv: NodeJS.ProcessEnv
 
 const FORK_REMOTE = 'pr-contributor'
 const TRACKED_BRANCH = 'contributor/fix'
@@ -62,6 +57,19 @@ async function gitMajorMinor(): Promise<[number, number]> {
 beforeEach(async () => {
   // realpath: macOS hands out /var/... temp paths while Git reports /private/var/...
   scratchDir = await realpath(await mkdtemp(join(tmpdir(), 'orca-partial-clone-')))
+  const home = join(scratchDir, 'home')
+  await mkdir(home)
+  isolatedGitEnv = {
+    ...Object.fromEntries(
+      Object.entries(process.env).filter(([key]) => !key.toUpperCase().startsWith('GIT_'))
+    ),
+    HOME: home,
+    USERPROFILE: home,
+    XDG_CONFIG_HOME: home,
+    GIT_CONFIG_NOSYSTEM: '1',
+    GIT_CONFIG_GLOBAL: join(home, 'empty'),
+    GIT_TERMINAL_PROMPT: '0'
+  }
   repoPath = join(scratchDir, 'repo')
   forkPath = join(scratchDir, 'fork')
   await mkdir(repoPath, { recursive: true })
@@ -83,6 +91,7 @@ beforeEach(async () => {
   // Only the filter config is needed for Git to annotate the fetch row.
   await git(['remote', 'add', FORK_REMOTE, forkPath], repoPath)
   await git(['config', `remote.${FORK_REMOTE}.partialclonefilter`, 'blob:none'], repoPath)
+  await git(['config', `remote.${FORK_REMOTE}.tagOpt`, '--tags'], repoPath)
 })
 
 afterEach(async () => {
@@ -107,9 +116,11 @@ describe('a pre-existing partial-clone fork remote (#32864)', () => {
       remoteUrl: forkPath
     }
 
-    const prepared = await prepareWorktreePushTargetWithExec(execGit, repoPath, target, () => false)
+    const before = await git(['config', '--get-regexp', `^remote\\.${FORK_REMOTE}\\.`], repoPath)
+    const prepared = await prepareWorktreePushTargetWithExec(execGit, repoPath, target)
 
     expect(prepared.remoteName).toBe(FORK_REMOTE)
+    expect(prepared.remoteCreated).toBe(false)
     // No `<name>-2` mint: on Git >= 2.37 the annotated fetch row used to be dropped,
     // the existing remote looked absent, and a second remote with the same URL
     // appeared here. Older Git emits no annotation, so this is the reuse path as-is.
@@ -118,12 +129,9 @@ describe('a pre-existing partial-clone fork remote (#32864)', () => {
     await expect(
       git(['config', '--get', `remote.${FORK_REMOTE}.orca-created`], repoPath)
     ).rejects.toThrow()
-    // The reused remote is still narrowed to the requested branch, as for any reuse.
-    const refspecs = (await git(['config', '--get-all', `remote.${FORK_REMOTE}.fetch`], repoPath))
-      .split(/\r?\n/)
-      .filter(Boolean)
-    expect(refspecs).toEqual([
-      `+refs/heads/${TRACKED_BRANCH}*:refs/remotes/${FORK_REMOTE}/${TRACKED_BRANCH}*`
-    ])
+    await prepareWorktreePushTargetWithExec(execGit, repoPath, prepared)
+    expect(await git(['config', '--get-regexp', `^remote\\.${FORK_REMOTE}\\.`], repoPath)).toBe(
+      before
+    )
   })
 })

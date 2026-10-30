@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   findGitRemoteNameByFetchUrl,
+  parseGitRemotePushUrls,
   parseGitRemoteFetchUrls,
   parseGitRemoteVerboseLine
 } from './git-remote-url-index'
@@ -51,6 +52,16 @@ describe('parseGitRemoteVerboseLine', () => {
       direction: 'fetch'
     })
   })
+
+  it.each(['blob:none', 'sparse:oid=HEAD:path/with]bracket (push) [nested'])(
+    'keeps annotation %s out of both consumers',
+    (filter) => {
+      const table = `origin\t${HTTPS_URL} (fetch) [${filter}]\r\norigin\t${HTTPS_URL} (push)\r\n`
+      expect([...parseGitRemoteFetchUrls(table)]).toEqual([['origin', HTTPS_URL]])
+      expect(parseGitRemoteVerboseLine(table.split('\r')[0], true)?.url).toBe(HTTPS_URL)
+      expect([...parseGitRemotePushUrls(table)]).toEqual([['origin', [HTTPS_URL]]])
+    }
+  )
 
   it('rejects the URL-less row git prints for a pushurl-only remote', () => {
     expect(parseGitRemoteVerboseLine('pushonly\t')).toBeNull()

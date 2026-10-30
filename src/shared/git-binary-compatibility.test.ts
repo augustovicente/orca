@@ -1,3 +1,5 @@
+import { registerGitForkBinaryCompatibilityCase } from './git-fork-binary-compatibility.test-cases'
+
 import {
   mkdir,
   mkdtemp,
@@ -111,6 +113,11 @@ describeBinaryCompatibility('real Git binary compatibility', () => {
       }
     }
   })
+
+  registerGitForkBinaryCompatibilityCase(
+    () => fixture,
+    () => repoPath
+  )
 
   it('pairs published, tracked and default refs with configured repositories, on the selected Git binary', async () => {
     const root = join(repoPath, 'copy-url')
