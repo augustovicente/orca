@@ -1,4 +1,4 @@
-import { preventSecondaryMenuSelection } from '@/components/ui/point-context-menu-content'
+import { preventSecondaryMenuSelection } from '@/components/ui/prevent-secondary-menu-selection'
 import React, { useEffect } from 'react'
 import { FilePlus, FolderPlus } from 'lucide-react'
 import { CLOSE_ALL_CONTEXT_MENUS_EVENT } from '@/lib/close-all-context-menus'

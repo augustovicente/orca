@@ -1,11 +1,11 @@
 import {
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuItem,
-  DropdownMenuShortcut
-} from '@/components/ui/dropdown-menu'
+  ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
+  ContextMenuItem,
+  ContextMenuShortcut
+} from '@/components/ui/context-menu'
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Columns2 } from 'lucide-react'
 import type { TabSplitDirection } from '../../store/slices/tabs'
 import { translate } from '@/i18n/i18n'
@@ -59,18 +59,18 @@ export function TabWorkspaceLayoutMenuSection({
 
   return (
     <>
-      {leadingSeparator ? <DropdownMenuSeparator /> : null}
-      <DropdownMenuSub>
-        <DropdownMenuSubTrigger className="[&>svg:last-child]:size-3.5">
+      {leadingSeparator ? <ContextMenuSeparator /> : null}
+      <ContextMenuSub>
+        <ContextMenuSubTrigger className="[&>svg:last-child]:size-3.5">
           <Columns2 className="size-3.5 shrink-0" />
           {translate(
             'auto.components.tab.bar.TabWorkspaceLayoutMenuSection.moveToPaneColumn',
             'Move Tab to Split'
           )}
-        </DropdownMenuSubTrigger>
-        <DropdownMenuSubContent className={TAB_CONTEXT_SUBMENU_CONTENT_CLASS}>
+        </ContextMenuSubTrigger>
+        <ContextMenuSubContent className={TAB_CONTEXT_SUBMENU_CONTENT_CLASS}>
           {PANE_COLUMN_DIRECTIONS.map((direction) => (
-            <DropdownMenuItem
+            <ContextMenuItem
               key={direction}
               onSelect={() => {
                 moveTabToNewPaneColumn({ unifiedTabId, groupId, direction })
@@ -79,13 +79,13 @@ export function TabWorkspaceLayoutMenuSection({
               {paneColumnDirectionIcon(direction)}
               {paneColumnDirectionLabel(direction)}
               {shortcutLabels?.[direction] ? (
-                <DropdownMenuShortcut>{shortcutLabels[direction]}</DropdownMenuShortcut>
+                <ContextMenuShortcut>{shortcutLabels[direction]}</ContextMenuShortcut>
               ) : null}
-            </DropdownMenuItem>
+            </ContextMenuItem>
           ))}
-        </DropdownMenuSubContent>
-      </DropdownMenuSub>
-      {trailingSeparator ? <DropdownMenuSeparator /> : null}
+        </ContextMenuSubContent>
+      </ContextMenuSub>
+      {trailingSeparator ? <ContextMenuSeparator /> : null}
     </>
   )
 }

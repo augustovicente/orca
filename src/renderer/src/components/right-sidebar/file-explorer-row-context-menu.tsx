@@ -1,4 +1,4 @@
-import { preventSecondaryMenuSelection } from '@/components/ui/point-context-menu-content'
+import { preventSecondaryMenuSelection } from '@/components/ui/prevent-secondary-menu-selection'
 import React, { useCallback } from 'react'
 import {
   Copy,

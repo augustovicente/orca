@@ -1,4 +1,4 @@
-import { capturePointContextMenuAnchor } from '@/components/ui/point-context-menu-content'
+import { ContextMenu, ContextMenuTrigger } from '@/components/ui/context-menu'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSortable } from '@dnd-kit/sortable'
 import { GitCompareArrows, Eye, ShieldAlert, Pin, ListChecks } from 'lucide-react'
@@ -129,7 +129,6 @@ export default function EditorFileTab({
     (s) => file.isPreview === true && s.settings?.editorPreviewTabsEnabled !== false
   )
   const [menuOpen, setMenuOpen] = useState(false)
-  const [menuPoint, setMenuPoint] = useState(capturePointContextMenuAnchor)
   const [isRenaming, setIsRenaming] = useState(false)
   const renameInputRef = useRef<HTMLInputElement>(null)
   const renameFocusFrameRef = useRef<number | null>(null)
@@ -370,32 +369,31 @@ export default function EditorFileTab({
   )
 
   return (
-    <>
-      <div
-        {...slotProps}
-        onContextMenuCapture={(event) => {
-          window.dispatchEvent(new Event(CLOSE_ALL_CONTEXT_MENUS_EVENT))
-          setMenuPoint(capturePointContextMenuAnchor(event))
-          setMenuOpen(true)
-        }}
-      >
-        {isRenaming || menuOpen ? (
-          tabRoot
-        ) : (
-          <TabHoverCard
-            title={tabLabel}
-            programName={customEditor?.title ?? translate('tabHoverCard.editor', 'Editor')}
-            icon={tabIcon('size-4')}
-            description={file.relativePath}
-          >
-            {tabRoot}
-          </TabHoverCard>
-        )}
-      </div>
+    <ContextMenu open={menuOpen} onOpenChange={setMenuOpen} modal={false}>
+      <ContextMenuTrigger asChild>
+        <div
+          {...slotProps}
+          onContextMenu={() => {
+            window.dispatchEvent(new Event(CLOSE_ALL_CONTEXT_MENUS_EVENT))
+            setMenuOpen(true)
+          }}
+        >
+          {isRenaming || menuOpen ? (
+            tabRoot
+          ) : (
+            <TabHoverCard
+              title={tabLabel}
+              programName={customEditor?.title ?? translate('tabHoverCard.editor', 'Editor')}
+              icon={tabIcon('size-4')}
+              description={file.relativePath}
+            >
+              {tabRoot}
+            </TabHoverCard>
+          )}
+        </div>
+      </ContextMenuTrigger>
 
       <EditorFileTabContextMenu
-        open={menuOpen}
-        menuPoint={menuPoint}
         file={file}
         unifiedTabId={dragData.unifiedTabId}
         groupId={dragData.groupId}
@@ -409,7 +407,6 @@ export default function EditorFileTab({
         resolvedLanguage={resolvedLanguage}
         repoConnectionId={repo?.connectionId ?? null}
         skipMenuFocusRestoreRef={skipMenuFocusRestoreRef}
-        onOpenChange={setMenuOpen}
         onActivate={onActivate}
         onOpenRenameInput={openRenameInput}
         onTogglePin={onTogglePin}
@@ -421,6 +418,6 @@ export default function EditorFileTab({
         onCloseSplitPane={onCloseSplitPane}
         onOpenMarkdownPreview={openMarkdownPreview}
       />
-    </>
+    </ContextMenu>
   )
 }

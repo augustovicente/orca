@@ -1,5 +1,5 @@
-import { capturePointContextMenuAnchor } from '@/components/ui/point-context-menu-content'
-import { useCallback, useEffect, useState } from 'react'
+import { ContextMenu, ContextMenuTrigger } from '@/components/ui/context-menu'
+import { useCallback, useEffect } from 'react'
 import { useSortable } from '@dnd-kit/sortable'
 import { X, Minimize2, Pin } from 'lucide-react'
 import { stripLeadingAgentTitleDecoration } from '../../../../shared/agent-title-decoration'
@@ -142,7 +142,6 @@ export default function SortableTab({
     onOpenChange: setMenuOpen,
     onComplete
   } = useSortableTabContextMenu()
-  const [menuPoint, setMenuPoint] = useState(capturePointContextMenuAnchor)
   const {
     isEditing,
     renameValue,
@@ -351,51 +350,52 @@ export default function SortableTab({
   )
 
   return (
-    <>
-      <div
-        ref={renameOwnerRef}
-        {...slotProps}
-        onContextMenuCapture={(event) => {
-          // The hover card is portalled: React still routes its events through this slot.
-          if (event.target instanceof Node && event.currentTarget.contains(event.target)) {
-            window.dispatchEvent(new Event(CLOSE_ALL_CONTEXT_MENUS_EVENT))
-            setMenuPoint(capturePointContextMenuAnchor(event))
-            setMenuOpen(true)
-          }
-        }}
-      >
-        {isEditing || menuOpen ? (
-          tabRoot
-        ) : (
-          <TabHoverCard
-            title={displayTitle}
-            programName={
-              tabAgent
-                ? getAgentLabel(tabAgent)
-                : shellForIcon
-                  ? basename(shellForIcon)
-                  : translate('tabHoverCard.terminal', 'Terminal')
+    <ContextMenu open={menuOpen} onOpenChange={setMenuOpen} modal={false}>
+      <ContextMenuTrigger asChild>
+        <div
+          ref={renameOwnerRef}
+          {...slotProps}
+          onContextMenu={(event) => {
+            // The hover card is portalled: React still routes its events through this slot.
+            if (event.target instanceof Node && event.currentTarget.contains(event.target)) {
+              window.dispatchEvent(new Event(CLOSE_ALL_CONTEXT_MENUS_EVENT))
+              setMenuOpen(true)
             }
-            icon={
-              <TerminalTabLeadingIcon
-                agent={tabAgent}
-                activityStatus={activityStatus}
-                shell={shellForIcon}
-                showUnreadActivity={false}
-                isActive
-                progress={programProgress}
-              />
-            }
-            alert={
-              naming
-                ? (dismiss) => <NativeChatNamingErrorBlock naming={naming} onDismiss={dismiss} />
-                : undefined
-            }
-          >
-            {tabRoot}
-          </TabHoverCard>
-        )}
-      </div>
+          }}
+        >
+          {isEditing || menuOpen ? (
+            tabRoot
+          ) : (
+            <TabHoverCard
+              title={displayTitle}
+              programName={
+                tabAgent
+                  ? getAgentLabel(tabAgent)
+                  : shellForIcon
+                    ? basename(shellForIcon)
+                    : translate('tabHoverCard.terminal', 'Terminal')
+              }
+              icon={
+                <TerminalTabLeadingIcon
+                  agent={tabAgent}
+                  activityStatus={activityStatus}
+                  shell={shellForIcon}
+                  showUnreadActivity={false}
+                  isActive
+                  progress={programProgress}
+                />
+              }
+              alert={
+                naming
+                  ? (dismiss) => <NativeChatNamingErrorBlock naming={naming} onDismiss={dismiss} />
+                  : undefined
+              }
+            >
+              {tabRoot}
+            </TabHoverCard>
+          )}
+        </div>
+      </ContextMenuTrigger>
 
       <SortableTabContextMenu
         sessionSwitchOpening={openingId}
@@ -404,13 +404,10 @@ export default function SortableTab({
         unifiedTabId={unifiedTabId}
         groupId={groupId}
         isActive={isActive}
-        open={menuOpen}
-        point={menuPoint}
         tabCount={tabCount}
         hasTabsToRight={hasTabsToRight}
         hasTabsToLeft={hasTabsToLeft}
         isPinned={isPinned}
-        onOpenChange={setMenuOpen}
         onActivate={onActivate}
         onClose={onClose}
         onCloseOthers={onCloseOthers}
@@ -427,6 +424,6 @@ export default function SortableTab({
         nativeChat={nativeChat}
       />
       {naming ? <NativeChatNamingFailedDialog naming={naming} chatName={displayTitle} /> : null}
-    </>
+    </ContextMenu>
   )
 }
