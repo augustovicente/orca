@@ -22073,7 +22073,7 @@
     "searchAgentModels": "{{agent}} のモデルを検索…",
     "legacyModelCount": "{{total}} 個のモデル",
     "use": "使用",
-    "select": "エージェントを選択",
+    "select": "Agent を選択",
     "openIn": "起動先",
     "chat": "チャット",
     "terminal": "ターミナル"
