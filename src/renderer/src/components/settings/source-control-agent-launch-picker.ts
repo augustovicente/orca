@@ -1,23 +1,22 @@
 import type { AgentPickerDraft, AgentPickerEntry } from '../../../../shared/agent-launch-picker'
-import type { AgentChoicePatch } from '../../../../shared/agent-launch-choices'
 import {
-  commitSourceControlActionArguments,
-  editSourceControlActionArguments,
   selectSourceControlActionRecipe,
+  pickSourceControlActionAgent,
   type CurrentActionSelection
 } from '../../../../shared/source-control-action-selection'
 import {
   sourceControlActionExecutionArgs,
   selectedSourceControlActionPreferences
 } from '../../../../shared/source-control-action-launch-preferences'
-import { editActionArgumentChoices } from '../../../../shared/source-control-action-argument-choices'
 
 export function sourceControlPickerDraft(
   selection: CurrentActionSelection,
   entry: AgentPickerEntry,
-  surface = entry.defaultSurface
+  surface = entry.defaultSurface,
+  observedAgent: AgentPickerEntry['agent'] | null = entry.agent
 ): AgentPickerDraft {
-  const recipe = selectSourceControlActionRecipe(selection)
+  const bound = pickSourceControlActionAgent(selection, entry.agent, observedAgent, surface)
+  const recipe = selectSourceControlActionRecipe(bound)
   const preferences = selectedSourceControlActionPreferences(recipe, entry.agent)
   return {
     agent: entry.agent,
@@ -28,6 +27,7 @@ export function sourceControlPickerDraft(
       ...(preferences?.permissionMode ? { permissionMode: preferences.permissionMode } : {})
     },
     arguments: sourceControlActionExecutionArgs(recipe, entry.agent),
+    recipeEdits: { selection: bound, changed: false, argumentsAuthored: false },
     argumentsOwner: entry.ownerKey
   }
 }
@@ -38,49 +38,16 @@ export function applySourceControlPickerDraft(
   entry: AgentPickerEntry,
   draft: AgentPickerDraft
 ): CurrentActionSelection {
-  const initial = sourceControlPickerDraft(selection, entry, draft.surface)
-  let next = selection
-  if (draft.arguments !== initial.arguments) {
-    next = commitSourceControlActionArguments(
-      editSourceControlActionArguments(next, draft.arguments ?? ''),
-      entry.agent
-    ).selection
+  const receipt = draft.recipeEdits
+  if (!receipt?.changed || draft.agent !== entry.agent) {
+    return selection
   }
-  const previous = initial.choices
-  const choices = draft.choices
-  const options = Object.fromEntries(
-    [...new Set([...Object.keys(previous.options ?? {}), ...Object.keys(choices.options ?? {})])]
-      .filter((key) => previous.options?.[key] !== choices.options?.[key])
-      .map((key) => [key, choices.options?.[key] ?? null])
-  )
-  const patch: AgentChoicePatch = {
-    ...(previous.model !== choices.model ? { model: choices.model ?? null } : {}),
-    ...(Object.keys(options).length ? { options } : {}),
-    ...(previous.permissionMode !== choices.permissionMode
-      ? { permissionMode: choices.permissionMode ?? 'default' }
-      : {})
-  }
-  if (!Object.keys(patch).length) {
-    return next
-  }
-  const selected = selectSourceControlActionRecipe(next)
-  const edited = editActionArgumentChoices(
-    { ...next.current, launchPreferences: next.source.authoredPreferences },
-    entry.agent,
-    selectedSourceControlActionPreferences(selected, entry.agent) ?? {},
-    patch,
-    next.current.agentArgs ?? '',
-    next.source.scope === 'repo' && !next.source.ownsArgs ? 'inherit' : 'default'
-  )
   return {
     current: {
-      ...next.current,
-      agentArgs:
-        edited.agentArgs === (next.current.agentArgs ?? '')
-          ? next.current.agentArgs
-          : edited.agentArgs,
-      argumentChoices: edited.argumentChoices
+      ...receipt.selection.current,
+      agentId: selection.current.agentId,
+      surface: selection.current.surface
     },
-    source: { ...next.source, authoredPreferences: edited.launchPreferences }
+    source: receipt.selection.source
   }
 }

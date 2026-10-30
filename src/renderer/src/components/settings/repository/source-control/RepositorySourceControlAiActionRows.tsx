@@ -8,7 +8,8 @@ import {
   sourceControlActionAgentPreview,
   canSaveSourceControlActionSurface
 } from '../../SourceControlActionAgentPicker'
-import type React from 'react'
+import { useEffect, useMemo, type JSX } from 'react'
+import { invalidateAgentPickerDrafts } from '../../../agent/AgentLaunchSetupButton'
 import { Terminal } from 'lucide-react'
 
 import {
@@ -74,7 +75,12 @@ export function RepositorySourceControlAiActionRows({
   actionDirtyById,
   onActionDiscard,
   onActionSave
-}: RepositorySourceControlAiActionRowsProps): React.JSX.Element {
+}: RepositorySourceControlAiActionRowsProps): JSX.Element {
+  const draftScopes = useMemo(
+    () => new Map(SOURCE_CONTROL_ACTION_IDS.map((id) => [id, { repoId }])),
+    [repoId]
+  )
+  useEffect(() => () => draftScopes.forEach(invalidateAgentPickerDrafts), [draftScopes])
   useSourceControlActionAgentInventory()
   const repo = useAppStore((state) => state.repos.find((repo) => repo.id === repoId) ?? null)
   const rows = sourceControlRepoAgentRows(repo)
@@ -168,7 +174,13 @@ export function RepositorySourceControlAiActionRows({
               </div>
               <Select
                 value={hasOverride ? ACTION_MODE_OVERRIDE : ACTION_MODE_INHERIT}
-                onValueChange={(value) => onActionModeChange(actionId, value)}
+                onValueChange={(value) => {
+                  const scope = draftScopes.get(actionId)
+                  if (scope) {
+                    invalidateAgentPickerDrafts(scope)
+                  }
+                  onActionModeChange(actionId, value)
+                }}
               >
                 <SelectTrigger size="sm" className="h-8 w-full shrink-0 text-xs sm:w-[150px]">
                   <SelectValue />
@@ -199,6 +211,7 @@ export function RepositorySourceControlAiActionRows({
                 </Label>
                 {isLaunchAction ? (
                   <SourceControlActionAgentPickerView
+                    draftScope={draftScopes.get(actionId)}
                     agent={selectedAgent}
                     surface={recipe.surface}
                     observation={observation}
@@ -209,11 +222,12 @@ export function RepositorySourceControlAiActionRows({
                       repo: { sourceControlAi: repoAi },
                       actionId
                     })}
-                    onSetupPick={(selection, previous) =>
+                    onSetupPick={(selection, previous, argumentsAuthored) =>
                       onActionLaunchPreferencesChange(
                         actionId,
                         selection.source.authoredPreferences,
-                        selection.current.agentArgs !== previous.current.agentArgs
+                        argumentsAuthored ||
+                          selection.current.agentArgs !== previous.current.agentArgs
                           ? selection.current.agentArgs
                           : undefined,
                         selection.current.argumentChoices !== previous.current.argumentChoices
@@ -313,7 +327,13 @@ export function RepositorySourceControlAiActionRows({
               <RepositorySourceControlAiActionSaveControls
                 actionDirty={actionDirty}
                 isSavingAction={isSavingAction}
-                onDiscard={() => onActionDiscard(actionId)}
+                onDiscard={() => {
+                  const scope = draftScopes.get(actionId)
+                  if (scope) {
+                    invalidateAgentPickerDrafts(scope)
+                  }
+                  onActionDiscard(actionId)
+                }}
                 onSave={() => onActionSave(actionId)}
               />
             ) : null}

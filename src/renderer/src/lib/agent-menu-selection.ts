@@ -1,6 +1,9 @@
 import type { TuiAgent } from '../../../shared/tui-agent'
 import type { ExecutionHostId } from '../../../shared/execution-host'
-import { isNativeChatDefaultFor } from '../../../shared/structured-native-chat-launch-route'
+import {
+  isNativeChatDefaultFor,
+  isNativeChatEnabled
+} from '../../../shared/structured-native-chat-launch-route'
 import type { AgentLaunchSurface } from './agent-session-launch-plan'
 import type { AgentLaunchRoute } from './agent-launch-routing'
 import type { HostChatAnswer, NewTabAgentMenuSettings } from './new-tab-agent-menu-rows'
@@ -30,7 +33,9 @@ export function resolveAgentMenuSelection(input: {
     return { ready: true, cli: false }
   }
   const wantsChat =
-    surface === 'chat' || (surface !== 'terminal' && isNativeChatDefaultFor(input.settings, agent))
+    isNativeChatEnabled(input.settings) &&
+    (surface === 'chat' ||
+      (surface !== 'terminal' && isNativeChatDefaultFor(input.settings, agent)))
   const canBeChat = ['yes', 'not-yet-known', 'not-on-host'].includes(answer)
   const pending =
     (surface !== 'terminal' && input.settings == null) ||

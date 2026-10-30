@@ -18,12 +18,13 @@ import type { SessionOptionDescriptor } from '../../../../shared/native-chat/inp
 import { AgentPermissionMenu } from '../settings/AgentPermissionChoiceControls'
 import {
   agentPickerPanelArguments,
-  agentPickerSpeedValue,
-  editAgentPickerSpeed,
-  editAgentPickerPanelText
+  agentPickerSpeedValue
 } from '../../../../shared/agent-launch-picker-arguments'
 import { agentPickerSpeedIsOpaque } from '../../../../shared/agent-launch-picker-speed'
-import { editAgentPickerPermission } from '../../../../shared/agent-launch-picker-permission'
+import {
+  applyAgentPickerEdit,
+  type AgentPickerEdit
+} from '../../../../shared/agent-launch-picker-edits'
 import {
   agentPickerButtonOrder,
   agentPickerArgumentsKnown,
@@ -32,7 +33,6 @@ import {
   agentPickerModels,
   agentPickerEntryOptions,
   agentPickerPermissions,
-  editAgentPickerDraft,
   type AgentPickerEntry,
   type AgentPickerDraft,
   type AgentPickerSurface
@@ -58,6 +58,7 @@ export function AgentLaunchSetupPanel({
     updateDraft(next)
     onDraftChange?.(next)
   }
+  const editDraft = (edit: AgentPickerEdit) => setDraft(applyAgentPickerEdit(entry, draft, edit))
   const [modelQuery, setModelQuery] = useState('')
   const [legacy, setLegacy] = useState(false)
   const [argumentsOpen, setArgumentsOpen] = useState(entry.defaultSurface === 'terminal')
@@ -155,10 +156,18 @@ export function AgentLaunchSetupPanel({
         divided={false}
         layout="settings"
         onSet={(option, value) =>
-          setDraft(
+          editDraft(
             option.id === 'fastMode' || option.id === 'serviceTier'
-              ? editAgentPickerSpeed(entry, draft, option.id, String(value), currentModel)
-              : editAgentPickerDraft(draft, { options: { [option.id]: String(value) } })
+              ? {
+                  kind: 'speed',
+                  key: option.id,
+                  value: String(value),
+                  model: currentModel
+                }
+              : {
+                  kind: 'choice',
+                  patch: { options: { [option.id]: String(value) } }
+                }
           )
         }
         onAction={() => {}}
@@ -236,7 +245,7 @@ export function AgentLaunchSetupPanel({
                   keywords={[model.label]}
                   disabled={modelDisabled}
                   data-current={currentModel === model.id}
-                  onSelect={() => setDraft(editAgentPickerDraft(draft, { model: model.id }))}
+                  onSelect={() => editDraft({ kind: 'choice', patch: { model: model.id } })}
                 >
                   {model.label}
                   <span className="ml-auto flex size-3.5 shrink-0 items-center justify-center">
@@ -299,7 +308,7 @@ export function AgentLaunchSetupPanel({
               argsSetPermission: false,
               onSelect: (choice) => {
                 if (choice !== 'default') {
-                  setDraft(editAgentPickerPermission(entry, draft, choice))
+                  editDraft({ kind: 'permission', value: choice })
                 }
               }
             }}
@@ -344,7 +353,7 @@ export function AgentLaunchSetupPanel({
                     disabled={disabled || !argumentsKnown}
                     onSaveArgs={() => {}}
                     onDraftChange={(text) =>
-                      setDraft(editAgentPickerPanelText(entry, draft, text, currentModel))
+                      editDraft({ kind: 'arguments', text, model: currentModel })
                     }
                     choiceChips={argumentsView.chips.map((chip) => ({
                       key: chip.key,
@@ -352,7 +361,7 @@ export function AgentLaunchSetupPanel({
                       source: 'arguments',
                       flag: chip.flag,
                       onRemove: (text) => {
-                        setDraft(chip.remove())
+                        editDraft({ kind: 'remove-chip', key: chip.key, model: currentModel })
                         return text
                       }
                     }))}

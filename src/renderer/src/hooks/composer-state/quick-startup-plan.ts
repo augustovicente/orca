@@ -11,6 +11,8 @@ import {
   resolveTuiAgentLaunchEnv
 } from '../../../../shared/tui-agent-launch-defaults'
 import { tuiAgentToAgentKind } from '@/lib/telemetry'
+import { getAgentLabel } from '@/lib/agent-catalog'
+import { translate } from '@/i18n/i18n'
 import {
   requireExecutionHostPlatform,
   type ExecutionHostPlatformFact
@@ -27,6 +29,7 @@ export type QuickComposerStartupInput = {
   isRemote: boolean
   telemetrySource: WorktreeCreationRequest['telemetrySource']
   launchInputs?: WorktreeCreationRequest['launchInputs']
+  route?: WorktreeCreationRequest['agentLaunchRoute']
 }
 
 export type QuickComposerStartup = {
@@ -102,6 +105,15 @@ export function buildQuickComposerStartup(input: QuickComposerStartupInput): Qui
     if (startupPlan && draftPrompt) {
       startupPlan.draftPrompt = draftPrompt
     }
+  }
+  if (agent && input.route !== 'structured-native-chat' && !startupPlan) {
+    throw new Error(
+      translate(
+        'agentPicker.workspaceStartupFailed',
+        'Could not start {{agent}}. Check Arguments in this setup and try again.',
+        { agent: getAgentLabel(agent) }
+      )
+    )
   }
   const telemetry: AgentStartedTelemetry | null =
     agent === null

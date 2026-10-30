@@ -124,6 +124,21 @@ it('gates the selected chat at click/keyboard, preserves terminal and blank exce
     route: 'structured-native-chat',
     requestedSurface: 'chat'
   })
+  act(() =>
+    useAppStore.setState({
+      settings: { ...useAppStore.getState().settings!, experimentalNativeChat: false }
+    })
+  )
+  await submit()
+  expect(mocks.submit.mock.calls.at(-1)?.[1].launchChoice).toMatchObject({
+    route: 'terminal-tui',
+    requestedSurface: 'terminal'
+  })
+  act(() =>
+    useAppStore.setState({
+      settings: { ...useAppStore.getState().settings!, experimentalNativeChat: true }
+    })
+  )
   mocks.host = 'ssh:other'
   view.rerender(<NewWorkspaceComposerModal />)
   expect(screen.getByRole('combobox').textContent).toContain('Claude (CLI)')

@@ -263,3 +263,80 @@ it('global owner: bounded controlled edits, failed/same selection and no-op save
   )
   expect(summary).not.toHaveBeenCalled()
 })
+
+it('isolates equal recipe drafts, invalidates Discard and saves permission-only edits without Args ownership', async () => {
+  setLocalRuntimeCapabilitiesForTests([])
+  const settings = useAppStore.getState().settings!
+  useAppStore.setState({
+    localDetectedAgentIdsByContext: { host: ['claude', 'codex'] },
+    settings: {
+      ...settings,
+      experimentalNativeChat: false,
+      agentDefaultArgs: { claude: '--verbose' },
+      agentPermissionDefault: 'own',
+      sourceControlAi: normalizeSourceControlAiSettings({
+        ...getDefaultSourceControlAiSettings(),
+        enabled: true,
+        actions: { fixChecks: { agentId: 'claude' }, resolveConflicts: { agentId: 'claude' } }
+      })
+    }
+  })
+  render(
+    <TooltipProvider>
+      <GitPersistenceHarness model={settingsModel()} />
+    </TooltipProvider>
+  )
+  const row = (label: string) =>
+    within(screen.getByText(label).closest<HTMLElement>('.rounded-md')!)
+  const first = row('Broken checks fixes')
+  const second = row('Conflict resolution')
+  const open = async (target: ReturnType<typeof row>) => {
+    const trigger = target.getByRole('button', { name: 'Select agent' })
+    await waitFor(() => expect(trigger).toHaveProperty('disabled', false))
+    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false })
+    fireEvent.click(screen.getByRole('button', { name: 'Configure Claude' }))
+    const input = screen.getByRole('textbox', { name: 'Arguments' })
+    await waitFor(() => expect(input).toHaveProperty('disabled', false))
+    return input
+  }
+  const dismiss = () => {
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Arguments' }), { key: 'Escape' })
+    fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' })
+  }
+  let input = await open(first)
+  fireEvent.change(input, { target: { value: '--unaccepted' } })
+  dismiss()
+  input = await open(second)
+  expect(input).toHaveProperty('value', '--verbose')
+  dismiss()
+  input = await open(first)
+  expect(input).toHaveProperty('value', '--unaccepted')
+  fireEvent.click(screen.getByRole('button', { name: 'Use' }))
+  fireEvent.click(first.getByRole('button', { name: 'Discard' }))
+  input = await open(first)
+  expect(input).toHaveProperty('value', '--verbose')
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Claude permissions' }), {
+    key: 'ArrowDown'
+  })
+  fireEvent.click(
+    screen.getAllByRole('menuitemradio').find((item) => item.textContent?.startsWith('Ask'))!
+  )
+  fireEvent.click(screen.getByRole('button', { name: 'Use' }))
+  fireEvent.click(first.getByRole('button', { name: 'Save' }))
+  await waitFor(() =>
+    expect(
+      useAppStore.getState().settings?.sourceControlAi?.actions?.fixChecks?.launchPreferences
+        ?.permissionMode
+    ).toBe('ask')
+  )
+  expect(
+    useAppStore.getState().settings?.sourceControlAi?.actions?.fixChecks?.agentArgs
+  ).toBeUndefined()
+  act(() =>
+    useAppStore.setState(({ settings }) => ({
+      settings: settings && { ...settings, agentDefaultArgs: { claude: '--debug' } }
+    }))
+  )
+  input = await open(first)
+  expect(input).toHaveProperty('value', '--debug')
+})

@@ -4,6 +4,8 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { getDefaultSettings } from '../../../../shared/constants'
 import { useAppStore } from '@/store'
 import type { PreparedQuickSubmit } from './composer-submit-model'
+import { buildQuickComposerStartup } from './quick-startup-plan'
+import { validateActionTerminalArgs } from '@/lib/launch-work-item-direct-messages'
 import { useQuickCreationExecution } from './quick-creation-execution'
 const background = vi.hoisted(() => vi.fn())
 vi.mock('@/lib/worktree-creation-flow', () => ({ runBackgroundWorktreeCreation: background }))
@@ -127,7 +129,65 @@ it('carries the accepted route across preparation and retains CLI startup/prompt
         expect(request.startup).toBeUndefined()
       }
     }
+    for (const linked of [false, true]) {
+      prepare.mockResolvedValueOnce({
+        ...prepared,
+        submitLinkedWorkItem: linked ? prepared.submitLinkedWorkItem : null
+      })
+      const count = background.mock.calls.length
+      await expect(
+        result.current.executeQuickCreation({ kind: 'none' }, 'opencode', 'fix', null, 'repo-1', {
+          launchChoice: { agent: 'opencode', route: 'terminal-tui' },
+          launchInputs: { agentArgs: '--add-dir "docs' }
+        })
+      ).rejects.toThrow('Could not start OpenCode. Check Arguments in this setup')
+      expect(background).toHaveBeenCalledTimes(count)
+    }
   } finally {
     useAppStore.setState({ settings: original })
   }
 })
+
+it.each(['claude', 'codex'] as const)(
+  'keeps %s workspace compiler refusal aligned with tab launches and allows Chat/blank controls',
+  (agent) => {
+    for (const shell of ['posix', 'powershell'] as const) {
+      const input = {
+        agent,
+        prompt: 'fix',
+        draftPrompt: null,
+        settings: getDefaultSettings('/test'),
+        launchHost: {
+          kind: 'known' as const,
+          platform: 'darwin' as const,
+          hostKind: 'local' as const
+        },
+        shell,
+        isRemote: false,
+        telemetrySource: undefined,
+        launchInputs: {
+          agentArgs: '--add-dir "docs',
+          sessionOptions: { model: agent === 'claude' ? 'sonnet' : 'gpt-5.4' }
+        }
+      }
+      expect(validateActionTerminalArgs(agent, input.launchInputs.agentArgs, shell, false)).toBe(
+        false
+      )
+      expect(() => buildQuickComposerStartup(input)).toThrow('Check Arguments in this setup')
+      expect(() => buildQuickComposerStartup({ ...input, draftPrompt: 'Linked work' })).toThrow(
+        'Check Arguments in this setup'
+      )
+      expect(() =>
+        buildQuickComposerStartup({ ...input, route: 'structured-native-chat' })
+      ).not.toThrow()
+      expect(buildQuickComposerStartup({ ...input, agent: null }).startupPlan).toBeNull()
+      const valid = buildQuickComposerStartup({
+        ...input,
+        launchInputs: { ...input.launchInputs, agentArgs: '--add-dir docs' }
+      })
+      expect(valid.startupPlan?.launchCommand).toContain('--add-dir')
+      expect(valid.startupPlan?.launchCommand).toContain(input.launchInputs.sessionOptions.model)
+      expect(valid.backendStartup?.launchAgent).toBe(agent)
+    }
+  }
+)

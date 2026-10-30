@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { act, cleanup, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { resolveAgentMenuSelection } from '@/lib/agent-menu-selection'
 import { useAppStore } from '@/store'
 import type { TuiAgent } from '../../../../shared/tui-agent'
 import { useAgentDetectionTargetForWorktree } from '@/hooks/useAgentDetectionTarget'
@@ -649,4 +650,51 @@ it('preserves per-agent published answers and direct route inputs across context
       }
     }
   }
+})
+
+it('keeps global Chat authority separate from provider defaults and pending/CLI support', () => {
+  const input = {
+    agent: 'codex' as const,
+    inventoryReady: true,
+    answer: 'yes' as const,
+    chatPending: false,
+    plain: false
+  }
+  const settings = { experimentalNativeChat: true, nativeChatProviders: { codex: false } }
+  expect(resolveAgentMenuSelection({ ...input, settings, surface: 'chat' }).choice?.route).toBe(
+    'structured-native-chat'
+  )
+  expect(resolveAgentMenuSelection({ ...input, settings, surface: 'terminal' }).choice?.route).toBe(
+    'terminal-tui'
+  )
+  const off = resolveAgentMenuSelection({
+    ...input,
+    settings: { experimentalNativeChat: false },
+    surface: 'chat'
+  })
+  expect(off).toMatchObject({
+    ready: true,
+    choice: { route: 'terminal-tui', requestedSurface: 'terminal' }
+  })
+  expect(resolveAgentMenuSelection({ ...input, settings: null, surface: 'chat' }).ready).toBe(false)
+  expect(resolveAgentMenuSelection({ ...input, settings: null, surface: 'terminal' }).ready).toBe(
+    true
+  )
+  expect(
+    resolveAgentMenuSelection({
+      ...input,
+      settings: { experimentalNativeChat: false },
+      surface: 'chat',
+      cliMissing: true
+    }).ready
+  ).toBe(false)
+  expect(
+    resolveAgentMenuSelection({
+      ...input,
+      settings,
+      surface: 'chat',
+      answer: 'not-on-host',
+      cliMissing: true
+    }).ready
+  ).toBe(false)
 })

@@ -97,3 +97,41 @@ it.each(['claude', 'codex'] as const)(
     expect(f.persist).toHaveBeenCalledOnce()
   }
 )
+
+it.each(['global', 'repo'] as const)(
+  'keeps %s Customize permission-only edits sparse through Save and Start',
+  async (scope) => {
+    const f = mountSourceDialog(
+      { agentId: 'claude', surface: 'terminal' },
+      scope === 'repo' ? { agentId: 'claude' } : {},
+      undefined,
+      undefined,
+      scope
+    )
+    act(() =>
+      useAppStore.setState(({ settings }) => ({
+        settings: settings && { ...settings, agentDefaultArgs: { claude: '--verbose' } }
+      }))
+    )
+    const user = userEvent.setup()
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Select agent' })).toHaveProperty('disabled', false)
+    )
+    await user.click(screen.getByRole('button', { name: 'Select agent' }))
+    await user.click(screen.getByRole('button', { name: 'Configure Claude' }))
+    await user.click(screen.getByRole('button', { name: 'Claude permissions' }))
+    await user.click(screen.getByRole('menuitemradio', { name: /^Ask/ }))
+    await user.click(screen.getByRole('button', { name: 'Use' }))
+    if (scope === 'repo') {
+      act(() => f.controller.onSaveAgentDefaultChange('repo'))
+    }
+    await user.click(screen.getByRole('button', { name: 'Save & start agent' }))
+    await waitFor(() => expect(f.onStart).toHaveBeenCalledOnce())
+    const saved =
+      scope === 'global'
+        ? useAppStore.getState().settings?.sourceControlAi?.actions?.resolveConflicts
+        : useAppStore.getState().repos[0].sourceControlAi?.actionOverrides?.resolveConflicts
+    expect(saved?.agentArgs).toBeUndefined()
+    expect(saved?.launchPreferences?.permissionMode).toBe('ask')
+  }
+)

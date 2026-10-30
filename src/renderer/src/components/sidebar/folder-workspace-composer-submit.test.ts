@@ -845,3 +845,35 @@ describe('folder-workspace draft: seeded set == chat-opening set', () => {
     }
   })
 })
+
+it.each(['claude', 'codex'] as const)(
+  'rejects invalid requested %s startup before folder creation and preserves valid options',
+  async (agent) => {
+    const input = {
+      projectGroup: makeProjectGroup(),
+      name: 'configured',
+      lastAutoName: '',
+      linkedWorkItem: null,
+      note: 'fix',
+      quickAgent: agent,
+      launchChoice: { agent, route: 'terminal-tui' as const },
+      autoRenameBranchFromWork: false,
+      agentCmdOverrides: {},
+      agentArgs: '--add-dir "docs',
+      sessionOptions: { model: agent === 'claude' ? 'sonnet' : 'gpt-5.4' },
+      createFolderWorkspace: vi.fn(async () => makeFolderWorkspace()),
+      onOpenChange: vi.fn()
+    }
+    for (const linkedWorkItem of [null, linkedIssue]) {
+      await expect(submitFolderWorkspaceCreate({ ...input, linkedWorkItem })).rejects.toThrow(
+        'Check Arguments in this setup'
+      )
+      expect(input.createFolderWorkspace).not.toHaveBeenCalled()
+      expect(input.onOpenChange).not.toHaveBeenCalled()
+    }
+    expect(await submitFolderWorkspaceCreate({ ...input, agentArgs: '--add-dir docs' })).toBe(true)
+    const startup = mocks.activateAndRevealFolderWorkspace.mock.calls.at(-1)?.[1]?.startup
+    expect(startup.command).toMatch(/--add-dir.*docs/)
+    expect(startup.command).toContain(input.sessionOptions.model)
+  }
+)

@@ -161,7 +161,8 @@ export function SourceControlAgentActionDialogForm({
                 sourceControlPickerDraft(
                   surfaceRows.launchSelection ?? canonicalSourceControlActionSelection(recipe),
                   entry,
-                  surfaceRows.surface ?? entry.defaultSurface
+                  surfaceRows.surface ?? entry.defaultSurface,
+                  selectedAgent
                 )
               }
               onPick={(agent, draft, entry, surface) => onAgentPick(agent, surface, draft, entry)}

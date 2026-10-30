@@ -26,11 +26,16 @@ import { translate } from '@/i18n/i18n'
 /** The shared surface rows configure a recipe here; they never start an agent. */
 type PickerProps = {
   agent: TuiAgent | null
+  draftScope?: object
   surface?: SourceControlActionRecipe['surface']
   repoId?: string
   disabled?: boolean
   selection?: CurrentActionSelection
-  onSetupPick?: (selection: CurrentActionSelection, previous: CurrentActionSelection) => void
+  onSetupPick?: (
+    selection: CurrentActionSelection,
+    previous: CurrentActionSelection,
+    argumentsAuthored: boolean
+  ) => void
   onPick: (agent: TuiAgent | null, choice: Pick<SourceControlActionRecipe, 'surface'>) => void
 }
 
@@ -96,6 +101,7 @@ export function SourceControlActionAgentPickerView({
   const preview = sourceControlActionAgentPreview(observation, props.agent)
   return (
     <AgentLaunchPicker
+      draftScope={props.draftScope}
       model={observation.model}
       agent={props.agent}
       disabled={props.disabled}
@@ -104,7 +110,12 @@ export function SourceControlActionAgentPickerView({
         'Use default agent'
       )}
       draftForEntry={(entry) =>
-        sourceControlPickerDraft(selection, entry, props.surface ?? entry.defaultSurface)
+        sourceControlPickerDraft(
+          selection,
+          entry,
+          props.surface ?? entry.defaultSurface,
+          preview.status === 'ready' ? preview.agent : null
+        )
       }
       onPick={(agent, draft, entry, surface) => {
         const saved = canSaveSurface
@@ -122,7 +133,7 @@ export function SourceControlActionAgentPickerView({
           )
           const next = applySourceControlPickerDraft(picked, entry, draft)
           if (next !== picked) {
-            props.onSetupPick?.(next, selection)
+            props.onSetupPick?.(next, selection, draft.recipeEdits?.argumentsAuthored === true)
           }
         }
       }}

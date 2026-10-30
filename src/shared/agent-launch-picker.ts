@@ -25,6 +25,7 @@ import { resolveAgentChoiceLayers } from './agent-choice-layers'
 import type { AgentSessionModelCatalogResult, AgentSessionModelOption } from './agent-session-wire'
 import type { NewTabAgentMenuRow } from './agent-launch-picker-rows'
 import type { TuiAgent } from './tui-agent'
+import type { CurrentActionSelection } from './source-control-action-selection'
 
 export type AgentPickerSurface = 'chat' | 'terminal'
 export type AgentPickerModel = AgentSessionModelOption & { isLegacy?: true; hidden?: true }
@@ -49,6 +50,12 @@ export type AgentPickerDraft = {
   choices: AgentDedicatedChoices
   argumentsOwner?: string
   arguments?: string | null
+  /** A folded sparse edit receipt; never part of a launch or persisted recipe. */
+  recipeEdits?: {
+    selection: CurrentActionSelection
+    changed: boolean
+    argumentsAuthored: boolean
+  }
 }
 export type AgentPickerSetup = {
   entry: AgentPickerEntry

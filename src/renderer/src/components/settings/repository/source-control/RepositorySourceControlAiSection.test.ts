@@ -1,16 +1,18 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { act, render, cleanup, fireEvent } from '@testing-library/react'
+import { act, render, cleanup, fireEvent, screen, within, waitFor } from '@testing-library/react'
 import '../../__fixtures__/settings-persistence-test-fixture'
 import React from 'react'
 import type { TuiAgent } from '../../../../../../shared/tui-agent'
+import { createRepoActionTextDraftEditors } from '../../repository-source-control-ai-text-draft'
 import { normalizeRepoSourceControlAiOverrides } from '../../../../../../shared/source-control-ai-repo-settings'
 import type { RepoSourceControlAiOverrides } from '../../../../../../shared/source-control-ai-types'
 import { setSourceControlActionAgentDefault } from '../../../../../../shared/source-control-ai-actions'
 import {
   computeActionDirtyById,
   dropRepoLegacyInstructionForAction,
-  withRepoAiActionMode
+  withRepoAiActionMode,
+  withRepoAiActionRecipeText
 } from './repository-source-control-ai-draft'
 import { withRepoAiActionAgent } from '../../repository-source-control-ai-action-agent-draft'
 import { resolveSourceControlActionRecipe } from '../../../../../../shared/source-control-ai-operation-policy'
@@ -313,7 +315,6 @@ it('keeps default and missing-agent editors disabled only until the host invento
 it.each([1, 10])(
   'shares one host request lifetime across %i real Settings sections and all five launch rows',
   async (sections) => {
-    vi.useFakeTimers()
     const settings = useAppStore.getState().settings!
     const recipe = {
       agentId: null,
@@ -433,7 +434,91 @@ it.each([1, 10])(
       ).toBe(true)
     } finally {
       view.unmount()
-      vi.useRealTimers()
+      timers.mockRestore()
+      cleared.mockRestore()
     }
   }
 )
+
+it('passes deliberate equal-parent Args through the real repository row, sparse writer and saved recipe', async () => {
+  rpc.mockReset().mockResolvedValue(undefined)
+  setLocalRuntimeCapabilitiesForTests([])
+  const base = useAppStore.getState().settings!
+  const source = {
+    ...base.sourceControlAi!,
+    actions: { resolveConflicts: { agentId: 'claude' as const, agentArgs: '--verbose' } }
+  }
+  const own = { actionOverrides: { resolveConflicts: {} } }
+  useAppStore.setState({
+    settings: { ...base, experimentalNativeChat: false, sourceControlAi: source },
+    repos: [TEST_REPO],
+    localDetectedAgentIdsByContext: { host: ['claude', 'codex'] }
+  })
+  const change = vi.fn()
+  render(
+    React.createElement(
+      TooltipProvider,
+      null,
+      React.createElement(RepositorySourceControlAiActionRows, {
+        repoId: TEST_REPO.id,
+        repoAi: own,
+        source,
+        defaultTuiAgent: 'claude',
+        savingActionIds: {},
+        actionDirtyById: computeActionDirtyById({}, {}, {}),
+        onActionModeChange: vi.fn(),
+        onActionAgentChange: vi.fn(),
+        onActionLaunchPreferencesChange: change,
+        onActionTemplateChange: vi.fn(),
+        onActionAgentArgsChange: vi.fn(),
+        onAppendVariable: vi.fn(),
+        onActionDiscard: vi.fn(),
+        onActionSave: vi.fn()
+      })
+    )
+  )
+  const row = within(screen.getByText('Conflict resolution').closest<HTMLElement>('[id]')!)
+  const trigger = row.getByRole('button', { name: 'Select agent' })
+  await waitFor(() => expect(trigger).toHaveProperty('disabled', false))
+  fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false })
+  fireEvent.click(screen.getByRole('button', { name: 'Configure Claude' }))
+  const input = screen.getByRole('textbox', { name: 'Arguments' })
+  await waitFor(() => expect(input).toHaveProperty('disabled', false))
+  fireEvent.change(input, { target: { value: '--debug' } })
+  fireEvent.change(input, { target: { value: '--verbose' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Use' }))
+  expect(change).toHaveBeenCalledWith('resolveConflicts', undefined, '--verbose', undefined)
+  let drafts: Parameters<typeof createRepoActionTextDraftEditors>[0] extends React.Dispatch<
+    React.SetStateAction<infer State>
+  >
+    ? State
+    : never = {}
+  const writers = createRepoActionTextDraftEditors(
+    (update) => {
+      drafts = typeof update === 'function' ? update(drafts) : update
+    },
+    { current: own },
+    source
+  )
+  const [actionId, preferences, args, nodes] = change.mock.calls[0]
+  writers.updateActionLaunchPreferences(actionId, preferences, args, nodes)
+  const saved = withRepoAiActionRecipeText(
+    own,
+    { ...base, sourceControlAi: source },
+    'resolveConflicts',
+    drafts.resolveConflicts!
+  )
+  expect(saved.actionOverrides?.resolveConflicts?.agentArgs).toBe('--verbose')
+  expect(
+    resolveSourceControlActionRecipe({
+      settings: {
+        sourceControlAi: {
+          ...source,
+          actions: { resolveConflicts: { agentId: 'claude', agentArgs: '--new-parent' } }
+        }
+      },
+      repo: { sourceControlAi: saved },
+      actionId: 'resolveConflicts'
+    }).agentArgs
+  ).toBe('--verbose')
+})

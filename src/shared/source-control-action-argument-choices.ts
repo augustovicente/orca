@@ -227,7 +227,7 @@ export function editActionArgumentChoices(
     userArgs: text,
     choices: selected,
     mode: 'choice-edit',
-    keys: new Set(['model', 'effort', 'permissionMode']),
+    keys: new Set(['model', 'effort', 'permissionMode', ...Object.keys(patch.options ?? {})]),
     patch
   })
   const previous = recipe.launchPreferences

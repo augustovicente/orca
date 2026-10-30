@@ -1,3 +1,7 @@
+import {
+  useAgentPickerDraftScope,
+  invalidateAgentPickerDrafts
+} from '../agent/AgentLaunchSetupButton'
 import { canonicalSourceControlActionSelection } from '../../../../shared/source-control-action-selection'
 import type { ActionArgumentChoices } from '../../../../shared/source-control-action-argument-choices'
 import { SourceControlActionAgentPicker } from './SourceControlActionAgentPicker'
@@ -34,6 +38,7 @@ const DEFAULT_AGENT_VALUE = '__default_agent__'
 
 type SourceControlActionRecipeRowProps<ActionId extends AiActionId> = {
   actionId: ActionId
+  setupDiscardSignal?: number
   selectedAgent: TuiAgent | CustomAgentId | null
   draftValue: ActionRecipeDraftValue
   baseValue: ActionRecipeDraftValue
@@ -83,6 +88,7 @@ function getActionLabel(actionId: AiActionId): string {
 
 export function SourceControlActionRecipeRow<ActionId extends AiActionId>({
   actionId,
+  setupDiscardSignal,
   selectedAgent,
   draftValue,
   baseValue,
@@ -103,6 +109,7 @@ export function SourceControlActionRecipeRow<ActionId extends AiActionId>({
   onDiscard,
   onSave
 }: SourceControlActionRecipeRowProps<ActionId>): React.JSX.Element {
+  const draftScope = useAgentPickerDraftScope(setupDiscardSignal)
   const isLaunchAction = !AI_TEXT_ACTION_ID_SET.has(actionId)
   const templateDirty =
     hasUnsavedChanges ?? JSON.stringify(draftValue) !== JSON.stringify(baseValue)
@@ -126,6 +133,7 @@ export function SourceControlActionRecipeRow<ActionId extends AiActionId>({
         <div className="w-full shrink-0 space-y-1 sm:w-[220px]">
           {isLaunchAction ? (
             <SourceControlActionAgentPicker
+              draftScope={draftScope}
               agent={selectedAgent && !isCustomAgentId(selectedAgent) ? selectedAgent : null}
               surface={surface}
               disabled={isSavingTemplate}
@@ -135,11 +143,11 @@ export function SourceControlActionRecipeRow<ActionId extends AiActionId>({
                 surface,
                 launchPreferences
               })}
-              onSetupPick={(selection, previous) =>
+              onSetupPick={(selection, previous, argumentsAuthored) =>
                 onLaunchPreferencesChange?.(
                   actionId,
                   selection.source.authoredPreferences,
-                  selection.current.agentArgs !== previous.current.agentArgs
+                  argumentsAuthored || selection.current.agentArgs !== previous.current.agentArgs
                     ? selection.current.agentArgs
                     : undefined,
                   selection.current.argumentChoices !== previous.current.argumentChoices
@@ -254,7 +262,10 @@ export function SourceControlActionRecipeRow<ActionId extends AiActionId>({
                 type="button"
                 variant="ghost"
                 size="xs"
-                onClick={() => onDiscard(actionId)}
+                onClick={() => {
+                  invalidateAgentPickerDrafts(draftScope)
+                  onDiscard(actionId)
+                }}
                 disabled={isSavingTemplate}
               >
                 {translate(

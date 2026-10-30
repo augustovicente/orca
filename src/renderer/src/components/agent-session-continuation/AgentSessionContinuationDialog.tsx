@@ -1,3 +1,4 @@
+import { useAgentPickerDraftScope } from '../agent/AgentLaunchSetupButton'
 import { agentsOfferedForLaunch } from '@/lib/host-chat-program'
 import { worktreeLaunchWorkspace } from '@/lib/agent-launch-route-input'
 import { useEffect, useRef, useState } from 'react'
@@ -117,6 +118,7 @@ export function AgentSessionContinuationDialog({
     return () => abort?.abort()
   }, [open, request])
 
+  const draftScope = useAgentPickerDraftScope(request)
   const currentPick = pick?.request === request && pickable.includes(pick.agent) ? pick : null
   const selectedAgent =
     currentPick?.agent ??
@@ -221,6 +223,7 @@ export function AgentSessionContinuationDialog({
               {translate('components.agentSessionContinuation.agent', 'Agent')}
             </label>
             <AgentLaunchPicker
+              draftScope={draftScope}
               disabled={controlsDisabled}
               model={observation.model}
               worktreeId={request?.worktreeId}

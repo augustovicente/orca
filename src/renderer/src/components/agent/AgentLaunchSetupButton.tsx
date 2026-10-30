@@ -1,4 +1,12 @@
-import { useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactElement } from 'react'
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactElement
+} from 'react'
 import { flushSync } from 'react-dom'
 import { ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -9,7 +17,36 @@ import { AgentLaunchSetupPanel } from './AgentLaunchSetupPanel'
 import type { AgentPickerDraft, AgentPickerEntry } from '../../../../shared/agent-launch-picker'
 
 // The menu and its popovers unmount on dismissal; authored setups live for this app session.
-const sessionDrafts = new Map<string, AgentPickerDraft>()
+type RetainedSetup = {
+  authority: string | undefined
+  baseline: string
+  acceptedBaseline?: string
+  draft: AgentPickerDraft
+}
+const appSession = {}
+const sessionDrafts = new WeakMap<object, Map<string, RetainedSetup>>()
+
+export function invalidateAgentPickerDrafts(scope: object) {
+  sessionDrafts.delete(scope)
+}
+
+export function useAgentPickerDraftScope(resetSignal?: unknown) {
+  const scope = useMemo(() => ({ resetSignal }), [resetSignal])
+  useEffect(() => () => invalidateAgentPickerDrafts(scope), [scope])
+  return scope
+}
+
+function baselineOf(draft?: AgentPickerDraft) {
+  if (!draft?.recipeEdits) {
+    return JSON.stringify(draft) ?? ''
+  }
+  const { surface: _surface, ...current } = draft.recipeEdits.selection.current
+  return JSON.stringify({
+    surface: draft.surface,
+    current,
+    source: draft.recipeEdits.selection.source
+  })
+}
 
 function setupKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
   if (event.key === 'Enter' || event.key === ' ') {
@@ -31,6 +68,8 @@ function setupKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
 
 export function AgentLaunchSetupButton({
   entry,
+  draftScope = appSession,
+  draftId = 'agent',
   initial,
   mode,
   renderAnchor,
@@ -41,6 +80,8 @@ export function AgentLaunchSetupButton({
   onUse
 }: {
   entry: AgentPickerEntry
+  draftScope?: object
+  draftId?: string
   initial?: AgentPickerDraft
   mode?: 'launch' | 'select'
   renderAnchor?: (trigger: ReactElement) => ReactElement
@@ -50,7 +91,44 @@ export function AgentLaunchSetupButton({
   onOpenChange?: (open: boolean) => void
   onUse: (draft: AgentPickerDraft) => void
 }) {
-  const draftKey = JSON.stringify([entry.ownerKey, entry.agent, initial])
+  const scopeGeneration = useRef({ scope: draftScope, version: 0 })
+  if (scopeGeneration.current.scope !== draftScope) {
+    scopeGeneration.current = { scope: draftScope, version: scopeGeneration.current.version + 1 }
+  }
+  const draftKey = JSON.stringify([entry.agent, draftId])
+  const baseline = baselineOf(initial)
+  const drafts = sessionDrafts.get(draftScope) ?? new Map<string, RetainedSetup>()
+  const retained = drafts.get(draftKey)
+  const matches =
+    retained?.authority === entry.ownerKey &&
+    (retained?.baseline === baseline || retained?.acceptedBaseline === baseline)
+  if (retained && !matches) {
+    drafts.delete(draftKey)
+  }
+  const retainedDraft =
+    matches && retained
+      ? {
+          ...retained.draft,
+          ...(retained.acceptedBaseline === baseline && initial?.recipeEdits
+            ? { recipeEdits: initial.recipeEdits }
+            : {})
+        }
+      : initial
+  const retain = (draft: AgentPickerDraft, accepted = false) => {
+    sessionDrafts.set(draftScope, drafts)
+    drafts.set(draftKey, {
+      authority: entry.ownerKey,
+      baseline,
+      ...(accepted ? { acceptedBaseline: baselineOf(draft) } : {}),
+      draft:
+        accepted && draft.recipeEdits
+          ? {
+              ...draft,
+              recipeEdits: { ...draft.recipeEdits, changed: false, argumentsAuthored: false }
+            }
+          : draft
+    })
+  }
   const [localOpen, setOpen] = useState(false)
   const open = controlledOpen ?? localOpen
   const closeFocus = useRef({ open, restore: true })
@@ -158,13 +236,21 @@ export function AgentLaunchSetupButton({
       >
         <div className="min-h-0 overflow-y-auto scrollbar-sleek">
           <AgentLaunchSetupPanel
-            key={draftKey}
+            key={JSON.stringify([
+              scopeGeneration.current.version,
+              draftKey,
+              entry.ownerKey,
+              baseline
+            ])}
             entry={entry}
             mode={mode}
-            initial={sessionDrafts.get(draftKey) ?? initial}
+            initial={retainedDraft}
             disabled={disabled}
-            onDraftChange={(draft) => sessionDrafts.set(draftKey, draft)}
+            onDraftChange={(draft) => retain(draft)}
             onUse={(draft) => {
+              if (mode === 'select') {
+                retain(draft, true)
+              }
               onUse(draft)
               changeOpen(false)
             }}

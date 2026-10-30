@@ -127,22 +127,6 @@ export function useQuickCreationExecution(input: QuickCreationExecutionInput) {
       const { prompt: quickPrompt, draftPrompt: quickDraftPrompt } =
         resolveQuickCreateLinkedWorkItemPrompt(promptLinkedWorkItem, trimmedNote)
 
-      const {
-        startupPlan,
-        backendStartup,
-        telemetry: quickTelemetry
-      } = buildQuickComposerStartup({
-        agent,
-        prompt: quickPrompt,
-        draftPrompt: quickDraftPrompt,
-        settings,
-        launchHost: selectedRepoAgentLaunchFact,
-        shell: selectedRepoStartupShell,
-        isRemote: selectedRepoIsRemote,
-        telemetrySource,
-        launchInputs: options?.launchInputs
-      })
-
       const startupPolicySettlement = await settleComposerSubmit(
         persistSetupAgentStartupPolicy(),
         isSubmissionCancelled
@@ -196,6 +180,19 @@ export function useQuickCreationExecution(input: QuickCreationExecutionInput) {
           }))
       const structuredLaunch = agentLaunchRoute === 'structured-native-chat'
 
+      const quickStartup = buildQuickComposerStartup({
+        agent,
+        prompt: quickPrompt,
+        draftPrompt: quickDraftPrompt,
+        settings,
+        launchHost: selectedRepoAgentLaunchFact,
+        shell: selectedRepoStartupShell,
+        isRemote: selectedRepoIsRemote,
+        telemetrySource,
+        route: agentLaunchRoute,
+        launchInputs: options?.launchInputs
+      })
+
       const request = buildQuickCreationRequest({
         repoId,
         ephemeralVmRecipe,
@@ -244,7 +241,7 @@ export function useQuickCreationExecution(input: QuickCreationExecutionInput) {
         linkedGitLabMR,
         linkedGitLabIssue,
         includeGitLabLinks: smartGitHubResolution.kind === 'none',
-        startup: structuredLaunch ? undefined : backendStartup,
+        startup: structuredLaunch ? undefined : quickStartup.backendStartup,
         hookPreparation: ephemeralVmRecipe
           ? {
               ...hookPreparation,
@@ -254,11 +251,11 @@ export function useQuickCreationExecution(input: QuickCreationExecutionInput) {
           : hookPreparation,
         pendingFirstAgentMessageRename,
         note: trimmedNote,
-        startupPlan,
+        startupPlan: quickStartup.startupPlan,
         quickPrompt,
         launchDraftPrompt: quickDraftPrompt,
         promptDelivery,
-        quickTelemetry,
+        quickTelemetry: quickStartup.telemetry,
         suppressTerminalFocusOnCompletion: createMultiple,
         setupOnly: options?.setupOnly === true
       })

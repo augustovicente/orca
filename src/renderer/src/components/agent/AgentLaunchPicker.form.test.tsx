@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act } from 'react'
+import { act, useState } from 'react'
 import { fireEvent } from '@testing-library/react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -9,7 +9,12 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
 import { TooltipProvider } from '@/components/ui/tooltip'
-import { AgentLaunchSetupButton } from './AgentLaunchSetupButton'
+import {
+  sourceControlPickerDraft,
+  applySourceControlPickerDraft
+} from '../settings/source-control-agent-launch-picker'
+import { canonicalSourceControlActionSelection } from '../../../../shared/source-control-action-selection'
+import { AgentLaunchSetupButton, useAgentPickerDraftScope } from './AgentLaunchSetupButton'
 import { AgentLaunchPickerMenu } from './AgentLaunchPickerMenu'
 import type { AgentPickerEntry } from '../../../../shared/agent-launch-picker'
 
@@ -112,3 +117,59 @@ it.each(['button', 'enter'] as const)(
     expect(launch).toHaveBeenCalledExactlyOnceWith(initial)
   }
 )
+
+it('rebases accepted recipe receipts and retires independent form scopes with equal baselines', () => {
+  const inventory = { ...entry, defaultSurface: 'terminal' as const, arguments: '--base' }
+  function Form({ request }: { request: string }) {
+    const scope = useAgentPickerDraftScope(request)
+    const [selection, update] = useState(() =>
+      canonicalSourceControlActionSelection({ agentId: 'codex' })
+    )
+    return (
+      <AgentLaunchSetupButton
+        entry={inventory}
+        draftScope={scope}
+        initial={sourceControlPickerDraft(selection, inventory, 'terminal')}
+        mode="select"
+        onUse={(draft) => {
+          launch(draft)
+          update((current) => applySourceControlPickerDraft(current, inventory, draft))
+        }}
+      />
+    )
+  }
+  const showForm = (request: string) =>
+    act(() =>
+      root.render(
+        <TooltipProvider>
+          <Form request={request} />
+        </TooltipProvider>
+      )
+    )
+  const open = () =>
+    fireEvent.click(
+      document.querySelector<HTMLButtonElement>('button[aria-label="Configure Codex"]')!
+    )
+  showForm('first')
+  open()
+  fireEvent.change(document.querySelector('textarea')!, { target: { value: '--accepted' } })
+  fireEvent.click([...document.querySelectorAll('button')].find((b) => b.textContent === 'Use')!)
+  expect(launch.mock.calls.at(-1)?.[0].recipeEdits.changed).toBe(true)
+  open()
+  expect(document.querySelector('textarea')).toHaveProperty('value', '--accepted')
+  fireEvent.click([...document.querySelectorAll('button')].find((b) => b.textContent === 'Use')!)
+  expect(launch.mock.calls.at(-1)?.[0].recipeEdits.changed).toBe(false)
+  open()
+  fireEvent.change(document.querySelector('textarea')!, { target: { value: '--unaccepted' } })
+  showForm('second')
+  expect(document.querySelector('textarea')).toHaveProperty('value', '--accepted')
+  act(() =>
+    root.render(
+      <TooltipProvider>
+        <Form key="new-controller" request="second" />
+      </TooltipProvider>
+    )
+  )
+  open()
+  expect(document.querySelector('textarea')).toHaveProperty('value', '--base')
+})

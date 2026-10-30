@@ -38,6 +38,7 @@ export {
   resolveFolderWorkspaceLaunchDraft
 } from './folder-workspace-agent-startup'
 import { translate } from '@/i18n/i18n'
+import { getAgentLabel } from '@/lib/agent-catalog'
 
 type FolderWorkspaceCreateInput = {
   projectGroupId: string
@@ -180,6 +181,15 @@ export async function submitFolderWorkspaceCreate({
       : planAgentSessionLaunch(useAppStore.getState(), launchRequest)
     : null
   const structuredLaunch = plan?.route === 'structured-native-chat'
+  if (quickAgent && !structuredLaunch && !startupPlan) {
+    throw new Error(
+      translate(
+        'agentPicker.workspaceStartupFailed',
+        'Could not start {{agent}}. Check Arguments in this setup and try again.',
+        { agent: getAgentLabel(quickAgent) }
+      )
+    )
+  }
   // Show pending rename only when the submitted prompt can produce a naming message.
   const pendingFirstAgentMessageRename =
     autoRenameBranchFromWork === true &&

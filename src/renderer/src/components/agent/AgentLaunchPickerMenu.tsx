@@ -5,11 +5,13 @@ import { AgentIcon } from '@/lib/agent-catalog'
 import { useOptionalShortcutLabel } from '@/hooks/useShortcutLabel'
 import { translate } from '@/i18n/i18n'
 import { AgentLaunchSetupButton } from './AgentLaunchSetupButton'
+import { applyAgentPickerEdit } from '../../../../shared/agent-launch-picker-edits'
 import type { NewTabAgentMenuModel } from '../tab-bar/use-new-tab-agent-menu-rows'
 import { chatUnavailableLabel } from '../tab-bar/tab-agent-row-presentation'
 import type { NewTabAgentMenuRow } from '../../../../shared/agent-launch-picker-rows'
 import {
   searchAgentPickerSetups,
+  agentPickerDraft,
   type AgentPickerDraft,
   type AgentPickerEntry,
   type AgentPickerSurface
@@ -37,6 +39,7 @@ function keepSetupFocus(event: PointerEvent<HTMLDivElement>) {
 
 export function AgentLaunchPickerMenu({
   model,
+  draftScope,
   disabled,
   setupDisabled,
   mode,
@@ -48,6 +51,7 @@ export function AgentLaunchPickerMenu({
   onSelectAgent
 }: {
   model: NewTabAgentMenuModel
+  draftScope?: object
   disabled?: boolean
   setupDisabled?: boolean
   mode?: 'launch' | 'select'
@@ -100,17 +104,20 @@ export function AgentLaunchPickerMenu({
       {setups.map((setup) => (
         <AgentPickerMenuRow
           key={`${setup.entry.agent}:${setup.model.id}:${setup.choices.options?.effort ?? ''}`}
+          draftScope={draftScope}
+          draftId={`${setup.model.id}:${setup.choices.options?.effort ?? ''}`}
           entry={setup.entry}
           mode={mode}
           setupDisabled={setupDisabled}
           openSetup={openSetup}
           onSetupOpenChange={setOpenSetup}
           label={setup.label}
-          initial={{
-            agent: setup.entry.agent,
-            surface: setup.entry.defaultSurface,
-            choices: setup.choices
-          }}
+          initial={applyAgentPickerEdit(
+            setup.entry,
+            (value?.agent === setup.entry.agent ? value : draftForEntry?.(setup.entry)) ??
+              agentPickerDraft(setup.entry),
+            { kind: 'choice', patch: setup.choices }
+          )}
           onSelectAgent={onSelectAgent}
           disabled={disabled}
           runLaunch={runLaunch}
@@ -119,6 +126,7 @@ export function AgentLaunchPickerMenu({
       {visible.map((entry) => (
         <AgentPickerMenuRow
           key={entry.agent}
+          draftScope={draftScope}
           entry={entry}
           mode={mode}
           selected={value?.agent === entry.agent ? value : draftForEntry?.(entry)}
@@ -149,6 +157,8 @@ export function AgentLaunchPickerMenu({
 
 function AgentPickerMenuRow({
   entry,
+  draftScope,
+  draftId,
   openSetup,
   onSetupOpenChange,
   label = entry.label,
@@ -162,6 +172,8 @@ function AgentPickerMenuRow({
   onSelectAgent
 }: {
   entry: AgentPickerEntry
+  draftScope?: object
+  draftId?: string
   openSetup: string | null
   onSetupOpenChange: (id: string | null) => void
   label?: string
@@ -180,6 +192,8 @@ function AgentPickerMenuRow({
   const unavailable = entry.rows.find((row) => row.kind === 'chat-unavailable')
   return (
     <AgentLaunchSetupButton
+      draftScope={draftScope}
+      draftId={draftId}
       entry={entry}
       initial={initial ?? selected}
       mode={mode}

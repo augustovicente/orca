@@ -11,6 +11,7 @@ import {
 import { AgentIcon, getAgentLabel } from '@/lib/agent-catalog'
 import { translate } from '@/i18n/i18n'
 import type { NewTabAgentMenuModel } from '../tab-bar/use-new-tab-agent-menu-rows'
+import { useAgentPickerDraftScope } from './AgentLaunchSetupButton'
 import { AgentLaunchPickerMenu } from './AgentLaunchPickerMenu'
 import { useAgentLaunchPickerInventory } from './use-agent-launch-picker-inventory'
 import {
@@ -23,6 +24,7 @@ import {
 /** Forms own selection and dispatch; rows and setup remain the same as the new-tab menu. */
 export function AgentLaunchPicker({
   model,
+  draftScope,
   worktreeId,
   value,
   draftForEntry,
@@ -35,6 +37,7 @@ export function AgentLaunchPicker({
   onPick
 }: {
   model: NewTabAgentMenuModel
+  draftScope?: object
   worktreeId?: string
   value?: AgentPickerDraft
   draftForEntry?: (entry: AgentPickerEntry) => AgentPickerDraft
@@ -51,6 +54,7 @@ export function AgentLaunchPicker({
     surface?: AgentPickerDraft['surface']
   ) => void
 }) {
+  const ownDraftScope = useAgentPickerDraftScope()
   const [open, setOpen] = useState(false)
   const [selected, setSelected] = useState<AgentPickerEntry['agent']>()
   const entries = useAgentLaunchPickerInventory(
@@ -103,6 +107,7 @@ export function AgentLaunchPicker({
           {children}
           {model.state === 'settled' ? (
             <AgentLaunchPickerMenu
+              draftScope={draftScope ?? ownDraftScope}
               model={model}
               entries={entries}
               value={value}
