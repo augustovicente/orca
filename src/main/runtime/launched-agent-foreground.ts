@@ -83,10 +83,14 @@ export async function readLaunchedAgentForeground(
     if (!foreground) {
       return 'unknown'
     }
-    return isLaunchShell(foreground) &&
+    if (
+      isLaunchShell(foreground) &&
       !isExpectedAgentProcess(foreground, TUI_AGENT_CONFIG[agent].expectedProcess)
-      ? 'shell'
-      : 'agent'
+    ) {
+      return 'shell'
+    }
+    // The name may be the tracker's display cache: it can refuse a write the evidence declined, never authorize it.
+    return evidence ? 'unknown' : 'agent'
   } catch {
     return 'unknown'
   }

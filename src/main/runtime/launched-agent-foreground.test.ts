@@ -74,6 +74,18 @@ describe('the relay’s foreground group as proof of a launched agent', () => {
       readLaunchedAgentForeground(controller, POSIX_SSH, 'pty-1', 'claude')
     ).resolves.toBe('shell')
   })
+
+  it('refuses a stale capture without letting the cached display name restore authority', async () => {
+    // zsh → su → root bash → Claude: the tracker cached `claude` just before Claude exited to the root bash.
+    const controller = {
+      ...controllerAnswering(async () => claudeInGroup(1_500)),
+      getForegroundProcess: async () => 'claude'
+    }
+
+    await expect(
+      readLaunchedAgentForeground(controller, POSIX_SSH, 'pty-1', 'claude')
+    ).resolves.toBe('unknown')
+  })
 })
 
 // Guarded pastes must use terminal-local probes instead of slow whole-machine scans.

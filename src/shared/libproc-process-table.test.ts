@@ -473,7 +473,7 @@ describe('runPsInProcess', () => {
     expect(runProcess).toHaveBeenCalledTimes(2)
   })
 
-  it('reuses recovered argv for at most 2s, so a same-comm re-exec is seen', async () => {
+  it('reuses recovered argv for at most 1.5s, so a same-comm re-exec is seen', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] })
     const sudo = row({
       pid: 5100,
@@ -500,7 +500,7 @@ describe('runPsInProcess', () => {
     expect((await runPsInProcess(args, BUDGET))?.stdout).toBe(`node /opt/claude/cli.js\n`)
     argv = 'node /srv/server.js'
     expect((await runPsInProcess(args, BUDGET))?.stdout).toBe(`node /opt/claude/cli.js\n`)
-    await vi.advanceTimersByTimeAsync(2_000)
+    await vi.advanceTimersByTimeAsync(1_500)
     expect((await runPsInProcess(args, BUDGET))?.stdout).toBe('node /srv/server.js\n')
     expect(runProcess).toHaveBeenCalledTimes(2)
   })
@@ -536,7 +536,7 @@ describe('runPsInProcess', () => {
     expect(runProcess).toHaveBeenCalledTimes(1)
   })
 
-  it('recovers a su pane’s argv at most once per process per 2s however often it is read', async () => {
+  it('recovers a su pane’s argv within the recovery budget however often it is read', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] })
     const su = row({
       pid: 5300,
@@ -560,13 +560,48 @@ describe('runPsInProcess', () => {
 
     const reads: ReturnType<typeof runPsInProcess>[] = []
     for (let poll = 0; poll < 20; poll += 1) {
-      reads.push(runPsInProcess(args, BUDGET))
+      // readTerminalProcessRows' budget: a read may wait for the next recovery token.
+      reads.push(runPsInProcess(args, { ...BUDGET, timeoutMs: 3_000 }))
       await vi.advanceTimersByTimeAsync(750)
     }
     for (const read of await Promise.all(reads)) {
       expect(read?.stdout).toContain('5300 su -l\n')
     }
-    expect(runProcess.mock.calls.length).toBeLessThanOrEqual(8)
+    // The recovery budget: a burst of 2, then one per 2s over the ~16s the reads span.
+    expect(runProcess.mock.calls.length).toBeLessThanOrEqual(10)
+  })
+
+  it('asks again at once after a recovery ps that timed out, which proved nothing', async () => {
+    const su = row({
+      pid: 5350,
+      ppid: 4242,
+      tdev: TTYS004,
+      uid: OTHER_UID,
+      comm: 'su',
+      command: '(su)'
+    })
+    installAddon({
+      readProcessTable: vi.fn(async (query: LibprocQuery) => tableFor(query, [...TABLE, su]))
+    })
+    runProcess
+      .mockResolvedValueOnce({
+        code: null,
+        signal: 'SIGTERM',
+        stdout: '',
+        stderr: '',
+        timedOut: true
+      })
+      .mockResolvedValue({
+        code: 0,
+        signal: null,
+        stdout: ' 5350 su -l\n',
+        stderr: '',
+        timedOut: false
+      })
+    const read = () => runPsInProcess(['-p', '5350', '-o', 'command='], BUDGET)
+
+    expect((await read())?.stdout).toBe('(su)\n')
+    expect((await read())?.stdout).toBe('su -l\n')
   })
 
   it('recovers the foreground of a terminal where no process of ours is left (exec su)', async () => {
@@ -636,14 +671,14 @@ describe('runPsInProcess', () => {
       await reader.getSnapshotWithAge()
       // node re-execs into a server; same pid, start time and comm.
       argv = 'node /srv/server.js'
-      await vi.advanceTimersByTimeAsync(1_900)
+      await vi.advanceTimersByTimeAsync(1_400)
 
       const snapshot = await reader.getSnapshotWithAge()
       expect(snapshot.value).toContain('claude')
-      expect(snapshot.capturedAgeMs).toBeGreaterThanOrEqual(1_900)
+      expect(snapshot.capturedAgeMs).toBeGreaterThanOrEqual(1_400)
     })
 
-    it('never answers a reader with a recovery begun more than 2s before it asked', async () => {
+    it('never answers a reader with a recovery begun more than 1.5s before it asked', async () => {
       pid = 5600
       let finishSlow: (stdout: string) => void = () => {}
       runProcess

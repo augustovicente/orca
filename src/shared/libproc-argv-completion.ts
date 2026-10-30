@@ -54,17 +54,20 @@ function needsRecovery(
   )
 }
 
-/** A positive answer ages from when ps started reading; a failure from when it ended, however long ps took. */
-type Recovered = { startedAtMs: number; settledAtMs: number; command: string | undefined }
+/** A positive answer ages from when its ps started; a failure from when it ended, however long ps took. */
+type Recovered = Answer & { settledAtMs: number }
 
 // exec can keep pid, start time and comm (node → node with another script) and no cheap field shows it, so recovered
-// argv is reused for at most 2s, and every row carries when ps read it so evidence reports its oldest input's age.
+// argv is reused for at most 1.5s (plus the 500ms snapshot cache, under the 2s evidence freshness gate), and every row
+// carries when ps read it so evidence reports its oldest input's age.
 const recovered = new Map<string, Recovered>()
-// One ps run's answer per process; undefined when ps omitted it, failed or the budget withheld it.
-const recovering = new Map<string, { startedAtMs: number; command: Promise<string | undefined> }>()
+/** A ps run's answer for one process: its argv (undefined when ps omitted it) and when that ps started. */
+type Answer = { command: string | undefined; readAtMs: number }
+// null when ps timed out or the budget withheld it: that proves nothing.
+const recovering = new Map<string, { startedAtMs: number; answer: Promise<Answer | null> }>()
 const RECOVERED_LIMIT = 512
-const RECOVERED_TTL_MS = 2_000
-// A row ps could not answer (exited, or unreadable to it too) waits this long before costing another ps.
+const RECOVERED_TTL_MS = 1_500
+// A row ps answered without (exited, or unreadable to it too) waits this long before costing another ps.
 const UNRECOVERED_TTL_MS = 5_000
 
 /** exec keeps pid and start time; comm usually changes, and microseconds split same-second pid reuse. */
@@ -74,7 +77,7 @@ function commandKey(ctype: string, row: LibprocProcessRow): string {
 
 function remember(key: string, entry: Recovered): void {
   // A recovery begun past an older one's window can finish first; the older answer must not replace it.
-  if ((recovered.get(key)?.startedAtMs ?? Number.NEGATIVE_INFINITY) > entry.startedAtMs) {
+  if ((recovered.get(key)?.readAtMs ?? Number.NEGATIVE_INFINITY) > entry.readAtMs) {
     return
   }
   recovered.delete(key)
@@ -92,7 +95,8 @@ async function readCommands(
   env: NodeJS.ProcessEnv,
   deadline: number,
   background: boolean
-): Promise<ReadonlyMap<number, string> | null> {
+): Promise<{ commands: ReadonlyMap<number, string>; readAtMs: number } | null> {
+  const requestedAtMs = monotonicNow()
   try {
     const result = await runArgvRecoveryPs(
       ['-ww', '-o', 'pid=,command=', '-p', pids.join(',')],
@@ -110,7 +114,8 @@ async function readCommands(
         commands.set(Number(match[1]), match[2])
       }
     }
-    return commands
+    // Reuse ages from when ps started, not from a wait for its fork token.
+    return { commands, readAtMs: result.spawnedAtMs ?? requestedAtMs }
   } catch {
     return null
   }
@@ -128,11 +133,7 @@ export async function completeCommands(
 ): Promise<void> {
   const byPid = new Map(rows.map((row) => [row.pid, row]))
   const now = monotonicNow()
-  const pending: {
-    row: LibprocProcessRow
-    readAtMs: number
-    command: Promise<string | undefined>
-  }[] = []
+  const pending: { row: LibprocProcessRow; answer: Promise<Answer | null> }[] = []
   const missing: { row: LibprocProcessRow; key: string }[] = []
   for (const row of rows) {
     if (!needsRecovery(row, selection, byPid)) {
@@ -144,15 +145,15 @@ export async function completeCommands(
     if (known && known.command === undefined && now - known.settledAtMs < UNRECOVERED_TTL_MS) {
       continue
     }
-    if (known?.command !== undefined && now - known.startedAtMs < RECOVERED_TTL_MS) {
+    if (known?.command !== undefined && now - known.readAtMs < RECOVERED_TTL_MS) {
       row.command = known.command
-      row.commandReadAtMs = known.startedAtMs
+      row.commandReadAtMs = known.readAtMs
       continue
     }
     // A run begun too long ago reads argv older than this caller may reuse.
     const inFlight = recovering.get(key)
     if (inFlight && now - inFlight.startedAtMs < RECOVERED_TTL_MS) {
-      pending.push({ row, readAtMs: inFlight.startedAtMs, command: inFlight.command })
+      pending.push({ row, answer: inFlight.answer })
     } else {
       missing.push({ row, key })
     }
@@ -169,32 +170,37 @@ export async function completeCommands(
       background
     )
     for (const { row, key } of missing) {
-      const recovery = { startedAtMs, command: read.then((commands) => commands?.get(row.pid)) }
+      const recovery = {
+        startedAtMs,
+        answer: read.then((result) =>
+          result ? { command: result.commands.get(row.pid), readAtMs: result.readAtMs } : null
+        )
+      }
       recovering.set(key, recovery)
-      void recovery.command.then((command) => {
-        remember(key, { startedAtMs, settledAtMs: monotonicNow(), command })
+      void recovery.answer.then((answer) => {
+        // Only an answer is remembered: a ps that timed out, or a run the budget withheld, proved nothing.
+        if (answer) {
+          remember(key, { ...answer, settledAtMs: monotonicNow() })
+        }
         if (recovering.get(key) === recovery) {
           recovering.delete(key)
         }
       })
-      pending.push({ row, readAtMs: startedAtMs, command: recovery.command })
+      pending.push({ row, answer: recovery.answer })
     }
   }
   if (pending.length === 0) {
     return
   }
-  const commands = await beforeDeadline(
-    Promise.all(pending.map(({ command }) => command)),
-    deadline
-  )
-  if (commands === DEADLINE_PASSED) {
+  const answers = await beforeDeadline(Promise.all(pending.map(({ answer }) => answer)), deadline)
+  if (answers === DEADLINE_PASSED) {
     return
   }
-  pending.forEach(({ row, readAtMs }, index) => {
-    const command = commands[index]
-    if (command !== undefined) {
-      row.command = command
-      row.commandReadAtMs = readAtMs
+  pending.forEach(({ row }, index) => {
+    const answer = answers[index]
+    if (answer?.command !== undefined) {
+      row.command = answer.command
+      row.commandReadAtMs = answer.readAtMs
     }
   })
 }

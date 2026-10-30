@@ -15,10 +15,13 @@ type Flight = {
   /** Creation order; a flight serves only requests registered at or before it, so its ps started after them. */
   sequence: number
   readonly submitted: boolean
-  wait: (deadline: number) => Promise<Settled<ProcessResult> | typeof DEADLINE_PASSED>
+  wait: (deadline: number) => Promise<Settled<BudgetedPsResult> | typeof DEADLINE_PASSED>
 }
 
 type Spec = { args: readonly string[]; env: NodeJS.ProcessEnv; maxOutputBytes?: number }
+
+/** `spawnedAtMs` (monotonic): when this ps started, so what it read is no older; absent when it never ran. */
+export type BudgetedPsResult = ProcessResult & { spawnedAtMs?: number }
 
 /** Requests for one invocation waiting on a token; served together, in the order their invocation first queued. */
 type Queued = { spec: Spec; waiters: Map<() => void, number> }
@@ -55,7 +58,7 @@ type PsForkBudget = {
     registeredSequence: number,
     deadline: number,
     background: boolean
-  ) => Promise<ProcessResult>
+  ) => Promise<BudgetedPsResult>
   reset: () => void
 }
 
@@ -76,17 +79,18 @@ function createPsForkBudget(burst: number, refillMs: number): PsForkBudget {
 
   const submit = (key: string, spec: Spec, timeoutMs: number): void => {
     const submission = { submitted: false }
-    const pending = new Promise<ProcessResult>((resolve, reject) => {
+    const pending = new Promise<BudgetedPsResult>((resolve, reject) => {
       // A microtask later, so requests registered in the same turn share this ps.
       queueMicrotask(() => {
         submission.submitted = true
+        const spawnedAtMs = monotonicNow()
         runProcess({
           program: '/bin/ps',
           args: [...spec.args],
           env: spec.env,
           timeoutMs,
           ...(spec.maxOutputBytes === undefined ? {} : { maxOutputBytes: spec.maxOutputBytes })
-        }).then(resolve, reject)
+        }).then((result) => resolve({ ...result, spawnedAtMs }), reject)
       })
     })
     flights.delete(key)
@@ -136,7 +140,7 @@ function createPsForkBudget(burst: number, refillMs: number): PsForkBudget {
     registeredSequence: number,
     deadline: number,
     background: boolean
-  ): Promise<ProcessResult> => {
+  ): Promise<BudgetedPsResult> => {
     const key = flightKey(spec)
     const ahead = (): number => (background ? queued() : queues[0].size)
     for (;;) {
@@ -218,7 +222,9 @@ export function runPsFallback(
   deadline: number,
   background = false
 ): Promise<ProcessResult> {
-  return fallbackBudget.run({ args, ...options }, registeredSequence, deadline, background)
+  return fallbackBudget
+    .run({ args, ...options }, registeredSequence, deadline, background)
+    .then(({ spawnedAtMs: _spawnedAtMs, ...result }) => result)
 }
 
 /** `ps -o pid=,command= -p …` for argv the in-process reader could not read, under its own smaller budget. */
@@ -227,7 +233,7 @@ export function runArgvRecoveryPs(
   options: { env: NodeJS.ProcessEnv; maxOutputBytes?: number },
   deadline: number,
   background: boolean
-): Promise<ProcessResult> {
+): Promise<BudgetedPsResult> {
   return argvRecoveryBudget.run(
     { args, ...options },
     registerPsFallbackRequest(),

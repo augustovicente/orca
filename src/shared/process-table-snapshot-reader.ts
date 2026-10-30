@@ -79,7 +79,8 @@ export function createProcessTableSnapshotReader<T = string>(
   async function getSnapshotWithAge(): Promise<{ value: T; capturedAgeMs: number }> {
     const value = await getSnapshot()
     const capturedAtMs = cached?.value === value ? cached.capturedAtMs : deps.now()
-    return { value, capturedAgeMs: Math.max(0, deps.now() - capturedAtMs) }
+    // Whole milliseconds, rounded older: the wire requires integers and an input's clock conversion is fractional.
+    return { value, capturedAgeMs: Math.max(0, Math.ceil(deps.now() - capturedAtMs)) }
   }
 
   function getFreshSnapshot(): Promise<T> {
