@@ -13193,7 +13193,10 @@
           "commands": "Commands & panels",
           "catalogLabel": "Filter by catalog",
           "editors": "Editors",
-          "remoteVms": "Remote/VMs"
+          "remoteVms": "Remote/VMs",
+          "games": "Games",
+          "agents": "Agents",
+          "integrations": "Integrations"
         },
         "PluginUpdateAllDialog": {
           "previewError": "Couldn’t read this update",
