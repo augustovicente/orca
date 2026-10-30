@@ -518,7 +518,7 @@ describe('a worker result reaches the structured chat that coordinates it', () =
     expect(chat.steers).toHaveLength(0)
     const cli = localOrchestrationCliCommand()
     expect(turnText(chat.turns[2]!)).toContain(
-      `You have 1 new orchestration message after delivery ${heldId}, which you have not acknowledged. If you no longer have it, run \`${cli} orchestration check --run ${runId}\` to see it again; once it is handled, run \`${cli} orchestration check --run ${runId} --ack ${heldId}\`.`
+      `You have 1 new orchestration message after delivery ${heldId}, which you have not acknowledged. If you no longer have it, run \`${cli} orchestration check --run ${runId}\` to see it again; once it is handled, run \`${cli} orchestration check --run ${runId} --ack ${heldId}\`, then \`${cli} orchestration check --run ${runId}\` for the new mail.`
     )
 
     // Ending that turn without acking stays quiet: nothing newer arrived, so no edge even reads the chat to send.
@@ -538,12 +538,14 @@ describe('a worker result reaches the structured chat that coordinates it', () =
       `You have 1 new orchestration message after delivery ${heldId}`
     )
 
-    const next = await call(
+    const acked = await call(
       'orchestration.check',
       { run: runId, ack: heldId },
       { sessionId: COORDINATOR }
     )
-    expect(next).toMatchObject({ acknowledged: heldId, count: 2 })
+    expect(acked).toMatchObject({ acknowledged: heldId, count: 0 })
+    const next = await call('orchestration.check', { run: runId }, { sessionId: COORDINATOR })
+    expect(next).toMatchObject({ count: 2 })
   })
 
   it('holds a held-batch nudge for a turn that starts while the nudge reads the chat', async () => {

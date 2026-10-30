@@ -528,7 +528,11 @@ test.describe('orchestration push-on-idle mail delivery', () => {
       terminal: pane.handle,
       ack: heldId
     })
-    expect(acked.result.messages.map((message) => message.subject)).toEqual(['Newer mail'])
+    expect(acked.result.messages).toEqual([])
+    const next = await client.call<WaitingCheck['result']>('orchestration.check', {
+      terminal: pane.handle
+    })
+    expect(next.result.messages.map((message) => message.subject)).toEqual(['Newer mail'])
   })
 
   // #35274: binding Run B keeps Run A, so its direct mail is pointed with its own --run, never Run B's check.

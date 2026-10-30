@@ -768,7 +768,8 @@ describe('orchestration notification mailbox consistency', () => {
 
     const acknowledged = await checkBoundMailbox(harness.runtime, { ack: checked.deliveryId! })
     expect(acknowledged.acknowledged).toBe(checked.deliveryId)
-    expect(acknowledged.messages).toEqual([expect.objectContaining({ id: messages[50]!.id })])
+    const next = await checkBoundMailbox(harness.runtime)
+    expect(next.messages).toEqual([expect.objectContaining({ id: messages[50]!.id })])
     expect(db.getMessageById(messages[0]!.id)?.read).toBe(1)
     db.close()
   })
