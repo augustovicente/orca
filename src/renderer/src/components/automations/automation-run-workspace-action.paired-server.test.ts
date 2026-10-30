@@ -1,6 +1,6 @@
 /** Paired runs use server PTY IDs while local mirrors use terminal handles; comparing those IDs falsely made available run terminals appear missing (#21213). */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { makeUnifiedTab } from '@/store/slices/store-test-helpers'
+import { makeTabGroup, makeUnifiedTab } from '@/store/slices/store-test-helpers'
 import type { Tab } from '../../../../shared/tab-types'
 import type { AutomationRun } from '../../../../shared/automations-types'
 import { toRemoteRuntimePtyId } from '../../../../shared/remote-runtime/remote-runtime-pty-id'
@@ -43,6 +43,7 @@ import type { AutomationsPageActionContext } from './automations-page-action-con
 
 const ENV = 'env-a'
 const WT = 'repo-a::/srv/app'
+const GROUP = 'recorded-chat-group'
 const LEAF = '11111111-1111-4111-8111-111111111111'
 const HOST_TAB = 'host-tab-1'
 const MIRRORED_TAB = toWebTerminalSurfaceTabId(HOST_TAB)
@@ -95,8 +96,20 @@ function storeState(mirrored: boolean): Record<string, unknown> {
     unifiedTabsByWorktree: { [WT]: mocks.chatTabs },
     activateTab: mocks.activateTab,
     focusGroup: vi.fn(),
-    groupsByWorktree: {},
-    activeGroupIdByWorktree: {},
+    groupsByWorktree: {
+      [WT]: [
+        {
+          ...makeTabGroup({ id: GROUP, worktreeId: WT }),
+          get tabOrder() {
+            return mocks.chatTabs.map((tab) => tab.id)
+          },
+          get activeTabId() {
+            return mocks.chatTabs[0]?.id ?? null
+          }
+        }
+      ]
+    },
+    activeGroupIdByWorktree: { [WT]: GROUP },
     setTabLayout: vi.fn(),
     setActiveTab: vi.fn(),
     setActiveTabType: vi.fn()
@@ -120,6 +133,7 @@ beforeEach(() => {
       mocks.chatTabs.push(
         makeUnifiedTab({
           id: 'recorded-chat',
+          groupId: GROUP,
           entityId: params.sessionId,
           worktreeId: WT,
           executionHostId: `runtime:${ENV}`,
@@ -198,6 +212,7 @@ it('opens the recorded Chat on its owning paired server without creating a sessi
   await vi.waitFor(() =>
     expect(mocks.activateTab).toHaveBeenCalledWith('recorded-chat', { worktreeId: WT })
   )
+  expect(mocks.state.focusGroup).toHaveBeenCalledWith(WT, GROUP)
   expect(mocks.rpc).toHaveBeenCalledWith(
     { kind: 'environment', environmentId: ENV },
     'agentSession.reveal',
@@ -264,6 +279,7 @@ it('presents one automation fallback when duplicate exact activation clicks reje
   mocks.chatTabs.push(
     makeUnifiedTab({
       id: 'recorded-chat',
+      groupId: GROUP,
       entityId: 'claude_published',
       worktreeId: WT,
       executionHostId: `runtime:${ENV}`,

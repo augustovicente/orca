@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import type { AiVaultSession } from '../../../../shared/ai-vault-types'
-import { renderHook } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, renderHook } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   structured: vi.fn(async () => true),
@@ -47,12 +47,16 @@ function folder(executionHostId: string) {
   return { id: 'folder-1', projectGroupId: 'group-1', executionHostId }
 }
 
-describe('jumpToWorktree', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    mocks.folderWorkspaces = []
-  })
+beforeEach(() => {
+  vi.resetAllMocks()
+  mocks.folderWorkspaces = []
+  mocks.findStructured.mockReturnValue(null)
+  mocks.structured.mockResolvedValue(true)
+})
 
+afterEach(() => cleanup())
+
+describe('jumpToWorktree', () => {
   it('activates folder workspaces through the workspace activator', () => {
     mocks.activateAndRevealWorkspace.mockReturnValue({ primaryTabId: null })
     const { result } = renderHook(() => useAiVaultOriginalPaneActions())
@@ -111,7 +115,6 @@ it('keeps the original-pane handled boolean used by the History dialog close cal
     subagent: null,
     structuredSession: { workspaceId: 'workspace', sessionId: 'claude_saved' }
   }
-  mocks.activateAndRevealWorkspace.mockClear()
   mocks.findStructured.mockReturnValue({})
   mocks.structured.mockResolvedValue(true)
   const { result } = renderHook(() => useAiVaultOriginalPaneActions())
