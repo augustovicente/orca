@@ -48,14 +48,17 @@ vi.mock('../../../shared/layout-owner-switch', () => ({
 }))
 // This machine's host closes the chat's tab when asked.
 vi.mock('@/runtime/runtime-rpc-client', () => ({ callRuntimeRpc: mocks.rpc }))
-vi.mock('@/runtime/structured-agent-session-status-feed', () => ({
-  getStructuredAgentSessionStatusFeed: () => ({
-    getSnapshot: () => ({
-      get: () => ({ status: mocks.hostBusy ? 'working' : 'idle', hostExecutionPhase: 'idle' })
-    }),
+vi.mock('@/runtime/structured-agent-session-status-feed', () => {
+  const idle = { status: 'idle', hostExecutionPhase: 'idle' }
+  const working = { status: 'working', hostExecutionPhase: 'idle' }
+  const feed = {
+    activate: () => () => {},
+    subscribe: () => () => {},
+    getSnapshot: () => ({ get: () => (mocks.hostBusy ? working : idle) }),
     getSessionObservation: () => 'live'
-  })
-}))
+  }
+  return { getStructuredAgentSessionStatusFeed: () => feed }
+})
 vi.mock('@/runtime/structured-agent-session-client', () => ({
   callStructuredAgentSession: mocks.call,
   supportsStructuredAgentSessionCreateOptionsMode: mocks.supportsMode,
@@ -68,21 +71,24 @@ vi.mock('./structured-agent-session-host-admission', () => ({
 vi.mock('@/runtime/structured-session-tab-inventory', () => ({
   readStructuredSessionTabInventory: mocks.inventory
 }))
-vi.mock('@/store', () => ({
-  useAppStore: {
-    getState: () => ({
-      runtimeEnvironmentCatalogHydrated: true,
-      settings: mocks.settings,
-      unifiedTabsByWorktree: { 'workspace-1': mocks.tabs },
-      agentStatusByPaneKey: {},
-      runtimeStatusByEnvironmentId: new Map(),
-      groupsByWorktree: {},
-      seedNativeChatLaunchDraft: vi.fn(),
-      clearNativeChatLaunchDraft: vi.fn()
-    }),
-    subscribe: () => () => {}
+vi.mock('@/store', () => {
+  const getState = () => ({
+    runtimeEnvironmentCatalogHydrated: true,
+    settings: mocks.settings,
+    unifiedTabsByWorktree: { 'workspace-1': mocks.tabs },
+    agentStatusByPaneKey: {},
+    runtimeStatusByEnvironmentId: new Map(),
+    groupsByWorktree: {},
+    seedNativeChatLaunchDraft: vi.fn(),
+    clearNativeChatLaunchDraft: vi.fn()
+  })
+  return {
+    useAppStore: Object.assign(
+      (selector: (state: ReturnType<typeof getState>) => unknown) => selector(getState()),
+      { getState, subscribe: () => () => {} }
+    )
   }
-}))
+})
 vi.mock('sonner', () => ({ toast: { error: vi.fn() } }))
 vi.mock('@/runtime/structured-chat-host-permission', () => ({
   readStructuredChatHostPermissionVerdict: async () => ({ kind: 'allowed' })

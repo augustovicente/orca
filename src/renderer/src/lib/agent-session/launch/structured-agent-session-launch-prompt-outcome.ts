@@ -1,3 +1,4 @@
+import { settleStructuredLaunchCreateOptions } from '../../structured-agent-session-launch-options'
 import {
   StructuredAgentSessionCreateAbandonedError,
   StructuredAgentSessionCreateUnknownOutcomeError
@@ -32,6 +33,7 @@ export function trackStructuredLaunchPromptOutcome(
     } else {
       if (state.intent.params.firstMessage) {
         state.operationEnded = true
+        settleStructuredLaunchCreateOptions(state, { kind: 'unknown' })
       }
       state.visibilityUnknown = true
       group.outcome = 'unknown'

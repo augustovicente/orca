@@ -1,3 +1,4 @@
+import { settleStructuredLaunchCreateOptions } from '../../structured-agent-session-launch-options'
 import { retireStructuredAgentSessionReadOwner } from '@/components/native-chat/structured-agent-session-read-owner-registry'
 import { useAppStore } from '@/store/index'
 import { publishStructuredAgentSessionSends } from '@/components/native-chat/structured-agent-session-pending-sends'
@@ -129,6 +130,7 @@ export function trackLaunchSettlement(
       } else {
         if (state.intent.params.firstMessage) {
           state.operationEnded = true
+          settleStructuredLaunchCreateOptions(state, { kind: 'unknown' })
         }
         state.callers.outcome = 'unknown'
         materializeStructuredLaunchSurface(state.intent)

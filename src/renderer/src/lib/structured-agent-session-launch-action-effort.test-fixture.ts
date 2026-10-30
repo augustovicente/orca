@@ -160,7 +160,7 @@ export function registerCreateSelectionTests(): void {
     expect(mocks.call.mock.calls.map(([, method]) => method)).toEqual(['agentSession.create'])
   })
 
-  it('settles frozen selection on late exact create proof after bounded completion', async () => {
+  it('keeps frozen selection completed when exact create proof arrives after the deadline', async () => {
     const create = deferred<unknown>()
     mocks.call.mockReturnValue(create.promise)
     const paired = { kind: 'environment', environmentId: 'frozen-generation' } as const
@@ -206,8 +206,8 @@ export function registerCreateSelectionTests(): void {
     const creates = mocks.call.mock.calls.filter(([, method]) => method === 'agentSession.create')
     expect(creates).toHaveLength(1)
     expect(creates[0]?.[2]).toEqual(original)
-    await expect(first).resolves.toMatchObject({ kind: 'accepted' })
-    expect(carried.outcome?.kind).toBe('accepted')
+    await expect(first).resolves.toEqual({ kind: 'unknown' })
+    expect(carried.outcome?.kind).toBe('unknown')
     expect(owner.pending()).toHaveLength(1)
     expect(owner.pending()[0]).not.toBe(carried)
     applied.resolve({ ok: true, value: { options: { model: 'gpt-5.4' } } })

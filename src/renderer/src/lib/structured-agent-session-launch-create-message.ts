@@ -157,7 +157,10 @@ export function publishStructuredLaunchCreateOptions(
   if (state.intent.createMessageSupport !== true) {
     return applyStructuredLaunchExplicitOptions(state, receipt)
   }
-  settleStructuredLaunchCreateOptions(state, state.intent.params.options ?? {})
+  settleStructuredLaunchCreateOptions(state, {
+    kind: 'accepted',
+    options: state.intent.params.options ?? {}
+  })
   void applyStructuredLaunchHeldOptions(state, receipt, false).catch((error: unknown) => {
     console.warn('[native-chat] applying a launch option failed', error)
   })

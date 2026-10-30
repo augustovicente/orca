@@ -13,6 +13,7 @@ import {
   draft,
   startLegacyActionLaunch
 } from './structured-agent-session-launch-create-message.test-fixture'
+import { registerCreateSelectionAdmissionTests } from './structured-agent-session-launch-selection-admission.test-fixture'
 import { registerCreateCompletionTests } from './structured-agent-session-launch-completion.test-fixture'
 import { useAppStore } from '@/store'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -138,6 +139,7 @@ describe('the first message owned by create', () => {
 
   registerActionEffortCreateTests(mocks, created)
   registerCreateSelectionTests()
+  registerCreateSelectionAdmissionTests()
 
   it.each(['codex', 'claude'] as const)(
     'creates %s on an unlisted explicit model without importing saved effort',
