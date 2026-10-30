@@ -1,5 +1,6 @@
 import type { MessageBoxOptions, MessageBoxReturnValue } from 'electron'
 import { translateMain } from '../i18n/main-i18n'
+import { BRAND } from '../../shared/brand'
 import type { InstallDirAclPoisonDiagnosis } from '../startup/windows-install-dir-acl-recovery'
 import type { RecoveryExhaustionCause } from './renderer-recovery-reload-watchdog'
 import type { RendererLaunchProbeResult } from './renderer-launch-failure-probe'
@@ -56,7 +57,7 @@ export async function presentRendererRecoveryPrompt(
       defaultId: 0,
       // Escape retries instead of destroying the session.
       cancelId: 0,
-      title: translateMain('rendererRecovery.title', 'Orca keeps failing to load'),
+      title: translateMain('rendererRecovery.title', `${BRAND.name} keeps failing to load`),
       ...content
     })
     if (response === 1 && diagnosis) {

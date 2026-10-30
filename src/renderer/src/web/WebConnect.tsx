@@ -15,6 +15,7 @@ import { parseWebPairingInput } from './web-pairing'
 import { WebRuntimeClient } from './web-runtime-client'
 import type { RuntimeStatus } from '../../../shared/runtime-types'
 import { translate } from '@/i18n/i18n'
+import { BRAND } from '../../../shared/brand'
 import { readWebDeviceKeySupport } from './web-device-key-support'
 import { webSessionPairingGuidance } from './web-pairing-security-guidance'
 
@@ -28,7 +29,7 @@ export default function WebConnect({
   onConnected
 }: WebConnectProps): React.JSX.Element {
   const existingEnvironment = readStoredWebRuntimeEnvironment()
-  const [name, setName] = useState(existingEnvironment?.name ?? 'Orca Server')
+  const [name, setName] = useState(existingEnvironment?.name ?? `${BRAND.name} Server`)
   const [pairingCode, setPairingCode] = useState(initialPairingInput ?? '')
   const [error, setError] = useState<string | null>(null)
   const [connecting, setConnecting] = useState(false)
@@ -39,7 +40,7 @@ export default function WebConnect({
   const connect = async (): Promise<void> => {
     setError(null)
     if (!parsedOffer) {
-      setError('Enter a valid Orca pairing URL or pairing code.')
+      setError(`Enter a valid ${BRAND.name} pairing URL or pairing code.`)
       return
     }
     if (parsedOffer.scope === 'mobile') {

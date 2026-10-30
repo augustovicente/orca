@@ -8,6 +8,7 @@ import {
 import type { MobileNotificationEvent } from '../runtime-mobile-notification-controller'
 import type { PushGatewayClient, PushSendNotification } from './push-gateway-client'
 import { PushOutcomeCounters } from './push-outcome-counters'
+import { BRAND } from '../../../shared/brand'
 
 const PUSH_RETRY_DELAY_MS = 2_000
 // Split requests at the gateway's per-send limit so extra paired phones still receive notifications.
@@ -135,7 +136,7 @@ export class PushDispatcher {
           notificationEpoch: target.notificationEpoch,
           source: 'agent-task-complete',
           agentState: null,
-          title: 'Orca',
+          title: BRAND.name,
           body: '',
           sound: false
         }

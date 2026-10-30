@@ -3,6 +3,7 @@ import menuBarIconPath from '../../../resources/tray/orca-menu-barTemplate.png?a
 import menuBarIconRetinaPath from '../../../resources/tray/orca-menu-barTemplate@2x.png?asset&asarUnpack'
 import { deferAppKitSceneMutation } from '../appkit-scene-mutation'
 import { createAppIconImage } from '../app-icon'
+import { BRAND } from '../../shared/brand'
 import { translateMain } from '../i18n/main-i18n'
 import { quitAndStopAllSessionsMenuText } from '../menu/app-menu-quit-item'
 import { composeTrayAttentionIcon, tintTrayTemplateForAttention } from './tray-attention-icon'
@@ -45,9 +46,9 @@ let nativeThemeUpdatedListener: (() => void) | null = null
 // Per-worktree tooltips distinguish concurrent dev instances.
 function baseTooltip(): string {
   if (!devIndicator) {
-    return 'Orca'
+    return BRAND.name
   }
-  return devIndicator.label ? `Orca DEV (${devIndicator.label})` : 'Orca DEV'
+  return devIndicator.label ? `${BRAND.name} DEV (${devIndicator.label})` : `${BRAND.name} DEV`
 }
 
 // Downscale the app image for Windows' 16px notification-area slot.
@@ -81,7 +82,7 @@ function applyTrayImage(): void {
         tray.setToolTip(
           devIndicator
             ? `${baseTooltip()} - ${translateMain('tray.activityWaitingSuffix', 'activity waiting')}`
-            : translateMain('tray.activityWaiting', 'Orca - activity waiting')
+            : translateMain('tray.activityWaiting', `${BRAND.name} - activity waiting`)
         )
         return
       } catch (error) {
@@ -250,7 +251,7 @@ function buildTrayMenu(opts: SystemTrayOptions): Menu {
         ] satisfies Electron.MenuItemConstructorOptions[])
       : []),
     {
-      label: translateMain('tray.openOrca', 'Open Orca'),
+      label: translateMain('tray.openOrca', `Open ${BRAND.name}`),
       click: safeMenuAction(() => opts.onOpen())
     },
     { type: 'separator' },
