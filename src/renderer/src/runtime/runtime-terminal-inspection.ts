@@ -59,7 +59,12 @@ function normalizeInspectionResult(
 
 export async function inspectRuntimeTerminalProcess(
   ptyId: string,
-  options?: { expectedIncarnationId?: string; scanChildProcesses?: boolean; steadyState?: boolean }
+  options?: {
+    expectedIncarnationId?: string
+    scanChildProcesses?: boolean
+    steadyState?: boolean
+    foregroundOnly?: boolean
+  }
 ): Promise<RuntimeTerminalProcessInspection> {
   const owner = getRemoteRuntimePtyOwner(ptyId)
   const remote = isRemoteInspectionPtyId(ptyId)
@@ -88,6 +93,7 @@ export async function inspectRuntimeTerminalProcess(
           ? { expectedIncarnationId: options.expectedIncarnationId }
           : {}),
         // Close guards request real process scans; dropping this causes unverifiable and confirmation on every idle remote Windows close.
+        ...(options?.foregroundOnly === true ? { foregroundOnly: true } : {}),
         ...(options?.scanChildProcesses === true ? { scanChildProcesses: true } : {})
       },
       { timeoutMs: 15_000 }

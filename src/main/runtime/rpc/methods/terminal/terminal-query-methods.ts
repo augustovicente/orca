@@ -99,6 +99,7 @@ export const TERMINAL_QUERY_METHODS = [
     params: TerminalInspectProcess,
     handler: async (params, { runtime }) => {
       const options = {
+        ...(params.foregroundOnly === true ? { foregroundOnly: true } : {}),
         ...(params.expectedIncarnationId
           ? { expectedIncarnationId: params.expectedIncarnationId }
           : {}),

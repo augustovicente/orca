@@ -27,7 +27,7 @@ import {
 import type { TuiAgent } from '../../../shared/tui-agent'
 import type { AgentLaunchRuntime } from '../../../shared/agent-launch-runtime'
 import type { TerminalWorkspaceLaunchScope } from '../runtime-legacy-worker-terminal-recovery-types'
-import { parseAppSshPtyId } from '../../../shared/ssh-pty-id'
+import { inspectRuntimePtyProcess } from './runtime-terminal-process-inspection'
 import type { PtyProcessInspection } from '../../providers/pty-process-inspection'
 import type { StructuredAgentId } from '../../../shared/agent-session-provider-handle'
 
@@ -220,31 +220,18 @@ export abstract class OrcaRuntimeWithRestoreStructuredAgentSessionTabsOnce exten
 
   async inspectTerminalProcess(
     terminalSelector: string,
-    options?: { expectedIncarnationId?: string; scanChildProcesses?: boolean }
+    options?: {
+      expectedIncarnationId?: string
+      scanChildProcesses?: boolean
+      foregroundOnly?: boolean
+    }
   ): Promise<PtyProcessInspection> {
-    const leaf = this.resolveLiveLeafForHandle(terminalSelector)
-    if (!leaf?.ptyId || !this.ptyController) {
-      throw new Error('terminal_gone')
-    }
-    if (this.ptyController.inspectProcess) {
-      // Preserve one-argument unfenced calls; providers may use arity to select legacy versus fenced inspection.
-      const inspection =
-        options === undefined
-          ? await this.ptyController.inspectProcess(leaf.ptyId)
-          : await this.ptyController.inspectProcess(leaf.ptyId, options)
-      const evidence = inspection.foregroundProcessEvidence
-      // The runtime handle is the request identity on this wire; keep the
-      // host-owned leaf PTY id out of the client-facing comparison.
-      const relayPtyId = parseAppSshPtyId(leaf.ptyId)?.relayPtyId
-      const evidenceBelongsToLeaf =
-        evidence !== undefined && (evidence.ptyId === leaf.ptyId || evidence.ptyId === relayPtyId)
-      return evidenceBelongsToLeaf
-        ? { ...inspection, foregroundProcessEvidence: { ...evidence, ptyId: terminalSelector } }
-        : inspection
-    }
-    const foregroundProcess = await this.ptyController.getForegroundProcess(leaf.ptyId)
-    const hasChildProcesses = (await this.ptyController.hasChildProcesses?.(leaf.ptyId)) ?? false
-    return { foregroundProcess, hasChildProcesses }
+    return inspectRuntimePtyProcess(
+      this.ptyController,
+      () => this.resolveLiveLeafForHandle(terminalSelector)?.ptyId ?? undefined,
+      terminalSelector,
+      options
+    )
   }
 
   async searchRepoRefs(

@@ -199,6 +199,7 @@ export type IPtyProvider = {
   setColorQueryReplyColors?: (colors: TerminalOscColorQueryReplyColors) => void
   acknowledgeDataEvent(id: string, charCount: number): void
   hasChildProcesses(id: string): Promise<boolean>
+  supportsForegroundObservation?(id: string): boolean
   getForegroundProcess(id: string): Promise<string | null>
   /** Strong process evidence captured after the caller's command boundary. */
   confirmForegroundProcess?: (id: string) => Promise<string | null>

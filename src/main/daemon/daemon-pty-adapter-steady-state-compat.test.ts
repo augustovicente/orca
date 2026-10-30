@@ -75,3 +75,31 @@ describe('steadyState across daemon versions', () => {
     adapter.dispose()
   })
 })
+
+describe('foreground observations across retained daemon versions', () => {
+  it.each([39, 43, 54])('does not request the new decision RPC from v%s', async (version) => {
+    const request = vi.fn()
+    const adapter = createAdapter(version, request)
+    expect(adapter.supportsForegroundObservation('sess-a')).toBe(false)
+    expect(request).not.toHaveBeenCalled()
+    adapter.dispose()
+  })
+  it('adds only the requested field and accepts an omitted optional response', async () => {
+    const answer = { foregroundProcess: 'claude', hasChildProcesses: true }
+    const request = vi.fn(async () => answer)
+    const adapter = createAdapter(PROTOCOL_VERSION, request)
+    expect(adapter.supportsForegroundObservation('sess-a')).toBe(true)
+    expect(
+      await adapter.inspectProcess('sess-a', {
+        foregroundOnly: true,
+        expectedIncarnationId: 'inc-1'
+      })
+    ).toEqual(answer)
+    expect(request).toHaveBeenCalledExactlyOnceWith('inspectProcess', {
+      sessionId: 'sess-a',
+      foregroundOnly: true,
+      expectedIncarnationId: 'inc-1'
+    })
+    adapter.dispose()
+  })
+})

@@ -126,6 +126,7 @@ export function installPtyInspectIpcHandlers(deps: {
       _event,
       args: {
         id: string
+        foregroundOnly?: boolean
         expectedIncarnationId?: string
         scanChildProcesses?: boolean
         steadyState?: boolean
@@ -141,6 +142,7 @@ export function installPtyInspectIpcHandlers(deps: {
         return clientOnlyUnverifiableInspection('terminal_gone')
       }
       const options = {
+        ...(args.foregroundOnly === true ? { foregroundOnly: true } : {}),
         ...(args.expectedIncarnationId
           ? { expectedIncarnationId: args.expectedIncarnationId }
           : {}),

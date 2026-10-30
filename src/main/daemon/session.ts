@@ -5,7 +5,7 @@ import { SessionProducerPause } from './session-producer-pause'
 import { SessionShellReadyBarrier } from './session-shell-ready-barrier'
 import type { TerminalShellRecoveryBarrier } from './terminal-shell-recovery-barrier'
 import { SessionTerminationController } from './session-termination-controller'
-import type { ChildProcessVerdictRead, SubprocessHandle } from './session-subprocess-handle'
+import { SessionProcessInspection } from './session-process-inspection'
 import type { JobTerminationOutcome } from '../windows/windows-pty-job'
 import type { SessionOptions } from './session-options'
 import type { TuiAgent } from '../../shared/tui-agent'
@@ -20,7 +20,7 @@ import type {
 } from './types'
 import type { TerminalExitCause } from '../../shared/terminal-exit-cause'
 
-export class Session {
+export class Session extends SessionProcessInspection {
   readonly sessionId: string
   readonly incarnationId = randomUUID()
   readonly terminalHandle: string | null
@@ -31,7 +31,6 @@ export class Session {
   private _state: SessionState = 'running'
   private _exitCode: number | null = null
   private _disposed = false
-  private subprocess: SubprocessHandle
   private readonly onSessionExit?: (code: number) => void
   private readonly output: SessionOutputPlane
   private readonly producerPause: SessionProducerPause
@@ -41,11 +40,11 @@ export class Session {
   private readonly recoveryBarrier: TerminalShellRecoveryBarrier
 
   constructor(opts: SessionOptions) {
+    super(opts.subprocess)
     this.sessionId = opts.sessionId
     this.terminalHandle = opts.terminalHandle ?? null
     this.launchAgent = opts.launchAgent ?? null
     this.wslDistro = opts.wslDistro ?? null
-    this.subprocess = opts.subprocess
     this.processNameIsSpawnFile = opts.subprocess.processNameIsSpawnFile === true
     this.shellIsRootChild = opts.subprocess.shellIsRootChild === true
     this.onSessionExit = opts.onExit
@@ -237,20 +236,6 @@ export class Session {
 
   getCwd(): string | null {
     return this.output.getCwd()
-  }
-
-  inspectChildProcesses(fresh?: boolean, ignoreDetached?: boolean): ChildProcessVerdictRead {
-    return this.subprocess.inspectChildProcesses?.(fresh, ignoreDetached) ?? 'unverifiable'
-  }
-
-  getForegroundProcess(options?: { rawFallback?: boolean; cachedOnly?: boolean }): string | null {
-    return this.subprocess.getForegroundProcess(options)
-  }
-
-  async confirmForegroundProcess(context?: { decision?: boolean }): Promise<string | null> {
-    return (
-      this.subprocess.confirmForegroundProcess?.(context) ?? this.subprocess.getForegroundProcess()
-    )
   }
 
   confirmShellForeground(): Promise<boolean> {

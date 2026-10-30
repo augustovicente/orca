@@ -51,6 +51,19 @@ describe('terminal.inspectProcess registration', () => {
     })
   })
 
+  it('carries fresh foreground-only inspection on the existing operation', async () => {
+    await expect(
+      callRegisteredHandler({
+        terminal: 'term_1',
+        expectedIncarnationId: 'inc-1',
+        foregroundOnly: true
+      })
+    ).resolves.toEqual({
+      terminal: 'term_1',
+      options: { expectedIncarnationId: 'inc-1', foregroundOnly: true }
+    })
+  })
+
   it('keeps the legacy one-argument shape for a bare poll', async () => {
     await expect(callRegisteredHandler({ terminal: 'term_1' })).resolves.toEqual({
       terminal: 'term_1',

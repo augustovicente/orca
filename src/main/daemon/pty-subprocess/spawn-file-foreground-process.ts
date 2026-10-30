@@ -1,3 +1,4 @@
+import { observePtyForeground } from '../../pty/pty-master-foreground-observation'
 import type { IPty } from 'node-pty'
 import { isShellProcess } from '../../../shared/shell-process-detection'
 import {
@@ -36,6 +37,15 @@ export function ptyProcessNameIsSpawnFile(proc: IPty): boolean {
 export function createPtyForegroundResolver(
   proc: IPty
 ): typeof resolveAgentForegroundProcessWithAvailability {
+  if (process.platform !== 'win32') {
+    return async () => {
+      const sample = await observePtyForeground(proc, () => true)
+      return {
+        available: sample.verdict === 'observed' && sample.processName !== null,
+        processName: sample.verdict === 'observed' ? sample.processName : null
+      }
+    }
+  }
   return ptyProcessNameIsSpawnFile(proc)
     ? (_pid, fallback, options) => resolveSpawnFileForegroundProcess(proc, fallback, options)
     : resolveAgentForegroundProcessWithAvailability
