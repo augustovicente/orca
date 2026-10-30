@@ -64,11 +64,12 @@ export const MobileNativeChatAgentMessageCard = memo(function MobileNativeChatAg
   const lineHeight = markdownStyles.paragraph.lineHeight * CHAT_PROSE_SCALE * fontScale
   const overflows = agentMessageOverflows(height, lineHeight)
   const heading = {
+    started: t('chat.agentMessage.startedWorker', 'Started worker'),
     task: t('chat.agentMessage.taskFromCoordinator', 'Task from coordinator'),
     coordinator: t('chat.agentMessage.messageFromCoordinator', 'Message from coordinator'),
     worker: t('chat.agentMessage.updateFromWorker', 'Update from worker'),
     generic: t('chat.agentMessage.messageFrom', 'Message from')
-  }[agentMessageHeading(from)]
+  }[agentMessageHeading(from, message.agentStart === true)]
   return (
     <View style={styles.card} testID="agent-message-card">
       <SenderAvatar sender={agentMessagePrimarySender(from)} />

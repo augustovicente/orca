@@ -123,7 +123,7 @@ function MobileNativeChatMessageImpl({
   useMobileColorScheme()
   const t = useMobileTranslation()
   const { shown: message, showFull, recovery } = useMobileNativeChatFullMessage(rowMessage)
-  const agentFrom = message.role === 'user' ? message.from : undefined
+  const agentFrom = message.role === 'user' || message.agentStart ? message.from : undefined
   const isUser = message.role === 'user' && !agentFrom
   const isReasoning = message.role === 'reasoning'
   const { prose, tools: blocksOfTools } = splitNativeChatBlocks(message.blocks)

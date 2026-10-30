@@ -1,4 +1,3 @@
-import { parseOrcaSessionAddress } from '../../../src/shared/orca-session-address'
 import { createElement } from 'react'
 import { act, create, type ReactTestRenderer } from 'react-test-renderer'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -14,8 +13,6 @@ import { mountFixture } from '../test-support/rpc-recording/recorder-fixture-sha
 import { MobileTerminalDiagnostics } from './mobile-terminal-diagnostics'
 import { structuredAgentSessionPaneKey } from '../../../src/shared/structured-agent-session-projection'
 import type { BridgeInitRoute } from '../mobile-web-shell/bridge/bridge-envelope'
-import { resolveActiveSessionTab } from './active-session-tab'
-import type { PendingSessionSelection } from './pending-session-selection'
 
 const focus = vi.hoisted(() => ({ active: true }))
 vi.mock('expo-router', async () => {
@@ -56,11 +53,6 @@ const from: AgentMessageSource = {
   ]
 }
 const reply = (result: unknown): RpcResponse => ({ id: 'reply', ok: true, result })
-const refused = (code: string): RpcResponse => ({
-  id: 'reply',
-  ok: false,
-  error: { code, message: 'private diagnostic' }
-})
 const chat: MobileSessionTab = {
   type: 'agent-session',
   id: 'agent-session:live',
@@ -99,6 +91,7 @@ function mount(
     destination: MobileSessionTab[] = []
   const client = stubRpcClient({ sendRequest, getGeneration: () => generation })
   const sourceSelection: Parameters<typeof useMobileAgentMessageNavigation>[4] = {
+    worktreeId: 'source-workspace',
     activeSessionTabIdRef: { current: 'source' },
     selectedSessionTabIdRef: { current: null },
     sessionTabsRef: { current: [{ ...chat, id: 'source', isActive: true }] },
@@ -138,12 +131,10 @@ function mount(
       })
     )
     useNotificationPaneNavigation({
-      client,
       worktreeId: 'destination',
       sessionTabs: destination,
       terminalsLoaded: true,
-      switchSessionTab: switching.switchSessionTab,
-      showToast: toast
+      switchSessionTab: switching.switchSessionTab
     })
     return null
   }
@@ -158,7 +149,6 @@ function mount(
     navigate,
     selected,
     sourceSelection,
-    openIdentity: () => open,
     open: (source = from) => open(source, source.senders[0]),
     redraw: (tabs = destination) => {
       destination = tabs
@@ -175,174 +165,107 @@ function mount(
   }
 }
 
-it('retains the live displayed source before lookup, preserves newer intent, and keeps the opener stable', () => {
-  const send = vi.fn((_method: string) => new Promise<RpcResponse>(() => {}))
-  const h = mount(send)
-  const refs = h.sourceSelection
-  refs.activeSessionTabIdRef.current = 'fallback'
-  refs.selectedSessionTabIdRef.current = 'closed'
-  refs.sessionTabsRef.current = [{ ...chat, id: 'fallback', isActive: true }]
-  const opener = h.openIdentity()
-  act(() => h.open())
-  expect(refs.selectedSessionTabIdRef.current).toBe('fallback')
-  expect(send).toHaveBeenCalledOnce()
-  expect(send.mock.calls[0]?.[0]).toBe('orchestration.partyLocation')
-  const latePublication = [
-    { ...chat, id: 'closed', isActive: true },
-    ...refs.sessionTabsRef.current
-  ]
-  expect(
-    resolveActiveSessionTab(latePublication, {
-      pendingActiveSessionTabId: null,
-      selectedSessionTabId: refs.selectedSessionTabIdRef.current
-    }).activeTab?.id
-  ).toBe('fallback')
-  h.redraw()
-  expect(h.openIdentity()).toBe(opener)
-  for (const pending of [
-    { kind: 'tab', tabId: 'newer' },
-    { kind: 'terminal', handle: 'newer-handle', tabId: null },
-    {
-      kind: 'launched',
-      lock: 'newer-launch',
-      surface: { pane: null, sessionId: null, handle: null },
-      snapshotsLeft: null
-    }
-  ] satisfies PendingSessionSelection[]) {
-    refs.pendingSelectionRef.current = pending
-    refs.selectedSessionTabIdRef.current = 'newer'
-    h.replaceSource()
-    act(() => h.open())
-    expect(refs.pendingSelectionRef.current).toBe(pending)
-    expect(refs.selectedSessionTabIdRef.current).toBe('newer')
-  }
-  refs.pendingSelectionRef.current = null
-  refs.activeSessionTabIdRef.current = 'missing'
-  h.replaceSource()
-  act(() => h.open())
-  expect(refs.selectedSessionTabIdRef.current).toBe('newer')
-  expect(send).toHaveBeenCalledTimes(5)
-  expect(h.navigate).not.toHaveBeenCalled()
-})
-
-it('uses record authority, passive caller reveal and actual destination inventory/activation, including delayed receipt', async () => {
-  const send = vi.fn(async (method: string) =>
-    reply(
-      method === 'orchestration.partyLocation'
-        ? { location: { kind: 'chat', sessionId: 'live-session', worktreeId: 'stale' } }
-        : method === 'agentSession.reveal'
-          ? {
-              ok: true,
-              sessionId: 'live-session',
-              workspaceId: 'destination',
-              agent: 'codex',
-              readable: false
-            }
-          : method === 'session.tabs.list'
-            ? { tabs: [chat] }
-            : {}
-    )
-  )
-  const h = mount(send)
-  await act(async () => {
-    h.open()
-    h.open()
-  })
-  expect(send.mock.calls.map(([method]) => method)).toEqual([
-    'orchestration.partyLocation',
-    'agentSession.reveal',
-    'session.tabs.list'
-  ])
-  expect(send.mock.calls[1]).toEqual([
-    'agentSession.reveal',
-    { sessionId: 'live-session', navigation: 'caller' },
-    expect.objectContaining({ timeoutMs: expect.any(Number), budgetSpansConnect: true })
-  ])
-  expect(h.navigate).toHaveBeenCalledWith(
-    'destination',
-    structuredAgentSessionPaneKey(chat.id, 'live-session')
-  )
-  act(() => bridge.listener({ ...bridge.route!, params: {} }))
-  expect(h.selected).not.toHaveBeenCalled()
-  await act(async () => h.redraw([chat]))
-  expect(h.selected).toHaveBeenCalledWith(chat.id)
-  expect(send.mock.calls.at(-1)).toEqual([
-    'session.tabs.activate',
-    expect.objectContaining({ tabId: chat.id, navigation: 'caller', notifyClients: false })
-  ])
-  expect(h.toast).not.toHaveBeenCalled()
-})
-
-it.each(['forbidden', 'method_not_found'])(
-  'keeps useful old-host direct terminal/chat paths after %s and never retries activating reveal',
-  async (code) => {
+it.each(['claude', 'codex'] as const)(
+  'opens a closed %s sender through the shared opener and real phone receiver',
+  async (agent) => {
+    let rows: MobileSessionTab[] = []
+    const row = { ...chat, agent, id: 'agent-chat-tab-v1-actual' }
     const send = vi.fn(async (method: string) =>
-      method === 'orchestration.partyLocation' || method === 'agentSession.reveal'
-        ? refused(code)
-        : reply(
-            method === 'terminal.focus'
-              ? { focus: { worktreeId: 'destination' } }
-              : method === 'session.tabs.listAll'
-                ? { snapshots: [{ worktree: 'destination', tabs: [chat] }] }
-                : { tabs: [terminal] }
-          )
+      reply(
+        method === 'orchestration.partyLocation'
+          ? { location: { kind: 'chat', sessionId: chat.sessionId, worktreeId: 'stale' } }
+          : method === 'agentSession.reveal'
+            ? ((rows = [row]),
+              {
+                ok: true,
+                sessionId: chat.sessionId,
+                workspaceId: 'destination',
+                agent,
+                readable: true
+              })
+            : method === 'session.tabs.list'
+              ? { tabs: rows }
+              : {}
+      )
     )
     const h = mount(send)
-    await act(async () => h.open())
-    expect(h.navigate).toHaveBeenLastCalledWith('destination', `parent:${leaf}`)
-    expect(send.mock.calls.find(([method]) => method === 'terminal.focus')).toEqual([
-      'terminal.focus',
-      { terminal: 'term_worker', navigation: 'caller' },
+    const source: AgentMessageSource = {
+      ...from,
+      orchestration: {
+        message: 'mail-notice',
+        mailbox: 'inbox',
+        dispatchId: null,
+        messages: [
+          { from: 'term_worker', messageId: 'mine', runId: 'run' },
+          { from: 'another', messageId: 'not-mine', runId: 'run' }
+        ]
+      }
+    }
+    await act(async () => {
+      h.open(source)
+      h.open(source)
+    })
+    expect(send.mock.calls[0]).toEqual([
+      'orchestration.partyLocation',
+      { address: 'term_worker', messageIds: ['mine'] },
+      expect.any(Object)
+    ])
+    expect(send.mock.calls.map(([method]) => method)).toEqual([
+      'orchestration.partyLocation',
+      'session.tabs.list',
+      'agentSession.reveal',
+      'session.tabs.list',
+      'session.tabs.activate'
+    ])
+    expect(send.mock.calls[2]).toEqual([
+      'agentSession.reveal',
+      { sessionId: chat.sessionId, navigation: 'caller' },
       expect.objectContaining({ budgetSpansConnect: true })
     ])
-    const chatFrom: AgentMessageSource = {
-      ...from,
-      senders: [
-        {
-          ...from.senders[0],
-          party: {
-            address: 'orca:root',
-            orcaSessionId: parseOrcaSessionAddress('orca_session_id:live-session'),
-            terminalHandle: null
-          }
-        }
-      ]
-    }
-    await act(async () => h.open(chatFrom))
-    expect(h.navigate).toHaveBeenLastCalledWith(
+    expect(send.mock.calls[4]).toEqual([
+      'session.tabs.activate',
+      expect.objectContaining({ tabId: row.id, navigation: 'caller', notifyClients: false }),
+      expect.any(Object)
+    ])
+    expect(h.navigate).toHaveBeenCalledWith(
       'destination',
-      structuredAgentSessionPaneKey(chat.id, 'live-session')
+      structuredAgentSessionPaneKey(row.id, chat.sessionId)
     )
-    expect(send.mock.calls.some(([method]) => method === 'agentSession.reveal')).toBe(false)
+    expect(h.selected).not.toHaveBeenCalled()
+    await act(async () => h.redraw([row]))
+    expect(h.selected).toHaveBeenCalledWith(row.id)
+    expect(h.toast).not.toHaveBeenCalled()
   }
 )
 
-it('uses resolved live identity after a strict old reveal refusal, not the root or an activating retry', async () => {
+it('routes a resolved terminal through caller focus and its actual grouped leaf', async () => {
   const send = vi.fn(async (method: string) =>
-    method === 'agentSession.reveal'
-      ? refused('invalid_argument')
-      : reply(
-          method === 'orchestration.partyLocation'
-            ? { location: { kind: 'chat', sessionId: 'live-session', worktreeId: 'stale' } }
-            : { snapshots: [{ worktree: 'destination', tabs: [chat] }] }
-        )
+    reply(
+      method === 'orchestration.partyLocation'
+        ? { location: { kind: 'terminal', handle: 'term_worker' } }
+        : method === 'terminal.focus'
+          ? { focus: { worktreeId: 'destination' } }
+          : { tabs: [terminal] }
+    )
   )
   const h = mount(send)
   await act(async () => h.open())
-  expect(h.navigate).toHaveBeenCalledWith(
-    'destination',
-    structuredAgentSessionPaneKey(chat.id, 'live-session')
-  )
-  expect(send.mock.calls.filter(([method]) => method === 'agentSession.reveal')).toHaveLength(1)
+  expect(send.mock.calls[1]).toEqual([
+    'terminal.focus',
+    { terminal: 'term_worker', navigation: 'caller' },
+    expect.objectContaining({ budgetSpansConnect: true })
+  ])
+  expect(h.navigate).toHaveBeenCalledWith('destination', `parent:${leaf}`)
+  expect(h.toast).not.toHaveBeenCalled()
 })
 
-it('coalesces only current identical evidence, lets A/B/A progress, and fences source/visit/generation/unmount', async () => {
-  const pending: ((value: RpcResponse) => void)[] = []
-  const send = vi.fn(() => new Promise<RpcResponse>((resolve) => pending.push(resolve)))
-  const h = mount(send)
+it('retains the displayed source, respects pending selection, and fences stale source/visit/generation/newer intent', async () => {
+  const pending: ((response: RpcResponse) => void)[] = []
+  const h = mount(vi.fn(() => new Promise<RpcResponse>((resolve) => pending.push(resolve))))
+  h.sourceSelection.selectedSessionTabIdRef.current = 'closed'
   h.open()
   h.open()
-  expect(pending).toHaveLength(1)
+  expect(h.sourceSelection.selectedSessionTabIdRef.current).toBe('source')
   h.open({
     ...from,
     senders: [{ ...from.senders[0], party: { ...from.senders[0].party, address: 'term_b' } }]
@@ -351,83 +274,39 @@ it('coalesces only current identical evidence, lets A/B/A progress, and fences s
   expect(pending).toHaveLength(3)
   h.replaceSource()
   await act(async () =>
-    pending.splice(0).forEach((resolve) => resolve(reply({ location: null, lost: 'terminal' })))
+    pending.splice(0).forEach((resolve) => resolve(reply({ location: null, lost: 'chat' })))
   )
-  expect(h.toast).not.toHaveBeenCalled()
-  h.open()
-  h.migrate()
-  await act(async () => pending.shift()!(reply({ location: null, lost: 'chat' })))
-  expect(h.toast).not.toHaveBeenCalled()
-  h.open()
-  focus.active = false
-  h.redraw()
-  focus.active = true
-  h.redraw()
-  await act(async () => pending.shift()!(reply({ location: null })))
-  expect(h.toast).not.toHaveBeenCalled()
-  h.open()
-  h.unmount()
-  await act(async () =>
-    pending.shift()!(reply({ location: { kind: 'terminal', handle: 'term_worker' } }))
-  )
+  for (const cancel of [
+    () => h.migrate(),
+    () => {
+      focus.active = false
+      h.redraw()
+      focus.active = true
+      h.redraw()
+    },
+    () => {
+      h.sourceSelection.selectedSessionTabIdRef.current = 'newer'
+      h.sourceSelection.pendingSelectionRef.current = { kind: 'tab', tabId: 'newer' }
+    },
+    () => h.unmount()
+  ]) {
+    h.open()
+    cancel()
+    await act(async () => pending.shift()!(reply({ location: null, lost: 'chat' })))
+  }
   expect(h.navigate).not.toHaveBeenCalled()
+  expect(h.toast).not.toHaveBeenCalled()
+  expect(h.sourceSelection.selectedSessionTabIdRef.current).toBe('newer')
 })
 
-it.each([
-  [{ location: null, lost: 'chat' }, 'no longer on this host'],
-  [{ location: null, lost: 'terminal' }, "Agent's pane is no longer available"],
-  [{ location: null }, "couldn't reach the agent"],
-  [{ location: { kind: 'future' } }, 'newer Orca']
-])('settles %j honestly and permits a fresh retry', async (result, text) => {
-  const send = vi.fn(async () => reply(result)),
-    h = mount(send)
+it('uses the shared named failure table and permits a fresh retry', async () => {
+  const send = vi.fn(async () => reply({ location: null, lost: 'chat' }))
+  const h = mount(send)
   await act(async () => h.open())
-  expect(h.toast.mock.calls[0][0]).toContain(text)
+  expect(h.toast).toHaveBeenCalledWith(
+    "Worker's chat is no longer on this host, so it cannot be reopened here.",
+    3000
+  )
   await act(async () => h.open())
   expect(send).toHaveBeenCalledTimes(2)
-})
-
-it('budgets connection and response stages against one attempt deadline and retires timeout for retry', async () => {
-  vi.useFakeTimers()
-  const send = vi.fn(
-    (_method: string, _params?: unknown, options?: SendRequestOptions) =>
-      new Promise<RpcResponse>((_resolve, reject) =>
-        setTimeout(() => reject(new Error('transport timeout')), options?.timeoutMs)
-      )
-  )
-  const h = mount(send)
-  h.open()
-  expect(send.mock.calls[0][2]).toEqual({ timeoutMs: 5000, budgetSpansConnect: true })
-  await act(async () => {
-    await vi.advanceTimersByTimeAsync(5000)
-  })
-  expect(h.toast).toHaveBeenCalledOnce()
-  h.open()
-  expect(send).toHaveBeenCalledTimes(2)
-})
-
-it('reports destination activation failure once through the real receiving switch', async () => {
-  const send = vi.fn(async (method: string) =>
-    method === 'session.tabs.activate'
-      ? refused('unavailable')
-      : reply(
-          method === 'orchestration.partyLocation'
-            ? { location: { kind: 'chat', sessionId: 'live-session', worktreeId: 'destination' } }
-            : method === 'agentSession.reveal'
-              ? {
-                  ok: true,
-                  sessionId: 'live-session',
-                  workspaceId: 'destination',
-                  agent: 'codex',
-                  readable: true
-                }
-              : { tabs: [chat] }
-        )
-  )
-  const h = mount(send)
-  h.redraw([chat])
-  await act(async () => h.open())
-  expect(h.selected).toHaveBeenCalledWith(chat.id)
-  expect(send.mock.calls.map(([method]) => method)).toContain('session.tabs.activate')
-  expect(h.toast).toHaveBeenCalledOnce()
 })

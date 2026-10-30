@@ -301,7 +301,7 @@ describe('MobileNativeChatMessage', () => {
     }
   )
 
-  it.each(['task', 'coordinator', 'worker', 'generic'] as const)(
+  it.each(['started', 'task', 'coordinator', 'worker', 'generic'] as const)(
     'uses the desktop shared heading, sender, text and fold rules for %s',
     (kind) => {
       const from: AgentMessageSource = {
@@ -323,16 +323,21 @@ describe('MobileNativeChatMessage', () => {
         kind === 'task'
           ? `${ORCA_DISPATCH_STATUS_PREAMBLE_PREFIX}\r\nInstructions\r\n=== TASK ===\r\n${body}`
           : body
-      const message = { ...userMessage([{ type: 'text' as const, text: raw }]), from }
+      const message: NativeChatMessage = {
+        ...userMessage([{ type: 'text', text: raw }]),
+        from,
+        ...(kind === 'started' ? ({ role: 'system', agentStart: true } as const) : {})
+      }
       const tree = render(message)
       const headings = {
+        started: 'Started worker',
         task: 'Task from coordinator',
         coordinator: 'Message from coordinator',
         worker: 'Update from worker',
         generic: 'Message from'
       }
       expect(textIn(tree.root).slice(0, 2)).toEqual([
-        headings[agentMessageHeading(from)],
+        headings[agentMessageHeading(from, message.agentStart === true)],
         agentMessageSenderLabel({
           localChat: false,
           snapshotName: from.senders[0].name,

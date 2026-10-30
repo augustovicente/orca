@@ -2858,8 +2858,7 @@
       "tokens": "{{value0}} tokens"
     },
     "agentMessage": {
-      "gone": "This chat is no longer on this host, so it cannot be reopened here.",
-      "paneUnavailable": "Agent's pane is no longer available.",
+      "startedWorker": "Started worker",
       "taskFromCoordinator": "Task from coordinator",
       "messageFromCoordinator": "Message from coordinator",
       "updateFromWorker": "Update from worker",
