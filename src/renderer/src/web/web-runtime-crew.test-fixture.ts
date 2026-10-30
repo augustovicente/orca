@@ -1,3 +1,5 @@
+import type { WebRuntimeClient } from './web-runtime-client'
+import { REMOTE_RUNTIME_SHARED_CONTROL_CAPABILITY } from '../../../shared/protocol-version'
 import { vi } from 'vitest'
 import { NODE_PAIRED_E2EE_PRIMITIVES as crypto } from '../../../shared/paired-e2ee-node-primitives'
 import { pairedRuntimeConnectionFromOffer } from '../../../shared/paired-runtime-connection'
@@ -171,6 +173,46 @@ export function latestCrewSocket(): CrewSocket {
   const socket = CrewSocket.sockets.at(-1)
   if (!socket) {
     throw new Error('No fixture socket')
+  }
+  return socket
+}
+
+/** Complete the existing primary's real status request over the controlled encrypted socket. */
+export async function verifyCrewPrimary(client: WebRuntimeClient): Promise<CrewSocket> {
+  const socket = latestCrewSocket()
+  socket.open()
+  socket.ready()
+  await flushCrewWork()
+  socket.authenticated()
+  await flushCrewWork()
+  const request = socket.read(2)
+  if (
+    !request ||
+    typeof request !== 'object' ||
+    !('id' in request) ||
+    typeof request.id !== 'string' ||
+    !('method' in request) ||
+    request.method !== 'status.get'
+  ) {
+    throw new Error('Expected actual primary status request')
+  }
+  socket.frame({
+    id: request.id,
+    ok: true,
+    result: {
+      runtimeId: 'rt',
+      rendererGraphEpoch: 1,
+      graphStatus: 'ready',
+      authoritativeWindowId: null,
+      liveTabCount: 0,
+      liveLeafCount: 0,
+      capabilities: [REMOTE_RUNTIME_SHARED_CONTROL_CAPABILITY]
+    },
+    _meta: { runtimeId: 'rt' }
+  })
+  await flushCrewWork()
+  if (client.statusOwner?.read().verification !== 'verified') {
+    throw new Error('Primary did not verify')
   }
   return socket
 }

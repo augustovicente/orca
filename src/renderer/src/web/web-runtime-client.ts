@@ -1,15 +1,13 @@
 import {
   subscribeDedicatedWebRuntime,
   observeCrewSubscriptionSetup,
-  enrollWebRuntimeSubscription
+  enrollWebRuntimeSubscription,
+  type WebRuntimeCrewSetupOutcome
 } from './web-runtime-dedicated-subscription'
 import type { PairedRuntimeConnection } from '../../../shared/paired-runtime-connection'
 import type { PairedE2EEClientHandshake } from '../../../shared/paired-e2ee-client-handshake'
 import { throwIfSignalAborted } from '../../../shared/abort-signal-reason'
-import type {
-  RuntimeEnvironmentSetupOutcome,
-  RuntimeEnvironmentSetupFailure
-} from '../../../shared/runtime-environment-subscription-setup'
+import type { RuntimeEnvironmentSetupFailure } from '../../../shared/runtime-environment-subscription-setup'
 import { RuntimeHostStatusOwner } from '../../../shared/runtime-host-status-owner'
 import type {
   RuntimeHostStatusSnapshot,
@@ -160,7 +158,7 @@ export class WebRuntimeClient {
     params: unknown,
     callbacks: WebRuntimeSubscriptionCallbacks,
     options?: SubscribeOptions
-  ): Promise<RuntimeEnvironmentSetupOutcome<WebRuntimeSubscriptionHandle>> {
+  ): Promise<WebRuntimeCrewSetupOutcome<WebRuntimeSubscriptionHandle>> {
     return observeCrewSubscriptionSetup((observe) => {
       throwIfSignalAborted(options?.signal)
       return this.subscribeDedicated(

@@ -36,10 +36,14 @@ const worker: OrchestrationCrewRow = {
     sequence: 1
   }
 }
-function mount(row = worker) {
+function mount(row = worker, section: 'managing' | 'talkingWith' = 'managing', canMention = false) {
   rig.snapshot = {
     ...emptyCrew('ok'),
-    sections: { managedBy: [], managing: [row], talkingWith: [] }
+    sections: {
+      managedBy: [],
+      managing: section === 'managing' ? [row] : [],
+      talkingWith: section === 'talkingWith' ? [row] : []
+    }
   }
   rig.copy.mockResolvedValue(undefined)
   Object.defineProperty(window, 'api', {
@@ -51,7 +55,7 @@ function mount(row = worker) {
       <OrchestrationCrewPanel
         target={host}
         party="term_coordinator"
-        canMention={false}
+        canMention={canMention}
         mention={rig.mention}
       />
     </TooltipProvider>
@@ -69,7 +73,8 @@ it('keeps disabled/enabled mentions, keyboard disclosure, Open, Copy, Escape and
   tab.focus()
   await user.keyboard('{Enter}')
   expect(screen.getByRole('button', { name: 'Collapse crew panel' })).toHaveFocus()
-  const body = screen.getByRole('button', { name: /Worker codex Check the result/ })
+  expect(screen.getByText('Orchestration')).toBeInTheDocument()
+  const body = screen.getByRole('button', { name: /Worker Check the result/ })
   const chevron = screen.getByRole('button', { name: "Show Worker's task and latest message" })
   expect(body).toBeDisabled()
   expect(body).not.toHaveAttribute('aria-expanded')
@@ -151,7 +156,7 @@ it('starts pending questions expanded without navigating or copying', async () =
   expect(rig.copy).not.toHaveBeenCalled()
 })
 
-it('keeps the stable first manager label, names every manager in the tooltip and expands every manager', async () => {
+it('keeps the stable first manager label, names the Orchestration disclosure and expands every manager', async () => {
   const user = userEvent.setup()
   const first = {
     ...worker,
@@ -181,9 +186,7 @@ it('keeps the stable first manager label, names every manager in the tooltip and
   )
   const tab = screen.getByRole('button', { name: 'Show crew: Managed by First manager' })
   await user.hover(tab)
-  expect(await screen.findByRole('tooltip')).toHaveTextContent(
-    'Managed by First manager, Other manager'
-  )
+  expect(await screen.findByRole('tooltip')).toHaveTextContent('Orchestration')
   await user.click(tab)
   expect(screen.getByRole('region', { name: 'Managed by' })).toHaveTextContent('First manager')
   expect(screen.getByRole('region', { name: 'Managed by' })).toHaveTextContent('Other manager')
@@ -222,3 +225,60 @@ it('shows one collapsed avatar and question per party with reverse-role relation
     error.mockRestore()
   }
 })
+
+it('retains an unavailable peer’s Open/latest/disclosure with one reason and unavailable Copy', async () => {
+  const user = userEvent.setup()
+  const { sendAddress, ...peer } = { ...worker, role: 'peer' as const, hostLabel: 'Remote host' }
+  expect(sendAddress).toBe('dispatch:d1')
+  mount(peer, 'talkingWith', true)
+  await user.click(screen.getByRole('button', { name: 'Show crew: Talking with Worker' }))
+  expect(screen.getAllByText('Sending unavailable')).toHaveLength(1)
+  const body = screen.getByRole('button', { name: /Worker Check the result/ })
+  expect(body).toBeDisabled()
+  await user.click(body)
+  expect(rig.mention).not.toHaveBeenCalled()
+  expect(body).not.toHaveAttribute('aria-expanded')
+  const chevron = screen.getByRole('button', { name: "Show Worker's task and latest message" })
+  await user.click(chevron)
+  expect(chevron).toHaveAttribute('aria-expanded', 'true')
+  expect(screen.getByText('The result is ready.')).toBeInTheDocument()
+  expect(screen.getAllByText('Sending unavailable')).toHaveLength(1)
+  await user.hover(screen.getByRole('img', { name: 'Codex · Remote host' }))
+  expect(await screen.findByRole('tooltip')).toHaveTextContent('Codex · Remote host')
+  expect(screen.queryByText('codex')).not.toBeInTheDocument()
+  await user.click(screen.getByRole('button', { name: 'Open Worker' }))
+  expect(rig.open).toHaveBeenCalledExactlyOnceWith(peer, host)
+  await user.click(screen.getByRole('button', { name: 'More for Worker' }))
+  expect(screen.getByRole('menuitem', { name: 'Mention in message' })).toHaveAttribute(
+    'aria-disabled',
+    'true'
+  )
+  const copy = screen.getByRole('menuitem', { name: 'Copy address' })
+  expect(copy).toHaveAttribute('aria-disabled', 'true')
+  await user.click(copy)
+  expect(rig.copy).not.toHaveBeenCalled()
+  expect(screen.getAllByText('Sending unavailable')).toHaveLength(1)
+})
+
+it.each(['working', 'waiting', 'done'] as const)(
+  'uses the shared %s indicator in the tab and row',
+  async (status) => {
+    const user = userEvent.setup()
+    mount({ ...worker, status })
+    const tab = screen.getByRole('button', { name: 'Show crew: 1 workers' })
+    const indicator = tab.querySelector(`[aria-label="${status}"]`)
+    expect(indicator).toBeInTheDocument()
+    const glyph = indicator?.innerHTML
+    if (status === 'working') {
+      expect(indicator?.querySelector('[data-agent-spinner]')).toBeInTheDocument()
+    } else if (status === 'waiting') {
+      expect(indicator?.querySelector('.text-agent-question')).toBeInTheDocument()
+    } else {
+      expect(indicator?.querySelector('.bg-emerald-500')).toBeInTheDocument()
+    }
+    await user.click(tab)
+    const panel = screen.getByRole('complementary', { name: 'Agent crew' })
+    expect(panel.querySelector(`[aria-label="${status}"]`)?.innerHTML).toBe(glyph)
+    expect(screen.queryByText('Sending unavailable')).not.toBeInTheDocument()
+  }
+)

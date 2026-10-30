@@ -3,6 +3,7 @@ import { readCrewAssignmentIds } from './crew-query'
 import type { OrchestrationDb } from '../db'
 import { currentRunCoordinatorOrcaSessionIdSql } from '../db/runs/run-coordinator-orca-session'
 import { parsePaneKey } from '../../../../shared/stable-pane-id'
+import { potentiallyLiveRemoteAttachmentSql } from '../db/federation/remote-attachment-liveness'
 import {
   DISPATCH_PANE_KEY_MATCH_SUFFIX_SQL,
   REMOTE_ATTACHMENT_PANE_KEY_MATCH_SUFFIX_SQL,
@@ -31,7 +32,10 @@ const claim = z.object({
   coordinatorPane: nullable,
   coordinatorSession: nullable
 })
-export type CrewParentClaim = z.infer<typeof claim> & { family: 'local' | 'remote' }
+export type CrewParentClaim = z.infer<typeof claim> & {
+  family: 'local' | 'remote'
+  remoteRoute?: { ordinal: number; active: boolean; stopping: boolean }
+}
 const resource = z.object({
   id: z.string(),
   origin: z.string(),
@@ -86,10 +90,12 @@ export function readCrewParentInputs(db: OrchestrationDb, addresses: string[], p
     )
     .map((row): CrewParentClaim => ({ ...row, family: 'local' }))
   const remote = claim
+    .extend({ ordinal: z.number(), active: z.number(), stopping: z.number() })
     .array()
     .parse(
       db.db
-        .prepare(`SELECT dispatch_id AS id, task_id AS task,
+        .prepare(`SELECT a.rowid AS ordinal, ${potentiallyLiveRemoteAttachmentSql('a.state')} AS active,
+    a.state = 'stopping' AS stopping, dispatch_id AS id, task_id AS task,
     home_run_id AS run, r.home_database AS runHome, terminal_handle AS handle, pane_key AS pane, NULL AS session,
     process_incarnation AS process, NULL AS host, runtime_epoch AS endpoint,
     NULL AS creator, NULL AS creatorHandle, NULL AS creatorPane, NULL AS creatorSession,
@@ -103,7 +109,11 @@ export function readCrewParentInputs(db: OrchestrationDb, addresses: string[], p
     ORDER BY dispatch_id`)
         .all(handles, paneKeys, leaves, ids)
     )
-    .map((row): CrewParentClaim => ({ ...row, family: 'remote' }))
+    .map(({ ordinal, active, stopping, ...row }): CrewParentClaim => ({
+      ...row,
+      family: 'remote',
+      remoteRoute: { ordinal, active: active === 1, stopping: stopping === 1 }
+    }))
   const claims = [...local, ...remote]
   const creators = claim
     .array()

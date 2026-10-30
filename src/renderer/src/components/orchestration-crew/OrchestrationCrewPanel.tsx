@@ -32,7 +32,7 @@ import {
   CrewRowDetails,
   CrewRowTime as Time,
   CrewRowAvatar as Avatar,
-  CrewRowStatusDot as Dot
+  CrewRowStatusDot as CrewStatusIndicator
 } from './CrewRowDetails'
 
 function IconButton({
@@ -160,7 +160,7 @@ export function CrewPanelContent({
       data-orchestration-crew
       data-pane-prevent-terminal-focus
       data-native-chat-typing-redirect-ignore="true"
-      className="pointer-events-auto absolute bottom-0 top-(--orca-pane-title-height) right-0 z-30 text-foreground"
+      className="pointer-events-none absolute bottom-0 top-(--orca-pane-title-height) right-0 z-30 w-80 max-w-full text-foreground"
       onPointerDown={(event) => event.stopPropagation()}
       onMouseDown={(event) => event.stopPropagation()}
       onKeyDown={(event) => {
@@ -170,9 +170,12 @@ export function CrewPanelContent({
       {open ? (
         <aside
           aria-label={translate('components.orchestrationCrew.label', 'Agent crew')}
-          className="flex h-full w-80 max-w-full flex-col border-l border-border bg-card text-card-foreground shadow-xs"
+          className="pointer-events-auto flex h-full w-full flex-col border-l border-border bg-card text-card-foreground shadow-xs"
         >
-          <div className="flex h-9 shrink-0 items-center justify-end border-b border-border px-2">
+          <div className="flex h-9 shrink-0 items-center justify-between border-b border-border px-2">
+            <span className="text-xs font-medium">
+              {translate('components.orchestrationCrew.title', 'Orchestration')}
+            </span>
             <IconButton
               ref={collapse}
               label={translate('components.orchestrationCrew.collapse', 'Collapse crew panel')}
@@ -221,7 +224,7 @@ export function CrewPanelContent({
               ref={tab}
               variant="outline"
               size="xs"
-              className="absolute right-0 top-2 max-w-80"
+              className="pointer-events-auto absolute right-0 top-2 max-w-full"
               aria-label={translate('components.orchestrationCrew.show', 'Show crew: {{label}}', {
                 label
               })}
@@ -237,7 +240,7 @@ export function CrewPanelContent({
               <span className="truncate">{label}</span>
               <span className="flex gap-0.5">
                 {managing.map((row) => (
-                  <Dot key={row.partyKey} row={row} />
+                  <CrewStatusIndicator key={row.partyKey} row={row} />
                 ))}
               </span>
               {pending > 0 ? (
@@ -258,13 +261,9 @@ export function CrewPanelContent({
               ) : null}
             </Button>
           </TooltipTrigger>
-          {managedBy.length > 0 ? (
-            <TooltipContent>
-              {translate('components.orchestrationCrew.managedByNames', 'Managed by {{names}}', {
-                names: managedBy.map((row) => row.label).join(', ')
-              })}
-            </TooltipContent>
-          ) : null}
+          <TooltipContent side="top" sideOffset={4}>
+            {translate('components.orchestrationCrew.title', 'Orchestration')}
+          </TooltipContent>
         </Tooltip>
       )}
     </div>
@@ -302,15 +301,11 @@ function CrewRowView({
           onPointerDown={(event) => event.preventDefault()}
           onClick={mention}
         >
-          <Avatar row={row} />
+          <Avatar row={row} tooltip />
           <span className="min-w-0 flex-1">
             <span className="flex items-center gap-1.5">
-              <Dot row={row} />
+              <CrewStatusIndicator row={row} />
               <span className="truncate text-sm font-medium">{row.label}</span>
-            </span>
-            <span className="block truncate text-2xs font-normal text-muted-foreground">
-              {row.agentKind}
-              {row.hostLabel ? ` · ${row.hostLabel}` : ''}
             </span>
             <span
               className={cn(
@@ -392,6 +387,11 @@ function CrewRowView({
           </div>
         </div>
       </div>
+      {!row.sendAddress ? (
+        <p className="px-3 pb-2 text-xs text-muted-foreground">
+          {translate('components.orchestrationCrew.sendingUnavailable', 'Sending unavailable')}
+        </p>
+      ) : null}
       {expanded ? <CrewRowDetails row={row} /> : null}
     </div>
   )

@@ -1,8 +1,10 @@
-import { waitForPromiseWithSignal, throwIfSignalAborted } from '../../../shared/abort-signal-reason'
+import { RemoteRuntimeClientError } from '../../../shared/remote-runtime/remote-runtime-client-error'
+import { throwIfSignalAborted } from '../../../shared/abort-signal-reason'
 import {
   type RuntimeEnvironmentSetupFailure,
   runtimeEnvironmentSetupFailure
 } from '../../../shared/runtime-environment-subscription-setup'
+import { assertCrewSourceCurrent } from './runtime-environment-subscription-setup'
 import { getRuntimeEnvironmentStatus } from './runtime-environment-status-probe'
 import { getPreferredPairedRuntimeConnection } from '../../../shared/runtime-environments'
 import { ELECTRON_REMOTE_RUNTIME_CLIENT_CAPABILITIES } from '../../../shared/electron-remote-runtime-client-capabilities'
@@ -193,24 +195,14 @@ export async function subscribeRuntimeEnvironment(
     ...rawCallbacks,
     onEvent: decodeSessionTabsDeltaEvents(method, rawCallbacks.onEvent)
   }
-  let preparationFailure: RuntimeEnvironmentSetupFailure | undefined
   crewAttempt?.assertCurrent()
-  const prepared = crewAttempt
-    ? resolveManagedRuntimeEnvironment(userDataPath, selector, preparation, (failure) => {
-        preparationFailure = failure
-      })
-    : resolveManagedRuntimeEnvironment(userDataPath, selector, preparation)
   const environment = crewAttempt
-    ? await waitForPromiseWithSignal(prepared, signal).catch((error: unknown) => {
-        crewAttempt.observeFailure(
-          preparationFailure !== undefined && preparationFailure.error === error
-            ? preparationFailure
-            : runtimeEnvironmentSetupFailure(error, 'managed-preparation')
-        )
-        throw error
-      })
-    : await prepared
+    ? resolveEnvironment(userDataPath, selector)
+    : await resolveManagedRuntimeEnvironment(userDataPath, selector, preparation)
   crewAttempt?.assertCurrent()
+  if (crewAttempt) {
+    assertCrewSourceCurrent(environment)
+  }
   const pairedConnection = getPreferredPairedRuntimeConnection(environment)
   const effectiveTimeoutMs = timeoutMs ?? DEFAULT_REMOTE_RUNTIME_TIMEOUT_MS
   let markedUsed = false
@@ -223,6 +215,16 @@ export async function subscribeRuntimeEnvironment(
   }
   const callbacksWithMarkUsed = {
     onResponse: (response: RuntimeRpcResponse<unknown>) => {
+      if (
+        crewAttempt &&
+        response._meta?.runtimeId != null &&
+        response._meta.runtimeId !== environment.runtimeId
+      ) {
+        throw new RemoteRuntimeClientError(
+          'runtime_environment_changed',
+          'Runtime environment identity changed; refresh and try again'
+        )
+      }
       if (response.ok === true) {
         markUsedOnce(response._meta.runtimeId)
       }
@@ -267,6 +269,7 @@ export async function subscribeRuntimeEnvironment(
       try {
         throwIfSignalAborted(signal)
         crewAttempt.assertCurrent()
+        assertCrewSourceCurrent(environment)
       } catch (error) {
         subscription.close()
         throw error

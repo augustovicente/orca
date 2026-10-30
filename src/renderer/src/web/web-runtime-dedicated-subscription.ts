@@ -1,8 +1,5 @@
 import { throwIfSignalAborted } from '../../../shared/abort-signal-reason'
-import type {
-  RuntimeEnvironmentSetupFailure,
-  RuntimeEnvironmentSetupOutcome
-} from '../../../shared/runtime-environment-subscription-setup'
+import type { RuntimeEnvironmentSetupFailure } from '../../../shared/runtime-environment-subscription-setup'
 import { runtimeEnvironmentSetupFailure } from '../../../shared/runtime-environment-subscription-setup'
 import type {
   WebRuntimeClient,
@@ -13,6 +10,10 @@ import type {
   WebRuntimeTransportSubscription,
   WebRuntimeSubscriptionCallbacks
 } from './web-runtime-subscription-contract'
+
+export type WebRuntimeCrewSetupOutcome<T> =
+  | Readonly<{ ok: true; value: T }>
+  | Readonly<{ ok: false; failure: RuntimeEnvironmentSetupFailure }>
 
 export async function subscribeDedicatedWebRuntime({
   createClient,
@@ -88,7 +89,7 @@ export async function observeCrewSubscriptionSetup(
   subscribe: (
     observe: (failure: RuntimeEnvironmentSetupFailure) => void
   ) => Promise<WebRuntimeSubscriptionHandle>
-): Promise<RuntimeEnvironmentSetupOutcome<WebRuntimeSubscriptionHandle>> {
+): Promise<WebRuntimeCrewSetupOutcome<WebRuntimeSubscriptionHandle>> {
   let failure: RuntimeEnvironmentSetupFailure | undefined
   try {
     const value = await subscribe((observed) => {

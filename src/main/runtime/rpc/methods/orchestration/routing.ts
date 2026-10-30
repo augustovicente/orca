@@ -6,6 +6,7 @@ import { MESSAGE_TYPES } from '../../../orchestration/types'
 import { OrchestrationError } from '../../../orchestration/orchestration-error'
 import { LEGACY_CONTRACT_VERSION } from '../../../orchestration/db'
 import { isDispatchMutationMessageType, parseMessageTaskId } from './schemas'
+import { federatedMessageNamesOnlyHome } from '../../../orchestration/dispatch-report-mailbox'
 
 export function parseMessageTypes(rawTypes: string | undefined): MessageType[] | undefined {
   const types = rawTypes
@@ -28,7 +29,6 @@ export function resolveMessageRun(
     runId?: string
     payload?: string
     type?: string
-    attachedLocalSender?: boolean
   }
 ): { run: RunRow | undefined; dispatchId: string | undefined } {
   const db = runtime.getOrchestrationDb()
@@ -65,7 +65,7 @@ export function resolveMessageRun(
   const targetRunId = params.to?.startsWith('run:') ? params.to.slice('run:'.length) : undefined
   for (const namedRunId of new Set([params.runId, targetRunId])) {
     if (namedRunId) {
-      rejectRemotelyHomedRun(db, namedRunId, params.attachedLocalSender)
+      rejectRemotelyHomedRun(db, namedRunId)
     }
   }
   const resolvedRunId = params.runId ?? targetRunId ?? dispatch?.run_id
@@ -160,25 +160,21 @@ export function interruptedAcknowledgedCheck(
 /** Remote Run rows are local mirrors; mail stored there reaches nobody (#32292). */
 export function rejectRemotelyHomedRun(
   db: ReturnType<OrcaRuntimeService['getOrchestrationDb']>,
-  runId: string,
-  attachedLocalSender?: boolean
+  runId: string
 ): void {
   if (db.getRun(runId)?.home_database === 'remote') {
-    throw remoteRunHomeUnreachable(db, runId, attachedLocalSender)
+    throw remoteRunHomeUnreachable(db, runId)
   }
 }
 
 export function remoteRunHomeUnreachable(
   db: ReturnType<OrcaRuntimeService['getOrchestrationDb']>,
-  runId: string,
-  attachedLocalSender?: boolean
+  runId: string
 ): OrchestrationError {
   const dispatchId = db.findRemoteAttachmentForHomeRun(runId)?.dispatch_id
-  const detached = attachedLocalSender
-    ? 'omit --to and --run to report to your Run home, or address an individual recipient on this computer'
-    : dispatchId
-      ? `this terminal is no longer attached to its Dispatch ${dispatchId}`
-      : 'this terminal is not attached to one of its Dispatches'
+  const detached = dispatchId
+    ? `this terminal is no longer attached to its Dispatch ${dispatchId}`
+    : 'this terminal is not attached to one of its Dispatches'
   return new OrchestrationError(
     'run_home_unreachable',
     `Run ${runId} lives on the computer that coordinates it, which isn't reachable from here: ${detached}. Nothing was sent.`
@@ -190,9 +186,7 @@ export function rejectFederatedExplicitTarget(
   params: { to?: string; run?: string },
   homeRunId: string
 ): void {
-  const namesOnlyHome =
-    (!params.to || params.to === `run:${homeRunId}`) && (!params.run || params.run === homeRunId)
-  if (!namesOnlyHome) {
+  if (!federatedMessageNamesOnlyHome(params, homeRunId)) {
     throw new OrchestrationError(
       'invalid_argument',
       'Federated Dispatch messages route to their Run home; omit --to and --run.'

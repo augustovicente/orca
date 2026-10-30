@@ -1,4 +1,3 @@
-import { RuntimeEnvironmentSetupGuardError } from '../../shared/runtime-environment-subscription-setup'
 /**
  * Removing a WSL host (E11). Only a proven stop drops its records; anything else keeps the host
  * listed with a pending stop, so the next Remove retries it and Connect or Add can keep the host.
@@ -127,10 +126,7 @@ export function admitConnectToPendingHost(
     return
   }
   if (!withdraw) {
-    throw new RuntimeEnvironmentSetupGuardError(wslHostRemovalPendingMessage(record.distro), {
-      kind: 'wsl',
-      reason: 'pending-stop'
-    })
+    throw new Error(wslHostRemovalPendingMessage(record.distro))
   }
   setWslHostPendingStop(userDataPath, record.environmentId, null)
 }

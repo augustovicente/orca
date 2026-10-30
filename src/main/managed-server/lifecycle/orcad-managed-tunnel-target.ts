@@ -1,4 +1,3 @@
-import { RuntimeEnvironmentSetupGuardError } from '../../../shared/runtime-environment-subscription-setup'
 import {
   getRuntimeSshAccess,
   type KnownRuntimeEnvironment
@@ -146,10 +145,7 @@ async function addCurrentForward(
   )
   if (args.localPort !== 0 && forward.localPort !== args.localPort) {
     await args.forwards.removeForwardAndWait(forward.id)
-    throw new RuntimeEnvironmentSetupGuardError(
-      'Managed Orca tunnel bound an unexpected local port.',
-      { kind: 'binding', reason: 'wrong-port' }
-    )
+    throw new Error('Managed Orca tunnel bound an unexpected local port.')
   }
   if (!args.stillCurrent()) {
     await args.forwards.removeForwardAndWait(forward.id)

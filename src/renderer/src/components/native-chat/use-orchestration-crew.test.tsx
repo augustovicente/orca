@@ -1,10 +1,17 @@
 // @vitest-environment happy-dom
+import { StrictMode } from 'react'
 import { act, cleanup, render } from '@testing-library/react'
-import { afterEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import type {
+  CrewSubscriptionAttemptArgs,
+  CrewSubscriptionAttemptCallbacks
+} from '../../../../shared/runtime-environment-subscription-setup'
 import type { RuntimeClientTarget } from '../../../../shared/runtime-client-target'
 import type { RuntimeRpcSubscriptionHandlers } from '@/runtime/runtime-rpc-subscribe'
 import { replaceRuntimeEnvironmentRevisions } from '@/runtime/runtime-environment-revision'
+import { REMOTE_RUNTIME_SHARED_CONTROL_CAPABILITY } from '../../../../shared/protocol-version'
 import { useOrchestrationCrew } from './use-orchestration-crew'
+import { useAppStore } from '@/store'
 
 const rig = vi.hoisted(() => {
   const streams: {
@@ -15,10 +22,27 @@ const rig = vi.hoisted(() => {
   }[] = []
   return {
     streams,
+    cancellations: new Map<string, () => void>(),
     listeners: new Set<() => void>(),
     state: {
       unusedLocalState: 0,
-      runtimeStatusByEnvironmentId: new Map([
+      runtimeStatusByEnvironmentId: new Map<
+        string,
+        {
+          status: { runtimeId: string; capabilities?: string[] }
+          connectionGeneration: number
+          hostContactEpoch: number
+          snapshot?: {
+            environmentId: string
+            pairingRevision: number
+            sequence: number
+            checkedAt: number
+            status: { runtimeId: string; capabilities?: string[] }
+            verification: string
+            transport: string
+          }
+        }
+      >([
         [
           'crew-host',
           { status: { runtimeId: 'runtime-one' }, connectionGeneration: 1, hostContactEpoch: 1 }
@@ -41,23 +65,78 @@ vi.mock('@/runtime/runtime-rpc-subscribe', () => ({
     }
   )
 }))
-vi.mock('@/store', async () => {
-  const { useSyncExternalStore } = await import('react')
-  return {
-    useAppStore: (select: (state: typeof rig.state) => unknown) =>
-      useSyncExternalStore(
-        (wake) => {
-          rig.listeners.add(wake)
-          return () => rig.listeners.delete(wake)
-        },
-        () => select(rig.state)
-      )
+vi.mock('@/store', () => ({
+  useAppStore: {
+    getState: () => rig.state,
+    subscribe: (wake: () => void) => {
+      rig.listeners.add(wake)
+      return () => rig.listeners.delete(wake)
+    }
   }
+}))
+beforeEach(() => {
+  vi.useFakeTimers()
+  vi.spyOn(Math, 'random').mockReturnValue(0)
+  Object.assign(window, {
+    api: {
+      runtimeEnvironments: {
+        subscribeCrewAttempt: async (
+          args: CrewSubscriptionAttemptArgs,
+          callbacks: CrewSubscriptionAttemptCallbacks
+        ) => {
+          const params = args.params
+          if (
+            !params ||
+            typeof params !== 'object' ||
+            !('party' in params) ||
+            typeof params.party !== 'string'
+          ) {
+            throw new Error('Expected party')
+          }
+          const unsubscribe = vi.fn()
+          rig.cancellations.set(args.subscriptionId, unsubscribe)
+          rig.streams.push({
+            target: { kind: 'environment', environmentId: args.selector },
+            party: params.party,
+            unsubscribe,
+            handlers: {
+              onEvent: (value) =>
+                callbacks.onResponse({
+                  id: args.subscriptionId,
+                  ok: true,
+                  result: value,
+                  _meta: { runtimeId: args.expectedEnvironmentRuntimeId ?? '' }
+                }),
+              onError: (error) => {
+                if (
+                  error &&
+                  typeof error === 'object' &&
+                  'code' in error &&
+                  typeof error.code === 'string'
+                ) {
+                  callbacks.onError?.({ code: error.code, message: '' })
+                }
+              },
+              onClose: () => callbacks.onClose?.()
+            }
+          })
+          return { subscriptionId: args.subscriptionId, ok: true as const }
+        },
+        cancelSubscription: async ({ subscriptionId }: { subscriptionId: string }) => {
+          rig.cancellations.get(subscriptionId)?.()
+          rig.cancellations.delete(subscriptionId)
+        }
+      }
+    }
+  })
 })
 afterEach(() => {
   cleanup()
   rig.streams.length = 0
+  rig.cancellations.clear()
   renderCounts.clear()
+  vi.restoreAllMocks()
+  vi.useRealTimers()
 })
 const local = { kind: 'local' } as const
 const remote = { kind: 'environment', environmentId: 'crew-host' } as const
@@ -106,7 +185,9 @@ it('retains the collapsed/no-crew wake, publishes only complete replacements and
       <Pane party="term_other" />
     </>
   )
-  await act(async () => {})
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(250)
+  })
   expect(rig.streams).toHaveLength(2)
   act(() => {
     rig.streams[0].handlers.onEvent({ type: 'begin', status: 'ok' })
@@ -127,6 +208,15 @@ it('retains the collapsed/no-crew wake, publishes only complete replacements and
   expect(renderCounts.get('term_first')).toBe(before)
   act(() => publish(0, false)())
   expect(renderCounts.get('term_first')).toBe(before + 1)
+  view.rerender(
+    <>
+      <Pane party="term_first" target={{ kind: 'local' }} />
+      <Pane party="term_other" target={{ kind: 'local' }} />
+    </>
+  )
+  await act(async () => {})
+  expect(rig.streams).toHaveLength(2)
+  expect(view.getByTestId('term_first').textContent).toBe('1')
   view.unmount()
   expect(rig.streams.every((stream) => stream.unsubscribe.mock.calls.length === 1)).toBe(true)
   expect(rig.listeners.size).toBe(0)
@@ -135,11 +225,15 @@ it('retains the collapsed/no-crew wake, publishes only complete replacements and
 it('caches old-host refusal per generation and resubscribes after reconnect or pairing changes', async () => {
   replaceRuntimeEnvironmentRevisions([{ id: 'crew-host', createdAt: 1 }])
   const view = render(<Pane party="term_old" target={remote} />)
-  await act(async () => {})
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(250)
+  })
   act(() => rig.streams[0].handlers.onError({ code: 'method_not_found' }))
   expect(view.getByTestId('term_old').textContent).toBe('unknown')
   view.rerender(<Pane party="term_plain" target={remote} />)
-  await act(async () => {})
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(250)
+  })
   expect(rig.streams).toHaveLength(1)
   act(() => {
     rig.state = {
@@ -147,22 +241,46 @@ it('caches old-host refusal per generation and resubscribes after reconnect or p
       runtimeStatusByEnvironmentId: new Map([
         [
           'crew-host',
-          { status: { runtimeId: 'runtime-two' }, connectionGeneration: 2, hostContactEpoch: 2 }
+          {
+            status: {
+              runtimeId: 'runtime-two',
+              capabilities: [REMOTE_RUNTIME_SHARED_CONTROL_CAPABILITY]
+            },
+            connectionGeneration: 2,
+            hostContactEpoch: 2,
+            snapshot: {
+              environmentId: 'crew-host',
+              pairingRevision: 1,
+              sequence: 1,
+              checkedAt: 1,
+              status: { runtimeId: 'runtime-two' },
+              verification: 'verified',
+              transport: 'ready'
+            }
+          }
         ]
       ])
     }
     rig.listeners.forEach((wake) => wake())
   })
-  await act(async () => {})
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(250)
+  })
   expect(rig.streams).toHaveLength(2)
   act(() => publish(1)())
   expect(view.getByTestId('term_plain').textContent).toBe('1')
   act(() => rig.streams[1].handlers.onClose())
   expect(view.getByTestId('term_plain').textContent).toBe('unknown')
-  act(() =>
+  act(() => {
+    const entry = rig.state.runtimeStatusByEnvironmentId.get('crew-host')
+    if (entry?.snapshot) {
+      entry.snapshot.pairingRevision = 2
+    }
     replaceRuntimeEnvironmentRevisions([{ id: 'crew-host', createdAt: 1, pairingRevision: 2 }])
-  )
-  await act(async () => {})
+  })
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(500)
+  })
   expect(rig.streams).toHaveLength(3)
   expect(rig.streams[1].unsubscribe).toHaveBeenCalledOnce()
   view.unmount()
@@ -172,14 +290,35 @@ it('caches old-host refusal per generation and resubscribes after reconnect or p
 it('renders no unaffected local parties or hosts after unused state and other-host updates', async () => {
   const otherHost = { kind: 'environment', environmentId: 'crew-other-host' } as const
   const status = {
-    status: { runtimeId: 'runtime-isolation' },
+    snapshot: {
+      environmentId: 'crew-other-host',
+      pairingRevision: 20,
+      sequence: 1,
+      checkedAt: 1,
+      status: {
+        runtimeId: 'runtime-isolation',
+        capabilities: [REMOTE_RUNTIME_SHARED_CONTROL_CAPABILITY]
+      },
+      verification: 'verified',
+      transport: 'ready'
+    },
+    status: {
+      runtimeId: 'runtime-isolation',
+      capabilities: [REMOTE_RUNTIME_SHARED_CONTROL_CAPABILITY]
+    },
     connectionGeneration: 1,
     hostContactEpoch: 1
   }
   rig.state = {
     unusedLocalState: 0,
     runtimeStatusByEnvironmentId: new Map([
-      ['crew-host', status],
+      [
+        'crew-host',
+        {
+          ...status,
+          snapshot: { ...status.snapshot, environmentId: 'crew-host', pairingRevision: 10 }
+        }
+      ],
       ['crew-other-host', status]
     ])
   }
@@ -197,7 +336,9 @@ it('renders no unaffected local parties or hosts after unused state and other-ho
       <Pane party="term_other_host" target={otherHost} />
     </>
   )
-  await act(async () => {})
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(250)
+  })
   expect(rig.streams).toHaveLength(4)
   for (let index = 0; index < 4; index++) {
     act(() => publish(index)())
@@ -205,12 +346,16 @@ it('renders no unaffected local parties or hosts after unused state and other-ho
   expect(counts().every((count) => count > 0)).toBe(true)
   renderCounts.clear()
   const expectNone = () => expect(counts()).toEqual([0, 0, 0, 0])
+  const sourceReads = vi.spyOn(useAppStore, 'getState')
 
   act(() => {
     rig.state = { ...rig.state, unusedLocalState: 1 }
     rig.listeners.forEach((wake) => wake())
   })
   expectNone()
+  expect(rig.streams).toHaveLength(4)
+  expect(sourceReads).toHaveBeenCalledTimes(2)
+  sourceReads.mockClear()
   act(() => {
     rig.state = {
       ...rig.state,
@@ -221,18 +366,28 @@ it('renders no unaffected local parties or hosts after unused state and other-ho
     }
     rig.listeners.forEach((wake) => wake())
   })
-  await act(async () => {})
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(250)
+  })
   expect(counts().slice(0, 3)).toEqual([0, 0, 0])
   expect(renderCounts.get('term_other_host')).toBeGreaterThan(0)
+  expect(sourceReads).toHaveBeenCalledTimes(2)
   expect(rig.streams).toHaveLength(5)
+  act(() => publish(4)())
   renderCounts.clear()
-  act(() =>
+  act(() => {
+    const entry = rig.state.runtimeStatusByEnvironmentId.get('crew-other-host')
+    if (entry?.snapshot) {
+      entry.snapshot.pairingRevision = 21
+    }
     replaceRuntimeEnvironmentRevisions([
       { id: 'crew-host', createdAt: 10 },
       { id: 'crew-other-host', createdAt: 20, pairingRevision: 21 }
     ])
-  )
-  await act(async () => {})
+  })
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(250)
+  })
   expect(counts().slice(0, 3)).toEqual([0, 0, 0])
   expect(renderCounts.get('term_other_host')).toBeGreaterThan(0)
   expect(rig.streams).toHaveLength(6)
@@ -245,4 +400,32 @@ it('renders no unaffected local parties or hosts after unused state and other-ho
   expect(view.getByTestId('term_selected').textContent).toBe('1')
   expect(view.getByTestId('term_selected-question').textContent).toBe('Which option?')
   view.unmount()
+})
+
+it('retains one counted source after StrictMode re-entry and an additional mounted interest', async () => {
+  const view = render(
+    <StrictMode>
+      <Pane party="term_strict" />
+    </StrictMode>
+  )
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(250)
+  })
+  expect(rig.listeners.size).toBe(1)
+  const before = rig.streams.length
+  view.rerender(
+    <StrictMode>
+      <Pane party="term_strict" />
+      <Pane party="term_added" />
+    </StrictMode>
+  )
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(250)
+  })
+  expect(rig.listeners.size).toBe(1)
+  // StrictMode's new child's effect is acquired and cleaned once, then retained.
+  expect(rig.streams).toHaveLength(before + 2)
+  view.unmount()
+  expect(rig.listeners.size).toBe(0)
+  expect(rig.streams.every((stream) => stream.unsubscribe.mock.calls.length === 1)).toBe(true)
 })
