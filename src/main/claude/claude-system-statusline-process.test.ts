@@ -350,6 +350,7 @@ async function fixture(realNative = false) {
   return { root, home, start, settings: (name: string) => join(home, name, 'settings.json') }
 }
 
+// Real child processes hold the owner beyond the former 10s lease before reset and recovery.
 it('orders publication, live-owner contention past lease age, canceled admission, reset and abandoned-owner recovery across real processes', async () => {
   const f = await fixture()
   expect(f.home).not.toBe(homedir())
@@ -413,6 +414,7 @@ it('serializes current event snapshots, off, fresh user slots and retirement acr
   expect(JSON.parse(await readFile(f.settings('X'), 'utf8')).statusLine).toBeDefined()
 })
 
+// Real child processes create and clean L=6/60 owner records on both evidence paths.
 it('cleans actual abandoned owner records with O(L) probes and two cleanup chains without listing unrelated names', async () => {
   const rows: { population: number; metrics: Record<string, unknown> }[] = []
   for (const population of [6, 60]) {
