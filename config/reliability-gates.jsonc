@@ -5092,6 +5092,7 @@
           "runner": "local",
           "platform": "macos",
           "command": "pnpm exec vitest run --config config/vitest.config.ts src/main/ipc/watched-worktree-catalog-notification.test.ts src/main/runtime/external-worktree-paired-client-discovery.integration.test.ts src/main/window/attach-main-window-services.test.ts",
+          "currentCommand": "pnpm exec vitest run --config config/vitest.config.ts src/main/runtime/external-worktree-paired-client-discovery.integration.test.ts src/main/window/attach-main-window-services.test.ts",
           "result": "passed",
           "durationSeconds": 6.19,
           "summary": "Three watcher/runtime/wiring files passed with 38 tests, including two-client publication, reconnect, stale scan fencing, headless parity, owner-collision suppression, failure isolation, and main-window notifier wiring. Historical run: the watched-worktree-catalog-notification suite was later removed as mock forwarding coverage; it is not an active gate or replacement-equivalence claim."
