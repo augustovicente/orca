@@ -137,7 +137,7 @@ it('snapshots immediate relations across completion/reload and keeps unknown evi
       readAgentMessageSource(JSON.parse(JSON.stringify(source)))!
     )
     expect(reload.map((source) => source.senders[0].relation)).toEqual(['worker', 'none'])
-    expect(reload.map(agentMessageHeading)).toEqual(['worker', 'generic'])
+    expect(reload.map((source) => agentMessageHeading(source))).toEqual(['worker', 'generic'])
     expect(mail('term_worker', 'term_child', worker.id).senders[0].relation).toBeUndefined()
     expect(mail('term_worker', 'term_child', worker.id, child.id).senders[0].relation).toBe(
       'worker'
