@@ -276,6 +276,7 @@ import {
   GitRebaseFromBase,
   GitRemoteCommitUrl,
   GitRemoteFileUrl,
+  GitResolveConflict,
   GitStatusParams,
   GitSubmoduleStatus,
   GitTargetedRemote,
@@ -610,6 +611,7 @@ import {
 } from './structured-agent-session-queued-edit-params'
 import { RenameParams } from './structured-agent-session-rename-params'
 import { TerminalDaemonRestartSeveredParams } from './terminal-daemon-params'
+import { TerminalLimitUpdateParams } from './terminal-limit-params'
 import { TerminalAdoptOrphans } from './terminal-orphan-params'
 import { TerminalQuickCommandsUpdate } from './terminal-quick-command-params'
 import {
@@ -1018,6 +1020,7 @@ export const RPC_PARAMS_BY_METHOD = {
   'git.commit': GitCommit,
   'git.commitCompare': GitCommitCompare,
   'git.commitDiff': GitCommitDiff,
+  'git.completeMerge': WorktreeSelectorOfGitParams,
   'git.conflictOperation': WorktreeSelectorOfGitParams,
   'git.diff': GitDiff,
   'git.discard': GitFilePath,
@@ -1035,6 +1038,7 @@ export const RPC_PARAMS_BY_METHOD = {
   'git.rebaseFromBase': GitRebaseFromBase,
   'git.remoteCommitUrl': GitRemoteCommitUrl,
   'git.remoteFileUrl': GitRemoteFileUrl,
+  'git.resolveConflict': GitResolveConflict,
   'git.stage': GitFilePath,
   'git.status': GitStatusParams,
   'git.submoduleStatus': GitSubmoduleStatus,
@@ -1459,7 +1463,9 @@ export const RPC_PARAMS_BY_METHOD = {
   'terminal.updateViewport': TerminalUpdateViewport,
   'terminal.viewClaudeAgent': TerminalViewClaudeAgent,
   'terminal.wait': TerminalWait,
+  'terminalDaemon.limit': null,
   'terminalDaemon.restartSevered': TerminalDaemonRestartSeveredParams,
+  'terminalDaemon.setLimit': TerminalLimitUpdateParams,
   'terminalDaemon.severedStatus': null,
   'ui.get': null,
   'ui.getJiraQuickFilters': null,

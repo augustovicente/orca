@@ -148,7 +148,6 @@ export class PluginService {
       return
     }
     this.contentPacksReady = false
-    this.contentVerifier.clear()
     if (!enabled) {
       this.panels.revokeAll()
     }
