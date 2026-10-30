@@ -1,3 +1,6 @@
+import { appendWithinUtf8ByteLimit } from './agent-session-delta-prefix'
+import type { StructuredAgentSessionSinkAdmission } from './structured-agent-session-event-sink'
+
 // Coalesce token deltas into text snapshots to reduce journal writes and subscriber frames.
 // Flush text before lifecycle events so completion/approval rows cannot overtake preceding text.
 
@@ -7,7 +10,7 @@ export const AGENT_SESSION_TEXT_CHECKPOINT_MS = 400
 /** Bound accumulated legal deltas independently of input record admission. */
 export const AGENT_SESSION_STREAMED_TEXT_MAX_BYTES = 16 * 1024 * 1024
 export const AGENT_SESSION_STREAMED_TEXT_TOTAL_MAX_BYTES = 32 * 1024 * 1024
-export const AGENT_SESSION_STREAMED_TEXT_TRUNCATION_MARKER = '\n[Orca: streamed output truncated]'
+export { AGENT_SESSION_STREAMED_TEXT_TRUNCATION_MARKER } from './agent-session-delta-prefix'
 export const AGENT_SESSION_MAX_STREAMS = 256
 
 export type AgentSessionDeltaSnapshot = {
@@ -30,16 +33,20 @@ export type AgentSessionDeltaCoalescerDeps = {
   /** Caller byte-bounds protected metadata; only ordinary streams use the count cap. */
   isProtected?: (key: string) => boolean
   schedule?: (run: () => void, ms: number) => () => void
+  isCurrent?: () => boolean
+  onScheduledFailure?: (
+    admission: StructuredAgentSessionSinkAdmission & { accepted: false }
+  ) => void
 }
 
 export type AgentSessionDeltaCoalescer = {
-  /** False means a retained stream could not flush to admit this key. */
-  append: (key: string, delta: string) => boolean
+  /** Refusal leaves the incoming delta unconsumed. */
+  append: (key: string, delta: string) => StructuredAgentSessionSinkAdmission
   /** Return the buffer the next nonempty append would evict, without changing it. */
   evictionFor: (key: string) => string | undefined
-  flush: (key: string) => boolean
+  flush: (key: string) => StructuredAgentSessionSinkAdmission
   /** Lifecycle barriers flush every stream first. */
-  flushAll: () => boolean
+  flushAll: () => StructuredAgentSessionSinkAdmission
   /** Authoritative bodies supersede buffered text; drop it without emission. */
   forget: (key: string) => void
   dispose: () => void
@@ -49,7 +56,7 @@ export type AgentSessionDeltaCoalescer = {
   markFlushed: (key: string) => void
 }
 
-function defaultSchedule(run: () => void, ms: number): () => void {
+export function scheduleAgentSessionDeltaFlush(run: () => void, ms: number): () => void {
   const timer = setTimeout(run, ms)
   timer.unref?.()
   return () => clearTimeout(timer)
@@ -59,7 +66,7 @@ export function createAgentSessionDeltaCoalescer(
   deps: AgentSessionDeltaCoalescerDeps
 ): AgentSessionDeltaCoalescer {
   const windowMs = deps.windowMs ?? AGENT_SESSION_DELTA_COALESCE_MS
-  const schedule = deps.schedule ?? defaultSchedule
+  const schedule = deps.schedule ?? scheduleAgentSessionDeltaFlush
   const maxRetainedBytes = deps.maxRetainedBytes ?? AGENT_SESSION_STREAMED_TEXT_MAX_BYTES
   const maxTotalRetainedBytes =
     deps.maxTotalRetainedBytes ?? AGENT_SESSION_STREAMED_TEXT_TOTAL_MAX_BYTES
@@ -79,46 +86,60 @@ export function createAgentSessionDeltaCoalescer(
   let cancelTimer: (() => void) | null = null
   const evictable = new Set<string>()
 
-  const flushKey = (key: string): boolean => {
+  const flushKey = (key: string): StructuredAgentSessionSinkAdmission => {
     const stream = streams.get(key)
     if (!stream?.dirty) {
-      return true
+      return { accepted: true }
     }
     if (deps.shouldEmit?.(key, stream.textLength) === false) {
       stream.dirty = false
-      return true
+      return { accepted: true }
     }
     const text = stream.chunks.join('')
-    const emitted = deps.emit(key, text, {
-      text,
-      observedBytes: stream.observedBytes,
-      truncated: stream.truncated
-    })
-    if (emitted === false) {
-      return false
+    const emitted = normalizeAdmission(
+      deps.emit(key, text, {
+        text,
+        observedBytes: stream.observedBytes,
+        truncated: stream.truncated
+      })
+    )
+    if (!emitted.accepted) {
+      return emitted
     }
     stream.dirty = false
-    return true
+    return emitted
   }
 
   const scheduleFlush = (): void => {
     cancelTimer ??= schedule(() => {
       cancelTimer = null
-      flushAll(true)
+      if (deps.isCurrent?.() === false) {
+        return
+      }
+      const admission = flushAll(true)
+      if (!admission.accepted && admission.reason !== 'backpressure') {
+        deps.onScheduledFailure?.(admission)
+      }
     }, windowMs)
   }
 
-  const flushAll = (scheduled = false): boolean => {
+  const flushAll = (scheduled = false): StructuredAgentSessionSinkAdmission => {
     cancelTimer?.()
     cancelTimer = null
-    let emitted = true
+    let emitted: StructuredAgentSessionSinkAdmission = { accepted: true }
     for (const [key, stream] of streams) {
       if (scheduled && stream.dirty && deps.isDue?.(key) === false) {
         continue
       }
-      emitted = flushKey(key) && emitted
+      const admission = flushKey(key)
+      if (!admission.accepted) {
+        emitted = admission
+        if (admission.reason !== 'backpressure') {
+          break
+        }
+      }
     }
-    if (!emitted) {
+    if (!emitted.accepted && emitted.reason === 'backpressure') {
       scheduleFlush()
     }
     return emitted
@@ -127,7 +148,7 @@ export function createAgentSessionDeltaCoalescer(
   return {
     append: (key, delta) => {
       if (delta.length === 0) {
-        return true
+        return { accepted: true }
       }
       let stream = streams.get(key)
       if (!stream) {
@@ -140,8 +161,9 @@ export function createAgentSessionDeltaCoalescer(
               continue
             }
             // Backpressure must retain observed text for retry.
-            if (!flushKey(oldest)) {
-              return false
+            const admission = flushKey(oldest)
+            if (!admission.accepted) {
+              return admission
             }
             const evicted = streams.get(oldest)
             if (evicted) {
@@ -190,7 +212,7 @@ export function createAgentSessionDeltaCoalescer(
       streams.set(key, stream)
       // Share one timer across streams to bound wakeups per window.
       scheduleFlush()
-      return true
+      return { accepted: true }
     },
     evictionFor: (key) => {
       if (streams.has(key) || deps.isProtected?.(key) || evictable.size < maxStreams) {
@@ -259,69 +281,26 @@ export function createAgentSessionDeltaCoalescer(
   }
 }
 
-function appendWithinUtf8ByteLimit(
-  current: string[],
-  currentBytes: number,
-  delta: string,
-  deltaBytes: number,
-  maxBytes: number
-): { chunks: string[]; retainedBytes: number; truncated: boolean } {
-  const available = Math.max(0, maxBytes - currentBytes)
-  if (deltaBytes <= available) {
-    // Append in place to avoid copying the entire prefix for every token.
-    current.push(delta)
-    return {
-      chunks: current,
-      retainedBytes: currentBytes + deltaBytes,
-      truncated: false
+function isAdmission(value: unknown): value is StructuredAgentSessionSinkAdmission {
+  if (typeof value === 'object' && value !== null && 'accepted' in value) {
+    if (value.accepted === true) {
+      return true
+    }
+    if (
+      value.accepted === false &&
+      'reason' in value &&
+      (value.reason === 'backpressure' || value.reason === 'failed' || value.reason === 'closed')
+    ) {
+      return true
     }
   }
-  return truncateStreamPrefix(current, delta, maxBytes)
+  return false
 }
 
-function truncateStreamPrefix(
-  current: string[],
-  delta: string,
-  maxBytes: number
-): { chunks: string[]; retainedBytes: number; truncated: boolean } {
-  const marker = Buffer.from(AGENT_SESSION_STREAMED_TEXT_TRUNCATION_MARKER, 'utf8')
-  const headBytes = Math.max(0, maxBytes - marker.byteLength)
-  const boundedHead = Number.isSafeInteger(maxBytes) && maxBytes >= 0
-  const combined = boundedHead
-    ? Buffer.allocUnsafe(headBytes)
-    : Buffer.concat([
-        ...current.map((chunk) => Buffer.from(chunk, 'utf8')),
-        Buffer.from(delta, 'utf8')
-      ])
-  let end = boundedHead
-    ? writeStreamPrefix(combined, current, delta)
-    : Math.min(combined.byteLength, headBytes)
-  if (!boundedHead) {
-    while (end > 0 && (combined[end] & 0b1100_0000) === 0b1000_0000) {
-      end -= 1
-    }
-  }
-  const visibleMarker = marker.subarray(0, Math.min(marker.byteLength, maxBytes - end))
-  const text = combined.subarray(0, end).toString('utf8') + visibleMarker.toString('utf8')
-  return {
-    chunks: text ? [text] : [],
-    retainedBytes: Buffer.byteLength(text, 'utf8'),
-    truncated: true
-  }
-}
-
-function writeStreamPrefix(buffer: Buffer, chunks: string[], delta: string): number {
-  let end = 0
-  for (const chunk of chunks) {
-    if (end === buffer.length) {
-      return end
-    }
-    const written = buffer.write(chunk, end, buffer.length - end, 'utf8')
-    end += written
-    // Independent chunk encoding preserves split-surrogate replacement.
-    if (written < Buffer.byteLength(chunk, 'utf8')) {
-      return end
-    }
-  }
-  return end + buffer.write(delta, end, buffer.length - end, 'utf8')
+function normalizeAdmission(value: unknown): StructuredAgentSessionSinkAdmission {
+  return isAdmission(value)
+    ? value
+    : value === false
+      ? { accepted: false, reason: 'backpressure' }
+      : { accepted: true }
 }

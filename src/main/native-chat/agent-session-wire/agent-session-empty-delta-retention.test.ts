@@ -21,7 +21,7 @@ describe('empty streamed deltas', () => {
         for (let index = 0; index < 16_384; index += 1) {
           append('')
         }
-        expect(streams.flush()).toBe(true)
+        expect(streams.flush().accepted).toBe(true)
       }
       const originalJoin = Array.prototype.join
       let retainedSlots = -1
@@ -69,22 +69,22 @@ describe('empty streamed deltas', () => {
       emit: (key, text) => emitted.push({ key, text })
     })
     try {
-      expect(instance.append('empty', '')).toBe(true)
+      expect(instance.append('empty', '').accepted).toBe(true)
       expect(instance.snapshot('empty')).toBeNull()
       expect(pending.size).toBe(0)
-      expect(instance.flushAll()).toBe(true)
+      expect(instance.flushAll().accepted).toBe(true)
       expect(emitted).toEqual([])
       instance.append('live', 'visible')
       const before = instance.snapshot('live')
       instance.append('live', '')
       expect(instance.snapshot('live')).toEqual(before)
       expect(pending.size).toBe(1)
-      expect(instance.flushAll()).toBe(true)
+      expect(instance.flushAll().accepted).toBe(true)
       expect(emitted).toEqual([{ key: 'live', text: 'visible' }])
       instance.append('live', '')
       expect(instance.dirty()).toEqual([])
       expect(pending.size).toBe(0)
-      expect(instance.flushAll()).toBe(true)
+      expect(instance.flushAll().accepted).toBe(true)
       expect(emitted).toHaveLength(1)
     } finally {
       instance.dispose()
@@ -110,8 +110,8 @@ describe('empty streamed deltas', () => {
       expect(emit).toHaveBeenCalledTimes(1)
       expect(vi.getTimerCount()).toBe(1)
       const dirty = instance.dirty()
-      expect(instance.append('second', '')).toBe(true)
-      expect(instance.append('first', '')).toBe(true)
+      expect(instance.append('second', '').accepted).toBe(true)
+      expect(instance.append('first', '').accepted).toBe(true)
       expect(instance.snapshot('second')).toBeNull()
       expect(instance.dirty()).toEqual(dirty)
       expect(emit).toHaveBeenCalledTimes(1)

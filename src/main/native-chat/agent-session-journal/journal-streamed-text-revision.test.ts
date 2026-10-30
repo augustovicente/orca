@@ -563,7 +563,7 @@ it.each([1, 10])(
 )
 
 it.each([10, 100])(
-  'commits %i ordinary plan-status checkpoints at FULL, skipping not-due arrivals before assembly',
+  'commits %i timer-delivered plan-status checkpoints at FULL, skipping not-due arrivals before assembly',
   async (count) => {
     const journal = await openJournal('plan-cadence')
     const levels = commitLevels()
@@ -626,14 +626,12 @@ it.each([10, 100])(
           expect(assemblies).toBe(0)
           expect(levels).toHaveLength(i + 1)
           expect(publish).toHaveBeenCalledTimes(i + 1)
-          expect(vi.getTimerCount()).toBe(0)
-          vi.advanceTimersByTime(340)
+          expect(vi.getTimerCount()).toBe(1)
           vi.setSystemTime(100 - i)
-          expect(notify('item/plan/delta', { itemId: 'plan', delta: 'y' })).toEqual({
-            accepted: true
-          })
-          await tick(60)
-          expected += 'xy'
+          await tick(339)
+          expect(assemblies).toBe(0)
+          await tick(1)
+          expected += 'x'
           snapshots.push(expected)
           expect(journal.snapshot().items[0].body).toEqual({
             kind: 'status',
@@ -690,7 +688,7 @@ it.each([10, 100])(
         'plan-cadence-metrics',
         JSON.stringify({
           count,
-          acceptedDeltas: 2 * count + 3,
+          acceptedDeltas: count + 3,
           ordinarySaves: count + 1,
           skippedWindows: count + 1,
           forcedSaves: 1,

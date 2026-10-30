@@ -29,7 +29,8 @@ async function pressureRig(primaryThreadId?: string) {
   const translator = createCodexJournalTranslator({
     sink: r.deferred.sink,
     bindPromptItemId: () => {},
-    primaryThreadId: () => primaryThreadId ?? null
+    primaryThreadId: () => primaryThreadId ?? null,
+    isCurrent: () => !session.ended && !session.orcaClose
   })
   const io = { thread: 'thread', paused: false }
   const notify = (method: string, params: unknown) =>
@@ -55,7 +56,10 @@ async function pressureRig(primaryThreadId?: string) {
       io.paused = false
     })
   }
-  const fatal = vi.fn()
+  const fatal = vi.fn(async (reason: Error) => {
+    session.orcaClose = { requested: false, reason }
+    return false
+  })
   const session: CodexSession = {
     connection,
     ended: false,
@@ -119,12 +123,12 @@ async function pressureRig(primaryThreadId?: string) {
     })
     await r.deferred.drained()
   }
-  const block = async () => {
+  const block = async (count = 2) => {
     const gate = Promise.withResolvers<void>()
     await r.journal.readInOrder(() => {
       void r.journal.readInOrder(() => gate.promise)
     })
-    for (const uuid of ['block', 'block-2']) {
+    for (const uuid of ['block', 'block-2'].slice(0, count)) {
       expect(
         r.deferred.sink.tryAppendItem?.(
           { provider: 'claude', sessionId: 'block', uuid },
@@ -213,6 +217,9 @@ it.each(
       expect(String(h.fatal.mock.calls[0]?.[0])).toContain('closed')
       expect(h.text('m0', h.r.journal, 'thread', type)).toBe(P) // T was never admitted before definitive failure.
       expect(h.io.paused).toBe(false)
+      // A prearmed plan callback may check the now-closing owner once; it cannot deliver or rearm.
+      await h.tick(400)
+      expect(h.text('m0', h.r.journal, 'thread', type)).toBe(P)
       expect(vi.getTimerCount()).toBe(0)
       h.retries.clear('session', h.connection)
       h.unbind?.()
@@ -535,4 +542,48 @@ it('saves the actual nontext victim below geometric growth before allocating a t
     output: { head: `${P}T` }
   })
   expect(h.text('incoming', reopened, 'thread-b')).toBe('I')
+})
+
+it('retries the complete plan after native append admission but publication refusal without spending the accepted clock', async () => {
+  const h = await pressureRig()
+  await h.seed('plan', 'P', 'item/plan/delta')
+  const first = h.row('plan', h.r.journal, 'thread', 'plan')
+  await h.tick(100)
+  h.notify('item/plan/delta', { itemId: 'plan', delta: 'T' })
+  await h.tick(60)
+  const gate = await h.block(1)
+  const append = vi.spyOn(h.r.deferred.sink, 'tryAppendItem')
+  const publish = vi.spyOn(h.r.deferred.sink, 'tryPublish')
+  const publications = h.r.publish.mock.calls.length
+  vi.advanceTimersByTime(240)
+  expect(append.mock.results.at(-1)).toMatchObject({ type: 'return', value: { accepted: true } })
+  expect(publish.mock.results.at(-1)).toMatchObject({
+    type: 'return',
+    value: { accepted: false, reason: 'backpressure' }
+  })
+  expect(h.io.paused).toBe(true)
+  expect(h.text('plan', h.r.journal, 'thread', 'plan')).toBe('P')
+  gate.resolve()
+  expect((await h.r.deferred.drained()).ok).toBe(true)
+  // The admitted append may COMMIT independently; that is not a successful publication/cadence admission.
+  expect(h.text('plan', h.r.journal, 'thread', 'plan')).toBe('PT')
+  expect(h.r.publish).toHaveBeenCalledTimes(publications)
+  await h.tick(60)
+  expect(h.r.publish).toHaveBeenCalledTimes(publications + 1)
+  expect(append.mock.calls.slice(-2).map(([, body]) => body)).toEqual([
+    { kind: 'status', presentation: 'plan-document', text: 'PT' },
+    { kind: 'status', presentation: 'plan-document', text: 'PT' }
+  ])
+  h.notify('item/plan/delta', { itemId: 'plan', delta: 'U' })
+  await h.tick(399)
+  expect(h.r.publish).toHaveBeenCalledTimes(publications + 1)
+  await h.tick(1)
+  expect(h.text('plan', h.r.journal, 'thread', 'plan')).toBe('PTU')
+  expect(h.row('plan', h.r.journal, 'thread', 'plan')).toMatchObject({
+    sequence: first?.sequence,
+    observedAt: first?.observedAt,
+    turnScope: first?.turnScope
+  })
+  const reopened = await h.reopen()
+  expect(h.text('plan', reopened, 'thread', 'plan')).toBe('PTU')
 })

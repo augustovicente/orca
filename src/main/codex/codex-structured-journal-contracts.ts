@@ -46,6 +46,8 @@ export type CodexJournalTranslatorDeps = {
   coalesceMs?: number
   maxRetainedBytes?: number
   schedule?: AgentSessionDeltaCoalescerDeps['schedule']
+  isCurrent?: AgentSessionDeltaCoalescerDeps['isCurrent']
+  onScheduledFailure?: AgentSessionDeltaCoalescerDeps['onScheduledFailure']
 }
 
 export type CodexJournalTranslator = {

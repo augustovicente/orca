@@ -16,7 +16,7 @@ describe('protected provider streams', () => {
     for (let index = 1; index < 448; index += 1) {
       const key = `command-${index}`
       protectedKeys.add(key)
-      expect(coalescer.append(key, 'before')).toBe(true)
+      expect(coalescer.append(key, 'before').accepted).toBe(true)
     }
     coalescer.append('ordinary-1', 'temporary')
     coalescer.append('ordinary-2', 'latest')
@@ -88,7 +88,7 @@ it.each(['existing', 'protected', 'room', 'count', 'late-one', 'late-all', 'empt
       const predicted = c.evictionFor(key)
       expect(c.snapshot(oldest)).toEqual(before)
       expect(predicted).toBe(shape === 'count' ? oldest : undefined)
-      expect(c.append(key, '😀'.repeat(40))).toBe(true)
+      expect(c.append(key, '😀'.repeat(40)).accepted).toBe(true)
       expect(c.snapshot(oldest) === null).toBe(predicted === oldest)
       const incoming = c.snapshot(key)!
       expect(incoming.observedBytes).toBe(shape === 'existing' ? 240 : 160)
