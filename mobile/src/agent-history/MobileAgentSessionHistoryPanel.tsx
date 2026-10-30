@@ -1,4 +1,5 @@
 import { openMobileAgentHistoryChat } from './open-mobile-agent-history-chat'
+import { mobileStructuredSessionOpenMessage } from '../session/mobile-structured-session-open-message'
 import { prepareMobileHistoryResumeTarget } from './mobile-history-resume-target-preparation'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, Pressable, Text, View } from 'react-native'
@@ -187,9 +188,9 @@ function MobileAgentSessionHistoryPanelContent({
               triggerSuccess()
               router.replace(href)
             },
-            failed: (message) => {
+            failed: (reason) => {
               triggerError()
-              setResumeMessage(message)
+              setResumeMessage(mobileStructuredSessionOpenMessage(reason, session.agent))
             }
           })
         ) {

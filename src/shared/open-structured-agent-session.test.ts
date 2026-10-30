@@ -1,7 +1,6 @@
 import { expect, it, vi } from 'vitest'
 import {
   openStructuredAgentSession,
-  structuredSessionOpenMessage,
   type StructuredSessionOpenDeps,
   type StructuredSessionOpenSource,
   type StructuredSessionOpenTab
@@ -143,7 +142,7 @@ it('does not activate or reveal after the source loses ownership', async () => {
   expect(deps.activate).not.toHaveBeenCalled()
   expect(deps.reveal).not.toHaveBeenCalled()
 })
-it('round-trips only canonical notification identities and names the agent in one remedy', () => {
+it('round-trips only canonical notification identities', () => {
   const sessionId = 'root-123'
   const key = structuredAgentSessionPaneKey(structuredAgentSessionTabId(sessionId), sessionId)
   expect(structuredSessionIdFromNotificationPane(key)).toBe(sessionId)
@@ -157,5 +156,4 @@ it('round-trips only canonical notification identities and names the agent in on
   ]) {
     expect(structuredSessionIdFromNotificationPane(invalid)).toBeNull()
   }
-  expect(structuredSessionOpenMessage('unknown', 'codex')).toContain("Codex's chat")
 })

@@ -1,5 +1,4 @@
 import type { AgentMessageSender } from './agent-session/agent-session-message-source'
-import { formatAgentTypeLabel } from './agent-type-label'
 import type { OrchestrationPartyLocationResult } from './orchestration-caller-status'
 
 export type StructuredSessionOpenTarget = { sessionId: string; worktreeId: string; agent?: string }
@@ -61,20 +60,6 @@ export function structuredSessionOpenFailure(error: unknown): StructuredSessionO
     return { reason: 'gone', beforeEffects: true }
   }
   return { reason: 'unreachable', beforeEffects: false }
-}
-
-export function structuredSessionOpenMessage(
-  reason: StructuredSessionOpenFailure['reason'],
-  agent: string
-): string {
-  const chat = `${formatAgentTypeLabel(agent)}'s chat`
-  const messages = {
-    gone: `${chat} is no longer on this host, so it cannot be reopened here.`,
-    unknown: `${chat} could not be found on this host. Reconnect to its computer and try again.`,
-    unsupported: `${chat} can't be reopened until Orca is updated.`,
-    unreachable: `${chat} is not available yet. Retry in a moment.`
-  }
-  return messages[reason]
 }
 
 export async function resolveStructuredSessionOpenSource(

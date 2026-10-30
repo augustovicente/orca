@@ -1,5 +1,5 @@
 import type { AiVaultSession } from '../../../src/shared/ai-vault-types'
-import { structuredSessionOpenMessage } from '../../../src/shared/open-structured-agent-session'
+import type { StructuredSessionOpenFailure } from '../../../src/shared/open-structured-agent-session'
 import type { RpcClient } from '../transport/rpc-client'
 import {
   openMobileStructuredSession,
@@ -13,7 +13,7 @@ export async function openMobileAgentHistoryChat(args: {
   hostId: string
   assertCurrentOwner: () => void
   opened: (href: string) => void
-  failed: (message: string) => void
+  failed: (reason: StructuredSessionOpenFailure['reason']) => void
 }): Promise<boolean> {
   const { session, assertCurrentOwner } = args
   if (!session.structuredSession) {
@@ -41,12 +41,7 @@ export async function openMobileAgentHistoryChat(args: {
   ) {
     return false
   } else if (result.kind !== 'superseded') {
-    args.failed(
-      structuredSessionOpenMessage(
-        result.kind === 'failed' ? result.failure.reason : 'unknown',
-        session.agent
-      )
-    )
+    args.failed(result.kind === 'failed' ? result.failure.reason : 'unknown')
   }
   return true
 }

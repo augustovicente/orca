@@ -152,6 +152,7 @@ it('closes a chat tab over records a newer Orca wrote, reporting the index it ca
     level: 'warn',
     message: 'recording a closed chat tab failed',
     fields: {
+      scope: 'tab-close-hide',
       sessionId,
       error: expect.objectContaining({
         refusal: expect.objectContaining({ details: { reason: 'journalWrittenByNewerOrca' } })

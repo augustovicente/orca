@@ -5,10 +5,8 @@ import {
   openMobileStructuredSession,
   mobileStructuredSessionHref
 } from './open-mobile-structured-session'
-import {
-  structuredSessionOpenMessage,
-  type StructuredSessionOpenSource
-} from '../../../src/shared/open-structured-agent-session'
+import type { StructuredSessionOpenSource } from '../../../src/shared/open-structured-agent-session'
+import { mobileStructuredSessionOpenMessage } from './mobile-structured-session-open-message'
 import { isStructuredAgentId } from '../../../src/shared/agent-session-provider-handle'
 import type { MobileSessionTab } from './mobile-session-route-types'
 import type { useMobileSessionTabSwitching } from './use-mobile-session-tab-switching'
@@ -96,7 +94,7 @@ export function useMobileStructuredSessionOpening(
         }
       } else if (result.kind === 'failed') {
         showToast(
-          structuredSessionOpenMessage(
+          mobileStructuredSessionOpenMessage(
             result.failure.reason,
             source.kind === 'sender' ? (source.displayName ?? '') : (source.agent ?? '')
           ),

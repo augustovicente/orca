@@ -1,7 +1,10 @@
 import { expect, it, vi } from 'vitest'
+import { toast } from 'sonner'
+import { i18n } from '../i18n/i18n'
 import {
   activateAiVaultStructuredSession,
   openDesktopStructuredSession,
+  structuredSessionOpenFeedback,
   type StructuredSessionRevealOutcome
 } from './activate-ai-vault-structured-session'
 import type { StructuredSessionOpenTab } from '../../../shared/open-structured-agent-session'
@@ -93,3 +96,31 @@ it('keeps simultaneous different hosts independent and ignores terminal History'
   expect(await activateAiVaultStructuredSession({}, parts)).toBe(false)
   expect(parts.activate).toHaveBeenCalledTimes(2)
 })
+
+it.each([
+  ['gone', 'This chat is no longer on this host, so it cannot be reopened here.'],
+  ['hostCannotOpen', "This chat can't be reopened until Orca is updated."],
+  ['unavailable', 'The structured agent session is not available yet. Retry in a moment.']
+] as const)(
+  'keeps the actual desktop %s key, default and translated toast',
+  async (feedback, fallback) => {
+    const previous = i18n.language
+    const error = vi.spyOn(toast, 'error').mockImplementation(() => 'toast')
+    try {
+      await i18n.changeLanguage('en')
+      structuredSessionOpenFeedback[feedback]()
+      expect(error).toHaveBeenLastCalledWith(fallback)
+      i18n.addResourceBundle('fr', 'translation', {
+        [`auto.lib.activateAiVaultStructuredSession.${feedback}`]: 'Conversation indisponible.'
+      })
+      await i18n.changeLanguage('fr')
+      structuredSessionOpenFeedback[feedback]()
+      expect(error).toHaveBeenLastCalledWith('Conversation indisponible.')
+      expect(error).toHaveBeenCalledTimes(2)
+    } finally {
+      i18n.removeResourceBundle('fr', 'translation')
+      await i18n.changeLanguage(previous)
+      error.mockRestore()
+    }
+  }
+)
