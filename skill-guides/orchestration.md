@@ -18,7 +18,8 @@ description: >-
 # Orca orchestration
 
 If your prompt has a preamble with Task and Dispatch IDs, you are a worker:
-follow the preamble. To hand work off with nothing back, use `orca-cli`.
+follow the preamble. To ask your coordinator, run `ask`, then end your turn;
+Orca wakes you with the answer. To hand work off with nothing back, use `orca-cli`.
 
 ## Recipe
 

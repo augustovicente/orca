@@ -135,18 +135,16 @@ Dispatched workers receive a preamble that tells them how to communicate with th
 - Send `worker_done` exactly once, even on failure, with `--outcome`.
 - Include a short `--body` summary: what was done, what was found, and what remains.
 - Include both task and dispatch IDs so stale retries cannot complete the wrong dispatch.
-- Use `orca orchestration ask` for blocking questions instead of local TUI prompts.
+- Use `orca orchestration ask` for questions instead of local TUI prompts, then end your turn. Orca wakes you with the answer as mail; `check` shows it.
 
 ```bash
 orca orchestration ask \
-  --to <coordinatorHandle> \
   --question "Should I update the shared component or only this page?" \
   --options "shared,page-only" \
-  --timeout-ms 600000 \
   --json
 ```
 
-With `--json`, `ask` prints the standard `{id, ok, result, _meta}` envelope, so workers read the answer with `jq -r .result.answer`.
+`ask` records the question and returns at once with `pending: true`. Add `--wait` (or `--resume <message_id>`) to block until the answer instead; with `--json`, read it with `jq -r .result.answer`.
 
 ## Decision gates
 

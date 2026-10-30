@@ -6,6 +6,7 @@ import type {
   RuntimePtyWorktreeRecord
 } from '../../runtime-terminal-state-records'
 import { DISCONNECTED_PTY_RECORD_MAX } from '../../orca-runtime-postlude'
+import { questionAnswerWaitPrefix } from '../../orchestration/question-answer-delivery'
 
 export abstract class OrcaRuntimeWithRefreshFloatingWorkspacePtyLiveness extends OrcaRuntimeWithRefreshPtyWorktreeRecordsWithControllerInventory {
   protected refreshFloatingWorkspacePtyLiveness(): Set<string> | null {
@@ -186,6 +187,9 @@ export abstract class OrcaRuntimeWithRefreshFloatingWorkspacePtyLiveness extends
     }
     if (!handle.startsWith('dispatch:')) {
       this.mailPointerRepointScheduler.schedule(handle)
+    } else {
+      // A waiting ask rechecks its question, which a settled Dispatch has closed.
+      this.messageWaiters.notifyPrefix(questionAnswerWaitPrefix(handle.slice('dispatch:'.length)))
     }
     this.orchestrationMailboxNotifications.notifyMessageArrived(handle, messageType)
   }

@@ -17,7 +17,11 @@ export const ORCHESTRATION_WORKER_OBSERVATION_HANDLERS: Record<string, CommandHa
     const result = await client.call<{
       dispatch: { id: string; taskId: string; status: string } | null
       worker: { state: string; stage: string; agentTerminalHandle: string | null }
-      projection?: { liveness: { verdict: string }; nextAction: { argv: string[] } } | null
+      projection?: {
+        liveness: { verdict: string }
+        nextAction: { argv: string[] }
+        attention?: { categories: string[] }
+      } | null
       observation?: { agentWait?: { source: string; reason?: string } | null }
       autoReleaseAt?: string | null
     }>('orchestration.workerShow', {
@@ -33,6 +37,10 @@ export const ORCHESTRATION_WORKER_OBSERVATION_HANDLERS: Record<string, CommandHa
           `Agent liveness: ${value.projection.liveness.verdict}`,
           `Next action: ${value.projection.nextAction.argv.join(' ') || 'none'}`
         )
+        // `input` is a question the worker asked that awaits an answer, as worker-list shows.
+        if (value.projection.attention) {
+          lines.push(`Attention: ${value.projection.attention.categories.join(',') || 'none'}`)
+        }
       }
       // Older runtimes omit agentWait; absence is unknown, distinct from an evaluated null.
       if (value.observation === undefined || !('agentWait' in value.observation)) {
