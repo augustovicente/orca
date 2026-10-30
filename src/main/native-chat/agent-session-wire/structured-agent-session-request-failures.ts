@@ -23,6 +23,8 @@ import type {
 } from './structured-agent-session-provider-retry'
 import type { AgentJournalSnapshot } from '../../../shared/agent-session-journal-types'
 import type { AgentSessionJournal } from '../agent-session-journal/journal-store'
+import type { JournalRow } from '../agent-session-journal/journal-row-schema'
+import type { JournalAppliedSubmission } from '../agent-session-journal/journal-reducer'
 import type { StructuredAgentSessionHostSession } from './structured-agent-session-host-types'
 import type { StructuredAgentSessionAdapter } from './structured-agent-session-adapter'
 import type { AgentSessionFailureWordsContext } from '../../../shared/agent-session-failure-words'
@@ -57,7 +59,12 @@ export class StructuredAgentSessionRequestFailures {
   }
   clear = (): void => this.baselines.clear()
 
-  observe: OmitThisParameter<typeof observeRequestFailures> = observeRequestFailures.bind(this)
+  observe: (
+    sessionId: string,
+    journal: AgentSessionJournal,
+    rows?: readonly JournalRow[],
+    applied?: readonly JournalAppliedSubmission[]
+  ) => void = observeRequestFailures.bind(this)
 
   generationEnded = (sessionId: string): void => {
     const baseline = this.baselines.get(sessionId)
