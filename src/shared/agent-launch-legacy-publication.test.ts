@@ -208,7 +208,7 @@ it('keeps native-only unrepresented choices and cuts Windows settings with their
         ok: true,
         tokens: ['--settings', '{"theme":"light"}', '--add-dir', 'docs', '--debug']
       })
-      expect(structuredLaunchSeedOptions({ ...settings, ...changed }, 'claude').fastMode).toBe(
+      expect(structuredLaunchSeedOptions({ ...settings, ...changed }, 'claude')?.fastMode).toBe(
         fastMode
       )
       const sibling = agentLaunchSettingsMutationUpdates(
@@ -269,6 +269,45 @@ it('conserves the composed model tuple only while its actual carrier remains', (
   )
   expect(flatEdit.agentLaunchChoices?.cursor).toEqual(flat.agentLaunchChoices?.cursor)
   expect(flatEdit.agentDefaultArgs?.cursor).toBe('--verbose --debug')
+  const flatRemoved = agentLaunchSettingsMutationUpdates(
+    { ...flat, ...flatEdit },
+    { type: 'arguments', agent: 'cursor', value: '--verbose --debug' },
+    'linux'
+  )
+  expect(flatRemoved.agentLaunchChoices?.cursor).toBeUndefined()
+  expect(flatRemoved.agentDefaultArgs?.cursor).toBe('--verbose --debug')
+  const unrepresented = agentLaunchSettingsMutationUpdates(
+    flat,
+    {
+      type: 'launch-choices',
+      agent: 'cursor',
+      patch: { options: { fastMode: 'future-value' } }
+    },
+    'linux'
+  )
+  const future = { ...flat, ...unrepresented }
+  expect(future.agentLaunchChoices?.cursor).toEqual({
+    model: 'gpt-5.3-codex',
+    options: { fastMode: 'future-value' }
+  })
+  const futureText = projectAgentLaunchSettings(future, 'linux').agentDefaultArgs.cursor!
+  expect(futureText).toBe(flatText)
+  const futureEdit = agentLaunchSettingsMutationUpdates(
+    future,
+    { type: 'arguments', agent: 'cursor', value: `${futureText} --debug` },
+    'linux'
+  )
+  expect(futureEdit.agentLaunchChoices?.cursor).toEqual(future.agentLaunchChoices?.cursor)
+  expect(futureEdit.agentDefaultArgs?.cursor).toBe('--verbose --debug')
+  for (const modelArgs of ['', '--model auto ']) {
+    const retired = agentLaunchSettingsMutationUpdates(
+      { ...future, ...futureEdit },
+      { type: 'arguments', agent: 'cursor', value: `${modelArgs}--verbose --debug` },
+      'linux'
+    )
+    expect(retired.agentLaunchChoices?.cursor).toEqual(modelArgs ? { model: 'auto' } : undefined)
+    expect(retired.agentDefaultArgs?.cursor).toBe('--verbose --debug')
+  }
   const settings: AgentLaunchSettingsSource = {
     agentPermissionDefault: 'own',
     agentLaunchChoices: {

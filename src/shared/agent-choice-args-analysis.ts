@@ -217,7 +217,9 @@ export function analyzeChoiceArgs(
       }
     }
   }
-  const cut = (selected: readonly ChoiceOccurrence[]): string | null => {
+  const cut = (
+    selected: readonly Pick<ChoiceOccurrence, 'start' | 'end' | 'replacement'>[]
+  ): string | null => {
     if (!first || !selected.length) {
       return selected.length ? null : text
     }

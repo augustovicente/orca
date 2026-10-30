@@ -169,11 +169,8 @@ export function reconcileAgentChoiceArgsDetailed(input: AgentChoiceArgsInput) {
         input.choices.model ?? ''
       )?.options ?? []) {
         const value = input.choices.options?.[option.id]
-        if (
-          option.apply.composedIntoModel &&
-          value !== undefined &&
-          input.publication.launch.appliedValues[option.id] !== undefined
-        ) {
+        // The same model carrier also conserves saved composed values that emit nothing.
+        if (option.apply.composedIntoModel && value !== undefined) {
           choices.options[option.id] = value
         }
       }
