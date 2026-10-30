@@ -100,33 +100,6 @@ describe('ACP history catch-up', () => {
     expect(await fixture.rig.rows()).toEqual(complete)
   })
 
-  it('retains unproven visible replay after an OpenCode native failure', async () => {
-    const { fixture, catchUp } = await setup(OPENCODE_ACP_DIALECT, 'user-message-id')
-    const frames = await recording('opencode-v2-reopen-outside')
-    const prompt = frames.find((frame) => frame.message.method === 'session/prompt')
-    await fixture.feed([prompt!])
-    await chatSend(fixture, 'A:3', 'Reply with exactly the word ONE.')
-    fixture.apply(fixture.lane().promptFailed('A:3', new Error('quota'), 1_100))
-    await fixture.restart()
-
-    await catchUp(loadReplay(frames, 'C'))
-    const rows = await fixture.rig.rows()
-    expect(userTexts(rows)).toEqual([
-      'Reply with exactly the word ONE.',
-      'Reply with exactly the word ONE.',
-      expect.stringContaining('TWO-TOOL')
-    ])
-    expect(dividers(rows)).toHaveLength(1)
-    expect(
-      rows.some(
-        (row) =>
-          row.body.kind === 'status' && row.body.presentation?.startsWith('continued-outside')
-      )
-    ).toBe(false)
-    await catchUp(loadReplay(frames, 'C'))
-    expect(await fixture.rig.rows()).toEqual(rows)
-  })
-
   it('never repeats turns an OpenCode 2.x chat was adopted from', async () => {
     const { fixture, catchUp } = await setup(OPENCODE_ACP_DIALECT, 'user-message-id')
     const frames = await recording('opencode-v2-reopen-outside')

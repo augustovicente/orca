@@ -12,7 +12,10 @@ import { nativeChatRowRendersContent } from '../../shared/native-chat-row-conten
 import { projectNativeChatTranscriptMessages } from '../../shared/native-chat-transcript-projection'
 import { projectStructuredAgentSessionMessages } from '../../shared/structured-agent-session-message-projection'
 import { usableJournalHistoryOrigin } from '../native-chat/agent-session-journal/journal-history-origin'
-import { journalLifecycleItemMutation } from '../native-chat/agent-session-journal/journal-lifecycle-mutation'
+import {
+  journalLifecycleItemMutation,
+  type JournalLifecycleIdentityMutationInput
+} from '../native-chat/agent-session-journal/journal-lifecycle-mutation'
 import { isHistoricalProviderTimelineItem } from '../native-chat/agent-session-timeline/provider-timeline-history'
 import { isProviderTimelineTurnInNamespace } from '../native-chat/agent-session-timeline/provider-timeline-identity'
 import type {
@@ -20,6 +23,7 @@ import type {
   StructuredAgentSessionHistoryJournal
 } from '../native-chat/agent-session-wire/structured-agent-session-event-sink'
 import {
+  HISTORY_CATCH_UP_MAX_BYTES,
   continuedOutsideRecordId,
   createHistoryCatchUpBatch,
   runHistoryCatchUp
@@ -78,7 +82,34 @@ export async function catchUpAcpHistory(input: AcpHistoryCatchUpInput): Promise<
       const written: string[] = []
       const read = (key: string) => baseline.items.get(key) ?? null
       const boundaryBody = acpHistoryBoundary()
-      const correctedDividers = new Set<string>()
+      const desired = new Map<
+        string,
+        {
+          mutation: JournalLifecycleIdentityMutationInput
+          saved: AgentJournalRenderItem | null
+          bytes: number
+        }
+      >()
+      let retainedBytes = 0
+      const compose = (mutation: JournalLifecycleIdentityMutationInput) => {
+        check()
+        const key = agentJournalItemKey(mutation.identity)
+        if ((baseline.canonical.get(key) ?? key) !== key) {
+          throw new Error('unowned-history-target')
+        }
+        const previous = desired.get(key)
+        // Occurrences are complete snapshots; only the body replaces first creation metadata.
+        const final =
+          previous?.mutation.kind === 'item' && mutation.kind === 'item'
+            ? { ...previous.mutation, body: mutation.body }
+            : mutation
+        const bytes = Buffer.byteLength(JSON.stringify(final), 'utf8')
+        retainedBytes += bytes - (previous?.bytes ?? 0)
+        if (retainedBytes > HISTORY_CATCH_UP_MAX_BYTES) {
+          throw new Error('too-large')
+        }
+        desired.set(key, { mutation: final, saved: previous?.saved ?? read(key), bytes })
+      }
       let divided = false
       for (const { source, items } of candidates) {
         check()
@@ -91,23 +122,16 @@ export async function catchUpAcpHistory(input: AcpHistoryCatchUpInput): Promise<
         } as const
         const dividerKey = agentJournalItemKey(dividerIdentity)
         const savedDivider = read(dividerKey)
-        if (savedDivider && !correctedDividers.has(dividerKey)) {
-          correctedDividers.add(dividerKey)
-          if (baseline.canonical.get(dividerKey) !== dividerKey) {
-            throw new Error('unowned-history-target')
-          }
-          if (!boundaryBody) {
-            batch.expectItem(dividerKey, {
-              canonicalItemId: dividerKey,
-              revision: savedDivider.revision
-            })
-            batch.push({ kind: 'tombstone', identity: dividerIdentity })
-          } else if (JSON.stringify(savedDivider.body) !== JSON.stringify(boundaryBody)) {
-            batch.revise(
-              journalLifecycleItemMutation(savedDivider, dividerIdentity, boundaryBody),
-              { canonicalItemId: dividerKey, revision: savedDivider.revision }
-            )
-          }
+        if (savedDivider) {
+          compose(
+            boundaryBody
+              ? journalLifecycleItemMutation(
+                  { ...savedDivider, turnScope: AGENT_JOURNAL_THREAD_SCOPE },
+                  dividerIdentity,
+                  boundaryBody
+                )
+              : { kind: 'tombstone', identity: dividerIdentity }
+          )
         }
         if (coverage === 'native' || coverage === 'adopted') {
           continue
@@ -115,39 +139,44 @@ export async function catchUpAcpHistory(input: AcpHistoryCatchUpInput): Promise<
         for (const mutation of items) {
           check()
           const key = agentJournalItemKey(mutation.identity)
-          const canonical = baseline.canonical.get(key) ?? key
-          const held = read(canonical)
-          if (canonical !== key || (held && !isHistoricalProviderTimelineItem(held, read))) {
+          const held = read(key)
+          if (held && !isHistoricalProviderTimelineItem(held, read)) {
             throw new Error('unowned-history-target')
-          }
-          if (held && JSON.stringify(held.body) === JSON.stringify(mutation.body)) {
-            continue
           }
           if (!held && coverage !== 'imported' && !divided && baseline.retained) {
             if (boundaryBody && !savedDivider) {
-              batch.push(
+              compose(
                 journalLifecycleItemMutation(
                   { turnScope: AGENT_JOURNAL_THREAD_SCOPE },
                   dividerIdentity,
                   boundaryBody
                 )
               )
-              written.push(dividerKey)
             }
             divided = true
           }
-          if (!held) {
+          compose(
+            held
+              ? { ...mutation, turnScope: held.turnScope ?? mutation.turnScope, linkage: undefined }
+              : mutation
+          )
+        }
+        await yieldTurn()
+      }
+      for (const [key, { mutation, saved }] of desired) {
+        check()
+        if (mutation.kind === 'tombstone') {
+          if (saved) {
+            batch.expectItem(key, { canonicalItemId: key, revision: saved.revision })
             batch.push(mutation)
             written.push(key)
-          } else if (mutation.kind === 'item') {
-            // Ordinary revisions retain the creating scope/position and an unstated producer.
-            batch.revise(
-              { ...mutation, linkage: undefined },
-              { canonicalItemId: canonical, revision: held.revision }
-            )
-          } else {
-            throw new Error('unowned-history-target')
           }
+        } else if (!saved) {
+          batch.push(mutation)
+          written.push(key)
+        } else if (JSON.stringify(saved.body) !== JSON.stringify(mutation.body)) {
+          batch.revise(mutation, { canonicalItemId: key, revision: saved.revision })
+          written.push(key)
         }
         await yieldTurn()
       }
