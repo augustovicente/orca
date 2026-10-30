@@ -197,9 +197,11 @@ async function subscribeStructuredAgentSessionMethod<TEvent>(
   onClose: () => void
 ): Promise<{ unsubscribe: () => void }> {
   return subscribeRuntimeRpc(target, method, params, {
-    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: each caller names the method whose frames are TEvent; unchecked as before.
-    onEvent: (result, context) =>
-      context ? onEvent(result as TEvent, context) : onEvent(result as TEvent),
+    onEvent: (result, context) => {
+      // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: all three private callers pair a fixed method with its declared event type; compatible peer frames intentionally remain unfiltered.
+      const event = result as TEvent
+      return context ? onEvent(event, context) : onEvent(event)
+    },
     onError,
     onClose
   })
