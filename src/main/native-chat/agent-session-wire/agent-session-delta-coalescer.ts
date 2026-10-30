@@ -19,9 +19,9 @@ export type AgentSessionDeltaSnapshot = {
 export type AgentSessionDeltaCoalescerDeps = {
   /** Emit the complete snapshot, not the increment. */
   emit: (key: string, text: string, snapshot: AgentSessionDeltaSnapshot) => unknown
-  /** False skips an accepted snapshot; emit reports actual sink refusal. */
+  /** False skips this delivery attempt and marks it clean; emit reports sink refusal. */
   shouldEmit?: (key: string, textLength: number) => boolean
-  /** Only scheduled windows consult this; skips retain dirty full snapshots without a wake. */
+  /** Only timer flushes check this; a skip keeps text for a later delta or barrier. */
   isDue?: (key: string) => boolean
   windowMs?: number
   maxRetainedBytes?: number
@@ -35,7 +35,7 @@ export type AgentSessionDeltaCoalescerDeps = {
 export type AgentSessionDeltaCoalescer = {
   /** False means a retained stream could not flush to admit this key. */
   append: (key: string, delta: string) => boolean
-  /** Next nonempty append's count victim; does not allocate or mutate. */
+  /** Return the buffer the next nonempty append would evict, without changing it. */
   evictionFor: (key: string) => string | undefined
   flush: (key: string) => boolean
   /** Lifecycle barriers flush every stream first. */

@@ -258,6 +258,7 @@ export class ProviderTimelineTextStreams {
     providerFinal = false
   ): void {
     const empty = providerFinal ? text.length === 0 : text.trim().length === 0
+    // A first whitespace-only stream creates no message and does not start the clock.
     if (stream.acceptedAt === undefined && empty) {
       plan.onAdmitted(() => this.coalescer.markFlushed(stream.id))
       return

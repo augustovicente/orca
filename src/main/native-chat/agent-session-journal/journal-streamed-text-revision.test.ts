@@ -1,3 +1,4 @@
+import { createCodexJournalTranslator } from '../../codex/codex-structured-journal-translation'
 import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import { tmpdir } from 'node:os'
@@ -557,6 +558,166 @@ it.each([1, 10])(
       process.stdout.write(
         `pr34654-input-contract ${JSON.stringify({ writer, count, old: 10 * count, extractions: extraction.mock.calls.length, insertions: insertion.mock.calls.length, acquired: acquired.mock.calls.length })}\n`
       )
+    }
+  }
+)
+
+it.each([10, 100])(
+  'commits %i ordinary plan-status checkpoints at FULL, skipping not-due arrivals before assembly',
+  async (count) => {
+    const journal = await openJournal('plan-cadence')
+    const levels = commitLevels()
+    const publish = vi.fn()
+    const deferred = createDeferredStructuredAgentSessionEventSink(
+      testEventSinkLogging('plan-cadence')
+    )
+    deferred.bind({ journal, fence: 1, publish })
+    const translator = createCodexJournalTranslator({
+      sink: deferred.sink,
+      bindPromptItemId: () => {}
+    })
+    vi.useFakeTimers({ toFake: ['Date', 'performance', 'setTimeout', 'clearTimeout'] })
+    vi.setSystemTime(500000)
+    const notify = (method: string, params: unknown) =>
+      translator.handle({
+        type: 'notification',
+        sessionId: 'plan-cadence',
+        threadId: 'thread',
+        method,
+        params
+      })
+    const prefix = 'P'.repeat(100)
+    const deltas = () => journal.readSince({ epoch: journal.epoch, sequence: 0 })
+    const tick = async (ms: number) => {
+      vi.advanceTimersByTime(ms)
+      await deferred.drained()
+    }
+    let expected = prefix
+    try {
+      notify('item/started', { item: { type: 'plan', id: 'plan', text: '' } })
+      expect(notify('item/plan/delta', { itemId: 'plan', delta: '' })).toEqual({ accepted: true })
+      await tick(60)
+      expect(levels).toEqual([])
+      expect(notify('item/plan/delta', { itemId: 'plan', delta: expected })).toEqual({
+        accepted: true
+      })
+      await tick(59)
+      expect(levels).toEqual([])
+      await tick(1)
+      const first = journal.snapshot().items[0]
+      const snapshots = [prefix]
+      const join = Array.prototype.join
+      let assemblies = 0
+      const observer = vi.spyOn(Array.prototype, 'join').mockImplementation(function (
+        this: string[],
+        separator
+      ) {
+        if (this[0] === prefix) {
+          assemblies++
+        }
+        return join.call(this, separator)
+      })
+      try {
+        for (let i = 0; i < count; i++) {
+          expect(notify('item/plan/delta', { itemId: 'plan', delta: 'x' })).toEqual({
+            accepted: true
+          })
+          await tick(60)
+          expect(assemblies).toBe(0)
+          expect(levels).toHaveLength(i + 1)
+          expect(publish).toHaveBeenCalledTimes(i + 1)
+          expect(vi.getTimerCount()).toBe(0)
+          vi.advanceTimersByTime(340)
+          vi.setSystemTime(100 - i)
+          expect(notify('item/plan/delta', { itemId: 'plan', delta: 'y' })).toEqual({
+            accepted: true
+          })
+          await tick(60)
+          expected += 'xy'
+          snapshots.push(expected)
+          expect(journal.snapshot().items[0].body).toEqual({
+            kind: 'status',
+            text: expected,
+            presentation: 'plan-document'
+          })
+          expect(assemblies).toBeGreaterThan(0)
+          assemblies = 0
+        }
+        expect(notify('item/plan/delta', { itemId: 'plan', delta: ' tail' })).toEqual({
+          accepted: true
+        })
+        await tick(60)
+        expect(assemblies).toBe(0)
+        expect(levels).toHaveLength(count + 1)
+        translator.flush()
+        await deferred.drained()
+        expected += ' tail'
+        snapshots.push(expected)
+      } finally {
+        observer.mockRestore()
+      }
+      expect(levels).toEqual(Array(count + 2).fill(2))
+      expect(publish).toHaveBeenCalledTimes(count + 2)
+      const result = deltas()
+      expect(result.ok).toBe(true)
+      if (!result.ok) {
+        throw new Error('plan rows required')
+      }
+      const rows = result.rows.filter((row) => row.kind === 'item')
+      expect(rows.map((row) => row.body)).toEqual(
+        snapshots.map((value) => ({ kind: 'status', text: value, presentation: 'plan-document' }))
+      )
+      const bodyBytes = rows.reduce(
+        (sum, row) => sum + Buffer.byteLength(JSON.stringify(row.body)),
+        0
+      )
+      const envelopeBytes = rows.reduce(
+        (sum, row) => sum + Buffer.byteLength(JSON.stringify(row)),
+        0
+      )
+      expect(bodyBytes).toBe(
+        snapshots.reduce(
+          (sum, value) =>
+            sum +
+            Buffer.byteLength(
+              JSON.stringify({ kind: 'status', text: value, presentation: 'plan-document' })
+            ),
+          0
+        )
+      )
+      expect(envelopeBytes).toBeGreaterThan(bodyBytes)
+      console.info(
+        'plan-cadence-metrics',
+        JSON.stringify({
+          count,
+          acceptedDeltas: 2 * count + 3,
+          ordinarySaves: count + 1,
+          skippedWindows: count + 1,
+          forcedSaves: 1,
+          publications: publish.mock.calls.length,
+          fullCommits: levels.length,
+          insertedBodyBytes: bodyBytes,
+          insertedEnvelopeBytes: envelopeBytes,
+          retainedLogicalBodyBytes: bodyBytes
+        })
+      )
+      expect(journal.snapshot().items[0]).toMatchObject({
+        sequence: first.sequence,
+        observedAt: first.observedAt,
+        turnScope: first.turnScope
+      })
+      translator.dispose()
+      await journal.close()
+      const reopened = await openJournal('plan-cadence')
+      expect(reopened.snapshot().items[0]).toMatchObject({
+        sequence: first.sequence,
+        observedAt: first.observedAt,
+        turnScope: first.turnScope,
+        body: { text: expected }
+      })
+    } finally {
+      translator.dispose()
+      vi.useRealTimers()
     }
   }
 )

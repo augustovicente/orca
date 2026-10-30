@@ -56,7 +56,10 @@ export function codexItemStreamState(
   }
 }
 
-export function codexStreamCheckpointDue(checkpointLength: number, textLength: number): boolean {
+export function codexOutputGrowthCheckpointDue(
+  checkpointLength: number,
+  textLength: number
+): boolean {
   const nextLength = Math.max(checkpointLength + 32, Math.ceil(checkpointLength * 1.125))
   return !(checkpointLength > 0 && textLength < nextLength)
 }

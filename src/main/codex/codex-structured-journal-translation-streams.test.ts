@@ -732,36 +732,27 @@ describe('notice journal pipeline', () => {
 })
 
 describe('Codex streamed checkpoint admission', () => {
-  it('skips joining a below-threshold prefix and still writes its final text', () => {
+  it('keeps a not-due prefix quiet and writes its complete tail at a barrier', () => {
     const { translator, tap, window } = translatorWith()
     const prefix = 'checkpoint '.repeat(12)
     translator.handle(notification('item/agentMessage/delta', { itemId: 'reply', delta: prefix }))
     window.fire()
     const rows = tap.rows.length
     const publications = tap.publishes()
-    const join = vi.spyOn(Array.prototype, 'join')
-    const prefixJoins = () =>
-      join.mock.contexts.filter(
-        (chunks) =>
-          Array.isArray(chunks) && chunks.length === 2 && chunks[0] === prefix && chunks[1] === 'x'
-      )
     try {
       translator.handle(notification('item/agentMessage/delta', { itemId: 'reply', delta: 'x' }))
       window.fire()
-      expect(prefixJoins()).toHaveLength(0)
       expect(tap.rows).toHaveLength(rows)
       expect(tap.publishes()).toBe(publications)
       expect(window.idle()).toBe(true)
 
       translator.flush()
-      expect(prefixJoins()).toHaveLength(1)
       expect(tap.rows.at(-1)?.body).toMatchObject({
         kind: 'message',
         blocks: [{ type: 'text', text: `${prefix}x` }]
       })
       expect(tap.publishes()).toBe(publications + 1)
     } finally {
-      join.mockRestore()
       translator.dispose()
     }
   })

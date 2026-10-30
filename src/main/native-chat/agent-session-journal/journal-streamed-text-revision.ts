@@ -29,6 +29,7 @@ export function isJournalStreamedTextRevision(
   ) {
     return false
   }
+  // Only text changes qualify; reasoning state changes keep FULL durability.
   const ownerFence = state.itemFences.get(row.itemId)
   return (
     isDeepStrictEqual(

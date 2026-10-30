@@ -9,12 +9,7 @@ import type {
 } from '../../../shared/agent-session-journal-types'
 import { AGENT_JOURNAL_THREAD_SCOPE } from '../../../shared/agent-session-journal-types'
 import type { AgentSessionHistoryRequest } from '../../../shared/agent-session-wire'
-import {
-  createTrackedJournalOpener,
-  openTestJournalHostDatabase,
-  liveTestJournalRows,
-  updateTestJournalRowJson
-} from '../../native-chat/agent-session-journal/journal-host-database-test-support'
+import { createTrackedJournalOpener } from '../../native-chat/agent-session-journal/journal-host-database-test-support'
 import type { AgentSessionJournal } from '../../native-chat/agent-session-journal/journal-store'
 import type { AgentSessionHistoryScope } from '../../native-chat/agent-session-wire/agent-session-history-page'
 import { readStructuredAgentSessionHistoryResult } from '../../native-chat/agent-session-wire/structured-agent-session-history-result'
@@ -136,9 +131,9 @@ describe("a worker's journal page", () => {
   })
 })
 
-it.each(['append-only', 'already-blanked'] as const)(
+it.each(['normal', 'empty-earlier'] as const)(
   'projects %s text history through worker, public, activity and quit consumers after reopen',
-  async (storage) => {
+  async (historyShape) => {
     const journal = host.journal!
     const turn = { provider: 'claude', sessionId: 'claude-1', uuid: 'turn' } as const
     const scope = { kind: 'turn', turnItemId: 'claude:claude-1:turn' } as const
@@ -151,7 +146,11 @@ it.each(['append-only', 'already-blanked'] as const)(
       }
     )
     const reply = { provider: 'claude', sessionId: 'claude-1', uuid: 'reply' } as const
-    for (const value of ['first', 'first more', 'complete answer']) {
+    const values =
+      historyShape === 'empty-earlier'
+        ? ['', '', 'complete answer']
+        : ['first', 'first more', 'complete answer']
+    for (const value of values) {
       await journal.appendItem(reply, said(value), {
         fence: 1,
         ownerFence: 1,
@@ -168,21 +167,27 @@ it.each(['append-only', 'already-blanked'] as const)(
       rows.rows
         .filter((row) => row.kind === 'item' && row.itemId === 'claude:claude-1:reply')
         .map((row) => (row.kind === 'item' ? row.body : null))
-    ).toEqual([said('first'), said('first more'), said('complete answer')])
+    ).toEqual(values.map(said))
+    const first = rows.rows.find(
+      (row) => row.kind === 'item' && row.itemId === 'claude:claude-1:reply'
+    )
+    expect(first).toMatchObject({
+      kind: 'item',
+      revision: 1,
+      turnScope: scope,
+      ownerFence: 1,
+      executionOwner: 1,
+      body: said(values[0])
+    })
+    expect(journal.item('claude:claude-1:reply')).toMatchObject({
+      sequence: first?.seq,
+      observedAt: first?.ts,
+      turnScope: scope
+    })
     const expected = journal.snapshot().items
     const activity = journal.lastProviderActivityAt(1)
     expect(activity).toBe(clock)
     await journals.closeAll()
-    if (storage === 'already-blanked') {
-      const { db } = openTestJournalHostDatabase(root)
-      for (const saved of liveTestJournalRows(db, 'session-1')) {
-        const row = JSON.parse(saved.rowJson)
-        if (row.kind === 'item' && row.itemId === 'claude:claude-1:reply' && row.revision < 3) {
-          row.body.blocks[0].text = ''
-          updateTestJournalRowJson(db, 'session-1', saved.seq, JSON.stringify(row))
-        }
-      }
-    }
     host.journal = await openJournal()
     const reopened = host.journal
     expect(reopened.snapshot().items).toEqual(expected)

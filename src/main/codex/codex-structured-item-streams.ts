@@ -17,7 +17,7 @@ import {
   codexItemStreamState,
   pendingPatchBytes,
   trimCodexPendingPatches,
-  codexStreamCheckpointDue
+  codexOutputGrowthCheckpointDue
 } from './codex-structured-item-stream-bounds'
 import {
   CODEX_ITEM_STREAM_TYPES,
@@ -112,14 +112,14 @@ export function createCodexStructuredItemStreams(
 
   const shouldPersist = (key: string, textLength: number): boolean => {
     const type = states.get(key)?.item.type
-    if (type === 'agentMessage' || type === 'reasoning') {
+    if (type === 'agentMessage' || type === 'reasoning' || type === 'plan') {
       const previous = acceptedAt.get(key)
       return (
         previous === undefined || performance.now() - previous >= AGENT_SESSION_TEXT_CHECKPOINT_MS
       )
     }
-    // Tool output keeps growth-based checkpoints to avoid rewriting large previews.
-    return codexStreamCheckpointDue(checkpointLengths.get(key) ?? 0, textLength)
+    // Command and file output keep growth checkpoints to limit repeated full previews.
+    return codexOutputGrowthCheckpointDue(checkpointLengths.get(key) ?? 0, textLength)
   }
 
   const coalescer = createAgentSessionDeltaCoalescer({

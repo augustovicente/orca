@@ -1,3 +1,4 @@
+import { createAgentSessionDeltaCoalescer } from '../agent-session-wire/agent-session-delta-coalescer'
 import { AcpStructuredLane } from '../../acp/acp-structured-lane'
 import { GENERIC_ACP_DIALECT } from '../../acp/acp-dialects/acp-dialect'
 import { PiRpcMessages } from '../../pi/rpc-messages'
@@ -157,6 +158,21 @@ it.each(['close', 'tool', 'flush-dispose', 'next-delta'])(
   }
 )
 
+it('calibrates snapshot observation on a separate public materialization', () => {
+  const coalescer = createAgentSessionDeltaCoalescer({ emit: () => {}, schedule: () => () => {} })
+  coalescer.append('calibration', 'unique snapshot control')
+  const meter = measureDeltaSnapshotWork()
+  try {
+    expect(coalescer.snapshot('calibration')?.text).toBe('unique snapshot control')
+    expect(meter.work()).toBeGreaterThan(0)
+    meter.reset()
+    expect(meter.work()).toBe(0)
+  } finally {
+    meter.stop()
+    coalescer.dispose()
+  }
+})
+
 it('releases actual clean timeline owners linearly on session end, turn end, external Stop and dispose', async () => {
   for (const n of [10, 100]) {
     for (const boundary of ['session', 'turn', 'stop', 'dispose']) {
@@ -246,20 +262,28 @@ it('scans retained owners once on a skipped timer, assembles no body, and tears 
     })
     const meter = measureDeltaSnapshotWork()
     const join = vi.spyOn(Array.prototype, 'join')
-    vi.advanceTimersByTime(60)
-    expect(callbacks).toBe(1)
-    expect(
-      join.mock.contexts.some(
-        (chunks) => Array.isArray(chunks) && chunks.includes('P') && chunks.includes(' tail')
-      )
-    ).toBe(false)
-    join.mockRestore()
-    expect(meter.work()).toBeLessThanOrEqual(3 * n)
-    meter.stop()
-    expect(vi.getTimerCount()).toBe(0)
-    expect(messageText((await r.row(providerItemId('item', 'm0')))?.body)).toBe('P')
-    r.assembler.flush()
-    expect(messageText((await r.row(providerItemId('item', 'm0')))?.body)).toBe('P tail')
+    try {
+      vi.advanceTimersByTime(60)
+      expect(callbacks).toBe(1)
+      expect(
+        join.mock.contexts.some(
+          (chunks) => Array.isArray(chunks) && chunks.includes('P') && chunks.includes(' tail')
+        )
+      ).toBe(false)
+      expect(meter.work()).toBeLessThanOrEqual(3 * n)
+      expect(vi.getTimerCount()).toBe(0)
+      expect(messageText((await r.row(providerItemId('item', 'm0')))?.body)).toBe('P')
+      r.assembler.flush()
+      expect(messageText((await r.row(providerItemId('item', 'm0')))?.body)).toBe('P tail')
+      expect(
+        join.mock.contexts.some(
+          (chunks) => Array.isArray(chunks) && chunks.includes('P') && chunks.includes(' tail')
+        )
+      ).toBe(true)
+    } finally {
+      join.mockRestore()
+      meter.stop()
+    }
     r.assembler.dispose()
     expect(vi.getTimerCount()).toBe(0)
     vi.useRealTimers()

@@ -237,6 +237,7 @@ it.each([10, 100])(
         vi.advanceTimersByTime(60)
         expect(r.saves.at(-1)).toEqual({ text: `${text}T`, at: 220 + count * 560 })
         expect(r.saves).toHaveLength(2)
+        expect(assemblies).toBeGreaterThan(0)
         assemblies = 0
         r.delta('U')
         vi.advanceTimersByTime(60)

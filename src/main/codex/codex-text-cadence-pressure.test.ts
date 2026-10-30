@@ -97,6 +97,9 @@ async function pressureRig(primaryThreadId?: string) {
     )
   const text = (id: string, journal = r.journal, threadId = 'thread', type = 'agentMessage') => {
     const body = row(id, journal, threadId, type)?.body
+    if (type === 'plan' && body?.kind === 'status') {
+      return body.text
+    }
     return body?.kind === 'message' && body.blocks[0]?.type === 'text'
       ? body.blocks[0].text
       : undefined
@@ -164,34 +167,39 @@ async function pressureRig(primaryThreadId?: string) {
   }
 }
 
-it.each(['drain', 'closed', 'tracked-incoming'] as const)(
-  'retains the pressure tail and incoming notification until %s without another provider frame',
-  async (boundary) => {
+it.each(
+  (['agentMessage', 'plan'] as const).flatMap((type) =>
+    (['drain', 'closed', 'tracked-incoming'] as const).map((boundary) => ({ type, boundary }))
+  )
+)(
+  'retains $type pressure tail and incoming notification until $boundary without another provider frame',
+  async ({ type, boundary }) => {
+    const method = type === 'plan' ? 'item/plan/delta' : 'item/agentMessage/delta'
     const h = await pressureRig()
     for (let i = 0; i < 256; i++) {
-      await h.seed(`m${i}`)
+      await h.seed(`m${i}`, P, method)
     }
-    const first = h.row('m0')
+    const first = h.row('m0', h.r.journal, 'thread', type)
     vi.advanceTimersByTime(40)
-    h.notify('item/agentMessage/delta', { itemId: 'm0', delta: T })
+    h.notify(method, { itemId: 'm0', delta: T })
     await h.tick()
-    expect(h.text('m0')).toBe(P)
+    expect(h.text('m0', h.r.journal, 'thread', type)).toBe(P)
     vi.advanceTimersByTime(10)
     const gate = await h.block()
     const thread = boundary === 'tracked-incoming' ? 'thread-b' : 'thread'
     h.io.thread = thread
     try {
       if (boundary === 'tracked-incoming') {
-        expect(
-          h.send('item/started', { item: { type: 'agentMessage', id: 'm256', text: '' } })
-        ).toEqual({ accepted: true })
+        expect(h.send('item/started', { item: { type, id: 'm256', text: '' } })).toEqual({
+          accepted: true
+        })
       }
-      expect(h.send('item/agentMessage/delta', { itemId: 'm256', delta: 'incoming' })).toEqual({
+      expect(h.send(method, { itemId: 'm256', delta: 'incoming' })).toEqual({
         accepted: false,
         reason: 'backpressure'
       })
       expect(h.io.paused).toBe(true)
-      expect(h.text('m256', h.r.journal, thread)).toBeUndefined()
+      expect(h.text('m256', h.r.journal, thread, type)).toBeUndefined()
       if (boundary === 'closed') {
         h.r.deferred.close()
       }
@@ -203,25 +211,54 @@ it.each(['drain', 'closed', 'tracked-incoming'] as const)(
     if (boundary === 'closed') {
       expect(h.fatal).toHaveBeenCalledTimes(1)
       expect(String(h.fatal.mock.calls[0]?.[0])).toContain('closed')
-      expect(h.text('m0')).toBe(P) // T was never admitted before definitive failure.
+      expect(h.text('m0', h.r.journal, 'thread', type)).toBe(P) // T was never admitted before definitive failure.
       expect(h.io.paused).toBe(false)
       expect(vi.getTimerCount()).toBe(0)
       h.retries.clear('session', h.connection)
       h.unbind?.()
       h.translator.dispose()
     } else {
-      expect(h.text('m0')).toBe(P + T)
+      expect(h.text('m0', h.r.journal, 'thread', type)).toBe(P + T)
       await h.tick()
-      expect(h.text('m256', h.r.journal, thread)).toBe('incoming')
-      expect(h.row('m0')).toMatchObject({
+      expect(h.text('m256', h.r.journal, thread, type)).toBe('incoming')
+      expect(h.row('m0', h.r.journal, 'thread', type)).toMatchObject({
         sequence: first?.sequence,
         observedAt: first?.observedAt,
         turnScope: first?.turnScope
       })
-      expect(h.row('m256', h.r.journal, thread)!.sequence).toBeGreaterThan(first!.sequence)
+      expect(h.row('m256', h.r.journal, thread, type)!.sequence).toBeGreaterThan(first!.sequence)
+      if (type === 'plan') {
+        const original = h.row('m0', h.r.journal, 'thread', type)!
+        expect(original.body).toMatchObject({
+          kind: 'status',
+          presentation: 'plan-document',
+          text: P + T
+        })
+        expect(
+          h.r.journal.publicRead().snapshot.items.find((item) => item.itemId === original.itemId)
+        ).toEqual(original)
+        const raw = h.r.journal.readSince({ epoch: h.r.journal.epoch, sequence: 0 })
+        expect(
+          raw.ok &&
+            raw.rows.filter(
+              (row) =>
+                row.kind === 'item' &&
+                row.itemId === h.row('m256', h.r.journal, thread, type)?.itemId
+            )
+        ).toHaveLength(1)
+      }
       const reopened = await h.reopen()
-      expect(h.text('m0', reopened)).toBe(P + T)
-      expect(h.text('m256', reopened, thread)).toBe('incoming')
+      expect(h.text('m0', reopened, 'thread', type)).toBe(P + T)
+      expect(h.text('m256', reopened, thread, type)).toBe('incoming')
+      if (type === 'plan') {
+        expect(h.row('m0', reopened, 'thread', type)).toMatchObject({
+          itemId: first?.itemId,
+          sequence: first?.sequence,
+          observedAt: first?.observedAt,
+          turnScope: first?.turnScope,
+          body: { kind: 'status', text: P + T, presentation: 'plan-document' }
+        })
+      }
     }
   }
 )
