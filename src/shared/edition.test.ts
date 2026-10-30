@@ -19,7 +19,7 @@ const ALL_VIEWS: TopLevelView[] = [
   'mobile'
 ]
 
-const ACCOUNTING_KEEPS: EditionCapability[] = ['computerUse', 'browser']
+const ACCOUNTING_KEEPS: EditionCapability[] = ['computerUse', 'browser', 'chatSurface']
 
 const ACCOUNTING_DROPS: EditionCapability[] = [
   'gitWorkflows',
@@ -81,6 +81,11 @@ describe('editionSupports', () => {
     for (const capability of ACCOUNTING_DROPS) {
       expect(editionSupports(capability, 'contadorca')).toBe(false)
     }
+  })
+
+  it('enables the customer shell only in the accounting edition', () => {
+    expect(editionSupports('customerShell', 'contadorca')).toBe(true)
+    expect(editionSupports('customerShell', 'full')).toBe(false)
   })
 })
 
