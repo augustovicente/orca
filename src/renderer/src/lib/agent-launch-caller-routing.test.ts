@@ -270,6 +270,10 @@ describe('agent launch caller routing', () => {
       agentArgs: '--model sonnet'
     })
     const options = createdTabOptions(store)
+    const tabId = options?.id
+    if (typeof tabId !== 'string') {
+      throw new Error('Expected an allocated terminal tab id')
+    }
     expect(options).toMatchObject({
       id: store.createTab.mock.results[0]?.value.id,
       initialLeafId: expect.any(String),
@@ -282,10 +286,10 @@ describe('agent launch caller routing', () => {
     const { pasteDraftWhenAgentReady } = await import('@/lib/agent-paste-draft')
     expect(pasteDraftWhenAgentReady).toHaveBeenCalledOnce()
     expect(pasteDraftWhenAgentReady).toHaveBeenCalledWith(
-      expect.objectContaining({ tabId: options?.id, content: 'fix the flaky test' })
+      expect.objectContaining({ tabId, content: 'fix the flaky test' })
     )
     await expect(vi.mocked(pasteDraftWhenAgentReady).mock.calls[0]?.[0].launchPty).resolves.toBe(
-      `${options?.id}-pty`
+      `${tabId}-pty`
     )
     expect(mockToastInfo).not.toHaveBeenCalled()
     expect(mockLaunchAgentInWebHostTab).not.toHaveBeenCalled()
