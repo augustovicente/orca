@@ -4,7 +4,13 @@ import os from 'node:os'
 import path from 'node:path'
 import { test, expect } from './helpers/orca-app'
 import { ensureTerminalVisible, waitForActiveWorktree, waitForSessionReady } from './helpers/store'
-import { waitForActivePaneHookDescriptor, waitForActiveTerminalManager } from './helpers/terminal'
+import {
+  waitForActivePaneHookDescriptor,
+  waitForActivePanePtyId,
+  waitForActiveTerminalManager,
+  waitForPaneIdentitySnapshot
+} from './helpers/terminal'
+import { waitForPtyShellEcho } from './terminal-pty-readiness'
 import {
   observeTranscriptPaneLifetime,
   claudeTranscriptLines,
@@ -113,7 +119,11 @@ test('keeps named output owners and accepted tasks while retaining a standalone 
   await waitForActiveWorktree(orcaPage)
   await ensureTerminalVisible(orcaPage)
   await waitForActiveTerminalManager(orcaPage, 30_000)
+  const boundPane = await waitForPaneIdentitySnapshot(orcaPage, 1)
+  const ptyId = await waitForActivePanePtyId(orcaPage)
+  await waitForPtyShellEcho(orcaPage, ptyId, 15_000)
   const descriptor = await waitForActivePaneHookDescriptor(orcaPage)
+  expect(descriptor.paneKey).toBe(`${boundPane.tabId}:${boundPane.activeLeafId}`)
   const [tabId] = descriptor.paneKey.split(':')
   const sessionId = `e2e-tool-pairing-${randomUUID()}`
   const scratchDir = mkdtempSync(path.join(os.tmpdir(), 'orca-e2e-tool-pairing-'))
@@ -224,6 +234,11 @@ test('keeps named output owners and accepted tasks while retaining a standalone 
         BrowserWindow.getAllWindows().every((window) => !window.isVisible() && !window.isFocused())
       )
     ).toBe(true)
+    const finalPane = await waitForPaneIdentitySnapshot(orcaPage, 1)
+    expect(finalPane.tabId).toBe(boundPane.tabId)
+    expect(finalPane.activeLeafId).toBe(boundPane.activeLeafId)
+    expect(finalPane.ptyIdsByLeafId).toEqual(boundPane.ptyIdsByLeafId)
+    await expect(chat).toBeVisible()
   } finally {
     await testInfo.attach('transcript-pane-lifetime', {
       body: JSON.stringify(await finishLifetime()),
