@@ -270,7 +270,7 @@ export function registerJournalEpochReplacementTests(): void {
       }
       await journals.closeAll()
       const reopened = await journals.open({ identity: IDENTITY, stateDirectory: root })
-      database = openTestJournalHostDatabase(root)
+      database = journals.database(root)
       expect(reopened.queuedMessages.list().map((card) => card.body)).toEqual(
         before.map((card) => card.body)
       )

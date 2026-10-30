@@ -217,7 +217,7 @@ beforeEach(async () => {
         throw bodyError
       }
     }
-    await openTestChats(host)
+    await openTestChats(host, [SESSION])
     return host
   }
   const store = rig.store

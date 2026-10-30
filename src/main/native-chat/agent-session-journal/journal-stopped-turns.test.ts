@@ -11,7 +11,10 @@ import { projectJournalBatch } from '../agent-session-wire/agent-session-journal
 import { mergeItems } from '../../../shared/structured-agent-session-history-state'
 import { selectStructuredAgentTurnBars } from '../../../shared/structured-agent-session-turn-timing'
 import { agentSessionSendBodyFingerprint } from '../../../shared/structured-agent-session-send-mutation'
-import { codexProviderHandle } from '../../../shared/agent-session-provider-handle-encoding'
+import {
+  agentSessionJournalProviderHandle,
+  codexProviderHandle
+} from '../../../shared/agent-session-provider-handle-encoding'
 import { JournalStoppedTurns } from './journal-stopped-turns'
 import type {
   AgentJournalItemBody,
@@ -67,7 +70,10 @@ function rig(accepted = true) {
       clientMessageId,
       body,
       payloadFingerprint: agentSessionSendBodyFingerprint('session', body),
-      providerHandle: codexProviderHandle('thread'),
+      providerHandle: agentSessionJournalProviderHandle({
+        agent: 'codex',
+        providerHandle: codexProviderHandle('thread')
+      }),
       fence: 1,
       seq: state.lastSequence + 1,
       ts: 1,
@@ -309,7 +315,10 @@ it.each(['dispatch', 'item', 'batch'] as const)(
       clientMessageId: 'legacy',
       body,
       payloadFingerprint: agentSessionSendBodyFingerprint('session', body),
-      providerHandle: codexProviderHandle('thread'),
+      providerHandle: agentSessionJournalProviderHandle({
+        agent: 'codex',
+        providerHandle: codexProviderHandle('thread')
+      }),
       fence: 1,
       seq: 1,
       ts: 1
@@ -388,7 +397,10 @@ it.each([
     clientMessageId: 'input',
     body,
     payloadFingerprint: agentSessionSendBodyFingerprint('session', body),
-    providerHandle: codexProviderHandle('thread'),
+    providerHandle: agentSessionJournalProviderHandle({
+      agent: 'codex',
+      providerHandle: codexProviderHandle('thread')
+    }),
     fence: 1,
     seq: 1,
     ts: 1

@@ -57,7 +57,7 @@ export class StructuredAgentSessionRequestFailures {
   }
   clear = (): void => this.baselines.clear()
 
-  observe = observeRequestFailures.bind(this)
+  observe: OmitThisParameter<typeof observeRequestFailures> = observeRequestFailures.bind(this)
 
   generationEnded = (sessionId: string): void => {
     const baseline = this.baselines.get(sessionId)

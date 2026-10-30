@@ -116,7 +116,7 @@ function withoutLifecycle(turn: AgentJournalTurnItem) {
 }
 
 function withFallbackWindow(
-  journal: StructuredAgentSessionRevisionJournal,
+  journal: Pick<StructuredAgentSessionRevisionJournal, 'itemBody' | 'visitItems'>,
   { windowIfNoneHeld, ...write }: AgentJournalTurnRowWrite
 ): AgentJournalTurnRowWrite {
   if (!windowIfNoneHeld || write.contextUsage?.window) {
@@ -132,7 +132,7 @@ function withFallbackWindow(
 }
 
 function findTurnRow(
-  journal: StructuredAgentSessionRevisionJournal,
+  journal: Pick<StructuredAgentSessionRevisionJournal, 'itemBody' | 'visitItems'>,
   target: AgentJournalTurnRowTarget
 ): { itemId: string; body: AgentJournalTurnItem } | null {
   if ('identity' in target) {
@@ -171,7 +171,7 @@ export function agentJournalTurnRowReservedBytes(
 
 /** Resolve against current journal state; null writes nothing. */
 export function resolveAgentJournalTurnRowWrite(
-  journal: StructuredAgentSessionRevisionJournal,
+  journal: Pick<StructuredAgentSessionRevisionJournal, 'itemBody' | 'visitItems'>,
   target: AgentJournalTurnRowTarget,
   write: AgentJournalTurnRowWrite,
   reservedBytes: number

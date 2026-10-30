@@ -227,9 +227,12 @@ describe('mobile structured queued messages', () => {
       { ...CAPABLE, conversationStop: true },
       {
         ...event,
-        working: true,
         nextQueuedMessageId: null,
-        latestTurn: { itemId: 'turn-T', observedAt: 1, turn: failed }
+        page: {
+          ...event.page,
+          working: true,
+          latestTurn: { itemId: 'turn-T', observedAt: 1, turn: failed }
+        }
       }
     )
     expect(hook!.isWorking).toBe(true)

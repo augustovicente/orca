@@ -66,7 +66,7 @@ export function registerCodexRetryStop(get: () => Rig): void {
         envelope.clientOperationId
       )
       expect(receipt).toMatchObject({ verdict: 'readable', receipt: { status: 'accepted' } })
-      if (receipt.verdict !== 'readable') {
+      if (receipt.verdict !== 'readable' || receipt.receipt.status !== 'accepted') {
         throw new Error('host receipt missing')
       }
       if (receipt.receipt.result.kind === 'queued-draft') {

@@ -1,7 +1,6 @@
 import type { AgentSessionExecutionOptions } from '../../../shared/agent-session-execution-options'
 import type { AgentSessionTransientFailure } from '../../../shared/agent-session-provider-retry-policy'
 import type { AgentSessionJournal } from '../agent-session-journal/journal-store'
-import type { StructuredAgentSessionTransition } from './structured-agent-session-transition'
 import type { StructuredAgentSessionAdapter } from './structured-agent-session-adapter'
 import type { StructuredAgentSessionHostSession } from './structured-agent-session-host-types'
 
@@ -13,20 +12,12 @@ export type CurrentResult = {
   state: 'running' | 'ended'
   category?: AgentSessionTransientFailure
 }
-export type ProducerTransition = Pick<
-  StructuredAgentSessionTransition,
-  'turnLifecycle' | 'transientTerminal'
->
-export type ProviderRetryCompletion = { owner: object; itemId: string }
-export type ProviderRetryDisposition = 'consume' | 'release' | 'abandon'
-export type View = {
-  completion: () => ProviderRetryCompletion | null
-  finishAborted: () => boolean
-  pending: () => boolean
-  stop: () => { turnId: string; written: boolean } | null
-  retire: () => boolean
-  stage: (transition: ProducerTransition) => () => void
-}
+export type {
+  ProducerTransition,
+  ProviderRetryCompletion,
+  ProviderRetryDisposition,
+  View
+} from './structured-agent-session-provider-retry-view'
 export type Retry = {
   journal: AgentSessionJournal
   epoch: string

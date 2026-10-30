@@ -26,6 +26,7 @@ import {
 import { codexTurnLifecycleIdentity } from '../../codex/codex-structured-journal-translation-turns'
 import { agentSessionFailureWords } from '../../../shared/agent-session-failure-words'
 import { latestNativeChatTurnSinceRequest } from '../../../shared/native-chat/native-chat-orca-stop-cut'
+import { AGENT_JOURNAL_THREAD_SCOPE } from '../../../shared/agent-session-journal-types'
 
 export function registerRetryCompletion(get: () => Rig): void {
   it('consumes T without Stop when H starts before its reply, retaining physical failed history and real escalation authority', async () => {
@@ -153,18 +154,18 @@ export function registerRetryCompletion(get: () => Rig): void {
         await journal.appendItem(
           identity,
           { ...body, requestedAt: 99 },
-          { fence: rig.conversationFence() }
+          { fence: rig.conversationFence(), turnScope: AGENT_JOURNAL_THREAD_SCOPE }
         )
         expect(rig.failures).toHaveLength(1)
         await journal.appendItem(
           identity,
           { ...body, state: 'running', outcome: undefined },
-          { fence: rig.conversationFence() }
+          { fence: rig.conversationFence(), turnScope: AGENT_JOURNAL_THREAD_SCOPE }
         )
         await journal.appendItem(
           identity,
           { ...body, outcome: 'failure' },
-          { fence: rig.conversationFence() }
+          { fence: rig.conversationFence(), turnScope: AGENT_JOURNAL_THREAD_SCOPE }
         )
         expect(rig.failures).toHaveLength(2)
         await vi.advanceTimersByTimeAsync(90_000)
@@ -397,7 +398,7 @@ export function registerRetryCompletion(get: () => Rig): void {
           envelope.clientOperationId
         )
         expect(receipt).toMatchObject({ verdict: 'readable', receipt: { status: 'accepted' } })
-        if (receipt.verdict !== 'readable') {
+        if (receipt.verdict !== 'readable' || receipt.receipt.status !== 'accepted') {
           throw new Error('command receipt missing')
         }
         const queued =
@@ -669,16 +670,22 @@ export function registerRetryCompletion(get: () => Rig): void {
     await journal.appendTombstone(identity, { fence: rig.conversationFence() })
     expect(accounting(rig)['baselines'].get(SESSION)!.marks.size).toBe(before - 1)
     assertRetired(rig)
-    await journal.appendItem(identity, body, { fence: rig.conversationFence() })
+    await journal.appendItem(identity, body, {
+      fence: rig.conversationFence(),
+      turnScope: AGENT_JOURNAL_THREAD_SCOPE
+    })
     expect(rig.failures).toHaveLength(0)
     await tail(rig, t, 'readded-history')
     expect(rig.failures).toHaveLength(0)
     await journal.appendItem(
       identity,
       { ...body, state: 'running', outcome: undefined },
-      { fence: rig.conversationFence() }
+      { fence: rig.conversationFence(), turnScope: AGENT_JOURNAL_THREAD_SCOPE }
     )
-    await journal.appendItem(identity, body, { fence: rig.conversationFence() })
+    await journal.appendItem(identity, body, {
+      fence: rig.conversationFence(),
+      turnScope: AGENT_JOURNAL_THREAD_SCOPE
+    })
     expect(rig.failures).toMatchObject([{ id: key(t), outcome: 'failure' }])
     await vi.advanceTimersByTimeAsync(90_000)
     expect(hidden(rig)).toHaveLength(0)

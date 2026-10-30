@@ -1,4 +1,4 @@
-import { structuredAgentSessionProviderRetryPending } from './structured-agent-session-provider-retry'
+import { structuredAgentSessionProviderRetryPending } from './structured-agent-session-provider-retry-view'
 import type { AgentSessionConversationView } from '../../../shared/agent-session-conversation-view'
 import { isHistoricalProviderTimelineItem } from '../agent-session-timeline/provider-timeline-history'
 import { currentRequestsProjection } from './agent-session-current-requests'
@@ -29,7 +29,7 @@ export type StructuredAgentSessionCurrentWorkJournal = Pick<
   AgentSessionJournal,
   'runningTurn' | 'itemFence' | 'visitItems' | 'submissions' | 'wroteBeforeOpen' | 'item' | 'cursor'
 > &
-  Partial<Pick<AgentSessionJournal, 'snapshot' | 'stopMarks' | 'turnEndedSequence'>>
+  Partial<Pick<AgentSessionJournal, 'stopMarks' | 'turnEndedSequence'>>
 
 export type StructuredAgentSessionWorkEvidence = {
   record: Pick<AgentSessionConversationView, 'ownerObservation' | 'currentFence'> | null

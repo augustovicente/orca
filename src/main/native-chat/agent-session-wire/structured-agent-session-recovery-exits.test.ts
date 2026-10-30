@@ -127,7 +127,9 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await abandonStructuredAgentSessionHost(host)
-  await Promise.all([...supersededHosts].map(abandonStructuredAgentSessionHost))
+  await Promise.all(
+    [...supersededHosts].map((oldHost) => abandonStructuredAgentSessionHost(oldHost))
+  )
   supersededHosts.clear()
   await Promise.all([...spawnedOwners].map((child) => stopOwner(child)))
   await rm(root, { recursive: true, force: true })

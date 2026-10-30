@@ -1,6 +1,23 @@
-import type { View, ProducerTransition } from './structured-agent-session-provider-retry-types'
+import type { AgentJournalItemIdentity } from '../../../shared/agent-session-journal-types'
+import type { AgentSessionTransientFailure } from '../../../shared/agent-session-provider-retry-policy'
 import type { AgentSessionJournal } from '../agent-session-journal/journal-store'
 import type { StructuredAgentSessionCurrentWorkJournal } from './structured-agent-session-current-work'
+
+export type ProducerTransition = {
+  /** Local producer purpose; attribution and restored bodies confer no live start. */
+  turnLifecycle?: { identity: AgentJournalItemIdentity; state: 'start' | 'end' }
+  transientTerminal?: { identity: AgentJournalItemIdentity; category: AgentSessionTransientFailure }
+}
+export type ProviderRetryCompletion = { owner: object; itemId: string }
+export type ProviderRetryDisposition = 'consume' | 'release' | 'abandon'
+export type View = {
+  completion: () => ProviderRetryCompletion | null
+  finishAborted: () => boolean
+  pending: () => boolean
+  stop: () => { turnId: string; written: boolean } | null
+  retire: () => boolean
+  stage: (transition: ProducerTransition) => () => void
+}
 
 export const owners = new WeakMap<object, View>()
 export const structuredAgentSessionProviderRetryPending = (

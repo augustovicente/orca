@@ -1,5 +1,6 @@
 import { expect, it } from 'vitest'
 import { agentJournalSubmissionKey } from '../../../shared/agent-session-journal-item-key'
+import { AGENT_JOURNAL_THREAD_SCOPE } from '../../../shared/agent-session-journal-types'
 import { agentSessionFailureWords } from '../../../shared/agent-session-failure-words'
 import { agentSessionSendBodyFingerprint } from '../../../shared/structured-agent-session-send-mutation'
 import { hostTestMessage } from '../../native-chat/agent-session-wire/structured-agent-session-host-test-data'
@@ -127,7 +128,10 @@ it('distinguishes applied mixed-batch refusal from terminal materialization and 
   expect(callbacks()).toEqual([])
   await r.journal.appendTombstone(identity('historical'), { fence: 0 })
   expect(r.journal.item('orca:historical')).toBeNull()
-  await r.journal.appendItem(identity('historical'), hostTestMessage('historical'), { fence: 0 })
+  await r.journal.appendItem(identity('historical'), hostTestMessage('historical'), {
+    fence: 0,
+    turnScope: AGENT_JOURNAL_THREAD_SCOPE
+  })
   const historicalItem = r.journal.item('orca:historical')!
   const historicalMark = r.observer['baselines']
     .get(SESSION)!
@@ -193,7 +197,7 @@ it('distinguishes applied mixed-batch refusal from terminal materialization and 
   const started = await r.journal.appendItem(
     linked,
     { kind: 'turn', turnId: 'linked-root', state: 'running' },
-    { fence: 0 }
+    { fence: 0, turnScope: AGENT_JOURNAL_THREAD_SCOPE }
   )
   await r.journal.appendLifecycleBatch({
     settlementId: 'linked-final',
@@ -229,7 +233,10 @@ it('distinguishes applied mixed-batch refusal from terminal materialization and 
   await admit('retired')
   expect(r.journal.submission('retired')!.submittedSequence).toBeGreaterThan(first!)
   // Rewind retains the tombstone; materialize an eligible item before this legal later journal admission settles.
-  await r.journal.appendItem(identity('retired'), hostTestMessage('retired'), { fence: 0 })
+  await r.journal.appendItem(identity('retired'), hostTestMessage('retired'), {
+    fence: 0,
+    turnScope: AGENT_JOURNAL_THREAD_SCOPE
+  })
   expect(r.journal.item('orca:retired')).not.toBeNull()
   await reject('retired')
   expect(callbacks()).toHaveLength(beforeReuse + 1)

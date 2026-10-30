@@ -76,6 +76,7 @@ beforeEach(async () => {
       providerSessionId: sessionId,
       resumeLeafUuid: null,
       resumesTranscript: false,
+      cliFlag: async () => 'supported' as const,
       continuesChain: false
     }),
     openConnection: claude.openConnection,

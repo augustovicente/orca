@@ -1,8 +1,8 @@
-import { stageStructuredAgentSessionProviderTransition } from './structured-agent-session-provider-retry'
+import { stageStructuredAgentSessionProviderTransition } from './structured-agent-session-provider-retry-view'
 import type { AgentSessionJournal } from '../agent-session-journal/journal-store'
 import { estimateStructuredAgentSessionItemBytes } from './structured-agent-session-event-sink-estimate'
 import { structuredAgentSessionJournalAppendOptions } from './structured-agent-session-journal-append-options'
-import type { AgentSessionTransientFailure } from '../../../shared/agent-session-provider-retry-policy'
+import type { ProducerTransition } from './structured-agent-session-provider-retry-view'
 import type {
   AgentJournalItemBody,
   AgentJournalItemIdentity
@@ -47,10 +47,7 @@ export type StructuredAgentSessionTransitionStep =
       ) => readonly JournalLifecycleMutationInput[]
     }
 
-export type StructuredAgentSessionTransition = {
-  /** Local producer purpose; attribution and restored bodies confer no live start. */
-  turnLifecycle?: { identity: AgentJournalItemIdentity; state: 'start' | 'end' }
-  transientTerminal?: { identity: AgentJournalItemIdentity; category: AgentSessionTransientFailure }
+export type StructuredAgentSessionTransition = ProducerTransition & {
   steps: readonly StructuredAgentSessionTransitionStep[]
   /** Charge the lifecycle budget for ending/settling work. */
   lifecycle: boolean

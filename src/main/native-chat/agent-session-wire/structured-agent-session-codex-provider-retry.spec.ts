@@ -31,7 +31,9 @@ import {
   reduceStructuredAgentSession
 } from '../../../shared/structured-agent-session-reducer'
 import { projectJournalBatch } from './agent-session-journal-batch'
-import { structuredConversationCommandRunner } from '../../../renderer/src/components/native-chat/structured-conversation-command-send'
+import { createStructuredConversationCommandRunner } from '../../../shared/structured-conversation-command-send'
+import { agentSessionWriteNoticeEnglish } from '../../../shared/agent-session-refusal-notice'
+import { sayAgentSessionFailureEnglish } from '../../../shared/agent-session-failure-copy'
 import { OrchestrationDb } from '../../runtime/orchestration/db'
 import * as stopCuts from '../../../shared/native-chat/native-chat-orca-stop-cut'
 import { createRootDispatch } from '../../runtime/orchestration/db/root-dispatch-test-fixture'
@@ -41,6 +43,11 @@ import {
   mintStructuredWorkerHandle,
   mintStructuredWorkerPaneKey
 } from '../../runtime/structured-worker-identity'
+
+const { structuredConversationCommandRunner } = createStructuredConversationCommandRunner({
+  noticeText: agentSessionWriteNoticeEnglish,
+  sayFailure: sayAgentSessionFailureEnglish
+})
 
 export function registerCodexProviderRetry(get: () => Rig): void {
   registerCodexRetryAdmission(get)
