@@ -92,6 +92,9 @@ it('names a chat whose tab closed before naming finished, and keeps it for later
     type: 'snapshot',
     sessions: [{ sessionId: 'session', conversationName: 'Explain the parser' }]
   })
+  const count = events.length
+  expect(feed.snapshot()).toMatchObject(late.at(-1))
+  expect(events).toHaveLength(count)
 })
 
 it('keeps the name on the summary a closing chat retains', async () => {
@@ -129,6 +132,12 @@ it('publishes cold names from durable records across a host restart without a st
     sessions: [],
     conversationNames: [{ sessionId: record.sessionId, conversationName: 'After' }]
   })
+  const count = events.length
+  expect(feed.snapshot()).toMatchObject({
+    conversationNames: [{ conversationName: 'After' }],
+    namingActiveSessionIds: []
+  })
+  expect(events).toHaveLength(count)
   expect(feed.readPublished(record.sessionId)).toBeUndefined()
   const restarted: AgentSessionStatusEvent[] = []
   open().subscribe({ id: 'reconnect', emit: (event) => restarted.push(event) })

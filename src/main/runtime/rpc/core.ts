@@ -1,3 +1,4 @@
+import type { RuntimeClientCapabilities } from './runtime-client-capabilities'
 import { ZodError, type ZodType } from 'zod'
 import type { TerminalStreamFrame } from '../../../shared/terminal-stream-protocol'
 import type { OrcaRuntimeService, OrchestrationCompatibilityCallerAuthority } from '../orca-runtime'
@@ -109,6 +110,7 @@ export type RpcContext = {
   // Only phones receive truncated payloads; undefined in-process callers remain unclipped.
   clientKind?: 'mobile' | 'runtime'
   // Trust socket-negotiated capabilities, never destructive request assertions.
+  capabilitySource?: RuntimeClientCapabilities
   clientCapabilities?: readonly RuntimeCapability[]
   // Capability upgrades mutate only the authenticated socket after exact-key v2 auth.
   updateClientCapabilities?: (capabilities: readonly RuntimeCapability[]) => void

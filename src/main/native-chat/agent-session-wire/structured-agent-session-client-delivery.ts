@@ -259,6 +259,7 @@ export class StructuredAgentSessionClientDelivery {
 
   subscribeStatus = (subscriber: StructuredAgentSessionStatusSubscriber): (() => void) =>
     this.statusFeed.subscribe(subscriber)
+  readStatusSnapshot = () => this.statusFeed.snapshot()
   forgetStatus = (sessionId: string): void => this.statusFeed.forget(sessionId)
 
   readStatusSummary = (sessionId: string): AgentSessionStatusSummary | undefined =>

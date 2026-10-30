@@ -13,7 +13,10 @@ import type { StructuredAgentSessionLogger } from './structured-agent-session-lo
 import type { StructuredAgentSessionChildWorkProducer } from './structured-agent-session-subagent-rows'
 import type { StructuredAgentSessionStatusObserverOptions } from './structured-agent-session-status-observation'
 import type { StructuredAgentSessionStatusSink } from './structured-agent-session-status-ownership'
-import { structuredSummaryConversationNaming } from './structured-agent-session-status-summary'
+import {
+  retainedStructuredStatusSummaries,
+  structuredSummaryConversationNaming
+} from './structured-agent-session-status-summary'
 
 export type StatusFeedSession = {
   journal: AgentSessionJournal
@@ -123,5 +126,19 @@ export function notifyStructuredStatusPublication(
       sessionId: summary.sessionId,
       error
     })
+  }
+}
+
+export function createStatusSnapshot(
+  published: ReadonlyMap<string, StatusPublication>,
+  readDeps: () => StructuredAgentSessionStatusFeedDeps
+): () => AgentSessionStatusEvent {
+  return () => {
+    const deps = readDeps()
+    return {
+      ...structuredAgentSessionNamingSnapshot(deps),
+      type: 'snapshot',
+      sessions: retainedStructuredStatusSummaries(published.values(), deps)
+    }
   }
 }
