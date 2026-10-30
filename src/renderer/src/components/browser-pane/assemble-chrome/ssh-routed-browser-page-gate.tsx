@@ -26,10 +26,10 @@ export function SshRoutedBrowserPageGate({
     worktreeId,
     sessionProfileId
   )
-  const mountable = state.kind === 'unrouted' || state.kind === 'ready'
+  const unrouted = state.kind === 'unrouted'
   const routedPartition = state.kind === 'ready' ? state.partition : null
   useEffect(() => {
-    if (mountable && !routedPartition) {
+    if (unrouted) {
       return
     }
     // Chrome unmount only parks guests; destroy pre-route guests so they cannot keep browsing with local egress behind the gate.
@@ -47,7 +47,7 @@ export function SshRoutedBrowserPageGate({
       }
       void destroyPersistentWebview(pageId)
     }
-  }, [mountable, routedPartition, pageIds])
+  }, [unrouted, routedPartition, pageIds])
 
   if (state.kind === 'unrouted') {
     return children(null)

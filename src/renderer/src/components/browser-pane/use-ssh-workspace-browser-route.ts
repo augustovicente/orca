@@ -10,17 +10,8 @@ export type SshWorkspaceBrowserRouteErrorKind = 'forwarding-blocked' | 'ssh-unav
 export type SshWorkspaceBrowserRouteState =
   | { kind: 'unrouted' }
   | { kind: 'preparing' }
-  | {
-      kind: 'ready'
-      partition: string
-      targetId: string
-      expectedSshTargetGeneration?: number
-    }
-  | {
-      kind: 'error'
-      errorKind: SshWorkspaceBrowserRouteErrorKind
-      message: string
-    }
+  | { kind: 'ready'; partition: string; targetId: string; expectedSshTargetGeneration?: number }
+  | { kind: 'error'; errorKind: SshWorkspaceBrowserRouteErrorKind; message: string }
 
 export function classifySshWorkspaceBrowserRouteError(
   message: string
@@ -40,20 +31,26 @@ export function classifySshWorkspaceBrowserRouteError(
 // A remounted gate starts from its last verified partition instead of destroying guests already on it.
 const verifiedPartitionByRoute = new Map<string, string>()
 
+function readyRouteState(
+  partition: string,
+  targetId: string,
+  expectedSshTargetGeneration: number | undefined
+): SshWorkspaceBrowserRouteState {
+  return {
+    kind: 'ready',
+    partition,
+    targetId,
+    ...(expectedSshTargetGeneration !== undefined ? { expectedSshTargetGeneration } : {})
+  }
+}
+
 function verifiedRouteState(
   routeKey: string,
   targetId: string,
   expectedSshTargetGeneration: number | undefined
 ): SshWorkspaceBrowserRouteState | null {
   const partition = verifiedPartitionByRoute.get(routeKey)
-  return partition
-    ? {
-        kind: 'ready',
-        partition,
-        targetId,
-        ...(expectedSshTargetGeneration !== undefined ? { expectedSshTargetGeneration } : {})
-      }
-    : null
+  return partition ? readyRouteState(partition, targetId, expectedSshTargetGeneration) : null
 }
 
 /** Mount only a proxy-verified partition; preparing/failed routes must never fall back to local egress. Unrouted access requires an explicit opt-out. */
@@ -126,16 +123,12 @@ export function useSshWorkspaceBrowserRoute(
       setState({ kind: 'unrouted' })
       return
     }
+    // A verified route stays mounted while main re-confirms; a retired target or profile still reaches the error card.
     const verified = verifiedRouteState(routeKey, targetId, expectedSshTargetGeneration)
-    if (verified) {
-      // Keep guests mounted while main re-confirms; a retired target or profile still reaches the error card.
-      setState(verified)
-    } else {
-      setState({ kind: 'preparing' })
-      // Preparing during dial can only fail ssh-unavailable; wait for the connected transition.
-      if (awaitingHost) {
-        return
-      }
+    setState(verified ?? { kind: 'preparing' })
+    // Preparing during dial can only fail ssh-unavailable; wait for the connected transition.
+    if (!verified && awaitingHost) {
+      return
     }
     let cancelled = false
     window.api.browser
@@ -148,12 +141,7 @@ export function useSshWorkspaceBrowserRoute(
       .then((result) => {
         if (!cancelled) {
           verifiedPartitionByRoute.set(routeKey, result.partition)
-          setState({
-            kind: 'ready',
-            partition: result.partition,
-            targetId,
-            ...(expectedSshTargetGeneration !== undefined ? { expectedSshTargetGeneration } : {})
-          })
+          setState(readyRouteState(result.partition, targetId, expectedSshTargetGeneration))
         }
       })
       .catch((error: unknown) => {
