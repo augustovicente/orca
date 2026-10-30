@@ -5,7 +5,10 @@ import { useShallow } from 'zustand/react/shallow'
 import { STRUCTURED_AGENT_SESSION_AVAILABILITY_RUNTIME_CAPABILITY as AVAILABILITY } from '../../../../shared/protocol-version'
 import { LOCAL_EXECUTION_HOST_ID, parseExecutionHostId } from '../../../../shared/execution-host'
 import { lastVerifiedRuntimeStatus } from '../../../../shared/runtime-host-status'
-import { runtimeHostContactForEntry } from '../../../../shared/runtime-host-contact'
+import {
+  isRuntimeHostContactRevokedVerdict,
+  runtimeHostContactForEntry
+} from '../../../../shared/runtime-host-contact'
 import { isTuiAgent } from '../../../../shared/tui-agent-config'
 import { isNativeChatEnabled } from '../../../../shared/structured-native-chat-launch-route'
 import { useAppStore } from '@/store'
@@ -105,7 +108,7 @@ export function useAgentMenuObservation(
         runtimeId: host?.kind === 'runtime' ? lastVerifiedRuntimeStatus(status)?.runtimeId : null,
         pairingRevision:
           host?.kind === 'runtime' ? getRuntimeEnvironmentRevision(host.environmentId) : undefined,
-        contact: `${status?.connectionGeneration}:${status?.hostContactEpoch}`,
+        contact: `${status?.connectionGeneration}:${status?.hostContactEpoch}:${isRuntimeHostContactRevokedVerdict(contact)}`,
         checking:
           contact.verdict === 'unverifiable' &&
           ['checking', 'transport-connecting'].includes(contact.reason),

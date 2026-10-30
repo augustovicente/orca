@@ -1,9 +1,16 @@
+import type * as TerminalOperation from '@/runtime/web-runtime-terminal-create-operation'
+import type * as WebEnvironment from '@/runtime/web-runtime-session-environment'
+import { stubRuntimeEnvironmentBridge } from '@/runtime/runtime-environment-bridge-fixture'
+import { AGENT_LAUNCH_CHOICES_CAPABILITY } from '../../../shared/agent-launch-runtime-capability'
+import { OrcaRuntimeService } from '../../../main/runtime/orca-runtime'
+import { consumeOldHostPreparedCommand } from '../../../../tests/e2e/prepared-action-launch.test-fixture'
 import { clearHostAgentMenuSettingsForTests } from '@/components/settings/use-host-agent-launch-preferences'
 import { projectAgentLaunchSettings } from '../../../shared/agent-launch-settings'
 import type { AgentLaunchChoices } from '../../../shared/agent-launch-choices'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
+  actualOperation: false,
   createTab: vi.fn(),
   closeTab: vi.fn(),
   createWebRuntimeSessionTerminal: vi.fn(),
@@ -47,13 +54,16 @@ const store = {
   ptyIdsByTabId: {},
   sshConnectionStates: new Map(),
   sshStateByEnvironment: new Map(),
-  runtimeStatusByEnvironmentId: new Map([['web-runtime', { status: { hostPlatform: 'linux' } }]]),
+  runtimeStatusByEnvironmentId: new Map([
+    ['web-runtime', { status: { hostPlatform: 'linux', capabilities: [] as string[] } }]
+  ]),
   transientClearedAgentStatusConnectionIds: {},
   allWorktrees: vi.fn(() => store.worktreesByRepo['repo-1']),
   createTab: mocks.createTab,
   closeTab: mocks.closeTab,
   queueTabStartupCommand: vi.fn(),
   setActiveTabType: mocks.setActiveTabType,
+  setActiveWorktree: vi.fn(),
   setTabBarOrder: vi.fn(),
   setAgentStatus: vi.fn(),
   seedNativeChatLaunchPrompt: vi.fn(),
@@ -72,16 +82,33 @@ vi.mock('@/lib/telemetry', () => ({
   track: vi.fn(),
   tuiAgentToAgentKind: (agent: string) => agent
 }))
-vi.mock('@/runtime/web-runtime-terminal-create-operation', () => ({
-  createWebRuntimeSessionTerminalResult: mocks.createWebRuntimeSessionTerminal
+vi.mock('@/runtime/web-runtime-terminal-create-operation', async (importOriginal) => {
+  const actual = await importOriginal<typeof TerminalOperation>()
+  return {
+    createWebRuntimeSessionTerminalResult: (
+      ...args: Parameters<typeof actual.createWebRuntimeSessionTerminalResult>
+    ) =>
+      mocks.actualOperation
+        ? actual.createWebRuntimeSessionTerminalResult(...args)
+        : mocks.createWebRuntimeSessionTerminal(...args)
+  }
+})
+vi.mock('@/runtime/web-runtime-session-snapshot', () => ({
+  refreshWebRuntimeSessionTabsSnapshot: vi.fn(async () => {})
 }))
-vi.mock('@/runtime/web-runtime-session-environment', () => ({
+vi.mock('@/runtime/web-runtime-terminal-placement-settlement', () => ({
+  settleWebRuntimeTerminalPlacement: vi.fn(async () => {})
+}))
+vi.mock('@/runtime/web-runtime-session-environment', async (importOriginal) => ({
+  ...(await importOriginal<typeof WebEnvironment>()),
   isWebRuntimeSessionActive: vi.fn(() => true)
 }))
+afterEach(() => vi.unstubAllGlobals())
 
 describe('launchAgentInNewTab paired web runtime', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.actualOperation = false
     clearHostAgentMenuSettingsForTests()
     mocks.capability.mockResolvedValue(false)
     store.settings = {
@@ -91,6 +118,9 @@ describe('launchAgentInNewTab paired web runtime', () => {
       agentDefaultEnv: {},
       activeRuntimeEnvironmentId: 'web-runtime'
     }
+    store.runtimeStatusByEnvironmentId = new Map([
+      ['web-runtime', { status: { hostPlatform: 'linux', capabilities: [] as string[] } }]
+    ])
     store.tabsByWorktree = { 'wt-1': [{ id: 'tab-1' }] }
     mocks.createWebRuntimeSessionTerminal.mockResolvedValue({
       outcome: { status: 'created' },
@@ -225,6 +255,149 @@ describe('launchAgentInNewTab paired web runtime', () => {
     })
     expect(mocks.createTab).not.toHaveBeenCalled()
   })
+
+  it.each(['deadline', 'prepared', 'authoritative', 'old'] as const)(
+    'delivers the actual %s operation once with the correct model owner and final result',
+    async (route) => {
+      vi.useFakeTimers()
+      try {
+        mocks.actualOperation = true
+        mocks.capability.mockResolvedValue(route !== 'old')
+        store.runtimeStatusByEnvironmentId.get('web-runtime')!.status.capabilities =
+          route === 'old' ? [] : [AGENT_LAUNCH_CHOICES_CAPABILITY]
+        store.settings.agentLaunchChoices = { claude: { options: { effort: 'low' } } }
+        store.settings.agentDefaultArgs = { claude: '--verbose' }
+        store.settings.agentDefaultEnv = { claude: { KEEP: 'caller' } }
+        store.settings.agentCmdOverrides = { claude: 'cx' }
+        const hostSettings = {
+          agentPermissionDefault: 'own' as const,
+          agentLaunchChoices: {
+            claude: {
+              ...(route === 'prepared' ? {} : { model: 'opus' }),
+              options: { effort: 'high' }
+            }
+          },
+          agentDefaultEnv: { claude: { KEEP: 'host' } }
+        }
+        const pending = Promise.withResolvers<{
+          settings: ReturnType<typeof projectAgentLaunchSettings>
+        }>()
+        mocks.hostRpc.mockImplementation(() =>
+          route === 'deadline'
+            ? pending.promise
+            : Promise.resolve({ settings: projectAgentLaunchSettings(hostSettings) })
+        )
+        const host = new OrcaRuntimeService(
+          // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the final startup owner reads only this settings store.
+          { getSettings: () => hostSettings } as never
+        )
+        Object.assign(host, {
+          resolveTerminalWorkspaceLaunchScope: vi.fn(async () => ({
+            id: 'wt-1',
+            path: '/host',
+            connectionId: null,
+            repo: null,
+            folderWorkspace: null
+          }))
+        })
+        const compiled = vi.spyOn(host, 'planAgentPaneLaunch')
+        const prepared = vi.fn(consumeOldHostPreparedCommand)
+        const spawn = vi
+          .spyOn(host, 'createTerminal')
+          .mockImplementation(async (_worktree, options) => {
+            await host.planAgentPaneLaunch('wt-1', options ?? {})
+            return {
+              handle: 'created',
+              worktreeId: 'wt-1',
+              title: null,
+              tabId: 'host-tab',
+              paneKey: 'host-tab:leaf'
+            }
+          })
+        const dispatch = vi.fn(async (request) => {
+          if (request.method === 'terminal.createAgentSession') {
+            return { ok: true, result: await host.createAgentSession(request.params) }
+          }
+          if (request.method === 'session.tabs.createTerminal') {
+            await prepared(request.params)
+            return { ok: true, result: { tab: { id: 'host-tab', leafId: 'leaf' } } }
+          }
+          if (request.method === 'session.tabs.move') {
+            return { ok: true, result: {} }
+          }
+          throw new Error(`Unexpected operation ${request.method}`)
+        })
+        stubRuntimeEnvironmentBridge({ call: dispatch })
+        const { launchAgentInNewTab } = await import('./launch-agent-in-new-tab')
+        const result = launchAgentInNewTab({
+          agent: 'claude',
+          worktreeId: 'wt-1',
+          requestedSurface: 'terminal',
+          groupId: 'group-1',
+          activate: false,
+          agentArgs: '--verbose',
+          ...(route === 'prepared' ? { sessionOptions: { effort: 'high' } } : {})
+        })
+        await vi.advanceTimersByTimeAsync(route === 'deadline' ? 3_000 : 0)
+        await expect(result?.terminalCompletion).resolves.toMatchObject({
+          outcome: { status: 'created' },
+          tabId: 'web-terminal-host-tab'
+        })
+        const creates = () =>
+          dispatch.mock.calls.filter(([request]) =>
+            ['terminal.createAgentSession', 'session.tabs.createTerminal'].includes(request.method)
+          )
+        expect(creates()).toHaveLength(1)
+        if (route === 'deadline' || route === 'authoritative') {
+          expect(creates()[0][0]).toMatchObject({
+            method: 'terminal.createAgentSession',
+            params: { agent: 'claude', agentArgs: '--verbose', presentation: 'background' }
+          })
+          expect(creates()[0][0].params).not.toHaveProperty('launchPreferences')
+          expect(spawn).toHaveBeenCalledTimes(1)
+          const plan = await compiled.mock.results[0].value
+          expect(plan).toMatchObject({
+            command: expect.stringContaining("'opus'"),
+            env: { KEEP: 'host' },
+            launchConfig: { agentArgs: '--verbose' }
+          })
+          expect(plan?.command).toContain("'high'")
+          expect(plan?.command).not.toContain("'low'")
+          expect(prepared).not.toHaveBeenCalled()
+        } else {
+          expect(creates()[0][0]).toMatchObject({
+            method: 'session.tabs.createTerminal',
+            params: {
+              command: `cx '--verbose' '--effort' '${route === 'old' ? 'low' : 'high'}'`,
+              env: { KEEP: 'caller' },
+              launchConfig: { agentCommand: "cx '--verbose'", agentArgs: '--verbose' },
+              targetGroupId: 'group-1',
+              activate: false,
+              select: false,
+              navigation: 'caller'
+            }
+          })
+          expect(prepared).toHaveBeenCalledTimes(1)
+          expect(await prepared.mock.results[0].value).toMatchObject({
+            command: creates()[0][0].params.command,
+            env: { KEEP: 'caller' },
+            launchConfig: { agentArgs: '--verbose' }
+          })
+          expect(spawn).not.toHaveBeenCalled()
+        }
+        if (route === 'deadline') {
+          pending.resolve({ settings: projectAgentLaunchSettings(hostSettings) })
+          await vi.advanceTimersByTimeAsync(0)
+          expect(creates()).toHaveLength(1)
+        }
+        expect(mocks.createTab).not.toHaveBeenCalled()
+        expect(mocks.toastError).not.toHaveBeenCalled()
+      } finally {
+        vi.useRealTimers()
+        vi.restoreAllMocks()
+      }
+    }
+  )
 
   it('forwards prompt launch env and captured config to the host runtime', async () => {
     store.settings.agentDefaultArgs = { codex: '--model gpt-5 --reasoning-effort high' }

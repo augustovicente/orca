@@ -1,15 +1,15 @@
 import { useRef, useState, type Ref } from 'react'
-import type { AgentModelOptionChoices } from '../../../../shared/agent-launch-choices'
-import { AGENT_LAUNCH_CHOICE_KEYS } from '../../../../shared/agent-launch-choices'
+import {
+  AGENT_LAUNCH_CHOICE_KEYS,
+  type AgentModelOptionChoices,
+  type AgentChoicePatch,
+  type AgentDedicatedChoices
+} from '../../../../shared/agent-launch-choices'
 import { AgentDefaultArgsInput } from './AgentLaunchDefaultsEditor'
 import { AgentPermissionMenu, type AgentPermissionChoiceRow } from './AgentPermissionChoiceControls'
 import { agentModelChoiceChips } from './agent-model-choice-chips'
 import { useAgentLaunchFieldWrite } from './use-agent-launch-field-write'
 import { reconcileAgentChoiceArgs } from '../../../../shared/agent-choice-reconciliation'
-import type {
-  AgentChoicePatch,
-  AgentDedicatedChoices
-} from '../../../../shared/agent-launch-choices'
 import {
   findCatalogModel,
   getAgentSessionOptionLaunchCatalog

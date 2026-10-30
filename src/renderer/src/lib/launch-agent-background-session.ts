@@ -22,7 +22,7 @@ import { subscribeToPtyData } from '@/components/terminal-pane/pty-data-sidecar-
 import { callRuntimeRpc } from '@/runtime/runtime-rpc-client'
 import { runtimeEnvironmentIdOrLocalUnlessTwin } from '@/lib/worktree-runtime-owner'
 import { retireProvider } from '@/lib/retire-unowned-background-terminal'
-import { createRuntimeAgentBackgroundTerminal } from '@/lib/runtime-agent-background-create'
+import { prepareRuntimeAgentBackgroundTerminal } from '@/lib/runtime-agent-background-create'
 import { subscribeToRuntimeTerminalData } from '@/runtime/runtime-terminal-stream'
 import { toRemoteRuntimePtyId } from '../../../shared/remote-runtime/remote-runtime-pty-id'
 import { isMainTerminalSideEffectAuthorityForPty } from '@/components/terminal-pane/terminal-side-effect-facts-handler'
@@ -64,7 +64,11 @@ export async function launchAgentBackgroundSession(
     // Why: that server rebuilds the command from its own settings and would drop the extras.
     throw new Error("Extra arguments can't be applied to a paired server's workspace from here.")
   }
-  const preferences = await ensureAgentLaunchPreferences(store, {
+  const createRuntimeTerminal =
+    runtimeTarget.kind === 'environment'
+      ? await prepareRuntimeAgentBackgroundTerminal(runtimeTarget.environmentId)
+      : null
+  const preferences = await ensureAgentLaunchPreferences(useAppStore.getState(), {
     kind: 'git-worktree',
     worktreeId
   })
@@ -152,9 +156,9 @@ export async function launchAgentBackgroundSession(
     agentStatusConsumer.consume(data)
   }
   try {
-    if (runtimeTarget.kind === 'environment') {
+    if (runtimeTarget.kind === 'environment' && createRuntimeTerminal) {
       // Runtime workspaces execute on their server; local pty.spawn would run automation on this client.
-      const created = await createRuntimeAgentBackgroundTerminal({
+      const created = await createRuntimeTerminal({
         environmentId: runtimeTarget.environmentId,
         worktreeId,
         tabId: reservedTabId,

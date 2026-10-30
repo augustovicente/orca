@@ -18,7 +18,7 @@ import { callRuntimeRpc } from '@/runtime/runtime-rpc-client'
 import { toRuntimeWorktreeSelector } from '@/runtime/runtime-worktree-selector'
 import { runRemoteAgentSessionLaunch } from '@/runtime/remote-agent-session-launch'
 
-export async function createRuntimeAgentBackgroundTerminal(args: {
+type RuntimeAgentBackgroundCreateArgs = {
   environmentId: string
   worktreeId: string
   tabId: string
@@ -35,11 +35,27 @@ export async function createRuntimeAgentBackgroundTerminal(args: {
     launchToken: string
     title?: string
   }
-}): Promise<{ terminal: RuntimeTerminalCreate }> {
+}
+
+export async function createRuntimeAgentBackgroundTerminal(
+  args: RuntimeAgentBackgroundCreateArgs
+): Promise<{ terminal: RuntimeTerminalCreate }> {
+  return (await prepareRuntimeAgentBackgroundTerminal(args.environmentId))(args)
+}
+
+export async function prepareRuntimeAgentBackgroundTerminal(environmentId: string) {
+  const capable = await hostSupportsLaunchChoices({ environmentId })
+  return (args: RuntimeAgentBackgroundCreateArgs): Promise<{ terminal: RuntimeTerminalCreate }> =>
+    createPreparedRuntimeAgentBackgroundTerminal(args, capable)
+}
+
+async function createPreparedRuntimeAgentBackgroundTerminal(
+  args: RuntimeAgentBackgroundCreateArgs,
+  capable: boolean
+): Promise<{ terminal: RuntimeTerminalCreate }> {
   const keyboardProtocol = buildDefaultTerminalOptions().vtExtensions?.kittyKeyboard
   const keyboardOptions = createAgentSessionKeyboardOptions(keyboardProtocol)
   const operation = createAgentSessionCreateOperation()
-  const capable = await hostSupportsLaunchChoices({ environmentId: args.environmentId })
   const applied = args.legacy.sessionOptions ?? args.sessionOptions
   const launchPreferences = toAgentLaunchPreferences(
     capable ? args.sessionOptions : applied,

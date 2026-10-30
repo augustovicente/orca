@@ -1,5 +1,10 @@
+import { AGENT_LAUNCH_CHOICES_CAPABILITY } from '../../../../shared/agent-launch-runtime-capability'
+import { peekRuntimeEnvironmentCapability } from '@/runtime/runtime-compatibility-cache'
 import type { GlobalSettings } from '../../../../shared/global-settings-types'
-import { lastVerifiedRuntimeStatus } from '../../../../shared/runtime-host-status'
+import {
+  isRuntimeHostContactRevoked,
+  lastVerifiedRuntimeStatus
+} from '../../../../shared/runtime-host-status'
 import { useAppStore } from '@/store'
 import {
   getRuntimeEnvironmentRevision,
@@ -29,6 +34,7 @@ type Resource = {
   holders: Set<() => void>
 }
 
+const EMPTY_CHOICES: NonNullable<GlobalSettings['agentLaunchChoices']> = {}
 const FIRST_READ_DEADLINE_MS = 3_000
 const snapshotByEnvironment = new Map<string, Resource>()
 export const current = (entry: Resource): boolean =>
@@ -79,7 +85,12 @@ function refresh(entry: Resource): void {
       }
       return null
     }),
-    hostSupportsLaunchChoices(entry.owner)
+    hostSupportsLaunchChoices(entry.owner).then((supported) => {
+      if (live() && current(entry)) {
+        publish(entry)
+      }
+      return supported
+    })
   ]).then(
     ([settings, choicesSupported]) => {
       if (live()) {
@@ -89,14 +100,14 @@ function refresh(entry: Resource): void {
               defaultTuiAgent: settings.defaultTuiAgent,
               disabledTuiAgents: settings.disabledTuiAgents,
               ...(choicesSupported
-                ? { agentLaunchChoices: settings.agentChoices?.defaults ?? {} }
+                ? { agentLaunchChoices: settings.agentChoices?.defaults ?? EMPTY_CHOICES }
                 : {})
             }
           : choicesSupported
             ? {
                 defaultTuiAgent: useAppStore.getState().settings?.defaultTuiAgent,
                 disabledTuiAgents: useAppStore.getState().settings?.disabledTuiAgents,
-                agentLaunchChoices: {}
+                agentLaunchChoices: EMPTY_CHOICES
               }
             : 'desktop'
         settle(entry, entry.answer)
@@ -169,4 +180,37 @@ export function snapshotKey(
 export function cachedSnapshot(environmentId: string | undefined, key: string): Snapshot | null {
   const cached = environmentId ? snapshotByEnvironment.get(environmentId) : undefined
   return cached?.key === key ? cached.snapshot : null
+}
+
+export function effectiveAgentLaunchPreferences(
+  owner: AgentLaunchSettingsOwner | null,
+  desktop: AgentLaunchPreferences,
+  snapshot: Snapshot | null
+): AgentLaunchPreferences {
+  if (!owner) {
+    return desktop
+  }
+  const entry = useAppStore.getState().runtimeStatusByEnvironmentId.get(owner.environmentId)
+  const status = lastVerifiedRuntimeStatus(entry)
+  const currentOwner =
+    !isRuntimeHostContactRevoked(entry) &&
+    getRuntimeEnvironmentRevision(owner.environmentId) === owner.pairingRevision &&
+    (!entry?.snapshot || entry.snapshot.pairingRevision === owner.pairingRevision) &&
+    (!owner.runtimeId || !status?.runtimeId || owner.runtimeId === status.runtimeId)
+  const preferences = currentOwner && snapshot && snapshot !== 'desktop' ? snapshot : desktop
+  if (preferences !== desktop && preferences.agentLaunchChoices !== undefined) {
+    return preferences
+  }
+  const capable =
+    currentOwner &&
+    (peekRuntimeEnvironmentCapability(
+      owner.environmentId,
+      AGENT_LAUNCH_CHOICES_CAPABILITY,
+      owner.runtimeId
+    ) ??
+      status?.capabilities?.includes(AGENT_LAUNCH_CHOICES_CAPABILITY))
+  return {
+    ...preferences,
+    agentLaunchChoices: capable ? EMPTY_CHOICES : desktop.agentLaunchChoices
+  }
 }

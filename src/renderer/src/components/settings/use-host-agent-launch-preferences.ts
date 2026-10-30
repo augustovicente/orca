@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useSyncExternalStore } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import type { GlobalSettings } from '../../../../shared/global-settings-types'
 import { parseExecutionHostId } from '../../../../shared/execution-host'
 import { lastVerifiedRuntimeStatus } from '../../../../shared/runtime-host-status'
@@ -16,7 +17,8 @@ import {
   resource,
   acquire,
   snapshotKey,
-  cachedSnapshot
+  cachedSnapshot,
+  effectiveAgentLaunchPreferences
 } from './host-agent-launch-preferences-resource'
 export { clearHostAgentMenuSettingsForTests } from './host-agent-launch-preferences-resource'
 export type { AgentLaunchPreferences } from './host-agent-launch-preferences-resource'
@@ -47,7 +49,7 @@ function preferencesForWorkspace(state: AppState, workspace: ProspectiveWorkspac
   return { desktop, owner }
 }
 
-/** The last owner answer; cold launches preserve their synchronous desktop fallback. */
+/** The current owner model map shares the existing availability fallback. */
 export function readAgentLaunchPreferencesForWorkspace(
   state: AppState,
   workspace: ProspectiveWorkspace
@@ -59,7 +61,7 @@ export function readAgentLaunchPreferencesForWorkspace(
         snapshotKey(owner.environmentId, owner.pairingRevision, owner.runtimeId)
       )
     : null
-  return snapshot && snapshot !== 'desktop' ? snapshot : desktop
+  return effectiveAgentLaunchPreferences(owner, desktop, snapshot)
 }
 
 export function readAgentLaunchPreferencesForWorktree(
@@ -101,7 +103,7 @@ export async function ensureAgentLaunchPreferences(
     if (signal?.aborted || !current(entry)) {
       throw cancelled()
     }
-    return snapshot === 'desktop' ? desktop : snapshot
+    return effectiveAgentLaunchPreferences(owner, desktop, snapshot)
   } finally {
     signal?.removeEventListener('abort', listener)
     release()
@@ -128,7 +130,25 @@ export function useHostAgentMenuSettings(
     [environmentId, pairingRevision, runtimeId, contact, active, open]
   )
   const key = snapshotKey(environmentId, pairingRevision, runtimeId)
-  const snapshot = useSyncExternalStore(
+  const effectiveSnapshot = useShallow(() => {
+    const snapshot = cachedSnapshot(environmentId, key)
+    const preferences = effectiveAgentLaunchPreferences(
+      environmentId ? { environmentId, pairingRevision, runtimeId: runtimeId ?? undefined } : null,
+      {
+        defaultTuiAgent: desktopSettings?.defaultTuiAgent,
+        disabledTuiAgents: desktopSettings?.disabledTuiAgents,
+        agentLaunchChoices: desktopSettings?.agentLaunchChoices
+      },
+      snapshot
+    )
+    return [
+      preferences.defaultTuiAgent,
+      preferences.disabledTuiAgents,
+      preferences.agentLaunchChoices,
+      snapshot === null
+    ] as const
+  })
+  const [defaultTuiAgent, disabledTuiAgents, agentLaunchChoices, pending] = useSyncExternalStore(
     useCallback(
       (listener: () => void) => {
         if (!subscription.environmentId || !subscription.active) {
@@ -146,25 +166,19 @@ export function useHostAgentMenuSettings(
       },
       [subscription]
     ),
-    () => cachedSnapshot(environmentId, key),
-    () => cachedSnapshot(environmentId, key)
+    effectiveSnapshot,
+    effectiveSnapshot
   )
   if (!environmentId) {
     return { settings: desktopSettings, pending: false }
   }
-  if (snapshot === null) {
-    return { settings: desktopSettings, pending: true }
-  }
-  if (snapshot === 'desktop') {
-    return { settings: desktopSettings, pending: false }
-  }
   return {
-    pending: false,
+    pending,
     settings: {
       ...desktopSettings,
-      defaultTuiAgent: snapshot.defaultTuiAgent,
-      disabledTuiAgents: snapshot.disabledTuiAgents,
-      agentLaunchChoices: snapshot.agentLaunchChoices ?? desktopSettings?.agentLaunchChoices
+      defaultTuiAgent,
+      disabledTuiAgents,
+      agentLaunchChoices
     }
   }
 }
