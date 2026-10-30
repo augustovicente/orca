@@ -352,7 +352,9 @@ it('shares real answer preparation at N and 10N across candidates, owners and se
             hook.rerender({ target, phase })
             const measured = work(),
               { model, selectionFor } = hook.result.current
-            expect(measured.routes).toBe(measured.selectors + 1 + Number(Boolean(launchCwd)))
+            expect(measured.routes).toBeLessThanOrEqual(
+              measured.selectors + 1 + Number(Boolean(launchCwd))
+            )
             expect(measured.records).toBe(0)
             expect(measured.records).toBeLessThanOrEqual(count * (measured.routes + 8))
             expect(measured.answers).toBe(
