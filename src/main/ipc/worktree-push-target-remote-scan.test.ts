@@ -49,6 +49,7 @@ describe('findRemoteForUrl', () => {
   })
 })
 
+// Serial real-Git actions across the 58/580 corpora require time for native subprocesses.
 it('bounds actual acquisitions, duplicate-domain work and complete allocation at58/580', async () => {
   const measurements = new Map<string, number[]>()
   const inputBytes = new Map<string, number[]>()

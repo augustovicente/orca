@@ -106,6 +106,8 @@ vi.mock('./pty/provider/state-cleanup', async () =>
   (await import('./worktrees-test-module-mocks')).ptyStateCleanupModuleMock()
 )
 
+const actual = await vi.importActual<typeof WorktreeGit>('../git/worktree')
+
 describe('registerWorktreeHandlers', () => {
   let runtimeStub: WorktreeRuntimeStub
 
@@ -713,7 +715,6 @@ it.each(
           hostWorktreeTarget({ id, hostId: 'local' })
         )
       } else {
-        const actual = await vi.importActual<typeof WorktreeGit>('../git/worktree')
         forceDeleteLocalBranchMock.mockImplementation((path, branch, head) => {
           if (typeof path !== 'string' || typeof branch !== 'string' || typeof head !== 'string') {
             throw new Error('Expected fixture branch removal identity')
