@@ -57,26 +57,19 @@ describe('edition-copy', () => {
   it('mergeCopyOverlay is one-level-deep and only overrides existing leaves', () => {
     const catalog = { ns: { a: 'old', nested: { b: 'deep' } } }
     const overlay = { ns: { a: 'new', missing: 'x', nested: { b: 'changed' } }, other: { z: '1' } }
-    // SAFETY: asserts on the exact literal shape constructed above.
-    const merged = mergeCopyOverlay(catalog, overlay) as {
-      ns: { a: string; missing?: string; nested: { b: string } }
-      other?: unknown
-    }
-    expect(merged.ns.a).toBe('new')
-    expect(merged.ns.missing).toBeUndefined()
-    // nested object not merged (one level deep)
-    expect(merged.ns.nested).toEqual({ b: 'deep' })
-    expect(merged.other).toBeUndefined()
+    const merged = mergeCopyOverlay(catalog, overlay)
+    expect(merged).toMatchObject({ ns: { a: 'new', nested: { b: 'deep' } } })
+    // unknown keys and deeper objects are not merged (one level deep)
+    expect(merged.ns).not.toHaveProperty('missing')
+    expect(merged).not.toHaveProperty('other')
   })
 
   it('mergeCopyOverlay preserves plural sibling keys', () => {
     const catalog = { ns: { item_one: '{{count}} item', item_other: '{{count}} items' } }
     const overlay = { ns: { item_one: '{{count}} coisa' } }
-    // SAFETY: asserts on the exact literal shape constructed above.
-    const merged = mergeCopyOverlay(catalog, overlay) as {
-      ns: { item_one: string; item_other: string }
-    }
-    expect(merged.ns.item_one).toBe('{{count}} coisa')
-    expect(merged.ns.item_other).toBe('{{count}} items')
+    const merged = mergeCopyOverlay(catalog, overlay)
+    expect(merged).toMatchObject({
+      ns: { item_one: '{{count}} coisa', item_other: '{{count}} items' }
+    })
   })
 })
