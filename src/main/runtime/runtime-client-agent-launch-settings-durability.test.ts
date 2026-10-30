@@ -1,7 +1,14 @@
 import { structuredLaunchSeedOptions } from '../../shared/native-chat/input/native-chat-session-option-defaults'
-import { claudeStructuredSpawnOptions } from '../claude/claude-structured-spawn-options'
+import {
+  adoptClaudeStructuredSpawnOptions,
+  claudeStructuredSpawnOptions
+} from '../claude/claude-structured-spawn-options'
+import { applyClaudeMessageOptions } from '../claude/claude-structured-message-options'
+import { sessionFor } from '../claude/claude-structured-dispatch-test-support'
+import { fakeClaude } from '../claude/claude-structured-session-test-support'
+import { readAgentSessionExecutionOptions } from '../../shared/agent-session-execution-options'
 import { resolveAgentLaunchCommand } from '../../shared/tui-agent-launch-command'
-import { tokenizeStartupCommand } from '../../shared/tui-agent-startup-shell'
+import { quoteStartupArg, tokenizeStartupCommand } from '../../shared/tui-agent-startup-shell'
 import { Store } from '../persistence/loading-store/store'
 import {
   resolveTuiAgentLaunchArgs,
@@ -622,6 +629,148 @@ it('conserves the canonical tuple through durable legacy edit, reopen, terminal/
       })
     } finally {
       await reloaded.freezeWritesAsync()
+    }
+  }
+})
+
+it('persists compound publication ownership through both DTOs and whole-map edits to terminal and native controls', async () => {
+  const originalPlatform = process.platform
+  for (const target of ['arguments', 'user-arguments', 'whole-map'] as const) {
+    const { store, authority, readState } = await fixture()
+    store.updateSettings({
+      terminalWindowsShell: 'cmd.exe',
+      agentPermissionDefault: 'own',
+      agentDefaultArgs: {
+        claude: `--settings ${quoteStartupArg('{"theme":"light"}', 'cmd')} --add-dir docs`,
+        codex: '--search'
+      },
+      agentDefaultEnv: { claude: { KEEP: 'owner' }, codex: { OTHER: 'sibling' }, goose: {} },
+      agentLaunchChoices: {
+        claude: { model: 'sonnet', options: { fastMode: 'true' } },
+        codex: { model: 'gpt-5.6-sol' }
+      },
+      nativeChatSessionOptions: {
+        claude: { model: 'sonnet', valuesByModel: { sonnet: { fastMode: false } } }
+      }
+    })
+    await store.flushPendingOrThrowAsync()
+    let reloaded: Store | undefined
+    Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
+    try {
+      const controller = new RuntimeClientSettingsController(store)
+      const publication = controller.getAgentLaunch()
+      const text =
+        target === 'user-arguments'
+          ? publication.agentPermission?.userArgs.claude
+          : publication.agentDefaultArgs.claude
+      if (!text) {
+        throw new Error('missing compound publication')
+      }
+      const edit = (value: string) =>
+        target === 'whole-map'
+          ? controller.update({
+              agentDefaultArgs: { ...controller.get().agentDefaultArgs, claude: value }
+            })
+          : controller.mutateAgentLaunch({ type: target, agent: 'claude', value })
+      const before = store.getSettings()
+      await edit(text)
+      expect(store.getSettings().agentLaunchChoices).toEqual(before.agentLaunchChoices)
+      expect(store.getSettings().agentDefaultArgs).toEqual(before.agentDefaultArgs)
+      expect(store.getSettings().agentDefaultEnv).toEqual(before.agentDefaultEnv)
+      authority.failNextWrite()
+      const gate = authority.pause()
+      const failed = controller.mutateAgentLaunch({
+        type: 'arguments',
+        agent: 'claude',
+        value: '--model sonnet --debug'
+      })
+      const refused = expect(failed).rejects.toThrow('profile_state_write_failed')
+      const accepted = edit(`${text} --debug`)
+      try {
+        await gate.started.promise
+      } finally {
+        gate.finish.resolve()
+      }
+      await refused
+      await accepted
+      await store.flushPendingOrThrowAsync()
+      const saved = readState()
+      expect(saved.settings.agentLaunchChoices).toEqual(before.agentLaunchChoices)
+      reloaded = new Store({
+        serializedState: JSON.stringify(saved),
+        dataFile: join(saved.settings.workspaceDir, `compound-${target}.json`)
+      })
+      const settings = reloaded.getSettings()
+      expect(settings.agentLaunchChoices).toEqual(before.agentLaunchChoices)
+      expect(settings.agentDefaultEnv).toEqual(before.agentDefaultEnv)
+      expect(settings.agentDefaultArgs?.codex).toBe('--search')
+      expect(tokenizeStartupCommand(settings.agentDefaultArgs?.claude ?? '', 'cmd')).toMatchObject({
+        ok: true,
+        tokens: ['--settings', '{"theme":"light"}', '--add-dir', 'docs', '--debug']
+      })
+      const seed = structuredLaunchSeedOptions(settings, 'claude')
+      expect(seed).toMatchObject({ model: 'sonnet', fastMode: 'true', permissionMode: 'own' })
+      const terminal = tokenizeStartupCommand(
+        resolveTuiAgentLaunchArgs('claude', settings, undefined, 'cmd'),
+        'cmd'
+      )
+      expect(terminal).toMatchObject({
+        ok: true,
+        tokens: [
+          '--model',
+          'sonnet',
+          '--settings',
+          '{"theme":"light","fastMode":true}',
+          '--add-dir',
+          'docs',
+          '--debug'
+        ]
+      })
+      const spawn = claudeStructuredSpawnOptions({
+        launch: {
+          options: { extraArgs: { settings: '{"theme":"light"}', 'add-dir': 'docs', debug: null } },
+          resumesTranscript: false
+        },
+        saved: seed,
+        effortFlag: 'supported',
+        flagSettingsControl: 'supported'
+      })
+      expect(spawn.sdkOptions.model).toBe('sonnet')
+      expect(spawn.sdkOptions.extraArgs).toEqual({
+        settings: '{"theme":"light"}',
+        'add-dir': 'docs',
+        debug: null
+      })
+      expect(spawn.fastModeAtStart).toBe(true)
+      const fake = fakeClaude({ settings: null })
+      const connection = await fake.openConnection({
+        pathToClaudeCodeExecutable: 'inert-claude',
+        cwd: settings.workspaceDir,
+        options: spawn.sdkOptions
+      })
+      const session = sessionFor()
+      session.connection = connection
+      session.options = spawn.options
+      adoptClaudeStructuredSpawnOptions(session, { ...spawn, flagSettingsControl: 'supported' })
+      const messageOptions = readAgentSessionExecutionOptions(seed)
+      if (!messageOptions) {
+        throw new Error('missing message choices')
+      }
+      await applyClaudeMessageOptions(session, messageOptions, undefined)
+      expect(
+        fake.connections[0].calls.filter((call) => call.subtype === 'apply_flag_settings')
+      ).toEqual([{ subtype: 'apply_flag_settings', params: { settings: { fastMode: true } } }])
+      expect(session.appliedInputOptions.get('fastMode')).toBe('true')
+      await connection.close()
+      await edit(
+        `--model sonnet --settings ${quoteStartupArg('{"theme":"dark"}', 'cmd')} --add-dir docs --debug`
+      )
+      expect(store.getSettings().agentLaunchChoices?.claude).toEqual({ model: 'sonnet' })
+      expect(structuredLaunchSeedOptions(store.getSettings(), 'claude')?.fastMode).toBe('false')
+      expect(store.getSettings().agentDefaultEnv).toEqual(before.agentDefaultEnv)
+    } finally {
+      Object.defineProperty(process, 'platform', { configurable: true, value: originalPlatform })
+      await reloaded?.freezeWritesAsync()
     }
   }
 })

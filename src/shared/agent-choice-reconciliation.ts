@@ -139,7 +139,7 @@ export function reconcileAgentChoiceArgsDetailed(input: AgentChoiceArgsInput) {
       if (
         !option?.apply.launchArgs ||
         (option.kind.type === 'boolean'
-          ? entry.value !== 'true' && entry.value !== 'false'
+          ? entry.valueType !== 'boolean' || (entry.value !== 'true' && entry.value !== 'false')
           : option.kind.choices.length > 0 &&
             !option.kind.choices.some((choice) => choice.value === entry.value))
       ) {
@@ -163,8 +163,20 @@ export function reconcileAgentChoiceArgsDetailed(input: AgentChoiceArgsInput) {
   const model = lifted.find((entry) => entry.key === 'model')
   if (model) {
     write('model', model.value)
-    if (input.publication && model.composed && composedModel !== input.choices.model) {
-      choices.options = { ...input.choices.options }
+    if (input.publication && model.composed) {
+      for (const option of findCatalogModel(
+        catalog ?? { models: [], modelApply: {} },
+        input.choices.model ?? ''
+      )?.options ?? []) {
+        const value = input.choices.options?.[option.id]
+        if (
+          option.apply.composedIntoModel &&
+          value !== undefined &&
+          input.publication.launch.appliedValues[option.id] !== undefined
+        ) {
+          choices.options[option.id] = value
+        }
+      }
     }
   }
   if (mode === 'choice-edit' && patch?.model !== undefined) {

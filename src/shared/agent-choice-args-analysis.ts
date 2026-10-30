@@ -17,6 +17,8 @@ import { agentChoiceConfigValue } from './agent-choice-cli-apply'
 export type ChoiceOccurrence = {
   key: string
   value: string
+  valueType: 'string' | 'boolean'
+  words: string[]
   start: number
   end: number
   lift: boolean
@@ -29,7 +31,7 @@ export function analyzeChoiceArgs(
   agent: TuiAgent,
   text: string,
   grammars: readonly AgentStartupShell[],
-  generatedCarriers?: ReadonlySet<string>
+  generatedCarriers?: readonly ChoiceOccurrence[]
 ) {
   const forms = agentChoiceCliForms(agent)
   const inventory = permissionOptionInventory(agent)
@@ -99,6 +101,7 @@ export function analyzeChoiceArgs(
       for (const { key, form } of forms) {
         let count = 1
         let value = ''
+        let valueType: ChoiceOccurrence['valueType'] = 'string'
         let lift = false
         let replacement: string | undefined
         if (form.kind === 'recipe') {
@@ -146,6 +149,7 @@ export function analyzeChoiceArgs(
             const { [form.key]: _removed, ...remaining } = settings
             replacement = `${name} ${quoteStartupArg(JSON.stringify(remaining), grammars[0])}`
             value = String(choice)
+            valueType = typeof choice === 'boolean' ? 'boolean' : 'string'
           }
           if (form.kind === 'config') {
             const configValue = agentChoiceConfigValue(value, form.key)
@@ -160,8 +164,21 @@ export function analyzeChoiceArgs(
         const spans = first.parsed.spans.slice(index, index + count)
         const start = spans[0].start
         const end = spans.at(-1)?.end ?? start
+        const words = first.parsed.tokens.slice(index, index + count)
         const currentGeneratedCarrier =
-          generatedCarriers?.has(`${key}:${text.slice(start, end)}`) ?? false
+          generatedCarriers?.some(
+            (entry) =>
+              entry.key === key &&
+              entry.value === value &&
+              entry.valueType === valueType &&
+              entry.words.length === words.length &&
+              entry.words[0] === words[0] &&
+              spans.every(
+                (span, offset) =>
+                  !span.divergesFromShell ||
+                  text.slice(span.start, span.end) === quoteStartupArg(words[offset], grammars[0])
+              )
+          ) ?? false
         const agreed = originals.every((original) => {
           if (!original) {
             return false
@@ -188,6 +205,8 @@ export function analyzeChoiceArgs(
           occurrences.push({
             key,
             value,
+            valueType,
+            words,
             start,
             end,
             lift: lift && agreed,

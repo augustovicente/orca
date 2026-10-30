@@ -8,7 +8,7 @@ import { legacyLaunchTextUpdates } from './agent-launch-permission-updates'
 import { composeAgentLaunchProfile } from './tui-agent-launch-defaults'
 import { structuredLaunchSeedOptions } from './native-chat/input/native-chat-session-option-defaults'
 import { createGlobalSettingsFixture } from './global-settings-test-fixture'
-import { tokenizeStartupCommand } from './tui-agent-startup-shell'
+import { quoteStartupArg, tokenizeStartupCommand } from './tui-agent-startup-shell'
 
 it('conserves canonical identity across both host-shell publications, edits and removals', () => {
   for (const [terminalWindowsShell, shell] of [
@@ -154,36 +154,121 @@ it('keeps native-only unrepresented choices and cuts Windows settings with their
     'linux'
   )
   expect(changed.agentLaunchChoices?.openclaw).toEqual({ model: 'native-only' })
-  for (const terminalWindowsShell of ['cmd.exe', 'powershell.exe']) {
+  const opaque = createGlobalSettingsFixture({
+    terminalWindowsShell: 'cmd.exe',
+    agentPermissionDefault: 'own',
+    agentLaunchChoices: { claude: { model: 'sonnet', options: { fastMode: 'true' } } },
+    agentDefaultArgs: { claude: '--settings ./user-settings.json --add-dir docs' }
+  })
+  const opaqueText = projectAgentLaunchSettings(opaque, 'win32').agentDefaultArgs.claude!
+  const opaqueEdit = agentLaunchSettingsMutationUpdates(
+    opaque,
+    { type: 'arguments', agent: 'claude', value: `${opaqueText} --debug` },
+    'win32'
+  )
+  expect(opaqueEdit.agentLaunchChoices?.claude).toEqual(opaque.agentLaunchChoices?.claude)
+  expect(opaqueEdit.agentDefaultArgs?.claude).toBe(
+    '--settings ./user-settings.json --add-dir docs --debug'
+  )
+  for (const [terminalWindowsShell, shell, fastMode] of [
+    ['cmd.exe', 'cmd', 'true'],
+    ['powershell.exe', 'powershell', 'false']
+  ] as const) {
     const settings = createGlobalSettingsFixture({
       terminalWindowsShell,
       agentPermissionDefault: 'own',
-      agentLaunchChoices: { claude: { model: 'sonnet', options: { fastMode: 'false' } } },
-      agentDefaultArgs: { claude: '--verbose' }
+      agentLaunchChoices: { claude: { model: 'sonnet', options: { fastMode } } },
+      agentDefaultArgs: {
+        claude: `--settings ${quoteStartupArg('{"theme":"light"}', shell)} --add-dir docs`
+      },
+      nativeChatSessionOptions: {
+        claude: { model: 'sonnet', valuesByModel: { sonnet: { fastMode: fastMode !== 'true' } } }
+      }
     })
-    const text = projectAgentLaunchSettings(settings, 'win32').agentDefaultArgs.claude
-    const changed = agentLaunchSettingsMutationUpdates(
-      settings,
-      { type: 'arguments', agent: 'claude', value: `${text} --debug` },
-      'win32'
-    )
-    expect(changed.agentLaunchChoices?.claude).toEqual(settings.agentLaunchChoices?.claude)
-    expect(
-      tokenizeStartupCommand(
-        changed.agentDefaultArgs?.claude ?? '',
-        terminalWindowsShell === 'cmd.exe' ? 'cmd' : 'powershell'
+    const publication = projectAgentLaunchSettings(settings, 'win32')
+    for (const target of ['arguments', 'user-arguments'] as const) {
+      const text =
+        target === 'arguments'
+          ? publication.agentDefaultArgs.claude!
+          : publication.agentPermission!.userArgs.claude!
+      expect(
+        agentLaunchSettingsMutationUpdates(
+          settings,
+          { type: target, agent: 'claude', value: text },
+          'win32'
+        )
+      ).toEqual({})
+      const changed = agentLaunchSettingsMutationUpdates(
+        settings,
+        { type: target, agent: 'claude', value: `${text} --debug` },
+        'win32'
       )
-    ).toMatchObject({ ok: true, tokens: ['--settings', '{}', '--verbose', '--debug'] })
-    const removed = agentLaunchSettingsMutationUpdates(
-      { ...settings, ...changed },
-      { type: 'arguments', agent: 'claude', value: '--model sonnet --verbose --debug' },
-      'win32'
-    )
-    expect(removed.agentLaunchChoices?.claude).toEqual({ model: 'sonnet' })
+      expect(changed.agentLaunchChoices?.claude).toEqual(settings.agentLaunchChoices?.claude)
+      expect(tokenizeStartupCommand(changed.agentDefaultArgs?.claude ?? '', shell)).toMatchObject({
+        ok: true,
+        tokens: ['--settings', '{"theme":"light"}', '--add-dir', 'docs', '--debug']
+      })
+      expect(structuredLaunchSeedOptions({ ...settings, ...changed }, 'claude').fastMode).toBe(
+        fastMode
+      )
+      const sibling = agentLaunchSettingsMutationUpdates(
+        settings,
+        { type: target, agent: 'claude', value: `${text.replace('light', 'dark')} --debug` },
+        'win32'
+      )
+      expect(sibling.agentLaunchChoices?.claude).toEqual(settings.agentLaunchChoices?.claude)
+      expect(tokenizeStartupCommand(sibling.agentDefaultArgs?.claude ?? '', shell)).toMatchObject({
+        ok: true,
+        tokens: ['--settings', '{"theme":"dark"}', '--add-dir', 'docs', '--debug']
+      })
+      const stringValue = agentLaunchSettingsMutationUpdates(
+        settings,
+        {
+          type: target,
+          agent: 'claude',
+          value: `--model sonnet --settings ${quoteStartupArg(`{"theme":"light","fastMode":"${fastMode}"}`, shell)} --debug`
+        },
+        'win32'
+      )
+      expect(stringValue.agentLaunchChoices?.claude).toEqual({ model: 'sonnet' })
+      expect(
+        tokenizeStartupCommand(stringValue.agentDefaultArgs?.claude ?? '', shell)
+      ).toMatchObject({
+        ok: true,
+        tokens: ['--settings', `{"theme":"light","fastMode":"${fastMode}"}`, '--debug']
+      })
+      const removed = agentLaunchSettingsMutationUpdates(
+        { ...settings, ...changed },
+        {
+          type: target,
+          agent: 'claude',
+          value: `--model sonnet --settings ${quoteStartupArg('{"theme":"dark"}', shell)} --add-dir docs --debug`
+        },
+        'win32'
+      )
+      expect(removed.agentLaunchChoices?.claude).toEqual({ model: 'sonnet' })
+      expect(tokenizeStartupCommand(removed.agentDefaultArgs?.claude ?? '', shell)).toMatchObject({
+        ok: true,
+        tokens: ['--settings', '{"theme":"dark"}', '--add-dir', 'docs', '--debug']
+      })
+    }
   }
 })
 
 it('conserves the composed model tuple only while its actual carrier remains', () => {
+  const flat: AgentLaunchSettingsSource = {
+    agentPermissionDefault: 'own',
+    agentLaunchChoices: { cursor: { model: 'gpt-5.3-codex', options: { fastMode: 'false' } } },
+    agentDefaultArgs: { cursor: '--verbose' }
+  }
+  const flatText = projectAgentLaunchSettings(flat, 'linux').agentDefaultArgs.cursor!
+  const flatEdit = agentLaunchSettingsMutationUpdates(
+    flat,
+    { type: 'arguments', agent: 'cursor', value: `${flatText} --debug` },
+    'linux'
+  )
+  expect(flatEdit.agentLaunchChoices?.cursor).toEqual(flat.agentLaunchChoices?.cursor)
+  expect(flatEdit.agentDefaultArgs?.cursor).toBe('--verbose --debug')
   const settings: AgentLaunchSettingsSource = {
     agentPermissionDefault: 'own',
     agentLaunchChoices: {

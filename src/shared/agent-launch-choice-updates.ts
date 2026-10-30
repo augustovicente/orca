@@ -22,14 +22,13 @@ export function agentLaunchChoiceUpdates(
   input: { patch?: AgentChoicePatch; userArgs?: string },
   legacy?: { target: 'terminal' | 'legacy-permission'; shell: AgentStartupShell }
 ): AgentLaunchSettingsSource {
-  if (
+  const publication =
     legacy &&
-    input.userArgs?.trim() ===
-      projectAgentLaunchProfile(agent, settings, {
-        target: legacy.target,
-        shell: legacy.shell
-      }).args.trim()
-  ) {
+    projectAgentLaunchProfile(agent, settings, {
+      target: legacy.target,
+      shell: legacy.shell
+    })
+  if (publication && input.userArgs?.trim() === publication.args.trim()) {
     return {}
   }
   const permissionMode = resolveAgentPermission(agent, settings).choice
@@ -48,15 +47,15 @@ export function agentLaunchChoiceUpdates(
       : AGENT_LAUNCH_CHOICE_KEYS,
     mode: input.patch ? 'choice-edit' : 'arguments-edit',
     patch: input.patch,
-    ...(legacy && settings.agentLaunchChoices?.[agent]
+    ...(legacy && publication && settings.agentLaunchChoices?.[agent]
       ? {
           publication: {
             shell: legacy.shell,
-            generatedArgs: projectAgentLaunchProfile(agent, settings, {
-              target: legacy.target,
-              shell: legacy.shell,
-              userArgs: ''
-            }).args
+            generatedArgs: publication.args,
+            launch: publication.launch,
+            ...(publication.permissionArgs
+              ? { permissionMode: publication.choices.permissionMode }
+              : {})
           }
         }
       : {})

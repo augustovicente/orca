@@ -27,7 +27,12 @@ export function projectAgentLaunchProfile(
   agent: TuiAgent,
   settings: AgentLaunchProfileSettings | null | undefined,
   input: AgentLaunchProfileProjection
-): { args: string; choices: AgentDedicatedChoices; launch: ResolvedSessionOptionLaunch } {
+): {
+  args: string
+  choices: AgentDedicatedChoices
+  launch: ResolvedSessionOptionLaunch
+  permissionArgs?: string
+} {
   const typed = hasTypedAgentPermission(settings)
   const userArgs =
     input.userArgs ??
@@ -62,7 +67,12 @@ export function projectAgentLaunchProfile(
       return { args: userArgs, choices, launch: emptyLaunch }
     }
     const permission = agentPermissionArgsForLaunch(agent, choices.permissionMode, userArgs)
-    return { args: [permission, userArgs].filter(Boolean).join(' '), choices, launch: emptyLaunch }
+    return {
+      args: [permission, userArgs].filter(Boolean).join(' '),
+      choices,
+      launch: emptyLaunch,
+      ...(permission ? { permissionArgs: permission } : {})
+    }
   }
   const parsed = tokenizeStartupCommand(userArgs, shell)
   if (!parsed.ok) {
@@ -85,5 +95,10 @@ export function projectAgentLaunchProfile(
       ? agentPermissionArgsForLaunch(agent, choices.permissionMode, userArgs)
       : ''
   const prefix = launch.args.map(render).join(' ')
-  return { args: [prefix, permission, raw].filter(Boolean).join(' '), choices, launch }
+  return {
+    args: [prefix, permission, raw].filter(Boolean).join(' '),
+    choices,
+    launch,
+    ...(permission ? { permissionArgs: permission } : {})
+  }
 }
