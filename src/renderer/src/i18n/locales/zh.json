@@ -22027,6 +22027,14 @@
       "unmarkFile": "取消 {{path}} 的已查看标记"
     }
   },
+  "agentPicker": {
+    "search": "搜索智能体和配置…",
+    "configure": "配置 {{agent}}",
+    "arguments": "参数",
+    "argumentsHint": "仅适用于 CLI 启动。",
+    "launchChat": "启动聊天",
+    "launchTerminal": "启动终端"
+  },
   "wslMove": {
     "entry": {
       "hostRow": "从此发行版移动项目…",

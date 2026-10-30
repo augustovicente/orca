@@ -22714,6 +22714,14 @@
       "unmarkFile": "Ne plus marquer {{path}} comme consulté"
     }
   },
+  "agentPicker": {
+    "search": "Rechercher des agents et des configurations…",
+    "configure": "Configurer {{agent}}",
+    "arguments": "Arguments",
+    "argumentsHint": "S’applique uniquement aux lancements CLI.",
+    "launchChat": "Lancer le chat",
+    "launchTerminal": "Lancer le terminal"
+  },
   "wslMove": {
     "entry": {
       "hostRow": "Déplacer des projets depuis cette distro…",

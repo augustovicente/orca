@@ -22026,6 +22026,14 @@
       "unmarkFile": "{{path}} の閲覧済みのマークを外す"
     }
   },
+  "agentPicker": {
+    "search": "Agent と設定を検索…",
+    "configure": "{{agent}} を設定",
+    "arguments": "引数",
+    "argumentsHint": "CLI での起動にのみ適用されます。",
+    "launchChat": "チャットを起動",
+    "launchTerminal": "ターミナルを起動"
+  },
   "wslMove": {
     "entry": {
       "hostRow": "このディストリビューションからプロジェクトを移動…",

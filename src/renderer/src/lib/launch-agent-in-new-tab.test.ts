@@ -1,31 +1,26 @@
 import { EVERY_AGENT_CHAT } from '../../../shared/native-chat/every-agent-chat.test-fixture'
 import { describe, expect, it, vi } from 'vitest'
+import {
+  mockCreateTab,
+  queuedStartups,
+  mockSetActiveTabType,
+  mockSetTabViewMode,
+  mockSetAgentStatus,
+  mockPasteDraftWhenAgentReady,
+  mockSeedNativeChatLaunchPrompt,
+  mockSeedNativeChatLaunchDraft,
+  mockTrack,
+  mockToastMessage,
+  LEAF_ID,
+  store,
+  mockToastError,
+  mockCreateWebRuntimeSessionTerminal,
+  mockCreateWebRuntimeAgentSessionTerminalWithLaunchDraft,
+  mockIsWebRuntimeSessionActive,
+  COMMAND_CODE_CLICK
+} from './launch-agent-in-new-tab-test-fixture'
 import { toAppSshPtyId } from '../../../shared/ssh-pty-id'
 import { FLOATING_TERMINAL_WORKTREE_ID } from '../../../shared/constants'
-import {
-  LEAF_ID,
-  mockCreateTab,
-  mockCreateWebRuntimeAgentSessionTerminalWithLaunchDraft,
-  mockCreateWebRuntimeSessionTerminal,
-  mockIsWebRuntimeSessionActive,
-  mockPasteDraftWhenAgentReady,
-  mockSeedNativeChatLaunchDraft,
-  mockSeedNativeChatLaunchPrompt,
-  mockSetActiveTabType,
-  mockSetAgentStatus,
-  mockSetTabViewMode,
-  mockToastError,
-  mockToastMessage,
-  mockTrack,
-  queuedStartups,
-  store
-} from './launch-agent-in-new-tab.test-fixture'
-
-const COMMAND_CODE_CLICK = {
-  requestId: 'command-code-click',
-  agent: 'command-code',
-  worktreeId: 'wt-1'
-} as const
 
 describe('launchAgentInNewTab', () => {
   it('stamps the launched agent on the new tab for immediate provider icon bootstrap', async () => {
@@ -103,12 +98,13 @@ describe('launchAgentInNewTab', () => {
         command: expect.not.stringContaining('large generated prompt')
       })
     )
-    await Promise.resolve()
-    expect(mockSeedNativeChatLaunchPrompt).toHaveBeenCalledWith({
-      tabId: 'tab-1',
-      agent: 'codex',
-      text: 'large generated prompt',
-      createdAt: expect.any(Number)
+    await vi.waitFor(() => {
+      expect(mockSeedNativeChatLaunchPrompt).toHaveBeenCalledWith({
+        tabId: 'tab-1',
+        agent: 'codex',
+        text: 'large generated prompt',
+        createdAt: expect.any(Number)
+      })
     })
     expect(mockSetTabViewMode).not.toHaveBeenCalled()
   })
@@ -139,12 +135,13 @@ describe('launchAgentInNewTab', () => {
       agentLaunchPane: { leafId: 'tab-1' },
       pendingStartup: expect.anything()
     })
-    await Promise.resolve()
-    expect(mockSeedNativeChatLaunchPrompt).toHaveBeenCalledWith({
-      tabId: 'tab-1',
-      agent: 'grok',
-      text: 'large generated prompt',
-      createdAt: expect.any(Number)
+    await vi.waitFor(() => {
+      expect(mockSeedNativeChatLaunchPrompt).toHaveBeenCalledWith({
+        tabId: 'tab-1',
+        agent: 'grok',
+        text: 'large generated prompt',
+        createdAt: expect.any(Number)
+      })
     })
   })
 

@@ -22026,6 +22026,14 @@
       "unmarkFile": "{{path}}을(를) 본 것으로 표시 해제"
     }
   },
+  "agentPicker": {
+    "search": "에이전트 및 설정 검색…",
+    "configure": "{{agent}} 설정",
+    "arguments": "인수",
+    "argumentsHint": "CLI 실행에만 적용됩니다.",
+    "launchChat": "채팅 시작",
+    "launchTerminal": "터미널 시작"
+  },
   "wslMove": {
     "entry": {
       "hostRow": "이 배포판에서 프로젝트 이동…",
