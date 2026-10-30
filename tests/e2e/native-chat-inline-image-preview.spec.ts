@@ -160,7 +160,27 @@ test('opens a native-chat Markdown table image in the image dialog without a fil
     expect(finalPane.tabId).toBe(boundPane.tabId)
     expect(finalPane.activeLeafId).toBe(boundPane.activeLeafId)
     expect(finalPane.ptyIdsByLeafId).toEqual(boundPane.ptyIdsByLeafId)
-    await expect(chat).toBeVisible()
+    expect(
+      await orcaPage.evaluate(
+        ({ worktreeId, tabId, leafId }) => {
+          const state = window.__store?.getState()
+          const tab = state?.unifiedTabsByWorktree[worktreeId]?.find(
+            (candidate) => candidate.contentType === 'terminal' && candidate.entityId === tabId
+          )
+          return Boolean(
+            leafId &&
+            tab?.viewMode === 'chat' &&
+            state?.terminalLayoutsByTabId[tabId]?.chatLeafId === leafId
+          )
+        },
+        {
+          worktreeId: descriptor.worktreeId,
+          tabId: boundPane.tabId,
+          leafId: boundPane.activeLeafId
+        }
+      )
+    ).toBe(true)
+    await expect(chat).toBeAttached()
   } finally {
     rmSync(imagePath, { force: true })
     rmSync(scratchDir, { recursive: true, force: true })
