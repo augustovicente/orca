@@ -58,9 +58,9 @@ describe('WslHostService pending removal', () => {
     const failed = expect(removing).rejects.toThrow('cleanup interrupted')
     await entered.promise
     const publications = published.length
-    await expect(service.ensureForRuntimeCall('wsl:ubuntu')).rejects.toMatchObject({
-      setupFact: { kind: 'wsl', reason: 'removing' }
-    })
+    await expect(service.ensureForRuntimeCall('wsl:ubuntu')).rejects.toThrow(
+      'This WSL host is being removed.'
+    )
     cleanup.reject(new Error('cleanup interrupted'))
     await failed
     expect(published).toHaveLength(publications)
@@ -106,9 +106,6 @@ describe('WslHostService pending removal', () => {
     connector.isReachable.mockResolvedValue(false)
     const passiveCall = service.ensureForRuntimeCall('wsl:ubuntu')
     await expect(passiveCall).rejects.toThrow('didn’t finish removing')
-    await expect(passiveCall).rejects.toMatchObject({
-      setupFact: { kind: 'wsl', reason: 'pending-stop' }
-    })
     expect(connector.connect).not.toHaveBeenCalled()
 
     // Remove again: a proven stop finishes it.

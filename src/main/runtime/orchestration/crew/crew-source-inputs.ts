@@ -121,6 +121,23 @@ export function createCrewSourceInputs(db: OrchestrationDb | null) {
         }))
     return { local: rows('local'), remote: rows('remote') }
   }
+  const activeRemoteAttachmentForPane = (pane: string) => {
+    const candidates = parentInputs([], [pane]).claims
+    let selected: CrewParentClaim | undefined
+    for (const row of candidates) {
+      if (
+        row.remoteRoute?.active &&
+        row.pane &&
+        (parsePaneKey(pane)
+          ? row.pane.indexOf(':') > 0 && paneKeyMatchSuffix(row.pane) === paneKeyMatchSuffix(pane)
+          : row.pane === pane) &&
+        (!selected || row.remoteRoute.ordinal > selected.remoteRoute!.ordinal)
+      ) {
+        selected = row
+      }
+    }
+    return selected
+  }
   const runInputs = (addresses: string[]) => {
     const missing = addresses.filter(
       (address) => address.startsWith('run:') && !knownRuns.has(address)
@@ -135,5 +152,5 @@ export function createCrewSourceInputs(db: OrchestrationDb | null) {
     }
     return addresses.flatMap((address) => (runs.has(address) ? [runs.get(address)!] : []))
   }
-  return { parentInputs, provenance, runInputs }
+  return { parentInputs, provenance, runInputs, activeRemoteAttachmentForPane }
 }

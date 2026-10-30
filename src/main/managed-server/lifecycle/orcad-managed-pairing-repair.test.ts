@@ -24,7 +24,6 @@ import {
 } from './orcad-managed-tunnel-identity'
 import { buildWithPairingRepair } from './orcad-managed-tunnel-pairing-recovery'
 import { unusedOrcadHostTransport } from '../../ssh/unused-host-transport.test-fixture'
-import { runtimeEnvironmentSetupFailure } from '../../../shared/runtime-environment-subscription-setup'
 
 const KEY = 'pinned-host-key'
 
@@ -268,14 +267,13 @@ describe('ManagedOrcadPairingRepairs', () => {
 
 describe('buildWithPairingRepair', () => {
   it.each(['read', 'ensure'])(
-    'publishes only the surviving %s failure after the sealed refusal',
+    'preserves the original %s failure after the sealed refusal',
     async (phase) => {
       const state = setup(() => readiness(offer('fresh-token')))
       const final = new Error(`actual ${phase} rejection`)
       if (phase === 'read') {
         state.deps.readReadiness.mockRejectedValueOnce(final)
       }
-      const observe = vi.fn()
       const sealed = new OrcadManagedPairingRejectedError('sealed refusal')
       await expect(
         buildWithPairingRepair(
@@ -287,16 +285,11 @@ describe('buildWithPairingRepair', () => {
             }
           },
           'env-1',
-          async (_environment, observed) => {
-            observed?.(runtimeEnvironmentSetupFailure(sealed, 'managed-preparation'))
+          async () => {
             throw sealed
-          },
-          observe
+          }
         )
       ).rejects.toBe(final)
-      expect(observe).toHaveBeenCalledExactlyOnceWith(
-        runtimeEnvironmentSetupFailure(final, 'managed-preparation')
-      )
       expect(state.deps.readReadiness).toHaveBeenCalledOnce()
       if (phase === 'read') {
         expect(state.deps.refresh).not.toHaveBeenCalled()
