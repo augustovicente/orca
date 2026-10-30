@@ -122,7 +122,8 @@ export class JournalWriteProjection {
     const live = this.deps.state()
     const loaded = restoreJournal(this.deps.database.db, live.sessionId)
     if (
-      loaded?.projectionThrough !== this.through ||
+      !loaded ||
+      loaded.projectionThrough !== this.through ||
       loaded.damage ||
       loaded.newer ||
       !isDeepStrictEqual(encodeJournalState(loaded.state), encodeJournalState(live))

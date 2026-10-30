@@ -69,10 +69,13 @@ class JournalDraft {
       let copy: object | undefined
       const current = (): object => copy ?? value
       const writable = (): object => {
-        copy ??= Array.isArray(value)
-          ? [...value]
-          : Object.assign(Object.create(Object.getPrototypeOf(value)), value)
-        return copy
+        const next =
+          copy ??
+          (Array.isArray(value)
+            ? [...value]
+            : Object.assign(Object.create(Object.getPrototypeOf(value)), value))
+        copy = next
+        return next
       }
       const assignedKeys = new Set<PropertyKey>()
       const target = Array.isArray(value) ? [] : Object.create(Object.getPrototypeOf(value))
