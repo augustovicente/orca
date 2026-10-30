@@ -139,7 +139,7 @@ it.each([false, true])(
         worktree: served,
         localGitOptions: { wslDistro: 'Ubuntu' }
       }),
-      getRuntimeSettings: () => ({}) as GlobalSettings,
+      getRuntimeSettings: () => ({}),
       persistMaterializedPushTarget: persist
     })
     await expect(commands.fetchRuntimeGit('id:wt-1', pushTarget)).resolves.toEqual({ ok: true })

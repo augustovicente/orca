@@ -115,8 +115,8 @@ it.each(['ipc', 'rpc'])(
     } else {
       // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: registration reads the fixture-owned repo/settings subset.
       registerWorktreeRootsForRepo(store as Store, repos[0], [a, b])
-      // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the Git IPC handlers use the supplied repo/meta/settings subset only.
       const context = createFilesystemHandlerContext(
+        // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the Git IPC handlers use the supplied repo/meta/settings subset only.
         store as Store,
         undefined,
         createSenderScopedRequestCancellations(),
