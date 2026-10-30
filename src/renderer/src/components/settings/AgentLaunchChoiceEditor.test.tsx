@@ -84,11 +84,30 @@ it('removes a choice with dirty conflicting text in one mutation and shares two-
   input.focus()
   input.setSelectionRange(0, 0)
   fireEvent.keyDown(input, { key: 'Backspace' })
+  expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Remove --effort high' }))
+  expect(save).toHaveBeenCalledTimes(1)
+  fireEvent.keyDown(document.activeElement ?? input, { key: 'Backspace' })
+  await waitFor(() => expect(save).toHaveBeenCalledTimes(2))
+  expect(save).toHaveBeenLastCalledWith({
+    type: 'launch-choices',
+    agent: 'claude',
+    patch: { options: { effort: null } },
+    userArgs: '--permission-mode default --verbose'
+  })
+  await waitFor(() =>
+    expect(screen.queryByRole('button', { name: 'Remove --effort high' })).toBeNull()
+  )
+  expect(input.value).toBe('--verbose')
+  fireEvent.change(input, { target: { value: '--permission-mode default --verbose' } })
+  input.focus()
+  input.setSelectionRange(0, 0)
+  fireEvent.keyDown(input, { key: 'Backspace' })
   expect(document.activeElement).toBe(
     screen.getByRole('button', { name: /Remove --permission-mode default/ })
   )
+  expect(save).toHaveBeenCalledTimes(2)
   fireEvent.keyDown(document.activeElement ?? input, { key: 'Backspace' })
-  await waitFor(() => expect(save).toHaveBeenCalledTimes(2))
+  await waitFor(() => expect(save).toHaveBeenCalledTimes(3))
   expect(save).toHaveBeenLastCalledWith({
     type: 'launch-choices',
     agent: 'claude',

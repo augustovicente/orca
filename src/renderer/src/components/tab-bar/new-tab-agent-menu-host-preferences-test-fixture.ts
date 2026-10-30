@@ -1,5 +1,5 @@
 import { cleanup } from '@testing-library/react'
-import { afterEach, beforeEach, expect, vi } from 'vitest'
+import { afterEach, beforeEach, expect, vi, type Mock } from 'vitest'
 import { useAppStore } from '@/store'
 import { setLocalRuntimeCapabilitiesForTests } from '@/runtime/local-runtime-capabilities'
 import { replaceRuntimeEnvironmentRevisions } from '@/runtime/runtime-environment-revision'
@@ -20,7 +20,10 @@ import {
 } from '@/store/slices/worktrees-slice-test-fixtures'
 import { clearHostAgentMenuSettingsForTests } from '../settings/use-host-agent-launch-preferences'
 
-const rpc = vi.hoisted(() => ({ call: vi.fn(), supports: vi.fn() }))
+const rpc: { call: Mock; supports: Mock } = vi.hoisted(() => ({
+  call: vi.fn(),
+  supports: vi.fn()
+}))
 vi.mock('@/runtime/runtime-rpc-client', () => ({
   callRuntimeRpc: rpc.call,
   runtimeEnvironmentSupportsCapability: rpc.supports
