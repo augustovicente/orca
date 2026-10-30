@@ -51,7 +51,7 @@ import { chatApprovalFromJournal } from '../../../../shared/native-chat-interact
 import { useAppStore } from '../../store'
 import { structuredAgentLabel } from '@/lib/structured-agent-session-launch-label'
 import { useNativeChatStructuredComposerTransport } from './use-native-chat-structured-composer-transport'
-import { NativeChatStructuredGoalStrip } from './NativeChatStructuredGoalStrip'
+import { NativeChatStructuredComposerTabStrips } from './NativeChatStructuredComposerTabStrips'
 import { nativeChatPaneHeader } from './NativeChatPaneHeader'
 import { structuredAgentSessionReadFailureNotice } from './structured-agent-session-read-failure-notice'
 import { useStructuredAgentSessionDeliveryNotices } from './use-structured-agent-session-delivery-notices'
@@ -351,8 +351,8 @@ export function NativeChatStructuredSession(
             stopBackgroundTask={controller.stopBackgroundTask}
           />
           {prompt ? null : (
-            <NativeChatStructuredGoalStrip
-              sessionId={props.sessionId}
+            <NativeChatStructuredComposerTabStrips
+              tabId={props.tabId}
               threadGoal={controller.threadGoal}
               transport={transport}
               isWorking={controller.isWorking}

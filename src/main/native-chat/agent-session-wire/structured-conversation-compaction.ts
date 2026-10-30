@@ -9,7 +9,6 @@ import { isQueuedAgentJournalSubmission } from '../../../shared/agent-session-qu
 import type { AgentSessionMutationResult } from '../../../shared/agent-session-wire'
 import type { StructuredAgentSessionHost } from './structured-agent-session-host'
 import {
-  noteAcceptedUserSend,
   runStructuredAgentSessionMutation,
   type StructuredAgentSessionMutationContext
 } from './structured-agent-session-mutation-context'
@@ -142,9 +141,7 @@ function acceptStructuredConversationCommand(
     priorRecord
   })
   return runAfterRewindStart(context, caller.callerKey, params.envelope, plan, (selection) =>
-    acceptUnderSerialize(context, caller, params, plan, arrival, selection).then((result) =>
-      noteAcceptedUserSend(context, params, result)
-    )
+    acceptUnderSerialize(context, caller, params, plan, arrival, selection)
   )
 }
 

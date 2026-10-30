@@ -16,9 +16,9 @@ export const ORCHESTRATION_FEDERATION_RELEASE_ARCHIVE_RUNTIME_CAPABILITY =
 /** Settled workers release after a grace period; retain and reuse forward to the execution host. */
 export const ORCHESTRATION_WORKER_AUTO_RELEASE_RUNTIME_CAPABILITY =
   'orchestration.worker-auto-release.v1' as const
-/** A client that reports when the user opens or watches a finished worker's chat; any client without it keeps chat workers on manual release. */
-export const ORCHESTRATION_WORKER_CHAT_TOUCH_CLIENT_CAPABILITY =
-  'orchestration.worker-chat-touch.v1' as const
+/** Finished workers close when a host countdown runs out; clients show it and offer Keep open (workerAutoClose, workerKeepOpen). */
+export const ORCHESTRATION_WORKER_KEEP_OPEN_RUNTIME_CAPABILITY =
+  'orchestration.worker-keep-open.v1' as const
 /** worker-start creates and binds a Run when its coordinator has none. */
 export const ORCHESTRATION_WORKER_START_IMPLICIT_RUN_RUNTIME_CAPABILITY =
   'orchestration.worker-start-implicit-run.v1' as const
@@ -46,6 +46,7 @@ export const ORCHESTRATION_RUNTIME_CAPABILITIES = [
   ORCHESTRATION_FEDERATION_FLEET_SNAPSHOT_RUNTIME_CAPABILITY,
   ORCHESTRATION_FEDERATION_RELEASE_ARCHIVE_RUNTIME_CAPABILITY,
   ORCHESTRATION_WORKER_AUTO_RELEASE_RUNTIME_CAPABILITY,
+  ORCHESTRATION_WORKER_KEEP_OPEN_RUNTIME_CAPABILITY,
   ORCHESTRATION_WORKER_START_IMPLICIT_RUN_RUNTIME_CAPABILITY,
   ORCHESTRATION_RETAINED_RUN_BINDINGS_RUNTIME_CAPABILITY,
   ORCHESTRATION_WORKER_TURN_STOP_REPORTS_RUNTIME_CAPABILITY,

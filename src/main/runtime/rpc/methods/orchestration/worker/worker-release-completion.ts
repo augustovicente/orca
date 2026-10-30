@@ -18,7 +18,7 @@ import { stopStructuredWorkerForRelease } from './structured-worker-release-stop
 import { isStructuredWorkerHandle } from '../../../../../../shared/structured-worker-handle'
 import { captureWorkerReleaseArchive } from './worker-release-archive-capture'
 import { WorkerTerminalReleaseSingleFlight } from './worker-terminal-release-single-flight'
-import { yieldAutoReleaseToUserInput } from '../../../../orchestration/worker-terminal-auto-release-input-yield'
+import { yieldAutoReleaseToWorkingAgent } from '../../../../orchestration/worker-terminal-auto-release-working-yield'
 
 export type WorkerReleaseReceipt = {
   dispatchId: string
@@ -193,7 +193,7 @@ async function completeWorkerTerminalReleaseOnce(
     ? committed
     : !workerTerminalLeaseIsCurrent(runtime, db, dispatchId, committed, terminalHandle)
       ? db.revertWorkerTerminalReleaseToRetained(resource.id, 'identity_unproven')
-      : yieldAutoReleaseToUserInput(runtime, committed, terminalHandle)
+      : yieldAutoReleaseToWorkingAgent(runtime, committed)
   if (!isStillReleasing(releasing)) {
     return {
       dispatchId,

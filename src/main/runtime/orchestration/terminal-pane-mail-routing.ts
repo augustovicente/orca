@@ -10,10 +10,7 @@ import {
   GENERIC_PROCESS_NAME_AGENTS,
   recognizeAgentProcess
 } from '../../../shared/agent-process-recognition'
-import {
-  resolveStructuredWorkerAuthority,
-  resolveStructuredWorkerIdentityForSession
-} from '../structured-worker-authority'
+import { resolveStructuredWorkerAuthority } from '../structured-worker-authority'
 import type { StructuredPointerTarget } from './structured-mailbox-pointer-delivery'
 import {
   chatDispatchMailTarget,
@@ -160,14 +157,6 @@ export abstract class OrcaRuntimeWithGetPtyRecordForPaneKey extends OrcaRuntimeW
         this.getLiveLeafForHandle(handle)
       }
     })
-  }
-
-  /** Pane keys authorize mailbox access; resolve locally and never expose them through renderer-embedded session ids. */
-  getStructuredWorkerPaneKeyForSession(sessionId: string): string | null {
-    const identity = resolveStructuredWorkerIdentityForSession(sessionId, this._orchestrationDb)
-    return identity && resolveStructuredWorkerAuthority(identity.handle, this._orchestrationDb)
-      ? identity.paneKey
-      : null
   }
 
   deliverPendingMessagesForHandle(handle: string, reservedTypes?: ReadonlySet<string>): void {

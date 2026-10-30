@@ -11,7 +11,7 @@ export function getWorkerAutoReleaseTitle(): string {
 export function getWorkerAutoReleaseDescription(): string {
   return translate(
     'auto.components.settings.OrchestrationPane.workerAutoReleaseDescription',
-    "Closes a worker's terminal or chat about 2 minutes after it reports done. Workers you've typed into or opened stay open."
+    "Closes a worker's terminal or chat 2 minutes after it finishes, unless you choose Keep open. If it starts working again, the 2 minutes start over when it finishes."
   )
 }
 

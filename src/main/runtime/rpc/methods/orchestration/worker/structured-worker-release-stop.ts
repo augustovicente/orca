@@ -22,12 +22,14 @@ export async function stopStructuredWorkerForRelease(args: {
     structured,
     dispatchId,
     runtime,
-    resource.auto_release_at ? () => db.admitWorkerChatReleaseClose(resource.id) : undefined
+    resource.auto_release_at
+      ? () => db.admitWorkerChatReleaseClose(resource.id, (row) => runtime.isWorkerAgentInTurn(row))
+      : undefined
   )
   if (!stop.stopped) {
     const current = db.getWorkerTerminalResource(resource.id)
     if (current && current.release_state !== 'releasing') {
-      // Refused in the session lane: a touch kept the chat, or it fell back to manual release.
+      // Refused in the session lane: Keep open, a new turn, or a fall back to manual release.
       return {
         dispatchId,
         state: 'retained',

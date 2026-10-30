@@ -1,4 +1,3 @@
-import { reportWorkerTerminalUserInput } from '../terminal/worker-terminal-takeover-report'
 import { useCallback } from 'react'
 import { Keyboard } from 'react-native'
 import { translate } from '../i18n/mobile-i18n'
@@ -136,9 +135,6 @@ export function useMobileSessionTerminalSendActions(scope: MobileSessionTerminal
         TERMINAL_INPUT_SEND_OPTIONS
       )
       const accepted = terminalInputSend.interpret(response) === true
-      if (accepted) {
-        reportWorkerTerminalUserInput(client, activeHandle)
-      }
       if (!accepted) {
         restoreRejectedDraft()
       }
@@ -234,11 +230,7 @@ export function useMobileSessionTerminalSendActions(scope: MobileSessionTerminal
         TERMINAL_INPUT_SEND_OPTIONS
       ).then(
         (response) => {
-          const accepted = terminalInputSend.interpret(response) === true
-          if (accepted) {
-            reportWorkerTerminalUserInput(rpc, handle)
-          }
-          return accepted
+          return terminalInputSend.interpret(response) === true
         },
         () => false
       )

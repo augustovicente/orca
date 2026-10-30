@@ -28,8 +28,9 @@ import type { LegacyWorkerTerminalRecoveryPlan } from '../../orchestration/orche
 import type { LegacyWorkerTerminalRecoveryResult } from '../../runtime-legacy-worker-terminal-recovery-types'
 import { makePaneKey } from '../../../../shared/stable-pane-id'
 import { worktreeIdsEqual } from '../../../../shared/worktree/id'
-import type { RuntimeCapability } from '../../../../shared/protocol-version'
-import { ORCHESTRATION_WORKER_CHAT_TOUCH_CLIENT_CAPABILITY } from '../../../../shared/orchestration-runtime-capabilities'
+
+// Keyed by runtime, not a field: the database can open while the runtime is still constructing.
+const runtimesWatchingAutoReleaseSetting = new WeakSet<object>()
 
 export abstract class OrcaRuntimeWithAutomationOperations extends OrcaRuntimeWithPtyForegroundProcessReads {
   abstract notifyAutomationsChanged(payload?: AutomationsChangedPayload): void
@@ -186,26 +187,23 @@ export abstract class OrcaRuntimeWithAutomationOperations extends OrcaRuntimeWit
     this.bindWorkerTerminalAutoRelease(db)
   }
 
-  private connectedClientCapabilities: () => readonly (readonly RuntimeCapability[])[] = () => []
-
-  /** Paired sockets' capabilities; the same-build desktop window is never among them. */
-  bindConnectedClientCapabilities(read: () => readonly (readonly RuntimeCapability[])[]): void {
-    this.connectedClientCapabilities = read
-  }
-
   private bindWorkerTerminalAutoRelease(db: OrchestrationDb): void {
     db.workerTerminalAutoReleaseListener = () => {
       if (this._orchestrationDb === db) {
         getWorkerTerminalAutoReleaseScheduler(this).rearm()
       }
     }
-    // A client that cannot report touches might be showing the chat, so its closing must wait for a manual release.
-    db.chatWorkerAutoReleaseArmable = () =>
-      this.connectedClientCapabilities().every((capabilities) =>
-        capabilities.includes(ORCHESTRATION_WORKER_CHAT_TOUCH_CLIENT_CAPABILITY)
-      )
     db.workerAutoReleaseEnabled = () =>
       this.store?.getSettings?.()?.orchestrationWorkerAutoReleaseEnabled !== false
+    if (this.store?.onSettingsChanged && !runtimesWatchingAutoReleaseSetting.has(this)) {
+      runtimesWatchingAutoReleaseSetting.add(this)
+      // Turning the setting off drops the timer; turning it on finds the deadlines still due.
+      this.store.onSettingsChanged((updates) => {
+        if ('orchestrationWorkerAutoReleaseEnabled' in updates && this._orchestrationDb) {
+          getWorkerTerminalAutoReleaseScheduler(this).rearm()
+        }
+      })
+    }
   }
 
   private bindMailHandBack(db: OrchestrationDb): void {

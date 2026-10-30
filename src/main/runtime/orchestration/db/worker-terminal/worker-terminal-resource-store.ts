@@ -166,8 +166,6 @@ export function recordWorkerTerminalRecoveryAttempt(
   return this.getWorkerTerminalResource(resourceId)
 }
 
-const USER_SEEN_SQL = "release_state = 'retained' AND retained_reason = 'user_seen'"
-
 // Transfer an exact settled resource and fence the prior owner; caller owns the transaction.
 export function transferWorkerTerminalResourceStatement(
   this: OrchestrationDb,
@@ -191,13 +189,12 @@ export function transferWorkerTerminalResourceStatement(
   }
   const priorOwners = JSON.parse(resource.prior_owner_dispatch_ids) as string[]
   priorOwners.push(resource.owner_dispatch_id)
-  // Seeing belongs to the terminal and outlives its Dispatch; a coordinator's retain does not.
+  // A coordinator's retain belongs to its Dispatch; a kept terminal is never transferred.
   this.db
     .prepare(
       `UPDATE worker_terminal_resources
        SET owner_dispatch_id = ?, prior_owner_dispatch_ids = ?,
-           release_state = CASE WHEN ${USER_SEEN_SQL} THEN 'retained' ELSE 'not_requested' END,
-           retained_reason = CASE WHEN ${USER_SEEN_SQL} THEN retained_reason END,
+           release_state = 'not_requested', retained_reason = NULL,
            release_requested_at = NULL, release_completed_at = NULL,
            release_error = NULL, auto_release_at = NULL, auto_release_dispatch_id = NULL,
            terminal_handle = ?, pane_key = ?, process_incarnation = ?,

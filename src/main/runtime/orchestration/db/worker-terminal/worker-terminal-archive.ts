@@ -1,9 +1,10 @@
-import type {
-  WorkerTerminalArchiveKind,
-  WorkerTerminalResourceRow,
-  WorkerTerminalArchiveRow,
-  WorkerTerminalArchiveStatus,
-  WorkerTerminalRetainedReason
+import {
+  USER_KEPT_WORKER_TERMINAL_SQL,
+  type WorkerTerminalArchiveKind,
+  type WorkerTerminalResourceRow,
+  type WorkerTerminalArchiveRow,
+  type WorkerTerminalArchiveStatus,
+  type WorkerTerminalRetainedReason
 } from '../../worker-terminal-ownership'
 import { OrchestrationError } from '../../orchestration-error'
 import type { OrchestrationDb } from '../orchestration-db'
@@ -179,13 +180,12 @@ export function retainTerminalResourceInTransaction(
   resourceId: string,
   dispatchId: string,
   retainableSql = "release_state IN ('not_requested', 'retained', 'requested')",
-  reason: Extract<WorkerTerminalRetainedReason, 'user_requested' | 'user_seen'> = 'user_requested'
+  reason: Extract<WorkerTerminalRetainedReason, 'user_requested' | 'user_kept'> = 'user_requested'
 ): boolean {
   const { changes } = database.db
     .prepare(
       `UPDATE worker_terminal_resources
-       SET retained_reason = CASE WHEN release_state = 'retained' AND retained_reason = 'user_seen'
-             THEN retained_reason ELSE ? END,
+       SET retained_reason = CASE WHEN ${USER_KEPT_WORKER_TERMINAL_SQL} THEN retained_reason ELSE ? END,
            release_state = 'retained', auto_release_at = NULL, updated_at = datetime('now')
        WHERE id = ? AND ${retainableSql}`
     )

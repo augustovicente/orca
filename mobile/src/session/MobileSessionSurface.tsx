@@ -5,6 +5,7 @@ import type { MobileSessionController } from './use-mobile-session-controller'
 import { MobileSessionContentRow } from './MobileSessionContentRow'
 import { MobileSessionHeader } from './MobileSessionHeader'
 import { MobileSessionSheets } from './MobileSessionSheets'
+import { MobileWorkerAutoCloseStrip } from './MobileWorkerAutoCloseStrip'
 import { useSessionSideRail } from './session-side-rail'
 
 export function MobileSessionSurface({ controller }: { controller: MobileSessionController }) {
@@ -15,7 +16,7 @@ export function MobileSessionSurface({ controller }: { controller: MobileSession
     <View ref={setMobileSessionRootRef} style={styles.container}>
       <View style={styles.kavInner}>
         <MobileSessionHeader controller={controller} backInRail={rail.backInRail} />
-        {}
+        <MobileWorkerAutoCloseStrip controller={controller} />
         <MobileSessionContentRow controller={controller} keysInRail={rail.keysInRail} />
       </View>
       <MobileSessionSheets controller={controller} />

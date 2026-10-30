@@ -8,7 +8,6 @@ import type {
   AgentSessionMutationResult
 } from '../../../shared/agent-session-wire'
 import { admitAndRunAgentSessionMutation } from './structured-agent-session-mutation-admission'
-import { noteAcceptedUserSend } from './structured-agent-session-mutation-context'
 import type { StructuredAgentSessionMutationContext } from './structured-agent-session-host-mutations'
 import { sendPreparation } from './structured-agent-session-send-preparation'
 import {
@@ -56,10 +55,7 @@ export function runStructuredConversationCommand(
     caller.callerKey,
     params.envelope,
     { method: 'agentSession.conversationCommand', fields: { command: params.command } },
-    (selection) =>
-      clearUnderSerialize(context, caller, params, selection).then((result) =>
-        noteAcceptedUserSend(context, params, result)
-      )
+    (selection) => clearUnderSerialize(context, caller, params, selection)
   )
 }
 
