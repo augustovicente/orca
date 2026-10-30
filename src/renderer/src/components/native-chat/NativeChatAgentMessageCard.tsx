@@ -19,6 +19,7 @@ import {
 } from '../../../../shared/agent-session/agent-message-presentation'
 import { agentMessageTranscriptText } from '../../../../shared/agent-session/agent-message-display-text'
 import { NativeChatAgentMessageSenders } from './NativeChatAgentMessageSenders'
+import { editionSupports } from '../../../../shared/edition'
 import { useAgentMessageSenderView } from './native-chat-agent-message-sender-view'
 import { useNativeChatVisualOwner } from './native-chat-visual-owner'
 import { useNativeChatDisclosure } from './native-chat-disclosure-store'
@@ -89,11 +90,13 @@ export function NativeChatAgentMessageCard({
   }, [text])
   return (
     <div className="group flex w-full gap-3 rounded-xl border border-border bg-card p-3 text-sm text-card-foreground">
-      <AgentMessageAvatar
-        sender={agentMessagePrimarySender(from)}
-        worktreeId={worktreeId}
-        target={target}
-      />
+      {editionSupports('developerTools') ? (
+        <AgentMessageAvatar
+          sender={agentMessagePrimarySender(from)}
+          worktreeId={worktreeId}
+          target={target}
+        />
+      ) : null}
       <div className="min-w-0 flex-1">
         <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
           <span>{heading(from)}</span>

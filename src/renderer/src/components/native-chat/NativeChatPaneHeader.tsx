@@ -8,6 +8,7 @@ import type { NativeChatTabSession } from '../tab-bar/tab-session-history-switch
 import { useSystemPrefersDark } from '../terminal-pane/use-system-prefers-dark'
 import { useStructuredChatPaneActions } from './use-structured-chat-pane-actions'
 import { NativeChatResumeInCliButton } from './NativeChatResumeInCliButton'
+import { editionSupports } from '../../../../shared/edition'
 import type { NativeChatStructuredViewProps } from './native-chat-view-types'
 import type { NativeChatHandOff } from './use-native-chat-hand-off'
 
@@ -76,7 +77,9 @@ export function NativeChatPaneHeader({
             </TooltipContent>
           </Tooltip>
         ) : null}
-        {nativeChat.agent && agentForksConversations(nativeChat.agent) ? (
+        {editionSupports('developerTools') &&
+        nativeChat.agent &&
+        agentForksConversations(nativeChat.agent) ? (
           <NativeChatResumeInCliButton
             tabId={tabId}
             worktreeId={worktreeId}

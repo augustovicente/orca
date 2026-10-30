@@ -14,6 +14,7 @@ import { NativeChatComposerGoalChip } from './NativeChatComposerGoalChip'
 import { NativeChatContextUsageRing } from './NativeChatContextUsageRing'
 import type { NativeChatContextUsageSummary } from './native-chat-context-usage-summary'
 import type { NativeChatOptionPickerRequest } from './native-chat-composer-types'
+import { editionSupports } from '../../../../shared/edition'
 
 export type NativeChatComposerActionsProps = {
   editSession?: { cancel: () => void }
@@ -144,23 +145,29 @@ export const NativeChatComposerActions = memo(function NativeChatComposerActions
             {translate('components.native-chat.composer.attach', 'Attach file')}
           </TooltipContent>
         </Tooltip>
-        <NativeChatComposerPermissionPicker
-          surface={sessionOptionsSurface}
-          snapshot={sessionOptionsSnapshot}
-          {...(agent ? { agent } : {})}
-        />
+        {editionSupports('developerTools') ? (
+          <NativeChatComposerPermissionPicker
+            surface={sessionOptionsSurface}
+            snapshot={sessionOptionsSnapshot}
+            {...(agent ? { agent } : {})}
+          />
+        ) : null}
         {onExitGoalMode ? <NativeChatComposerGoalChip onExit={onExitGoalMode} /> : null}
       </div>
       <div className="ml-auto flex items-center gap-1.5">
         {/* Keep option pickers beside the session actions they affect. */}
-        <NativeChatSessionOptionPickers
-          surface={sessionOptionsSurface}
-          snapshot={sessionOptionsSnapshot}
-          isWorking={isWorking}
-          pickerRequest={sessionOptionsPickerRequest}
-          focusComposer={focusComposer}
-        />
-        {contextUsage ? <NativeChatContextUsageRing usage={contextUsage} /> : null}
+        {editionSupports('modelPicker') ? (
+          <NativeChatSessionOptionPickers
+            surface={sessionOptionsSurface}
+            snapshot={sessionOptionsSnapshot}
+            isWorking={isWorking}
+            pickerRequest={sessionOptionsPickerRequest}
+            focusComposer={focusComposer}
+          />
+        ) : null}
+        {contextUsage && editionSupports('developerTools') ? (
+          <NativeChatContextUsageRing usage={contextUsage} />
+        ) : null}
         <Tooltip>
           <TooltipTrigger asChild>
             <Button

@@ -6,6 +6,8 @@ import { isLazyChunkLoadError } from '@/lib/lazy-with-retry'
 import { reportReactErrorBoundaryCrash } from '@/lib/react-error-boundary-reporting'
 import type { ReactErrorBoundaryReportArgs } from '../../../../shared/crash-reporting'
 import { translate } from '@/i18n/i18n'
+import { editionSupports } from '../../../../shared/edition'
+import { openSupportEmail, supportMailtoHref } from '@/lib/support-link'
 
 type BoundaryFallbackArgs = {
   error: Error | null
@@ -109,6 +111,18 @@ export class RecoverableRenderErrorBoundary extends React.Component<Props, State
             'Retry'
           )}
         </Button>
+        {editionSupports('developerTools') ? null : (
+          <a
+            href={supportMailtoHref()}
+            onClick={(event) => {
+              event.preventDefault()
+              openSupportEmail()
+            }}
+            className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+          >
+            {translate('contadorca.chat.failure.supportAction', 'Falar com suporte')}
+          </a>
+        )}
       </div>
     )
   }

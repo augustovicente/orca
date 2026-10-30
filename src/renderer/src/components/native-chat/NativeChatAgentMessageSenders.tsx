@@ -15,6 +15,7 @@ import {
   unnamedSenderLabel,
   useAgentMessageSenderLabel
 } from './native-chat-agent-message-sender-label'
+import { editionSupports } from '../../../../shared/edition'
 
 /** Open resolvable local senders; use plain names when chat context is absent or the sender belongs to another host. */
 export function NativeChatAgentMessageSenders({
@@ -27,10 +28,14 @@ export function NativeChatAgentMessageSenders({
   chatWorktreeId: string | null
   target?: RuntimeClientTarget
   queued?: boolean
-}): React.JSX.Element {
-  const { shown, more } = agentMessageSendersShown(from)
+}): React.JSX.Element | null {
   const owner = useNativeChatVisualOwner()
   const worktreeId = owner?.worktreeId ?? chatWorktreeId
+  // A single-assistant edition has no agent handoffs to badge.
+  if (!editionSupports('developerTools')) {
+    return null
+  }
+  const { shown, more } = agentMessageSendersShown(from)
   return (
     <div
       className={`flex min-w-0 max-w-full flex-wrap items-center ${queued ? 'text-xs text-chat-foreground-faint' : '-ml-2.5 text-sm text-foreground'}`}

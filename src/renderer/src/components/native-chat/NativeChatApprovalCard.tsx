@@ -1,6 +1,6 @@
 import { SecuritySurface } from '@/components/ui/security-surface'
-import { useRef } from 'react'
-import { ShieldQuestion, X } from 'lucide-react'
+import { useRef, useState } from 'react'
+import { ChevronRight, ShieldQuestion, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { translate } from '@/i18n/i18n'
 import type { CommentMarkdownLinkClickHandler } from '@/components/sidebar/CommentMarkdown'
@@ -14,6 +14,12 @@ import { NativeChatCodeBlock } from './NativeChatCodeBlock'
 import type { ChatApproval } from '../../../../shared/native-chat-interactive-prompt'
 import { NativeChatPromptCollapseToggle } from './NativeChatPromptCollapse'
 import { useNativeChatPromptCardFocus } from './use-native-chat-prompt-card-focus'
+import { NativeChatExpandable } from './NativeChatExpandable'
+import {
+  nativeChatUsesPlainLanguage,
+  plainToolActivityDetailsLabel
+} from './native-chat-plain-language'
+import { plainChatApproval } from './native-chat-plain-approval'
 
 export type NativeChatApprovalCardProps = {
   approval: ChatApproval
@@ -46,6 +52,11 @@ export function NativeChatApprovalCard({
   const neededPath = approvalBlockedPathToShow(approval)
   // A newer Orca's subject: its detail is shown, and only the card's cancel answers.
   const newerSubject = isNewerApprovalSubject(approval.subject)
+  const planSubject = isPlanApprovalSubject(approval.subject)
+  const plainLanguage = nativeChatUsesPlainLanguage()
+  const plainView = plainLanguage ? plainChatApproval(approval) : null
+  const headline = plainView?.headline ?? approval.title
+  const options = plainView?.options ?? approval.options
   const hasContext = Boolean(
     approval.description ||
     approval.decisionReason ||
@@ -53,8 +64,19 @@ export function NativeChatApprovalCard({
     approval.subject ||
     approval.detail
   )
+  // The plain card keeps provider words, paths, and command syntax behind one disclosure.
+  const hasTechnicalContext = Boolean(
+    approval.description ||
+    approval.decisionReason ||
+    neededPath ||
+    (!planSubject && approval.detail)
+  )
+  const [technicalOpen, setTechnicalOpen] = useState(false)
   useNativeChatPromptCardFocus(cardRef, shouldFocus)
   const escape = onCancel ?? (isSubmitting ? undefined : onCollapse)
+  const showsContext = plainLanguage
+    ? planSubject || hasTechnicalContext || newerSubject
+    : hasContext
 
   return (
     <SecuritySurface>
@@ -65,7 +87,7 @@ export function NativeChatApprovalCard({
             data-native-chat-prompt-card-focus={shouldFocus || undefined}
             data-native-chat-approval-card="true"
             role="group"
-            aria-label={approval.title}
+            aria-label={headline}
             tabIndex={-1}
             onKeyDown={(event) => {
               if (event.key === 'Escape' && !event.nativeEvent.isComposing && escape) {
@@ -80,7 +102,7 @@ export function NativeChatApprovalCard({
               <ShieldQuestion className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
               <div className="min-w-0 flex-1">
                 <p className="line-clamp-2 break-words text-sm font-semibold text-foreground">
-                  {approval.title}
+                  {headline}
                 </p>
               </div>
               {onCancel ? (
@@ -100,74 +122,175 @@ export function NativeChatApprovalCard({
                 />
               ) : null}
             </div>
-            {hasContext ? (
-              <div
-                data-native-chat-approval-content="true"
-                tabIndex={0}
-                className="min-h-0 max-h-72 shrink space-y-2 overflow-auto text-sm text-muted-foreground scrollbar-sleek focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-              >
-                {approval.description ? (
-                  <p className="whitespace-pre-wrap break-words">{approval.description}</p>
-                ) : null}
-                {approval.decisionReason ? (
-                  <p className="whitespace-pre-wrap break-words">
-                    <span className="font-medium text-foreground">
-                      {translate('components.native-chat.approval.reason', 'Reason')}:{' '}
-                    </span>
-                    {approval.decisionReason}
-                  </p>
-                ) : null}
-                {neededPath ? (
-                  <p className="break-words">
-                    <span className="font-medium text-foreground">
-                      {translate('components.native-chat.approval.needsAccess', 'Needs access to')}
-                      :{' '}
-                    </span>
-                    <span className="font-mono">{neededPath}</span>
-                  </p>
-                ) : null}
-                {isPlanApprovalSubject(approval.subject) ? (
-                  <div data-native-chat-approval-plan="true">
-                    <NativeChatMarkdown
-                      content={approval.subject.text}
-                      variant="document"
-                      className="text-sm text-chat-foreground"
-                      renderCodeBlock={NativeChatCodeBlock}
-                      {...(onLinkClick ? { onLinkClick } : {})}
-                      allowFileUriLinks={allowFileUriLinks}
-                      linkifyFilePaths={onLinkClick !== undefined}
-                    />
-                    {approval.subject.filePath ? (
-                      <p className="mt-2 break-all">
-                        <span className="font-medium text-foreground">
-                          {translate('components.native-chat.approval.plan.file', 'Plan file')}
-                          :{' '}
-                        </span>
-                        <span className="font-mono">{approval.subject.filePath}</span>
-                      </p>
-                    ) : null}
-                  </div>
-                ) : approval.detail ? (
-                  <div
-                    data-native-chat-approval-detail="true"
-                    data-native-chat-code-content
-                    className="whitespace-pre-wrap break-words font-mono text-chat-code"
-                  >
-                    {approval.detail}
-                  </div>
-                ) : null}
-                {newerSubject ? (
-                  <p data-native-chat-approval-needs-newer-orca="true" className="break-words">
-                    {translate(
-                      'components.native-chat.approval.needsNewerOrca',
-                      'This request needs a newer version of Orca.'
-                    )}
-                  </p>
-                ) : null}
-              </div>
+            {showsContext ? (
+              plainLanguage ? (
+                <div
+                  data-native-chat-approval-content="true"
+                  data-native-chat-approval-plain="true"
+                  tabIndex={0}
+                  className="min-h-0 max-h-72 shrink space-y-2 overflow-auto text-sm text-muted-foreground scrollbar-sleek focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                >
+                  {isPlanApprovalSubject(approval.subject) ? (
+                    <div data-native-chat-approval-plan="true">
+                      <NativeChatMarkdown
+                        content={approval.subject.text}
+                        variant="document"
+                        className="text-sm text-chat-foreground"
+                        renderCodeBlock={NativeChatCodeBlock}
+                        {...(onLinkClick ? { onLinkClick } : {})}
+                        allowFileUriLinks={allowFileUriLinks}
+                        linkifyFilePaths={onLinkClick !== undefined}
+                      />
+                      {approval.subject.filePath ? (
+                        <p className="mt-2 break-all">
+                          <span className="font-medium text-foreground">
+                            {translate('components.native-chat.approval.plan.file', 'Plan file')}
+                            :{' '}
+                          </span>
+                          <span className="font-mono">{approval.subject.filePath}</span>
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  {hasTechnicalContext ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setTechnicalOpen(!technicalOpen)}
+                        aria-expanded={technicalOpen}
+                        className="flex min-h-6 w-fit items-center gap-1 rounded-md text-left font-sans text-xs text-chat-foreground-faint transition-colors hover:text-chat-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                      >
+                        <ChevronRight
+                          aria-hidden
+                          className={cn(
+                            'size-3 shrink-0 transition-transform motion-reduce:transition-none',
+                            technicalOpen && 'rotate-90'
+                          )}
+                        />
+                        {plainToolActivityDetailsLabel()}
+                      </button>
+                      <NativeChatExpandable open={technicalOpen}>
+                        <div className="space-y-2 pt-1">
+                          {approval.description ? (
+                            <p className="whitespace-pre-wrap break-words">
+                              {approval.description}
+                            </p>
+                          ) : null}
+                          {approval.decisionReason ? (
+                            <p className="whitespace-pre-wrap break-words">
+                              <span className="font-medium text-foreground">
+                                {translate('components.native-chat.approval.reason', 'Reason')}
+                                :{' '}
+                              </span>
+                              {approval.decisionReason}
+                            </p>
+                          ) : null}
+                          {neededPath ? (
+                            <p className="break-words">
+                              <span className="font-medium text-foreground">
+                                {translate(
+                                  'components.native-chat.approval.needsAccess',
+                                  'Needs access to'
+                                )}
+                                :{' '}
+                              </span>
+                              <span className="font-mono">{neededPath}</span>
+                            </p>
+                          ) : null}
+                          {!planSubject && approval.detail ? (
+                            <div
+                              data-native-chat-approval-detail="true"
+                              data-native-chat-code-content
+                              className="whitespace-pre-wrap break-words font-mono text-chat-code"
+                            >
+                              {approval.detail}
+                            </div>
+                          ) : null}
+                        </div>
+                      </NativeChatExpandable>
+                    </>
+                  ) : null}
+                  {newerSubject ? (
+                    <p data-native-chat-approval-needs-newer-orca="true" className="break-words">
+                      {translate(
+                        'components.native-chat.approval.needsNewerOrca',
+                        'This request needs a newer version of Orca.'
+                      )}
+                    </p>
+                  ) : null}
+                </div>
+              ) : (
+                <div
+                  data-native-chat-approval-content="true"
+                  tabIndex={0}
+                  className="min-h-0 max-h-72 shrink space-y-2 overflow-auto text-sm text-muted-foreground scrollbar-sleek focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                >
+                  {approval.description ? (
+                    <p className="whitespace-pre-wrap break-words">{approval.description}</p>
+                  ) : null}
+                  {approval.decisionReason ? (
+                    <p className="whitespace-pre-wrap break-words">
+                      <span className="font-medium text-foreground">
+                        {translate('components.native-chat.approval.reason', 'Reason')}:{' '}
+                      </span>
+                      {approval.decisionReason}
+                    </p>
+                  ) : null}
+                  {neededPath ? (
+                    <p className="break-words">
+                      <span className="font-medium text-foreground">
+                        {translate(
+                          'components.native-chat.approval.needsAccess',
+                          'Needs access to'
+                        )}
+                        :{' '}
+                      </span>
+                      <span className="font-mono">{neededPath}</span>
+                    </p>
+                  ) : null}
+                  {isPlanApprovalSubject(approval.subject) ? (
+                    <div data-native-chat-approval-plan="true">
+                      <NativeChatMarkdown
+                        content={approval.subject.text}
+                        variant="document"
+                        className="text-sm text-chat-foreground"
+                        renderCodeBlock={NativeChatCodeBlock}
+                        {...(onLinkClick ? { onLinkClick } : {})}
+                        allowFileUriLinks={allowFileUriLinks}
+                        linkifyFilePaths={onLinkClick !== undefined}
+                      />
+                      {approval.subject.filePath ? (
+                        <p className="mt-2 break-all">
+                          <span className="font-medium text-foreground">
+                            {translate('components.native-chat.approval.plan.file', 'Plan file')}
+                            :{' '}
+                          </span>
+                          <span className="font-mono">{approval.subject.filePath}</span>
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : approval.detail ? (
+                    <div
+                      data-native-chat-approval-detail="true"
+                      data-native-chat-code-content
+                      className="whitespace-pre-wrap break-words font-mono text-chat-code"
+                    >
+                      {approval.detail}
+                    </div>
+                  ) : null}
+                  {newerSubject ? (
+                    <p data-native-chat-approval-needs-newer-orca="true" className="break-words">
+                      {translate(
+                        'components.native-chat.approval.needsNewerOrca',
+                        'This request needs a newer version of Orca.'
+                      )}
+                    </p>
+                  ) : null}
+                </div>
+              )
             ) : null}
             <div data-native-chat-approval-actions="true" className="flex shrink-0 flex-wrap gap-2">
-              {approval.options.map((opt, i) => (
+              {options.map((opt, i) => (
                 <button
                   key={`${opt.label}-${i}`}
                   type="button"

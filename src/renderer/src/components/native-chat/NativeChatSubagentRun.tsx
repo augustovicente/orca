@@ -16,6 +16,7 @@ import type {
 import { formatNativeChatDuration } from './NativeChatWorkingStatus'
 import { nativeChatSubagentEntryRuns } from './native-chat-subagent-sections'
 import { sayNativeChatSubagentGroupTranslated as say } from './native-chat-subagent-group-words-text'
+import { editionSupports } from '../../../../shared/edition'
 
 const STATE_DOT_CLASS: Record<NativeChatSubagentState, string> = {
   working: 'bg-foreground/70',
@@ -100,7 +101,9 @@ export function NativeChatSubagentEntries({
             </span>
             <span className="ml-auto shrink-0 font-sans text-xs tabular-nums text-chat-foreground-faint">
               {subagentStateLabel(state, 1, 1, say)}
-              {typeof agent.tokens === 'number' ? ` · ${formatSubagentTokens(agent.tokens)}` : null}
+              {editionSupports('developerTools') && typeof agent.tokens === 'number'
+                ? ` · ${formatSubagentTokens(agent.tokens)}`
+                : null}
             </span>
           </>
         )
@@ -189,7 +192,9 @@ export function NativeChatSubagentRun({
               />
             </span>
           ) : null}
-          {header.tokens !== null ? ` · ${header.tokens}` : null}
+          {editionSupports('developerTools') && header.tokens !== null
+            ? ` · ${header.tokens}`
+            : null}
         </span>
         <ChevronRight
           className={cn(
