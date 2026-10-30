@@ -53,10 +53,8 @@ export abstract class AgentHookServerStatusUpdate extends AgentHookServerStatusA
     mutationBefore?: EnrichedAgentHookEventPayload,
     newRun = false
   ): EnrichedAgentHookEventPayload | undefined {
-    const { event: rootIdentityIncoming, statusAdmissionSession } = readHookSessionContext(
-      incoming,
-      origin === 'hook'
-    )
+    const rootContext = readHookSessionContext(incoming, origin === 'hook')
+    const { event: rootIdentityIncoming, statusAdmissionSession } = rootContext
     const transitioned = transitionHookPresence(
       rootIdentityIncoming,
       this.state.lastStatusByPaneKey.get(incoming.paneKey)
@@ -64,7 +62,8 @@ export abstract class AgentHookServerStatusUpdate extends AgentHookServerStatusA
     if (!transitioned) {
       return undefined
     }
-    const { authorityRestartId, codexRosterAuthority, ...payload } = transitioned
+    const enrichedTransition = { ...rootIdentityIncoming, ...transitioned }
+    const { authorityRestartId, codexRosterAuthority, ...payload } = enrichedTransition
     if (!this.canWriteLegacyStatusRow(payload)) {
       return undefined
     }

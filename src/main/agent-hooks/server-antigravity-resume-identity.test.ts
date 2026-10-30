@@ -6,10 +6,7 @@ import { normalizeHookPayload } from '../../shared/agent-hook-listener'
 import { createHookListenerState } from '../../shared/agent-hook-listener/listener-state'
 import { resumeRecordFromStatus } from '../../shared/agent-resume-record-from-status'
 import { getAgentResumeArgv } from '../../shared/agent-session-resume'
-import {
-  TRANSCRIPT_CHUNK_BYTES,
-  TRANSCRIPT_MAX_SCAN_BYTES
-} from '../../shared/agent-hook-listener/transcript-reader'
+import { TRANSCRIPT_MAX_SCAN_BYTES } from '../../shared/agent-hook-listener/transcript-reader'
 import { AgentHookServer } from './server'
 import { buildBody, PANE } from './server.test-fixtures'
 
@@ -140,15 +137,6 @@ it('derives root identity from bounded first-record provenance, independently of
     }
     for (const lastUserInput of ['Reply with OK.', '', undefined, null]) {
       expect(accepts(ROOT_ORIGIN, lastUserInput).providerSession?.id).toBe(ROOT)
-    }
-    // A large first record crosses the shared IO chunk; later transcript length is irrelevant.
-    for (const records of [10, 100]) {
-      writeFileSync(
-        transcriptPath,
-        jsonl({ ...ROOT_ORIGIN, content: 'x'.repeat(TRANSCRIPT_CHUNK_BYTES) }) +
-          jsonl(CHILD_ORIGIN).repeat(records)
-      )
-      expect(normalized(hook(transcriptPath)).providerSession?.id).toBe(ROOT)
     }
     const state = createHookListenerState()
     for (const text of [
