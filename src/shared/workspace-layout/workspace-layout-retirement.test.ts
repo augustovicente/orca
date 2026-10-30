@@ -645,3 +645,98 @@ it('counts the compatible kernel work on balanced and skew N/10N trees and keeps
   ).toThrow(RangeError)
   console.info('collector private child-array copying', receipts)
 })
+
+it.each(['unchanged generic oracle', 'selected E'] as const)(
+  'retains the carried surviving split alias after an actual skipped-cohort loader retirement: %s',
+  (mode) => {
+    const stored = cohortInput()
+    const shared = paneSplit(paneLeaf(leaf(4)), paneLeaf(leaf(6)))
+    stored.terminalLayoutsByTabId['row-a'].root = paneSplit(paneLeaf(leaf(3)), shared)
+    stored.terminalLayoutsByTabId.unowned = {
+      root: shared,
+      activeLeafId: leaf(4),
+      expandedLeafId: null
+    }
+    stored.terminalSurfaceTombstonesByPaneKey = {
+      only: tombstone('row-a', leaf(3), 'retired-incarnation')
+    }
+    const before = graph(stored)
+    const nextEvents: string[] = []
+    const entry = vi.spyOn(retirement, 'retireLoadedLegacySurfaces')
+    if (mode === 'unchanged generic oracle') {
+      entry.mockImplementation(applyLegacySurfaceTombstones)
+    }
+    let next: ReturnType<typeof loadWorkspaceLayout>
+    try {
+      next = loadWorkspaceLayout('local', stored, context(nextEvents))
+      expect(entry).toHaveBeenCalledTimes(1)
+      const [phase] = entry.mock.calls[0]
+      const phaseRow = phase.workspaces[GIT_KEY].tabs.find(
+        (tab) => tab.kind === 'terminal' && tab.entityId === 'row-a'
+      )
+      if (phaseRow?.kind !== 'terminal' || phaseRow.panes.root?.type !== 'split') {
+        throw new Error('expected skipped row-a root at selected E boundary')
+      }
+      expect(shared).toBe(stored.terminalLayoutsByTabId.unowned.root)
+      expect(phaseRow.panes.root.second).toBe(
+        entry.mock.calls[0][2].unownedTerminalLayouts.unowned.root
+      )
+    } finally {
+      entry.mockRestore()
+    }
+    const replace = vi
+      .spyOn(retirement, 'retireLoadedLegacySurfaces')
+      .mockImplementation(applyLegacySurfaceTombstones)
+    const oldEvents: string[] = []
+    let old: ReturnType<typeof loadWorkspaceLayout>
+    try {
+      old = loadWorkspaceLayout('local', stored, context(oldEvents))
+      expect(replace).toHaveBeenCalledTimes(1)
+    } finally {
+      replace.mockRestore()
+    }
+    const row = (value: ReturnType<typeof loadWorkspaceLayout>) =>
+      value.layout.workspaces[GIT_KEY].tabs.find(
+        (tab) => tab.kind === 'terminal' && tab.entityId === 'row-a'
+      )
+    const oldRow = row(old),
+      nextRow = row(next)
+    if (oldRow?.kind !== 'terminal' || nextRow?.kind !== 'terminal') {
+      throw new Error('expected surviving row-a cohort')
+    }
+    expect(oldEvents).toContain('id:tab:cohort')
+    expect(nextEvents).toEqual(oldEvents)
+    expect(graph(stored)).toEqual(before)
+    expect(next).toEqual(old)
+    expect(graph(nextRow.panes.root)).toEqual(graph(oldRow.panes.root))
+    expect(saveWorkspaceLayout(next)).toEqual(saveWorkspaceLayout(old))
+    expect(oldRow.panes.root).toBe(old.carried.unownedTerminalLayouts.unowned.root)
+    const roots = (value: ReturnType<typeof loadWorkspaceLayout>) =>
+      value.layout.workspaces[GIT_KEY].tabs.flatMap((tab) =>
+        tab.kind === 'terminal' && tab.id === 'cohort' ? [tab.panes.root] : []
+      )
+    const oldRoots = roots(old),
+      nextRoots = roots(next)
+    expect(oldRoots).toHaveLength(2)
+    expect(nextRoots).toHaveLength(2)
+    expect(oldRoots.every((root) => root === old.carried.unownedTerminalLayouts.unowned.root)).toBe(
+      true
+    )
+    console.info('carried-alias differential receipt', {
+      mode,
+      oldOracleAlias: oldRow.panes.root === old.carried.unownedTerminalLayouts.unowned.root,
+      actualPathAlias: nextRow.panes.root === next.carried.unownedTerminalLayouts.unowned.root,
+      oldCohortAliasCount: oldRoots.filter(
+        (root) => root === old.carried.unownedTerminalLayouts.unowned.root
+      ).length,
+      actualCohortAliasCount: nextRoots.filter(
+        (root) => root === next.carried.unownedTerminalLayouts.unowned.root
+      ).length,
+      ownKeys: Object.keys(nextRow.panes.root ?? {}),
+      ordinaryPrototype: Object.getPrototypeOf(nextRow.panes.root) === Object.prototype,
+      fullValuesEventsSaveEqual: true
+    })
+    expect(nextRow.panes.root).toBe(next.carried.unownedTerminalLayouts.unowned.root)
+    expect(graph(next)).toEqual(graph(old))
+  }
+)

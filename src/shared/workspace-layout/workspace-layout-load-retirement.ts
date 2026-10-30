@@ -66,9 +66,16 @@ class RetiringPanes {
       if (!node || node.type === 'leaf') {
         return node && this.removed.has(node.leafId) ? null : node
       }
-      const first = prune(node.first)
-      const second = prune(node.second)
-      return first && second ? { ...node, first, second } : (first ?? second)
+      const originalFirst = node.first
+      const first = prune(originalFirst)
+      const originalSecond = node.second
+      const second = prune(originalSecond)
+      if (!first || !second) {
+        return first ?? second
+      }
+      return first === originalFirst && second === originalSecond
+        ? node
+        : { ...node, first, second }
     }
     return prune(this.root)
   }
