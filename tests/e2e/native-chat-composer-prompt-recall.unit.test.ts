@@ -349,7 +349,7 @@ it.each([
               message,
               markdown: derived.markdown,
               prose: derived.prose,
-              rowRef: createRef(),
+              rowRef: createRef<HTMLDivElement>(),
               onRefolded: () => {},
               structuredAttachments: true,
               allowFileUriLinks: false
