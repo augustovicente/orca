@@ -8,6 +8,7 @@ import { deleteHoveredWorkspaceImmediately } from '@/components/sidebar/hovered-
 import { isFloatingWorkspacePanelFocused } from '@/lib/floating-workspace-terminal-actions'
 import { isGitRepoKind } from '../../../../shared/repo-kind'
 import { useAppStore } from '../../store'
+import { editionSupports } from '../../../../shared/edition'
 import { toggleAgentDashboardFromShortcut } from './agent-dashboard-command'
 import { openNewWorkspaceFromShortcut } from './new-workspace-command'
 
@@ -127,10 +128,12 @@ export function registerWorkspaceShortcutIpcBridge(unsubs: (() => void)[]): void
     })
   )
 
-  unsubs.push(
-    window.api.ui.onToggleStatusBar(() => {
-      const store = useAppStore.getState()
-      store.setStatusBarVisible(!store.statusBarVisible)
-    })
-  )
+  if (editionSupports('statusBar')) {
+    unsubs.push(
+      window.api.ui.onToggleStatusBar(() => {
+        const store = useAppStore.getState()
+        store.setStatusBarVisible(!store.statusBarVisible)
+      })
+    )
+  }
 }

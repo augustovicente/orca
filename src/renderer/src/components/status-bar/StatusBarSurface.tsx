@@ -37,6 +37,7 @@ import { useStatusBarController } from './use-status-bar-controller'
 import { isOwnerNotSetUpPlaceholder } from './owner-usage-rate-limits'
 import { StatusBarVisibilityMenu } from './StatusBarVisibilityMenu'
 import { isPairedWebClientWindow } from '@/lib/desktop-window-chrome'
+import { editionSupports } from '../../../../shared/edition'
 
 const PetStatusSegment = lazyWithRetry(() =>
   import('./PetStatusSegment').then((module) => ({ default: module.PetStatusSegment }))
@@ -63,7 +64,7 @@ export function StatusBarSurface({
   // Memoized labels still need to follow language changes.
   useTranslation()
   const controller = useStatusBarController(floatingTerminalOpen)
-  if (!controller) {
+  if (!controller || (!editionSupports('statusBar') && !editionSupports('providerUsage'))) {
     return null
   }
   const {
@@ -299,13 +300,15 @@ export function StatusBarSurface({
           <UpdateStatusSegment compact={compact} iconOnly={segmentsIconOnly} />
           <React.Suspense fallback={null}>
             {petEnabled ? <PetStatusSegment /> : null}
-            {showResourceUsage ? (
+            {editionSupports('resourceUsage') && showResourceUsage ? (
               <ResourceUsageStatusSegment compact={compact} iconOnly={segmentsIconOnly} />
             ) : null}
-            {showPorts ? (
+            {editionSupports('ports') && showPorts ? (
               <PortsStatusSegment compact={compact} iconOnly={segmentsIconOnly} />
             ) : null}
-            {showSsh ? <SshStatusSegment compact={compact} iconOnly={segmentsIconOnly} /> : null}
+            {editionSupports('sshHosts') && showSsh ? (
+              <SshStatusSegment compact={compact} iconOnly={segmentsIconOnly} />
+            ) : null}
           </React.Suspense>
           {showFloatingTerminalToggle && (
             <FloatingTerminalIconContextMenu currentLocation="status-bar" className="relative">
