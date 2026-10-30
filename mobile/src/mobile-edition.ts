@@ -3,8 +3,13 @@ import type { EditionCapabilities, EditionCapability, OrcaEdition } from '../../
 export type MobileEdition = OrcaEdition
 
 // Driven by Expo's public env at build time; `full` is the safe default for old/unbranded builds.
-export const MOBILE_ORCA_EDITION: MobileEdition =
-  process.env.EXPO_PUBLIC_ORCA_EDITION === 'contadorca' ? 'contadorca' : 'full'
+export function resolveMobileEdition(value: string | undefined): MobileEdition {
+  return value === 'contadorca' ? 'contadorca' : 'full'
+}
+
+export const MOBILE_ORCA_EDITION: MobileEdition = resolveMobileEdition(
+  process.env.EXPO_PUBLIC_ORCA_EDITION
+)
 
 // Aliases mirroring the desktop edition module so callers can use either naming.
 export const MOBILE_EDITION_ID = MOBILE_ORCA_EDITION
