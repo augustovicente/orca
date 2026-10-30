@@ -1,13 +1,13 @@
 import { MOBILE_ORCA_EDITION } from '../mobile-edition'
 
-type CopyRule = { from: string; to: string }
+type CopyRule = { from: string; to: string; caseSensitive?: boolean }
 
 const RULES: CopyRule[] = [
-  // Brand
-  { from: 'Orca Mobile', to: 'Contadorca' },
-  { from: 'Orca', to: 'Contadorca' },
-  { from: 'Stably', to: 'Contadorca' },
-  // Vocabulary
+  // Brand (case-sensitive, mirroring desktop)
+  { from: 'Orca Mobile', to: 'Contadorca', caseSensitive: true },
+  { from: 'Orca', to: 'Contadorca', caseSensitive: true },
+  { from: 'Stably', to: 'Contadorca', caseSensitive: true },
+  // Vocabulary (case-insensitive)
   { from: 'worktree', to: 'pasta do cliente' },
   { from: 'repositório', to: 'cliente' },
   { from: 'repositorio', to: 'cliente' },
@@ -49,11 +49,14 @@ function transformString(text: string): string {
   const ordered = [...RULES].sort((a, b) => b.from.length - a.from.length)
   let result = protectedText
   for (const rule of ordered) {
+    const flags = rule.caseSensitive ? 'gu' : 'giu'
     const pattern = new RegExp(
       `(?<![\\p{L}\\p{N}_])${escapeRegExp(rule.from)}(?![\\p{L}\\p{N}_])`,
-      'giu'
+      flags
     )
-    result = result.replace(pattern, (match) => preserveCase(match, rule.to))
+    result = result.replace(pattern, (match) =>
+      rule.caseSensitive ? rule.to : preserveCase(match, rule.to)
+    )
   }
   return restore(result)
 }
