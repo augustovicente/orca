@@ -25,7 +25,7 @@ import {
 } from '../../main-owned-workspace-runtime-fixture'
 import { executeStructuredSessionSwitch } from './structured-agent-session-switch-execution'
 import { DaemonRequestTimeoutError } from '../../../daemon/daemon-errors'
-import type { RuntimeMobileSessionTerminalTab } from '../../../../shared/runtime-mobile-session-tab-contracts'
+import type { RuntimeMobileSessionTerminalClientTab } from '../../../../shared/runtime-mobile-session-tab-contracts'
 
 let rig: RestTestRig
 beforeEach(async () => {
@@ -381,7 +381,7 @@ it.each([
     if (viewerSelection) {
       expect(
         snapshot.tabs.find(
-          (tab): tab is RuntimeMobileSessionTerminalTab =>
+          (tab): tab is RuntimeMobileSessionTerminalClientTab =>
             tab.type === 'terminal' && tab.ptyId === 'switch-destination'
         )?.openPlacement
       ).toMatchObject({

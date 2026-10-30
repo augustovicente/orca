@@ -8,6 +8,7 @@ import { commitPtyIpcSpawn } from './spawn-commit'
 import { createPtyIpcSpawnState } from './spawn-state'
 import type { PtySpawnIpcDeps } from './spawn-types'
 import { createPaneBindingStore } from '../pty-launch-race-test-fixture'
+import type { PersistPtyBindingArgs } from '../../../persistence/loading-store/pty-binding-persistence'
 
 vi.mock('../../../../shared/layout-owner-switch', () => ({ ORCA_LAYOUT_OWNER_IS_MAIN: true }))
 
@@ -16,7 +17,9 @@ const INCARNATION_ID = 'inc-ipc-run-facts'
 const LEAF_ID = 'a1111111-1111-4111-8111-111111111111'
 
 async function commit(
-  persistPtyBinding: ReturnType<typeof vi.fn>,
+  persistPtyBinding: (
+    input: PersistPtyBindingArgs | (() => PersistPtyBindingArgs | null)
+  ) => Promise<boolean>,
   prepare?: (ctx: ReturnType<typeof createPtyIpcSpawnState>) => void
 ) {
   const facts = new TerminalRunFactsRegister()

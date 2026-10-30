@@ -171,6 +171,7 @@ export function countOpenPlacementWork() {
             reading.mappingRows += 1
             yield entry
           }
+          return undefined
         }
       }
       return rows

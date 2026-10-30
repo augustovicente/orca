@@ -295,5 +295,3 @@ const FRAME_BUILD_HOLDS: Omit<LayoutFrameBuildHolds, 'newRowFields'> = {
   keepsTerminalLayout: isTabPaneTreeHeld,
   held: { isTabHeld: isDrawnTabHeld, isGroupLayoutHeld: isDrawnGroupLayoutHeld }
 }
-
-export { showStartupLayoutFrames } from './workspace-layout-frame-startup'

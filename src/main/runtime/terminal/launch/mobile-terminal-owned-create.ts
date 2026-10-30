@@ -1,4 +1,7 @@
-import { isSessionTabSelectionRequest } from '../../../../shared/session-tab-placement'
+import {
+  isSessionTabSelectionRequest,
+  placeCreatedSessionTab
+} from '../../../../shared/session-tab-placement'
 import { captureMobileTerminalCreatePlacement } from './mobile-terminal-create-anchor'
 import { OrcaRuntimeWithReconcileOwnedMobileTerminal } from './mobile-terminal-create-reconciliation'
 import type {
@@ -14,7 +17,6 @@ import {
 } from './mobile-terminal-create'
 import { randomUUID } from 'node:crypto'
 import { deriveRemoteRuntimeTerminalCreateHandle } from '../../remote-runtime-terminal-create-identity'
-import { placeCreatedSessionTab } from '../../../../shared/session-tab-placement'
 import type { OrcaRuntimeWithBuildPtyTerminalSummary as PtyTerminalSummaryMethods } from '../query/pty-terminal-summary'
 import {
   buildHeadlessMobileSessionTabGroups,
