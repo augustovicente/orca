@@ -1,15 +1,14 @@
 import { PassThrough } from 'node:stream'
-import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { PipedProcessSpawner } from '@orca/process-host/process-spec'
 import { createFakePipedChild } from '../../shared/__fixtures__/fake-spawned-child'
+import { fixture, opened, start } from './acp-agent-connection.test-support'
+import { AcpLaunchGate } from './acp-launch-gate'
+import { PROVIDER_INPUT_EXIT_GRACE_MS } from '../provider-process/provider-source-completion'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { PROVIDER_SUPERVISOR_MAX_STOP_MS } from '../provider-process/provider-process-supervisor'
 import { ROOT_ONLY_GRACEFUL_EXIT_MS } from '../provider-process/provider-process-close'
 import type { terminateProviderProcessTree } from '../provider-process/provider-process-teardown'
-import {
-  createAcpAgentConnection,
-  type AcpAgentConnection,
-  type AcpAgentConnectionOptions
-} from './acp-agent-connection'
+import { createAcpAgentConnection, type AcpAgentConnection } from './acp-agent-connection'
 import { startupReceiveRig } from './acp-startup-receive.test-support'
 import { AcpAuthRequiredError } from './acp-errors'
 import { AcpScriptedAgent, deferred, tick } from './acp-scripted-agent.test-support'
@@ -21,58 +20,13 @@ vi.mock('../provider-process/provider-process-teardown', () => ({
   terminateProviderProcessTree: teardown
 }))
 
-const opened: { connection: AcpAgentConnection; exit: () => void }[] = []
+const actual = await vi.importActual<{
+  terminateProviderProcessTree: typeof terminateProviderProcessTree
+}>('../provider-process/provider-process-teardown')
+
 const grace =
   process.platform === 'win32' ? ROOT_ONLY_GRACEFUL_EXIT_MS : PROVIDER_SUPERVISOR_MAX_STOP_MS
-const start = { cwd: '/execution-host/folder', mcpServers: [] }
 const prompt = [{ type: 'text', text: 'hello' }] as const
-
-function fixture(
-  options: AcpAgentConnectionOptions = {},
-  behavior: { pid?: number | null; exitOnEnd?: boolean; brokenStdin?: boolean } = {}
-) {
-  const agent = new AcpScriptedAgent()
-  const child = Object.assign(createFakePipedChild(), {
-    pid: behavior.pid === null ? undefined : (behavior.pid ?? 9_999_999),
-    stdout: agent.stdout,
-    stdin: agent.stdin,
-    stderr: new PassThrough(),
-    kill: vi.fn(() => true)
-  })
-  const spawn = vi.fn<PipedProcessSpawner>(() => {
-    return child
-  })
-  agent.on('initialize', (frame) => agent.reply(frame, { protocolVersion: 1 }))
-  agent.on('session/new', (frame) => agent.reply(frame, { sessionId: 'session-1' }))
-  if (behavior.exitOnEnd !== false) {
-    child.stdin.once('finish', () => {
-      child.emit('exit', 0, null)
-      child.stdout.end()
-    })
-  }
-  if (behavior.brokenStdin) {
-    child.stdin.destroy()
-  }
-  const connection = createAcpAgentConnection(
-    {
-      command: 'fixture-acp-agent',
-      args: ['--acp'],
-      cwd: start.cwd,
-      env: { ACP_ACCOUNT_HOME: '/host/account', STRIPPED: 'overlay' },
-      envToDelete: ['STRIPPED']
-    },
-    options,
-    spawn
-  )
-  opened.push({
-    connection,
-    exit: () => {
-      child.emit('exit', 0, null)
-      child.stdout.end()
-    }
-  })
-  return { agent, child, spawn, connection }
-}
 
 afterEach(async () => {
   vi.useRealTimers()
@@ -754,3 +708,82 @@ it('owns completed input when a preclosed pipe reports loss inside connection co
   await expect(connection.close()).resolves.toBe(true)
   expect(onInputComplete).toHaveBeenCalledOnce()
 })
+
+it.each([true, false])(
+  'runs setup through the retained launch gate with initial kill delivery=%s',
+  async (initialDelivery) => {
+    vi.useFakeTimers()
+    const { connection, child } = fixture({}, { exitOnEnd: false })
+    let permitted = initialDelivery
+    let writerGone = false
+    const deliver = () => {
+      if (!permitted || writerGone) {
+        throw Object.assign(new Error('writer group unavailable'), { code: 'ESRCH' })
+      }
+      writerGone = true
+      child.stdout.end()
+    }
+    teardown.mockImplementation((held, deps) =>
+      actual.terminateProviderProcessTree(held, {
+        ...deps,
+        captureDescendants: async () => ({
+          rootPgid: null,
+          capturedAtMs: 1,
+          descendants: [
+            {
+              pid: child.pid! + 1,
+              ppid: child.pid!,
+              pgid: child.pid! + 1,
+              startedAt: 'Mon Jan 1 00:00:00 2026'
+            }
+          ]
+        }),
+        terminateDescendants: async () => 'unverifiable',
+        signalProcessGroup: deliver,
+        signalProcess: () => {},
+        terminateWindowsTree: async () => {
+          try {
+            deliver()
+            return true
+          } catch {
+            return false
+          }
+        }
+      })
+    )
+    const gate = new AcpLaunchGate('Antigravity')
+    gate.retain(connection)
+    const first = connection.close()
+    await vi.advanceTimersByTimeAsync(grace + 1000)
+    await vi.advanceTimersByTimeAsync(PROVIDER_INPUT_EXIT_GRACE_MS)
+    expect(await first).toBe(initialDelivery)
+    const work = vi.fn(async () => 'setup completed')
+    if (!initialDelivery) {
+      const denied = expect(gate.run(async () => {}, work)).rejects.toThrow('could not be stopped')
+      await vi.advanceTimersByTimeAsync(grace + 1000)
+      await vi.advanceTimersByTimeAsync(PROVIDER_INPUT_EXIT_GRACE_MS)
+      await denied
+      expect(work).not.toHaveBeenCalled()
+      permitted = true
+      const retry = gate.run(async () => {}, work)
+      await vi.advanceTimersByTimeAsync(grace + 1000)
+      await vi.advanceTimersByTimeAsync(PROVIDER_INPUT_EXIT_GRACE_MS)
+      await expect(retry).resolves.toBe('setup completed')
+    } else {
+      await expect(gate.run(async () => {}, work)).resolves.toBe('setup completed')
+    }
+    expect(work).toHaveBeenCalledOnce()
+    const attempts = initialDelivery ? 1 : 3
+    expect(teardown).toHaveBeenCalledTimes(attempts)
+    await expect(gate.run(async () => {}, work)).resolves.toBe('setup completed')
+    expect(work).toHaveBeenCalledTimes(2)
+    expect(teardown).toHaveBeenCalledTimes(attempts)
+    const next = gate.enter(undefined)
+    expect(next.signal.aborted).toBe(false)
+    next.leave()
+    expect(connection.lastCloseResult).toMatchObject({
+      root: 'live',
+      killDelivered: true
+    })
+  }
+)

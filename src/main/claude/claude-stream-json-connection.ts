@@ -10,9 +10,11 @@ import {
   createClaudeControlSurface,
   type ClaudeControlSurface
 } from './claude-agent-sdk-control-requests'
-import { createClaudeChildTreeReaper, proveClaudeChildExit } from './claude-agent-sdk-exit-proof'
-import { withTimeout } from '../../shared/promise-timeout-fallback'
+import { createClaudeChildTreeReaper } from './claude-agent-sdk-exit-proof'
+import { finishClaudeSdkReceive } from './claude-agent-sdk-receive'
+export { CLAUDE_READER_DRAIN_AFTER_EXIT_MS } from './claude-agent-sdk-receive'
 import type { DescendantTreeVerdict } from '../pty-descendant-exit-verification'
+import { claudeChildCloseProven } from './claude-child-exit-proof-ladder'
 import { createClaudeCodeProcessSpawn } from './claude-agent-sdk-process-spawn'
 import {
   claudeUnwrittenUserMessageError,
@@ -23,9 +25,6 @@ import { withProviderSpawnAbsence } from '../provider-process/provider-executabl
 import { claudeStreamJsonExitError } from './claude-stream-json-exit-error'
 
 export { ClaudeControlRequestError }
-
-/** A foreign empty reader must report a fault rather than hold process cleanup forever. */
-export const CLAUDE_READER_DRAIN_AFTER_EXIT_MS = 2_000
 
 /** Lazy import confines SDK executable-search env mutation and missing-package failures to structured Claude. */
 
@@ -43,6 +42,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export type ClaudeStreamJsonLaunch = {
   /** Orca's resolved user CLI; the SDK falls back to a bundled binary that is not installed. */
   pathToClaudeCodeExecutable: string
+  prefixArgs?: readonly string[]
   options: ClaudeStructuredSdkOptions
   cwd: string
   env?: Record<string, string>
@@ -74,6 +74,7 @@ export type ClaudeChildExitVerdict = {
   root: DescendantTreeVerdict
   tree: DescendantTreeVerdict
   processless?: boolean
+  killDelivered?: true
 }
 
 export type ClaudeStreamJsonConnection = ClaudeControlSurface & {
@@ -96,7 +97,7 @@ export async function openClaudeStreamJsonConnection(
   queryImpl?: typeof ClaudeAgentSdk.query
 ): Promise<ClaudeStreamJsonConnection> {
   const { query } = await loadClaudeAgentSdk()
-  const spawner = createClaudeCodeProcessSpawn(spawnImpl, process.platform)
+  const spawner = createClaudeCodeProcessSpawn(spawnImpl, process.platform, launch)
   // Always supply scrubbed env to prevent ambient auth leaks; only launch.env may pin CLAUDE_CONFIG_DIR.
   const env = await withoutRejectedClaudeApiKey(
     withoutKeys(
@@ -116,6 +117,7 @@ export async function openClaudeStreamJsonConnection(
       env,
       pathToClaudeCodeExecutable: launch.pathToClaudeCodeExecutable,
       spawnClaudeCodeProcess: spawner.spawn,
+      processReceiveLifecycle: 'external',
       ...(handlers.canUseTool ? { canUseTool: handlers.canUseTool } : {}),
       ...(handlers.onUserDialog ? { onUserDialog: handlers.onUserDialog } : {})
     }
@@ -133,7 +135,13 @@ export async function openClaudeStreamJsonConnection(
   let readingBarrier: Promise<void> | null = null
   let releaseReadingBarrier: (() => void) | null = null
   const pauseReading = (): void => {
-    if (closing || managed.rootVerdict === 'exited' || terminalError || readingBarrier) {
+    if (
+      closing ||
+      spawner.inputClosing ||
+      managed.rootVerdict === 'exited' ||
+      terminalError ||
+      readingBarrier
+    ) {
       return
     }
     readingBarrier = new Promise<void>((resolve) => {
@@ -149,7 +157,10 @@ export async function openClaudeStreamJsonConnection(
   const waitUntilReadable = (): Promise<void> => readingBarrier ?? Promise.resolve()
   // Share descendant evidence across close retries and fault cleanup.
   const rootSettled = (): boolean => managed.rootVerdict === 'exited'
-  const tree = createClaudeChildTreeReaper(child, { exited: rootSettled })
+  const tree = createClaudeChildTreeReaper(child, {
+    exited: rootSettled,
+    supervised: managed.supervised
+  })
 
   // Observe descendants on first output to avoid startup scans while still catching natural-exit races.
   let outputObservationArmed = false
@@ -186,6 +197,7 @@ export async function openClaudeStreamJsonConnection(
     })
   }
 
+  const receiveCompleted = session.receiveCompleted
   const readerDone = (async () => {
     try {
       for (;;) {
@@ -208,10 +220,13 @@ export async function openClaudeStreamJsonConnection(
     }
   })()
 
-  void spawner.inputDone.catch((cause: unknown) => {
-    handleUnexpectedEnd(cause instanceof Error ? cause : new Error(String(cause)))
-    void managed.close()
-  })
+  void spawner.inputDone.then(
+    () => resumeReading(),
+    (cause: unknown) => {
+      handleUnexpectedEnd(cause instanceof Error ? cause : new Error(String(cause)))
+      void managed.close()
+    }
+  )
   managed.onExit(() => handleUnexpectedEnd())
   child.on('error', (error) => {
     if (!closing && managed.rootVerdict !== 'exited') {
@@ -232,6 +247,7 @@ export async function openClaudeStreamJsonConnection(
   const send: ClaudeStreamJsonConnection['send'] = (message, beforeDispatch) => {
     if (
       closing ||
+      spawner.inputClosing ||
       managed.rootVerdict === 'exited' ||
       terminalError ||
       child.stdin.destroyed ||
@@ -254,10 +270,8 @@ export async function openClaudeStreamJsonConnection(
       // Capture before stopping: exited roots can leave reparented descendants undiscoverable.
       await (tree.refresh?.() ?? tree.capture())
       inbox.end()
-      const proven = await proveClaudeChildExit({
-        tree,
-        managed
-      })
+      const result = await managed.closeWriter(tree)
+      const proven = claudeChildCloseProven(result) || result.killDelivered === true
       inbox.fail(new Error('claude stream-json connection closed'))
       if (!proven) {
         if (managed.lastCloseResult?.root === 'exited' && managed.lastCloseResult.tree === 'live') {
@@ -268,27 +282,14 @@ export async function openClaudeStreamJsonConnection(
         closePromise = null
         return false
       }
-      const inputFailure = await spawner.finishInput().then(
-        () => null,
-        (error: unknown) => error
-      )
-      if (spawner.receivedInput) {
-        await readerDone
-      } else {
-        const drained = await withTimeout(
-          readerDone.then(() => true),
-          CLAUDE_READER_DRAIN_AFTER_EXIT_MS,
-          false
-        )
-        if (!drained) {
-          const error = new Error('Claude output reader did not complete after input EOF')
-          handlers.onFault?.(error)
-          throw error
-        }
-      }
-      if (inputFailure !== null) {
-        throw inputFailure
-      }
+      await finishClaudeSdkReceive({
+        finishInput: spawner.finishInput,
+        receivedInput: () => spawner.receivedInput,
+        receiveCompleted,
+        readerDone,
+        externalContractRequired: !queryImpl || queryImpl === query,
+        onFault: handlers.onFault
+      })
       return true
     })()
     return closePromise
@@ -296,7 +297,7 @@ export async function openClaudeStreamJsonConnection(
 
   return {
     ...createClaudeControlSurface(session, () =>
-      closing || managed.rootVerdict === 'exited' || terminalError
+      closing || spawner.inputClosing || managed.rootVerdict === 'exited' || terminalError
         ? (terminalError ?? new Error('claude stream-json connection is closed'))
         : null
     ),
@@ -304,7 +305,12 @@ export async function openClaudeStreamJsonConnection(
       return spawner.pid
     },
     get closed() {
-      return closing || managed.rootVerdict === 'exited' || terminalError !== null
+      return (
+        closing ||
+        spawner.inputClosing ||
+        managed.rootVerdict === 'exited' ||
+        terminalError !== null
+      )
     },
     get executableMissing() {
       return managed.executableMissing
@@ -313,6 +319,9 @@ export async function openClaudeStreamJsonConnection(
       return {
         root: managed.rootVerdict,
         tree: tree.treeVerdict,
+        ...(tree.killDelivered || managed.lastCloseResult?.killDelivered
+          ? { killDelivered: true as const }
+          : {}),
         ...(managed.processless ? { processless: true } : {})
       } as const
     },

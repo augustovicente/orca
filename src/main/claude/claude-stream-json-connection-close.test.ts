@@ -3,6 +3,7 @@ import { EventEmitter } from 'node:events'
 import { PassThrough } from 'node:stream'
 import type { ChildProcessWithoutNullStreams } from 'node:child_process'
 import { describe, expect, it, vi } from 'vitest'
+import type * as ManagedProviderProcessModule from '../provider-process/managed-provider-process'
 import { query } from '@anthropic-ai/claude-agent-sdk'
 import {
   openProviderTimelineRig,
@@ -17,21 +18,42 @@ import {
 
 const mocks = vi.hoisted(() => {
   const refresh = vi.fn()
-  const proveClaudeChildExit = vi.fn()
+  const closeWriter = vi.fn()
   const tree = {
     capture: vi.fn(async () => {}),
     refresh: (...args: unknown[]) => refresh(...args),
     reap: vi.fn(async () => 'exited' as const),
     treeVerdict: 'unverifiable' as const,
-    forcedReapAttempted: false
+    forcedReapAttempted: false,
+    killDelivered: false
   }
-  return { proveClaudeChildExit, refresh, tree }
+  return { closeWriter, refresh, tree }
 })
 
 vi.mock('./claude-agent-sdk-exit-proof', () => ({
-  createClaudeChildTreeReaper: vi.fn(() => mocks.tree),
-  proveClaudeChildExit: (...args: unknown[]) => mocks.proveClaudeChildExit(...args)
+  createClaudeChildTreeReaper: vi.fn(() => mocks.tree)
 }))
+
+vi.mock('../provider-process/managed-provider-process', async (importOriginal) => {
+  const original = await importOriginal<typeof ManagedProviderProcessModule>()
+  return {
+    ...original,
+    spawnManagedProviderProcess: (
+      ...args: Parameters<typeof original.spawnManagedProviderProcess>
+    ) => {
+      const managed = original.spawnManagedProviderProcess(...args)
+      managed.closeWriter = async () => {
+        const result = await mocks.closeWriter()
+        return typeof result === 'object'
+          ? result
+          : result
+            ? { root: 'exited', tree: 'exited' }
+            : { root: 'live', tree: 'unverifiable' }
+      }
+      return managed
+    }
+  }
+})
 
 function fakeChild(
   streams: { stdout: PassThrough; stderr: PassThrough } = {
@@ -43,6 +65,9 @@ function fakeChild(
   // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: The connection reads only pid, the three pipes and kill, which this fake carries.
   return Object.assign(child, {
     pid: 424242,
+    exitCode: null,
+    signalCode: null,
+    killed: false,
     stdin: new PassThrough(),
     stdout: streams.stdout,
     stderr: streams.stderr,
@@ -53,9 +78,9 @@ function fakeChild(
 describe('Claude stream-json close ordering', () => {
   it('stops pulling SDK messages until reading resumes', async () => {
     mocks.refresh.mockReset()
-    mocks.proveClaudeChildExit.mockReset()
+    mocks.closeWriter.mockReset()
     mocks.refresh.mockResolvedValue(undefined)
-    mocks.proveClaudeChildExit.mockResolvedValue(true)
+    mocks.closeWriter.mockResolvedValue(true)
     const child = fakeChild()
     const first = Promise.withResolvers<Record<string, unknown>>()
     const next = vi
@@ -105,9 +130,9 @@ describe('Claude stream-json close ordering', () => {
 
   it('releases a pulled frame when provider exit is reported', async () => {
     mocks.refresh.mockReset()
-    mocks.proveClaudeChildExit.mockReset()
+    mocks.closeWriter.mockReset()
     mocks.refresh.mockResolvedValue(undefined)
-    mocks.proveClaudeChildExit.mockResolvedValue(true)
+    mocks.closeWriter.mockResolvedValue(true)
     const child = fakeChild()
     const first = Promise.withResolvers<Record<string, unknown>>()
     const next = vi
@@ -150,9 +175,9 @@ describe('Claude stream-json close ordering', () => {
 
   it('reports an exit whose stdout ended first once the exit is seen, with its usual reason', async () => {
     mocks.refresh.mockReset()
-    mocks.proveClaudeChildExit.mockReset()
+    mocks.closeWriter.mockReset()
     mocks.refresh.mockResolvedValue(undefined)
-    mocks.proveClaudeChildExit.mockResolvedValue(true)
+    mocks.closeWriter.mockResolvedValue(true)
     const stdout = new PassThrough()
     const stderr = new PassThrough()
     const child = fakeChild({ stdout, stderr })
@@ -195,9 +220,9 @@ describe('Claude stream-json close ordering', () => {
 
   it('returns an unproven close without waiting on a live output reader', async () => {
     mocks.refresh.mockReset()
-    mocks.proveClaudeChildExit.mockReset()
+    mocks.closeWriter.mockReset()
     mocks.refresh.mockResolvedValue(undefined)
-    mocks.proveClaudeChildExit.mockResolvedValue(false)
+    mocks.closeWriter.mockResolvedValue(false)
     const child = fakeChild()
     const next = vi.fn(() => new Promise<IteratorResult<Record<string, unknown>>>(() => {}))
     // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: This injected query exercises only the async iterator used by the connection.
@@ -226,9 +251,9 @@ describe('Claude stream-json close ordering', () => {
 
   it('runs the stop ladder again on a close after an unproven attempt, refusing input meanwhile', async () => {
     mocks.refresh.mockReset()
-    mocks.proveClaudeChildExit.mockReset()
+    mocks.closeWriter.mockReset()
     mocks.refresh.mockResolvedValue(undefined)
-    mocks.proveClaudeChildExit.mockResolvedValueOnce(false).mockResolvedValueOnce(true)
+    mocks.closeWriter.mockResolvedValueOnce(false).mockResolvedValueOnce(true)
     const child = fakeChild()
     const next = vi.fn(async (): Promise<IteratorResult<Record<string, unknown>>> => ({
       value: undefined,
@@ -257,15 +282,15 @@ describe('Claude stream-json close ordering', () => {
     await expect(connection.close()).resolves.toBe(false)
     await expect(connection.send({ type: 'user' })).rejects.toThrow()
     await expect(connection.close()).resolves.toBe(true)
-    expect(mocks.proveClaudeChildExit).toHaveBeenCalledTimes(2)
+    expect(mocks.closeWriter).toHaveBeenCalledTimes(2)
   })
 
   // Inherited pipes must not keep sends and Stops waiting after proven exit.
   it('rejects an empty noncooperative reader after bounded proven-process cleanup', async () => {
     mocks.refresh.mockReset()
-    mocks.proveClaudeChildExit.mockReset()
+    mocks.closeWriter.mockReset()
     mocks.refresh.mockResolvedValue(undefined)
-    mocks.proveClaudeChildExit.mockResolvedValue(true)
+    mocks.closeWriter.mockResolvedValue(true)
     const child = fakeChild()
     const next = vi.fn(() => new Promise<IteratorResult<Record<string, unknown>>>(() => {}))
     // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: This injected query exercises only the async iterator used by the connection.
@@ -311,9 +336,9 @@ describe('Claude stream-json close ordering', () => {
 
   it('reports a root that exits after its close came back unproven as that close ending', async () => {
     mocks.refresh.mockReset()
-    mocks.proveClaudeChildExit.mockReset()
+    mocks.closeWriter.mockReset()
     mocks.refresh.mockResolvedValue(undefined)
-    mocks.proveClaudeChildExit.mockResolvedValue(false)
+    mocks.closeWriter.mockResolvedValue(false)
     const child = fakeChild()
     const next = vi.fn(() => new Promise<IteratorResult<Record<string, unknown>>>(() => {}))
     // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: This injected query exercises only the async iterator used by the connection.
@@ -346,7 +371,7 @@ describe('Claude stream-json close ordering', () => {
   it('waits for the live tree refresh before ending stdin', async () => {
     const refreshDone = Promise.withResolvers<void>()
     mocks.refresh.mockReturnValueOnce(refreshDone.promise)
-    mocks.proveClaudeChildExit.mockResolvedValueOnce(true)
+    mocks.closeWriter.mockResolvedValueOnce(true)
     const child = fakeChild()
     const launch: ClaudeStreamJsonLaunch = {
       pathToClaudeCodeExecutable: 'claude',
@@ -384,13 +409,13 @@ describe('Claude stream-json close ordering', () => {
 
   it('requests a fresh close boundary after an output capture starts', async () => {
     mocks.refresh.mockReset()
-    mocks.proveClaudeChildExit.mockReset()
+    mocks.closeWriter.mockReset()
     const outputCapture = Promise.withResolvers<void>()
     const closeCapture = Promise.withResolvers<void>()
     mocks.refresh
       .mockReturnValueOnce(outputCapture.promise)
       .mockReturnValueOnce(closeCapture.promise)
-    mocks.proveClaudeChildExit.mockResolvedValueOnce(true)
+    mocks.closeWriter.mockResolvedValueOnce(true)
     const child = fakeChild()
     const launch: ClaudeStreamJsonLaunch = {
       pathToClaudeCodeExecutable: 'claude',
@@ -435,7 +460,7 @@ it.each(['root-exit', 'requested-close', 'source-error'] as const)(
   'drains the installed SDK decoded queue and EOF before %s retires its original journal owner',
   async (ending) => {
     mocks.refresh.mockReset().mockResolvedValue(undefined)
-    mocks.proveClaudeChildExit.mockReset().mockResolvedValue(true)
+    mocks.closeWriter.mockReset().mockResolvedValue(true)
     const child = fakeChild()
     const rig = await openProviderTimelineRig()
     const translator = createClaudeJournalTranslator({ sink: rig.eventSink })
@@ -563,13 +588,16 @@ it.each(['root-exit', 'requested-close', 'source-error'] as const)(
 
 it('joins a real SDK decoded envelope held at public next beyond the former reader deadline', async () => {
   mocks.refresh.mockReset().mockResolvedValue(undefined)
-  mocks.proveClaudeChildExit.mockReset().mockResolvedValue(true)
+  mocks.closeWriter
+    .mockReset()
+    .mockResolvedValue({ root: 'live', tree: 'unverifiable', killDelivered: true })
   const child = fakeChild()
   const held = Promise.withResolvers<void>()
   const release = Promise.withResolvers<void>()
   const rig = await openProviderTimelineRig()
   const translator = createClaudeJournalTranslator({ sink: rig.eventSink })
   const transferred: string[] = []
+  const exited = vi.fn()
   let nextSpy: { mockRestore(): void } | undefined
   const connection = await openClaudeStreamJsonConnection(
     { pathToClaudeCodeExecutable: 'claude', options: {}, cwd: '/work/repo' },
@@ -577,7 +605,8 @@ it('joins a real SDK decoded envelope held at public next beyond the former read
       onMessage: (message) => {
         transferred.push(String(message.uuid))
         translator.handle({ type: 'message', sessionId: SESSION, message })
-      }
+      },
+      onExit: exited
     },
     () => child,
     (params) => {
@@ -617,8 +646,6 @@ it('joins a real SDK decoded envelope held at public next beyond the former read
     }
     await held.promise
     vi.useFakeTimers()
-    child.exitCode = 0
-    child.emit('exit', 0, null)
     let retired = false
     const closing = connection.close().then((proven) => {
       translator.handle({ type: 'ended', sessionId: SESSION, reason: 'exit', observedAt: 2 })
@@ -635,6 +662,8 @@ it('joins a real SDK decoded envelope held at public next beyond the former read
     await expect(closing).resolves.toBe(true)
     vi.useRealTimers()
     expect(transferred).toEqual(['slow-result-1', 'slow-result-2', 'slow-result-3'])
+    expect(child.exitCode).toBeNull()
+    expect(exited).not.toHaveBeenCalled()
     const reopened = await rig.reopenJournal()
     const tools = reopened.snapshot().items.filter((row) => row.body.kind === 'tool-call')
     expect(tools.map((row) => row.itemId)).toEqual(
@@ -668,7 +697,7 @@ it.each(['natural-valid', 'forced-valid', 'natural-invalid'] as const)(
   'uses the SDK stdout facade final-envelope disposition for %s',
   async (ending) => {
     mocks.refresh.mockReset().mockResolvedValue(undefined)
-    mocks.proveClaudeChildExit.mockReset().mockResolvedValue(true)
+    mocks.closeWriter.mockReset().mockResolvedValue(true)
     const child = fakeChild()
     const rig = await openProviderTimelineRig()
     const translator = createClaudeJournalTranslator({ sink: rig.eventSink })

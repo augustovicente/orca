@@ -42,7 +42,8 @@ async function connectCodexAppServer(
   })
   const { child } = managed
   const tree = createClaudeChildTreeReaper(child, {
-    exited: () => managed.rootVerdict === 'exited'
+    exited: () => managed.rootVerdict === 'exited',
+    supervised: managed.supervised
   })
 
   let recordReader: ProviderRecordReader | undefined
@@ -225,7 +226,7 @@ async function connectCodexAppServer(
       if (result.root === 'exited') {
         await exitPublication
       }
-      return result.root === 'exited'
+      return result.root === 'exited' || result.killDelivered === true
     })
   }
 

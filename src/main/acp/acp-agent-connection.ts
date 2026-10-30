@@ -248,7 +248,7 @@ export class AcpAgentConnection extends AcpSessionRuntime {
       if (result.root === 'exited') {
         await this.exitPublication
       }
-      return result.root === 'exited'
+      return result.root === 'exited' || result.killDelivered === true
     })
   }
 }
