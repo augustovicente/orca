@@ -11,6 +11,7 @@ import { TitlebarLeftControls } from './TitlebarLeftControls'
 import { RightSidebarToggle, TitlebarMainStrip } from './TitlebarMainStrip'
 import type { AppChromeLayout } from './use-app-chrome-layout'
 import type { FloatingWorkspacePanelState } from './use-floating-workspace-panel'
+import { resolveTopLevelView } from '../../../shared/edition'
 
 // Skips the shell render each workspace switch causes; its props only change on toggle.
 const MemoFloatingTerminalToggleButton = memo(FloatingTerminalToggleButton)
@@ -68,7 +69,9 @@ function WorktreeSidebar({
 }
 
 function ActivePage({ layout }: { layout: AppChromeLayout }): React.JSX.Element {
-  const { activeView, hasActiveWorktree, activePendingCreationId, creationLayoutActive } = layout
+  // Narrower editions must not render a persisted dev view as a blank page.
+  const activeView = resolveTopLevelView(layout.activeView)
+  const { hasActiveWorktree, activePendingCreationId, creationLayoutActive } = layout
   return (
     <>
       {activeView === 'settings' ? <Settings /> : null}

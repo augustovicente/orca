@@ -56,6 +56,11 @@ const darkBuildSwitches: {
 } = createRequire(import.meta.url)('./config/dark-build-switches.cjs')
 const DARK_BUILD_DEFINES = darkBuildSwitches.darkBuildDefines()
 
+// Whitelabel edition; unset builds the full Orca surface. See src/shared/edition.ts.
+const ORCA_EDITION_LITERAL = JSON.stringify(
+  process.env.ORCA_EDITION === 'contadorca' ? 'contadorca' : 'full'
+)
+
 /** Marks a dark switched-on main build so packaging refuses it. */
 function createDarkBuildMarkerPlugin(): Plugin {
   return {
@@ -242,6 +247,7 @@ export const electronViteConfig: UserConfig = {
       ORCA_POSTHOG_WRITE_KEY: ORCA_POSTHOG_WRITE_KEY_LITERAL,
       ORCA_DIAGNOSTICS_TOKEN_URL: ORCA_DIAGNOSTICS_TOKEN_URL_LITERAL,
       ORCA_BUILD_COMMIT: ORCA_BUILD_COMMIT_LITERAL,
+      ORCA_EDITION: ORCA_EDITION_LITERAL,
       ...DARK_BUILD_DEFINES
     },
     // @xterm/headless declares exports:null; point Vite directly at its published CJS main to permit inlining.
@@ -270,6 +276,7 @@ export const electronViteConfig: UserConfig = {
     cacheDir: resolve('.cache/vite/renderer'),
     define: {
       ORCA_BUILD_COMMIT: ORCA_BUILD_COMMIT_LITERAL,
+      ORCA_EDITION: ORCA_EDITION_LITERAL,
       ...DARK_BUILD_DEFINES
     },
     resolve: {

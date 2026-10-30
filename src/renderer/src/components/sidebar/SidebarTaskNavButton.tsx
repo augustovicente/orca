@@ -15,6 +15,7 @@ import { useAppStore } from '@/store'
 import { useRepoMap } from '@/store/selectors'
 import { translate } from '@/i18n/i18n'
 import { isGitRepoKind } from '../../../../shared/repo-kind'
+import { editionSupports } from '../../../../shared/edition'
 import { getTaskPresetQuery } from '../../../../shared/task-preset-query'
 import {
   normalizeVisibleTaskProviders,
@@ -60,7 +61,9 @@ export function SidebarTaskNavButton(): React.JSX.Element | null {
   const activeView = useAppStore((s) => s.activeView)
   const repos = useAppStore((s) => s.repos)
   const repoMap = useRepoMap()
-  const showTasksButton = useAppStore((s) => s.settings?.showTasksButton !== false)
+  const showTasksButton = useAppStore(
+    (s) => s.settings?.showTasksButton !== false && editionSupports('taskProviders')
+  )
   const rawVisibleTaskProviders = useAppStore((s) => s.settings?.visibleTaskProviders)
   const defaultTaskSource = useAppStore((s) => s.settings?.defaultTaskSource ?? 'github')
   const preflightStatus = useAppStore((s) => s.preflightStatus)

@@ -3,9 +3,12 @@
 ## Build
 
 ```bash
-ORCA_APP_NAME=contadorca ORCA_APP_ID=com.contadorca.app pnpm build:release
+ORCA_EDITION=contadorca ORCA_APP_NAME=contadorca ORCA_APP_ID=com.contadorca.app pnpm build:release
 pnpm build:whitelabel
 ```
+
+`ORCA_EDITION=contadorca` is what removes the development surface; without it the build is full Orca.
+See [`docs/plans/whitelabel-edition.md`](../docs/plans/whitelabel-edition.md).
 
 ## Branding assets
 

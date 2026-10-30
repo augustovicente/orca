@@ -15,6 +15,7 @@ import { HideSidebarMenu } from './sidebar-nav-controls'
 import { translate } from '@/i18n/i18n'
 import { lazyWithRetry } from '@/lib/lazy-with-retry'
 import type { GlobalSettings } from '../../../../shared/global-settings-types'
+import { editionSupports } from '../../../../shared/edition'
 
 export function shouldShowMobileButton(
   settings: Partial<Pick<GlobalSettings, 'showMobileButton'>> | null | undefined
@@ -59,11 +60,21 @@ const SidebarNav = React.memo(function SidebarNav() {
   const openModal = useAppStore((s) => s.openModal)
   const updateSettings = useAppStore((s) => s.updateSettings)
   const activeView = useAppStore((s) => s.activeView)
-  const showAgentDashboardButton = useAppStore((s) => shouldShowAgentDashboardButton(s.settings))
-  const showAutomationsButton = useAppStore((s) => shouldShowAutomationsButton(s.settings))
-  const showMobileButton = useAppStore((s) => shouldShowMobileButton(s.settings))
-  const showArtifactsButton = useAppStore((s) => shouldShowArtifactsButton(s.settings))
-  const showSkillsButton = useAppStore((s) => shouldShowSkillsButton(s.settings))
+  const showAgentDashboardButton = useAppStore(
+    (s) => shouldShowAgentDashboardButton(s.settings) && editionSupports('activity')
+  )
+  const showAutomationsButton = useAppStore(
+    (s) => shouldShowAutomationsButton(s.settings) && editionSupports('automations')
+  )
+  const showMobileButton = useAppStore(
+    (s) => shouldShowMobileButton(s.settings) && editionSupports('mobile')
+  )
+  const showArtifactsButton = useAppStore(
+    (s) => shouldShowArtifactsButton(s.settings) && editionSupports('artifacts')
+  )
+  const showSkillsButton = useAppStore(
+    (s) => shouldShowSkillsButton(s.settings) && editionSupports('skills')
+  )
   const automationsActive = activeView === 'automations'
   const mobileActive = activeView === 'mobile'
   const artifactsActive = activeView === 'artifacts'
