@@ -191,7 +191,9 @@ export async function initializeMainProcessPlugins(runtime: OrcaRuntimeService):
     applyConsent: (request) =>
       applyPluginConsent({ store, pluginService: state.pluginService!, ...request }),
     applyEnablement: (pluginKey, enabled) =>
-      applyPluginEnablement({ store, pluginService: state.pluginService!, pluginKey, enabled })
+      applyPluginEnablement({ store, pluginService: state.pluginService!, pluginKey, enabled }),
+    setDevPluginPaths: (devPluginPaths) =>
+      store.updateSettings({ devPluginPaths }, { notifyListeners: true })
   })
   // Initialization discovers manifests only; workers/panel reads wait for explicit triggers.
   void state.pluginService
