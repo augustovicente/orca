@@ -196,7 +196,7 @@ it('leaves every live reducer value and the Stop handle unchanged after fold the
       ...base(2),
       kind: 'queue',
       messageId: 'card',
-      change: { op: 'queued', body: user, position: 1 }
+      change: { op: 'queued', body: user, position: 1, queuedAt: { epoch, sequence: 1 } }
     },
     {
       ...base(3),
