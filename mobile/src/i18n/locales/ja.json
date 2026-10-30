@@ -4069,6 +4069,16 @@
       "task": "タスク",
       "review": "確認"
     },
+    "orphanIssues": {
+      "hostReselection": "実行する前に、このオートメーションを編集してホストを選択し直してください。",
+      "malformed": "保存されているホストの記録が不完全です。",
+      "projectMissing": "プロジェクトが存在しなくなったため、ホストを特定できません。",
+      "projectUnverified": "ここからはプロジェクトを確認できなかったため、ホストは未確認です。",
+      "scheduledElsewhere": "ここに保存されていますが、リモートのランタイムで実行するようにスケジュールされています。",
+      "targetMissing": "SSHホストは登録されていません。",
+      "targetReplaced": "SSHホストが削除されて再追加されたため、このオートメーションを再度引き継ぐ必要があります。",
+      "workspaceHostAmbiguous": "ワークスペースが複数のホストにまたがっているため、所有者を一つに特定できません。"
+    },
     "runFailures": {
       "noDispatchHost": "オートメーションを起動できる Orca ウィンドウがありませんでした。",
       "unevaluableSchedule": "Orca はこのオートメーションを評価できず、今回の実行をスキップしました。",

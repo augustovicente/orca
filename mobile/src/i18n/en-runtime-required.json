@@ -18,6 +18,16 @@
     }
   },
   "automations": {
+    "orphanIssues": {
+      "hostReselection": "Edit this automation and reselect its host before running it.",
+      "malformed": "Its stored host record is incomplete.",
+      "projectMissing": "Its project no longer exists, so its host cannot be resolved.",
+      "projectUnverified": "Its project could not be checked from here, so its host is unconfirmed.",
+      "scheduledElsewhere": "It is stored here but scheduled against a remote runtime.",
+      "targetMissing": "Its SSH host is no longer registered.",
+      "targetReplaced": "Its SSH host was removed and re-added, so it must be re-adopted.",
+      "workspaceHostAmbiguous": "Its workspace spans more than one host, so it has no single owner."
+    },
     "runFailures": {
       "agentNeverStarted": "Automation agent never started after the prompt was submitted.",
       "agentNoCompletion": "Automation agent did not report completion.",

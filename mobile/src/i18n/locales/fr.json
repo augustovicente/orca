@@ -4182,6 +4182,16 @@
       "task": "Tâche",
       "review": "Vérifier"
     },
+    "orphanIssues": {
+      "hostReselection": "Modifiez cette automatisation et sélectionnez à nouveau son hôte avant de l’exécuter.",
+      "malformed": "L’enregistrement de son hôte est incomplet.",
+      "projectMissing": "Son projet n’existe plus, il est donc impossible de déterminer son hôte.",
+      "projectUnverified": "Son projet n’a pas pu être vérifié depuis ici, son hôte n’est donc pas confirmé.",
+      "scheduledElsewhere": "Elle est stockée ici, mais son exécution est planifiée sur un environnement d’exécution distant.",
+      "targetMissing": "Son hôte SSH n’est plus enregistré.",
+      "targetReplaced": "Son hôte SSH a été supprimé puis ajouté à nouveau ; l’automatisation doit donc être adoptée à nouveau.",
+      "workspaceHostAmbiguous": "Son espace de travail s’étend sur plusieurs hôtes, il n’a donc pas de propriétaire unique."
+    },
     "runFailures": {
       "noDispatchHost": "Aucune fenêtre Orca n’était disponible pour lancer l’automatisation.",
       "unevaluableSchedule": "Orca n’a pas pu évaluer cette automatisation et a ignoré cette occurrence.",

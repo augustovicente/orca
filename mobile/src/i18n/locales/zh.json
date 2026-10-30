@@ -4069,6 +4069,16 @@
       "task": "任务",
       "review": "检查"
     },
+    "orphanIssues": {
+      "hostReselection": "运行此自动化之前，请先编辑它并重新选择主机。",
+      "malformed": "其保存的主机记录不完整。",
+      "projectMissing": "其项目已不存在，因此无法确定其主机。",
+      "projectUnverified": "无法从此处检查其项目，因此其主机尚未确认。",
+      "scheduledElsewhere": "它存储在此处，但计划在远程运行时执行。",
+      "targetMissing": "其 SSH 主机已不再注册。",
+      "targetReplaced": "其 SSH 主机已被移除并重新添加，因此需要重新接管此自动化。",
+      "workspaceHostAmbiguous": "其工作区跨越多个主机，因此没有唯一的所有者。"
+    },
     "runFailures": {
       "noDispatchHost": "没有可用于启动自动化的 Orca 窗口。",
       "unevaluableSchedule": "Orca 无法评估此自动化，已跳过此次执行。",

@@ -1,3 +1,5 @@
+import { AUTOMATION_ORPHAN_ISSUES } from '../../../src/shared/automation-list-scope'
+import { activateMobileUiLocale } from '../i18n/mobile-i18n'
 import { MOBILE_RPC_METHOD_ROUTES } from '../../../src/main/runtime/runtime-rpc/runtime-rpc-mobile-method-routing'
 import { scopeRpcClientToExecutionHost } from '../transport/execution-host-scoped-rpc-client'
 import { SetupHookTrustDrawer } from '../components/SetupHookTrustDrawer'
@@ -298,6 +300,51 @@ export function registerAutomationPresentationTests({
     })
     await open()
   }
+  it('localizes known orphan reasons in French list and detail while preserving unknown host text', async () => {
+    await activateMobileUiLocale('fr')
+    try {
+      for (const [issue, expected] of [
+        [
+          AUTOMATION_ORPHAN_ISSUES.projectMissing,
+          'Son projet n’existe plus, il est donc impossible de déterminer son hôte.'
+        ],
+        ['Future host reason', 'Future host reason']
+      ]) {
+        const port = portFor(savedAutomation(), { kind: 'orphan', issue })
+        let unmount = () => {}
+        await act(async () => {
+          const tree = create(
+            createElement(AutomationManager, { client: port.client, hostId: 'desktop' })
+          )
+          setTree(tree)
+          unmount = () => tree.unmount()
+        })
+        const text = () =>
+          root()
+            .findAll((node) => String(node.type) === 'Text')
+            .map((node) => node.props.children)
+        expect(text()).toContain(expected)
+        expect(text()).not.toContain(AUTOMATION_ORPHAN_ISSUES.projectMissing)
+        await open()
+        expect(text()).toContain(expected)
+        expect(text()).not.toContain(AUTOMATION_ORPHAN_ISSUES.projectMissing)
+        const button = (label: string) =>
+          root()
+            .findAllByType(AutomationButton)
+            .find((node) => node.props.label === label)!
+        expect(button('Exécuter maintenant').props.disabled).toBe(true)
+        expect(button('Édition').props.disabled).toBe(false)
+        expect(button("Supprimer l'automatisation").props.disabled).toBe(false)
+        expect(port.send.mock.calls.some(([method]) => method === 'automation.runNow')).toBe(false)
+        await act(async () => unmount())
+      }
+    } finally {
+      await act(async () => {
+        await activateMobileUiLocale('en')
+      })
+    }
+  })
+
   function twins(reverse = false) {
     const targets = automationTargets()
     const local = { ...targets.setups[0]!, label: 'Review/desktop' }

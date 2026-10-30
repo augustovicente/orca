@@ -4073,6 +4073,16 @@
       "task": "Görev",
       "review": "İncele"
     },
+    "orphanIssues": {
+      "hostReselection": "Bu otomasyonu çalıştırmadan önce düzenleyin ve ana bilgisayarını yeniden seçin.",
+      "malformed": "Saklanan ana bilgisayar kaydı eksik.",
+      "projectMissing": "Projesi artık mevcut olmadığından ana bilgisayarı belirlenemiyor.",
+      "projectUnverified": "Projesi buradan denetlenemediğinden ana bilgisayarı doğrulanmış değil.",
+      "scheduledElsewhere": "Burada saklanıyor ancak uzak bir çalışma ortamında çalıştırılmak üzere zamanlanmış.",
+      "targetMissing": "SSH ana bilgisayarı artık kayıtlı değil.",
+      "targetReplaced": "SSH ana bilgisayarı kaldırılıp yeniden eklendiği için bu otomasyonun yeniden devralınması gerekiyor.",
+      "workspaceHostAmbiguous": "Çalışma alanı birden fazla ana bilgisayara yayıldığından tek bir sahibi yok."
+    },
     "runFailures": {
       "noDispatchHost": "Otomasyonu başlatmak için kullanılabilir bir Orca penceresi yoktu.",
       "unevaluableSchedule": "Orca bu otomasyonu değerlendiremedi ve bu çalıştırmayı atladı.",

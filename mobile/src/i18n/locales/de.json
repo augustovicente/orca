@@ -4073,6 +4073,16 @@
       "task": "Aufgabe",
       "review": "Prüfen"
     },
+    "orphanIssues": {
+      "hostReselection": "Bearbeite diese Automatisierung und wähle ihren Host erneut aus, bevor du sie ausführst.",
+      "malformed": "Ihr gespeicherter Host-Eintrag ist unvollständig.",
+      "projectMissing": "Ihr Projekt existiert nicht mehr, daher lässt sich ihr Host nicht ermitteln.",
+      "projectUnverified": "Ihr Projekt konnte von hier aus nicht geprüft werden, daher ist ihr Host nicht bestätigt.",
+      "scheduledElsewhere": "Sie ist hier gespeichert, wird aber auf einer entfernten Laufzeitumgebung ausgeführt.",
+      "targetMissing": "Ihr SSH-Host ist nicht mehr registriert.",
+      "targetReplaced": "Ihr SSH-Host wurde entfernt und erneut hinzugefügt. Daher muss sie erneut übernommen werden.",
+      "workspaceHostAmbiguous": "Ihr Arbeitsbereich erstreckt sich über mehrere Hosts und hat daher keinen eindeutigen Besitzer."
+    },
     "runFailures": {
       "noDispatchHost": "Zum Starten der Automatisierung war kein Orca-Fenster verfügbar.",
       "unevaluableSchedule": "Orca konnte diese Automatisierung nicht auswerten und hat diese Ausführung übersprungen.",

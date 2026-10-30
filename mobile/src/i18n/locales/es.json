@@ -4182,6 +4182,16 @@
       "task": "Tarea",
       "review": "Revisar"
     },
+    "orphanIssues": {
+      "hostReselection": "Edita esta automatización y vuelve a seleccionar su host antes de ejecutarla.",
+      "malformed": "El registro guardado de su host está incompleto.",
+      "projectMissing": "Su proyecto ya no existe, por lo que no se puede determinar su host.",
+      "projectUnverified": "No se pudo comprobar su proyecto desde aquí, por lo que su host no está confirmado.",
+      "scheduledElsewhere": "Está almacenada aquí, pero está programada para ejecutarse en un entorno de ejecución remoto.",
+      "targetMissing": "Su host SSH ya no está registrado.",
+      "targetReplaced": "Su host SSH se eliminó y se volvió a añadir, por lo que es necesario volver a adoptar la automatización.",
+      "workspaceHostAmbiguous": "Su espacio de trabajo abarca más de un host, por lo que no tiene un único propietario."
+    },
     "runFailures": {
       "noDispatchHost": "No había ninguna ventana de Orca disponible para iniciar la automatización.",
       "unevaluableSchedule": "Orca no pudo evaluar esta automatización y omitió esta ejecución.",

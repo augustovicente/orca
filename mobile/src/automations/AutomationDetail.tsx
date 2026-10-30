@@ -1,3 +1,4 @@
+import { automationOrphanIssueText } from './automation-orphan-issue-copy'
 import { useMobileTranslation } from '../i18n/use-mobile-translation'
 import { useMobileColorScheme } from '../theme/use-mobile-color-scheme'
 import { useEffect, useState } from 'react'
@@ -132,7 +133,7 @@ export function AutomationDetail(props: {
         />
       </View>
       {item.selector.kind === 'orphan' ? (
-        <Text style={styles.error}>{item.selector.issue}</Text>
+        <Text style={styles.error}>{automationOrphanIssueText(item.selector.issue)}</Text>
       ) : null}
       <View style={styles.card}>
         <AutomationMetadata

@@ -4069,6 +4069,16 @@
       "task": "任務",
       "review": "檢查"
     },
+    "orphanIssues": {
+      "hostReselection": "執行此自動化之前，請先編輯它並重新選擇主機。",
+      "malformed": "其儲存的主機記錄不完整。",
+      "projectMissing": "其專案已不存在，因此無法確定其主機。",
+      "projectUnverified": "無法從此處檢查其專案，因此其主機尚未確認。",
+      "scheduledElsewhere": "它儲存在此處，但排程在遠端執行階段執行。",
+      "targetMissing": "其 SSH 主機已不再註冊。",
+      "targetReplaced": "其 SSH 主機已被移除並重新新增，因此需要重新接管此自動化。",
+      "workspaceHostAmbiguous": "其工作區跨越多個主機，因此沒有唯一的擁有者。"
+    },
     "runFailures": {
       "noDispatchHost": "沒有可用來啟動自動化的 Orca 視窗。",
       "unevaluableSchedule": "Orca 無法評估此自動化，已略過此次執行。",

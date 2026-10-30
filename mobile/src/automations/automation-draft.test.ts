@@ -1,3 +1,5 @@
+import { automationOrphanIssueText } from './automation-orphan-issue-copy'
+import { AUTOMATION_ORPHAN_ISSUES } from '../../../src/shared/automation-list-scope'
 import {
   loadAutomationTargets,
   automationSetupKey,
@@ -359,4 +361,21 @@ describe('mobile automation run failure copy', () => {
       expect(automationRunErrorText(runSchema.parse({ ...base, errorParams }))).toBe(base.error)
     }
   })
+})
+
+it('translates known orphan reasons and leaves unknown host text intact', async () => {
+  try {
+    for (const issue of Object.values(AUTOMATION_ORPHAN_ISSUES)) {
+      expect(automationOrphanIssueText(issue)).toBe(issue)
+    }
+    await activateMobileUiLocale('fr')
+    expect(automationOrphanIssueText(AUTOMATION_ORPHAN_ISSUES.projectMissing)).toBe(
+      'Son projet n’existe plus, il est donc impossible de déterminer son hôte.'
+    )
+    for (const unknown of ['Future host reason', 'toString']) {
+      expect(automationOrphanIssueText(unknown)).toBe(unknown)
+    }
+  } finally {
+    await activateMobileUiLocale('en')
+  }
 })
