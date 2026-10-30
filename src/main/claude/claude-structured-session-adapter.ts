@@ -1,8 +1,9 @@
 import { waitForPromiseWithSignal } from '../../shared/abort-signal-reason'
 import { dispatchClaudeCommand } from './claude-structured-command-dispatch'
-import type {
-  StructuredAgentSessionAcquireInput,
-  StructuredAgentSessionAdapter
+import {
+  AgentSessionAcquisitionRootExitObservedError,
+  type StructuredAgentSessionAcquireInput,
+  type StructuredAgentSessionAdapter
 } from '../native-chat/agent-session-wire/structured-agent-session-adapter'
 import { stopCurrentClaudeBackgroundTasks } from './claude-structured-control-actions'
 import { claudeHeldSends, claudeHoldsDispatch } from './claude-command-lifecycle'
@@ -22,7 +23,6 @@ import {
 } from './structured/claude-structured-session-state'
 import {
   closeAllClaudeSessions,
-  closeClaudeSession,
   finishClaudeCloseAfterExit
 } from './claude-structured-session-close'
 import { claudeStoppedRequestEndWait } from './claude-request-end-wait'
@@ -94,7 +94,7 @@ export class ClaudeStructuredSessionAdapter implements StructuredAgentSessionAda
             sessions: this.sessions,
             sessionId,
             connection: attempt.connection,
-            deps: this.deps,
+            deps: { ...this.deps, settledExitErrors: this.settledExitErrors },
             afterClose: (close) => this.afterClose(sessionId, close)
           }),
         settleExit: (sessionId, exit) =>
@@ -246,11 +246,6 @@ export class ClaudeStructuredSessionAdapter implements StructuredAgentSessionAda
   }
   readOptions = (input: { sessionId: string; fence: number }) =>
     readClaudeStructuredSessionOptions(this.session(input.sessionId))
-  readOptionRestoreFailures = (sessionId: string): readonly string[] => {
-    const session = this.sessions.get(sessionId)
-    return session?.retiredModel !== undefined && !session.options.has('model') ? ['model'] : []
-  }
-
   releaseAcquisition = (input: { sessionId: string }): Promise<boolean> =>
     this.afterClose(input.sessionId, () => this.releaseProviderSession(input.sessionId))
   acknowledgeSessionRelease = (sessionId: string): void => {
@@ -265,7 +260,16 @@ export class ClaudeStructuredSessionAdapter implements StructuredAgentSessionAda
   private async afterClose(sessionId: string, close: () => Promise<boolean>): Promise<boolean> {
     const session = this.sessions.get(sessionId)
     try {
-      return await close()
+      const closed = await close()
+      const receipt = this.settledExitErrors.get(sessionId)
+      if (
+        closed &&
+        receipt instanceof AgentSessionAcquisitionRootExitObservedError &&
+        receipt.deathEvidenceKind === 'kill-delivered'
+      ) {
+        throw receipt
+      }
+      return closed
     } finally {
       this.publishChildWork(sessionId, session)
     }
@@ -277,32 +281,23 @@ export class ClaudeStructuredSessionAdapter implements StructuredAgentSessionAda
       sessions: this.sessions,
       acquisitions: this.acquisitions,
       exits: this.exits,
+      settledExitErrors: this.settledExitErrors,
       onExitProven: (sessionId, exit) =>
         settleClaudeUnexpectedExit(this.exitLifecycle, sessionId, exit),
-      ...(this.deps.persistHandle ? { persistHandle: this.deps.persistHandle } : {}),
-      ...(this.deps.onEvent ? { onEvent: this.deps.onEvent } : {})
+      ...this.deps
     })
 
   closeSession = (sessionId: string): Promise<boolean> =>
-    // Clear diagnostics after close, which may still settle an observed exit.
-    this.closeSessionProcess(sessionId).finally(() => this.settledExitErrors.delete(sessionId))
-
-  private closeSessionProcess(sessionId: string): Promise<boolean> {
-    // Preserve an exit observed before the requested close.
-    if (this.exits.has(sessionId)) {
-      return this.releaseAcquisition({ sessionId })
-    }
-    return this.afterClose(sessionId, () => this.closeProviderSession(sessionId))
-  }
-
-  private closeProviderSession = (sessionId: string): Promise<boolean> =>
-    closeClaudeSession({
-      sessionId,
-      sessions: this.sessions,
-      acquisitions: this.acquisitions,
-      ...(this.deps.persistHandle ? { persistHandle: this.deps.persistHandle } : {}),
-      ...(this.deps.onEvent ? { onEvent: this.deps.onEvent } : {}),
-      ...(this.deps.logger ? { logger: this.deps.logger } : {})
+    this.releaseAcquisition({ sessionId }).finally(() => {
+      const receipt = this.settledExitErrors.get(sessionId)
+      if (
+        !(
+          receipt instanceof AgentSessionAcquisitionRootExitObservedError &&
+          receipt.deathEvidenceKind === 'kill-delivered'
+        )
+      ) {
+        this.settledExitErrors.delete(sessionId)
+      }
     })
 
   closeAll = (): Promise<void> =>

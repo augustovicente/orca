@@ -58,6 +58,7 @@ export async function tearDownRuntime(
   } catch (error) {
     failures.push(error)
   }
+  await installed.host.drainStatusWrites()
   if (failures.length === 0) {
     // Close only after all sinks drain and conversations settle.
     installed.journalDatabase.close()

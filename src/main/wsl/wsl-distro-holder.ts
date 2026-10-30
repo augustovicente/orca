@@ -1,11 +1,13 @@
 import { runKeyedSerializedOperation } from '../cli/keyed-promise-queue'
-import { spawnProcess } from '@orca/process-host'
+import { spawnDetachedWithoutInheritance } from '@orca/process-host/isolated-detached-spawn'
 import { queryWindowsProcess } from '../daemon/daemon-process-inspection'
-import type { WindowsProcessEvidence } from '../daemon/daemon-incarnation-evidence-types'
-import { listConfirmedRunningWslDistros } from '../wsl-background-distro-gate'
+import {
+  listConfirmedRunningWslDistros,
+  noteWslDistroMayHaveStopped
+} from '../wsl-background-distro-gate'
 import { WslDistroNotRunningError } from './wsl-orcad-connection-errors'
 import { resolveWslInteropSpawnCwd } from '../wsl-interop-spawn-directory'
-import { buildWslDistroHolderArgs, isWslDistroHolderCommandLine } from './wsl-distro-holder-command'
+import { buildWslDistroHolderArgs } from './wsl-distro-holder-command'
 import {
   listWslDistroHolderRecordDistros,
   readWslDistroHolderRecord,
@@ -29,6 +31,7 @@ import type {
   WslDistroHolderChild,
   WslDistroHolderDependencies,
   WslDistroHolderEnsureResult,
+  WslDistroHolderReleaseOptions,
   WslDistroHolderState
 } from './wsl-distro-holder-types'
 
@@ -39,42 +42,20 @@ const RELEASE_EXIT_TIMEOUT_MS = 5_000
 export const WSL_HOLDER_UNVERIFIABLE_REPLACE_AFTER_MS = 5 * 60_000
 
 function spawnDetachedHolder(distro: string): WslDistroHolderChild {
-  // Detached holders outlive Orca's libuv kill-on-close job; explicit taskkill /T still reaches descendants.
-  return spawnProcess({
+  // Detached and broken away from Orca's jobs where they allow it, so a holder outlives a crash of
+  // Orca even inside a kill-on-close job (an OpenSSH session's); taskkill /T still reaches it.
+  // Inheriting none of Orca's handles keeps a launcher's pipe or a DevTools socket from outliving Orca.
+  return spawnDetachedWithoutInheritance({
     program: resolveWslExecutablePath(),
     args: buildWslDistroHolderArgs(distro),
     // A host-wide holder must never pin a worktree as its Windows cwd.
     cwd: resolveWslInteropSpawnCwd(),
-    env: { ...process.env, WSL_UTF8: '1' },
-    detached: true,
-    stdio: 'ignore'
+    env: { ...process.env, WSL_UTF8: '1' }
   })
 }
 
-/** Pid + creation time + command line must all agree; any one contradicting means pid reuse. */
-export function classifyWslDistroHolderProcess(
-  record: WslDistroHolderRecord,
-  evidence: WindowsProcessEvidence
-): WslDistroHolderState {
-  if (evidence.status === 'unavailable') {
-    return 'unverifiable'
-  }
-  if (evidence.status === 'missing') {
-    return 'exited'
-  }
-  const timeKnown = record.creationTimeMs !== null && evidence.startedAtMs !== null
-  if (timeKnown && record.creationTimeMs !== evidence.startedAtMs) {
-    return 'exited'
-  }
-  if (!evidence.commandLine) {
-    return 'unverifiable'
-  }
-  if (!isWslDistroHolderCommandLine(evidence.commandLine, record.distro)) {
-    return 'exited'
-  }
-  // A record written without a creation time never had one to compare; the command line decides.
-  return timeKnown || record.creationTimeMs === null ? 'live' : 'unverifiable'
-}
+export { classifyWslDistroHolderProcess } from './wsl-distro-holder-process-classification'
+import { classifyWslDistroHolderProcess } from './wsl-distro-holder-process-classification'
 
 export function createWslDistroHolder(dependencies: WslDistroHolderDependencies): WslDistroHolder {
   const { userDataPath } = dependencies
@@ -82,6 +63,7 @@ export function createWslDistroHolder(dependencies: WslDistroHolderDependencies)
   const queryProcess = dependencies.queryProcess ?? ((pid: number) => queryWindowsProcess(pid))
   const killProcess = dependencies.killProcess ?? ((pid: number) => process.kill(pid))
   const listRunningDistros = dependencies.listRunningDistros ?? listConfirmedRunningWslDistros
+  const noteMayHaveStopped = dependencies.noteMayHaveStopped ?? noteWslDistroMayHaveStopped
   const now = dependencies.now ?? Date.now
   const monotonicNow = dependencies.monotonicNow ?? (() => performance.now())
   const unverifiableSince = new Map<string, number>()
@@ -192,9 +174,13 @@ export function createWslDistroHolder(dependencies: WslDistroHolderDependencies)
         throw error
       }
       const { onHolderExit } = dependencies
-      if (onHolderExit) {
-        child.once('exit', (code, signal) => onHolderExit(distro, { code, signal }))
-      }
+      child.once('exit', (code, signal) => {
+        // Unfiltered and bridge-independent: no cooldown or open socket can hide this stop.
+        if (code === 1) {
+          noteMayHaveStopped(distro)
+        }
+        onHolderExit?.(distro, { code, signal })
+      })
       return record
     } finally {
       child.off('exit', onExit)
@@ -203,11 +189,20 @@ export function createWslDistroHolder(dependencies: WslDistroHolderDependencies)
 
   async function stopRecordedHolder(
     record: WslDistroHolderRecord,
-    { spawnedHere = false } = {}
+    { spawnedHere = false, forUninstall = false } = {}
   ): Promise<WslDistroHolderState> {
-    let state = classifyWslDistroHolderProcess(record, await queryProcess(record.pid))
+    const classify = async (): Promise<WslDistroHolderState> =>
+      classifyWslDistroHolderProcess(record, await queryProcess(record.pid), {
+        commandLineSuffices: forUninstall
+      })
+    let state = await classify()
+    if (state === 'unverifiable' && forUninstall) {
+      await sleep(BOOT_POLL_INTERVAL_MS)
+      state = await classify()
+    }
     // A command line alone can't tell our holder from a reused pid running the same argv.
-    const provenOurs = spawnedHere || record.creationTimeMs !== null
+    const provenOurs = spawnedHere || record.creationTimeMs !== null || forUninstall
+    const stateBeforeKill = state
     if (state === 'live' && provenOurs) {
       try {
         // WSL 2.7.10 relaunches a same-argv child; killing the recorded parent ends both.
@@ -217,7 +212,7 @@ export function createWslDistroHolder(dependencies: WslDistroHolderDependencies)
       }
       const deadline = monotonicNow() + RELEASE_EXIT_TIMEOUT_MS
       for (;;) {
-        state = classifyWslDistroHolderProcess(record, await queryProcess(record.pid))
+        state = await classify()
         // Mid-exit rows may retain PID but lose command line; only exited proves termination.
         if (state === 'exited' || monotonicNow() >= deadline) {
           break
@@ -227,6 +222,11 @@ export function createWslDistroHolder(dependencies: WslDistroHolderDependencies)
     }
     if (state === 'exited') {
       await removeWslDistroHolderRecord(userDataPath, record.distro)
+    }
+    if (forUninstall) {
+      console.warn(
+        `[wsl] uninstall: ${record.distro} holder pid ${record.pid} was ${stateBeforeKill}, now ${state}`
+      )
     }
     return state === 'live' && !provenOurs ? 'unverifiable' : state
   }
@@ -305,10 +305,10 @@ export function createWslDistroHolder(dependencies: WslDistroHolderDependencies)
 
     release: (distro) => releaseRecorded(distro),
 
-    async releaseAll() {
+    async releaseAll(options) {
       const distros = await listWslDistroHolderRecordDistros(userDataPath)
       return Promise.all(
-        distros.map(async (distro) => ({ distro, state: await releaseRecorded(distro) }))
+        distros.map(async (distro) => ({ distro, state: await releaseRecorded(distro, options) }))
       )
     },
 
@@ -318,7 +318,10 @@ export function createWslDistroHolder(dependencies: WslDistroHolderDependencies)
   }
   return holder
 
-  function releaseRecorded(distro: string): Promise<WslDistroHolderState> {
+  function releaseRecorded(
+    distro: string,
+    options: WslDistroHolderReleaseOptions = {}
+  ): Promise<WslDistroHolderState> {
     return serialize(distro, async () => {
       const read = await readWslDistroHolderRecord(userDataPath, distro)
       if (read.status === 'unreadable') {
@@ -328,7 +331,7 @@ export function createWslDistroHolder(dependencies: WslDistroHolderDependencies)
         await removeWslDistroHolderRecord(userDataPath, distro)
         return 'exited'
       }
-      return stopRecordedHolder(read.record)
+      return stopRecordedHolder(read.record, options)
     })
   }
 }
