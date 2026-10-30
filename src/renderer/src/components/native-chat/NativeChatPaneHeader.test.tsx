@@ -101,6 +101,9 @@ it('keeps the switch hit target stable while its inactive pane gains focus durin
   const otherGroup = useAppStore
     .getState()
     .createEmptySplitGroup(source.worktreeId, source.groupId, 'right')
+  if (otherGroup === null) {
+    throw new Error('Expected the sibling split group to be created')
+  }
   const switchToCli = vi.fn()
   const handOff = { open: vi.fn(), disabled: false }
   function FocusableHeader() {
