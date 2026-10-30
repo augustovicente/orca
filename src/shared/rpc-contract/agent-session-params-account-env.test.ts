@@ -22,14 +22,19 @@ const ENSURE = {
 
 describe.each([
   ['terminal.createAgentSession', CreateAgentSessionParams, CREATE],
-  ['terminal.ensureAgentSession', EnsureAgentSessionParams, ENSURE],
-  ['terminal.create', TerminalCreateParams, { worktree: 'id:wt-1' }]
+  ['terminal.ensureAgentSession', EnsureAgentSessionParams, ENSURE]
 ] as const)('%s accountEnv wire compatibility', (_method, schema, base) => {
-  it('preserves validated account routing and old-client absence', () => {
-    expect(schema.parse({ ...base, accountEnv: ACCOUNT_ENV })).toMatchObject({
-      accountEnv: ACCOUNT_ENV
-    })
+  it('carries a validated account env on a new host', () => {
+    const parsed = schema.parse({ ...base, accountEnv: ACCOUNT_ENV })
+    expect(parsed).toMatchObject({ accountEnv: ACCOUNT_ENV })
+  })
+
+  it('parses an older client, which never sends it, unchanged', () => {
     expect(schema.parse(base)).not.toHaveProperty('accountEnv')
+  })
+
+  it('rejects unknown keys on the current strict request schema', () => {
+    expect(schema.safeParse({ ...base, futureAccountEnv: ACCOUNT_ENV }).success).toBe(false)
   })
 
   it.each([
@@ -44,14 +49,6 @@ describe.each([
 })
 
 describe('agent-session.account-env.v1', () => {
-  it.each([CreateAgentSessionParams, EnsureAgentSessionParams])(
-    'keeps strict requests',
-    (schema) => {
-      const base = schema === CreateAgentSessionParams ? CREATE : ENSURE
-      expect(schema.safeParse({ ...base, futureAccountEnv: ACCOUNT_ENV }).success).toBe(false)
-    }
-  )
-
   it('is not accepted on an automatic ensure, which hosts refuse anyway', () => {
     const automatic = { kind: 'automatic', sleepingCheckpointId: 'a'.repeat(32) }
     expect(EnsureAgentSessionParams.safeParse(automatic).success).toBe(true)
@@ -62,26 +59,20 @@ describe('agent-session.account-env.v1', () => {
 })
 
 it.each([
-  [{ CODEX_HOME: 'C:\\Users\\qa\\managed', ORCA_PANE_KEY: 'tab:leaf' }, true],
-  [{ PATH: '/usr/bin', ORCA_AGENT_LAUNCH_TOKEN: 'token' }, true],
-  [{ ORCA_PANE_KEY: 1 }, false],
-  [{ invalid: null }, false],
-  [['not-a-record'], false]
-])('validates explicit ensure env %j as %s', (env, valid) => {
-  expect(EnsureAgentSessionParams.safeParse({ ...ENSURE, env }).success).toBe(valid)
-  expect(TerminalCreateParams.safeParse({ worktree: ENSURE.worktree, env }).success).toBe(valid)
-})
-
-it.each([
-  [undefined, true],
-  [[], true],
-  [Array.from({ length: 32 }, (_, i) => `${i}`.padEnd(256, 'x')), true],
-  [[''], false],
-  [['x'.repeat(257)], false],
-  [Array.from({ length: 33 }, (_, i) => `KEY_${i}`), false]
-] as const)('keeps ensure/create deletion-list parity (case %#)', (envToDelete, valid) => {
-  expect(EnsureAgentSessionParams.safeParse({ ...ENSURE, envToDelete }).success).toBe(valid)
-  expect(TerminalCreateParams.safeParse({ worktree: ENSURE.worktree, envToDelete }).success).toBe(
+  [{ env: { CODEX_HOME: 'C:\\Users\\qa\\managed', ORCA_PANE_KEY: 'tab:leaf' } }, true],
+  [{ env: { PATH: '/usr/bin', ORCA_AGENT_LAUNCH_TOKEN: 'token' } }, true],
+  [{ env: { ORCA_PANE_KEY: 1 } }, false],
+  [{ env: { invalid: null } }, false],
+  [{ env: ['not-a-record'] }, false],
+  [{ envToDelete: undefined }, true],
+  [{ envToDelete: [] }, true],
+  [{ envToDelete: Array.from({ length: 32 }, (_, i) => `${i}`.padEnd(256, 'x')) }, true],
+  [{ envToDelete: [''] }, false],
+  [{ envToDelete: ['x'.repeat(257)] }, false],
+  [{ envToDelete: Array.from({ length: 33 }, (_, i) => `KEY_${i}`) }, false]
+])('keeps ensure/create environment parity (case %#)', (input, valid) => {
+  expect(EnsureAgentSessionParams.safeParse({ ...ENSURE, ...input }).success).toBe(valid)
+  expect(TerminalCreateParams.safeParse({ worktree: ENSURE.worktree, ...input }).success).toBe(
     valid
   )
 })

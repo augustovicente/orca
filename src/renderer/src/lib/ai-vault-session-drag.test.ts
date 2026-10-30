@@ -514,14 +514,11 @@ async function planPreferred(
 
 type Pending = Awaited<ReturnType<typeof drop>>
 const placement = { worktreeId: wt, tabId: 'tab', leafId: 'leaf' }
-function paneTransport(pending: Parameters<typeof createIpcPtyTransport>[0]) {
-  return createIpcPtyTransport({ ...pending, ...placement })
-}
 async function connectObserved(
   pending: Parameters<typeof createIpcPtyTransport>[0],
   geometry = { cols: 80, rows: 24 }
 ) {
-  const transport = paneTransport(pending)
+  const transport = createIpcPtyTransport({ ...pending, ...placement })
   const accepted = vi.fn()
   const onError = vi.fn()
   const result = await transport.connect({
