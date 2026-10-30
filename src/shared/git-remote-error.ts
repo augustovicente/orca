@@ -2,8 +2,8 @@ import { stripAnsiEscapeSequences } from './ansi-escape-sequences'
 import { isPushHookFailure } from './source-control-push-failure'
 
 // Why: strip `user:password@` on any scheme, but a lone `user@` only on HTTP(S) — SSH's git@host user-info is required, so stripping breaks the URL.
-const URL_USERPASS_PATTERN = /[^\s/@:]+:[^\s/@]+@/y
-const HTTPS_TOKEN_URL_PATTERN = /(https?:\/\/)[^\s/@:]+@/gi
+const URL_USERPASS_PATTERN = /[^\s/@:?#]+:[^\s/?#]+@/y
+const HTTPS_TOKEN_URL_PATTERN = /(https?:\/\/)[^\s/@:?#]+@/gi
 const SUBMODULE_PUSH_FAILURE_PATTERN = /Unable to push submodule ['"](.+?)['"]/i
 const SUBMODULE_PUSH_FAILURE_SENTINEL_PATTERN =
   /failed to push all needed submodules|Unable to push submodule/i

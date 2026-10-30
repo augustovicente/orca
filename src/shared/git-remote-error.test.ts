@@ -27,6 +27,13 @@ describe('stripCredentialsFromMessage', () => {
     ['https://user:secret/path@host', 'https://user:secret/path@host'],
     ['https://user:secret\u00a0tail@host', 'https://user:secret\u00a0tail@host'],
     ['https://user:secret@token@host', 'https://host'],
+    ['https://user:pa@ss:word@host/repo', 'https://host/repo'],
+    ['ssh://user:pa@ss:word@host/repo', 'ssh://host/repo'],
+    ['https://user:pa@ss:word@host?query=@other', 'https://host?query=@other'],
+    ['https://user:pa@ss:word@host#fragment=@other', 'https://host#fragment=@other'],
+    ['https://user:pa@ss:word@host/path@other', 'https://host/path@other'],
+    ['https://user:secret?query=@host', 'https://user:secret?query=@host'],
+    ['https://user:secret#fragment=@host', 'https://user:secret#fragment=@host'],
     [
       '界 https://user:secret@host/😀 ssh://git@host https://token@other',
       '界 https://host/😀 ssh://git@host https://other'
