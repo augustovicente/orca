@@ -12,3 +12,13 @@ export function isTerminalFocusReportOnly(payload: string): boolean {
 export function isUntypedTerminalInput(payload: string): boolean {
   return isTerminalQueryReply(payload) || isTerminalFocusReportOnly(payload)
 }
+
+const TERMINAL_POINTER_REPORTS_ONLY_RE = new RegExp(
+  // oxlint-disable-next-line no-control-regex -- mouse reports are ESC-framed sequences by definition.
+  '^(?:\\u001b\\[<\\d+;\\d+;\\d+[Mm]|\\u001b\\[M[\\s\\S]{3})+$'
+)
+
+/** Mouse reports only (hover, click, wheel): a person pointing at or reading a terminal, never typing into it. */
+export function isTerminalPointerReportOnly(payload: string): boolean {
+  return TERMINAL_POINTER_REPORTS_ONLY_RE.test(payload)
+}

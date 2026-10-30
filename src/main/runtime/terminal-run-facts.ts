@@ -2,7 +2,10 @@ import {
   spawnCommitBindingOrigin,
   type PtySpawnCommitOrigin
 } from '../persistence/loading-store/pty-binding-span'
-import { isUntypedTerminalInput } from '../../shared/terminal-untyped-input'
+import {
+  isTerminalPointerReportOnly,
+  isUntypedTerminalInput
+} from '../../shared/terminal-untyped-input'
 import { isDrivingInputKind, type TerminalInputKind } from '../../shared/terminal-input-kind'
 
 export type TerminalRunFacts = {
@@ -115,7 +118,7 @@ export class TerminalRunFactsRegister {
     this.lastInputAtByPtyId.set(ptyId, now)
     const run = this.runsByPtyId.get(ptyId)
     if (isDrivingInputKind(inputKind)) {
-      if (inputKind === 'driving') {
+      if (inputKind === 'driving' && !isTerminalPointerReportOnly(data)) {
         this.lastDrivingInputAtByPtyId.set(ptyId, now)
       }
       for (const listener of this.inputListeners) {
@@ -139,7 +142,7 @@ export class TerminalRunFactsRegister {
     return this.lastInputAtByPtyId.get(ptyId) ?? null
   }
 
-  /** Like readLastInputAt, but only `driving` input, so Orca's own launch and orchestration writes don't count. */
+  /** Like readLastInputAt, but only `driving` input that is not just mouse reports, so neither Orca's own writes nor a pointer over the terminal count. */
   readLastDrivingInputAt(ptyId: string): number | null {
     return this.lastDrivingInputAtByPtyId.get(ptyId) ?? null
   }
