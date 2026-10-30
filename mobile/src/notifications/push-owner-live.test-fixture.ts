@@ -1,5 +1,5 @@
-import { runObservationPhone } from './push-rfp1-phone.test-fixture'
 import { pushOwnerNativePorts } from './push-owner-native-ports.test-fixture'
+import { runObservationPhone } from './push-rfp1-phone.test-fixture'
 import { expect, it, vi } from 'vitest'
 import nacl from 'tweetnacl'
 import {

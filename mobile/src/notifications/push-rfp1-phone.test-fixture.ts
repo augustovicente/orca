@@ -1,3 +1,4 @@
+import { pushOwnerNativePorts } from './push-owner-native-ports.test-fixture'
 import { expect, vi } from 'vitest'
 import WebSocket from 'ws'
 import { AppState } from 'react-native'
@@ -27,7 +28,6 @@ import {
 } from './push-registration'
 import { foregroundNotificationBehavior, resetForegroundPushClaimsForTests } from './push-receive'
 import { setNotificationViewingWorkspace } from './notification-viewing-policy'
-import { pushOwnerNativePorts } from './push-owner-native-ports.test-fixture'
 
 export async function runObservationPhone(base: string) {
   const ports = pushOwnerNativePorts()
