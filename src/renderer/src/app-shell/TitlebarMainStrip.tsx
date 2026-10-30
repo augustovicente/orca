@@ -5,6 +5,7 @@ import { TOGGLE_TERMINAL_PANE_EXPAND_EVENT } from '@/constants/terminal'
 import { ActivityTitlebarControls } from '../components/activity/ActivityTitlebarControls'
 import { useShortcutLabel } from '../hooks/useShortcutLabel'
 import { useAppStore } from '../store'
+import { editionSupports } from '../../../shared/edition'
 import { selectActiveTerminalChromeState } from '../store/active-terminal-chrome-selector'
 import { hasCustomTitleBar } from './app-window-chrome'
 import type { AppChromeLayout } from './use-app-chrome-layout'
@@ -49,13 +50,13 @@ export function TitlebarMainStrip({ layout }: { layout: AppChromeLayout }): Reac
     <>
       {layout.activeView === 'activity' ? (
         <ActivityTitlebarControls />
-      ) : layout.creationLayoutActive ? null : (
+      ) : layout.creationLayoutActive ? null : editionSupports('terminalPane') ? (
         <div
           id="titlebar-tabs"
           className={`flex flex-1 min-w-0 self-stretch${!layout.workspaceChromeActive ? ' invisible pointer-events-none' : ''}`}
         />
-      )}
-      {layout.showTitlebarExpandButton && (
+      ) : null}
+      {editionSupports('terminalPane') && layout.showTitlebarExpandButton && (
         <Tooltip>
           <TooltipTrigger asChild>
             <button
@@ -73,7 +74,11 @@ export function TitlebarMainStrip({ layout }: { layout: AppChromeLayout }): Reac
         </Tooltip>
       )}
       {/* The open sidebar already renders its close button. */}
-      {layout.showRightSidebarControls && !layout.rightSidebarOpen ? <RightSidebarToggle /> : null}
+      {editionSupports('rightSidebar') &&
+      layout.showRightSidebarControls &&
+      !layout.rightSidebarOpen ? (
+        <RightSidebarToggle />
+      ) : null}
       {/* Reserve the custom window-controls overlay’s width. */}
       {hasCustomTitleBar && <div className="window-controls-titlebar-spacer" />}
     </>

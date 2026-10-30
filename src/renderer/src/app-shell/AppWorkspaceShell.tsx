@@ -11,8 +11,8 @@ import { TitlebarLeftControls } from './TitlebarLeftControls'
 import { RightSidebarToggle, TitlebarMainStrip } from './TitlebarMainStrip'
 import type { AppChromeLayout } from './use-app-chrome-layout'
 import type { FloatingWorkspacePanelState } from './use-floating-workspace-panel'
-import { resolveTopLevelView } from '../../../shared/edition'
-
+import { editionSupports, resolveTopLevelView } from '../../../shared/edition'
+import { ClientHomePlaceholder } from './contadorca/ClientHomePlaceholder'
 // Skips the shell render each workspace switch causes; its props only change on toggle.
 const MemoFloatingTerminalToggleButton = memo(FloatingTerminalToggleButton)
 
@@ -72,6 +72,7 @@ function ActivePage({ layout }: { layout: AppChromeLayout }): React.JSX.Element 
   // Narrower editions must not render a persisted dev view as a blank page.
   const activeView = resolveTopLevelView(layout.activeView)
   const { hasActiveWorktree, activePendingCreationId, creationLayoutActive } = layout
+  const terminalPaneEnabled = editionSupports('terminalPane')
   return (
     <>
       {activeView === 'settings' ? <Settings /> : null}
@@ -82,13 +83,20 @@ function ActivePage({ layout }: { layout: AppChromeLayout }): React.JSX.Element 
       {activeView === 'activity' ? <ActivityPrototypePage /> : null}
       {activeView === 'space' ? <WorkspaceSpacePage /> : null}
       {activeView === 'mobile' ? <MobilePage /> : null}
-      {activeView === 'terminal' && creationLayoutActive && activePendingCreationId ? (
+      {!terminalPaneEnabled && activeView === 'terminal' ? <ClientHomePlaceholder /> : null}
+      {terminalPaneEnabled &&
+      activeView === 'terminal' &&
+      creationLayoutActive &&
+      activePendingCreationId ? (
         <WorktreeCreationPanel
           creationId={activePendingCreationId}
           reserveCollapsedSidebarHeaderSpace={layout.leftTitlebarChromeLayout.isFloating}
         />
       ) : null}
-      {activeView === 'terminal' && !hasActiveWorktree && !creationLayoutActive ? (
+      {terminalPaneEnabled &&
+      activeView === 'terminal' &&
+      !hasActiveWorktree &&
+      !creationLayoutActive ? (
         <Landing />
       ) : null}
     </>
@@ -190,7 +198,7 @@ export function AppWorkspaceShell(props: {
                   </div>
                 )}
                 <div className="flex flex-1 min-w-0 min-h-0 flex-col">
-                  {layout.shouldMountTerminalWorkbench ? (
+                  {layout.shouldMountTerminalWorkbench && editionSupports('terminalPane') ? (
                     <TerminalWorkbenchContainer isVisible={layout.terminalWorkbenchVisible}>
                       <Suspense fallback={null}>
                         <RecoverableRenderErrorBoundary
@@ -226,7 +234,7 @@ export function AppWorkspaceShell(props: {
                     </RecoverableRenderErrorBoundary>
                   </Suspense>
                 </div>
-                {floatingWorkspace.showToggleButton ? (
+                {floatingWorkspace.showToggleButton && editionSupports('terminalPane') ? (
                   <MemoFloatingTerminalToggleButton
                     open={floatingWorkspace.open}
                     onToggle={toggleFloatingWorkspace}
@@ -237,7 +245,7 @@ export function AppWorkspaceShell(props: {
           </div>
         </div>
         {/* Retain the shell for stable layout while heavy panels disconnect; tasks can unmount it. */}
-        {layout.showRightSidebarControls ? (
+        {layout.showRightSidebarControls && editionSupports('rightSidebar') ? (
           <RecoverableRenderErrorBoundary
             boundaryId="right-sidebar"
             surface="right-sidebar"

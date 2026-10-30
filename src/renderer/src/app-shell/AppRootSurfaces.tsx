@@ -1,3 +1,30 @@
+import {
+  QuickOpen,
+  WorkspaceCleanupDialog,
+  StatusBar,
+  SetupGuideModal,
+  FeatureWallModal,
+  FeatureTipsModal,
+  AddRepoDialog,
+  NonGitFolderDialog,
+  AddProjectFromFolderDialog,
+  DiagramViewerModal,
+  ProjectAddedDialog,
+  NodeDistMirrorDialog,
+  AiVaultSessionHistoryDialog,
+  DeleteWorktreeDialog,
+  PreservedBranchBatchReviewModal,
+  DictationController,
+  SshPassphraseDialog,
+  UpdateCard,
+  UnexpectedSignoutCard,
+  RemoteServerUpdateDialog,
+  ContextualTourOverlay,
+  SetupGuideTelemetryObserver,
+  FloatingTerminalPanel,
+  PetOverlay,
+  OnboardingFlow
+} from './app-root-surface-lazy'
 import { useTranslation } from 'react-i18next'
 import { ModalBoundary, OverlayBoundary } from './app-root-surface-boundaries'
 import { OnboardingLanguageLoading } from '../components/onboarding/OnboardingLanguageLoading'
@@ -5,7 +32,6 @@ import { useLanguageReadiness } from '../i18n/language-readiness'
 import { NotificationCardStack } from '../components/NotificationCardStack'
 import { memo, Suspense } from 'react'
 import { createPortal } from 'react-dom'
-import { lazyWithRetry as lazy } from '@/lib/lazy-with-retry'
 import { translate } from '@/i18n/i18n'
 import { RecoverableRenderErrorBoundary } from '../components/error-boundaries/RecoverableRenderErrorBoundary'
 import NewWorkspaceComposerModal from '../components/NewWorkspaceComposerModal'
@@ -23,6 +49,7 @@ import { ZoomOverlay } from '../components/ZoomOverlay'
 import { WslMoveDialogHost } from '../components/wsl-move/WslMoveDialog'
 import { shouldRenderPetOverlay } from '../components/pet/pet-overlay-visibility'
 import { useAppStore } from '../store'
+import { editionSupports } from '../../../shared/edition'
 import type { UpdateStatus } from '../../../shared/update-status-types'
 import { useLazyModalMounts } from './use-lazy-modal-mounts'
 import { usePreloadWorktreeJumpPalette, WorktreeJumpPalette } from './worktree-jump-palette-preload'
@@ -33,72 +60,6 @@ import {
 } from './app-root-surface-settings'
 import type { FloatingWorkspacePanelState } from './use-floating-workspace-panel'
 import type { OnboardingGate } from './use-onboarding-and-feature-tips'
-
-const QuickOpen = lazy(() => import('../components/QuickOpen'))
-const WorkspaceCleanupDialog = lazy(
-  () => import('../components/workspace-cleanup/WorkspaceCleanupDialog')
-)
-const StatusBar = lazy(() =>
-  import('../components/status-bar/StatusBar').then((module) => ({ default: module.StatusBar }))
-)
-const SetupGuideModal = lazy(() => import('../components/setup-guide/SetupGuideModal'))
-const FeatureWallModal = lazy(() => import('../components/feature-wall/FeatureWallModal'))
-const FeatureTipsModal = lazy(() => import('../components/feature-tips/FeatureTipsModal'))
-const AddRepoDialog = lazy(() => import('../components/sidebar/AddRepoDialog'))
-const NonGitFolderDialog = lazy(() => import('../components/sidebar/NonGitFolderDialog'))
-const AddProjectFromFolderDialog = lazy(
-  () => import('../components/sidebar/AddProjectFromFolderDialog')
-)
-const DiagramViewerModal = lazy(() => import('../components/editor/DiagramViewerModal'))
-const ProjectAddedDialog = lazy(() => import('../components/sidebar/ProjectAddedDialog'))
-const NodeDistMirrorDialog = lazy(() => import('../components/settings/NodeDistMirrorDialog'))
-const AiVaultSessionHistoryDialog = lazy(
-  () => import('../components/right-sidebar/AiVaultSessionHistoryDialog')
-)
-const DeleteWorktreeDialog = lazy(() => import('../components/sidebar/DeleteWorktreeDialog'))
-const PreservedBranchBatchReviewModal = lazy(
-  () => import('../components/sidebar/PreservedBranchBatchReviewModal')
-)
-const DictationController = lazy(() =>
-  import('../components/dictation/DictationController').then((module) => ({
-    default: module.DictationController
-  }))
-)
-const SshPassphraseDialog = lazy(() =>
-  import('../components/settings/SshPassphraseDialog').then((module) => ({
-    default: module.SshPassphraseDialog
-  }))
-)
-const UpdateCard = lazy(() =>
-  import('../components/UpdateCard').then((module) => ({ default: module.UpdateCard }))
-)
-const UnexpectedSignoutCard = lazy(() =>
-  import('../components/UnexpectedSignoutCard').then((module) => ({
-    default: module.UnexpectedSignoutCard
-  }))
-)
-const RemoteServerUpdateDialog = lazy(
-  () => import('../components/settings/RemoteServerUpdateDialog')
-)
-const ContextualTourOverlay = lazy(() =>
-  import('../components/contextual-tours/ContextualTourOverlay').then((module) => ({
-    default: module.ContextualTourOverlay
-  }))
-)
-const SetupGuideTelemetryObserver = lazy(() =>
-  import('../components/setup-guide/SetupGuideTelemetryObserver').then((module) => ({
-    default: module.SetupGuideTelemetryObserver
-  }))
-)
-const FloatingTerminalPanel = lazy(() =>
-  import('../components/floating-terminal/FloatingTerminalPanel').then((module) => ({
-    default: module.FloatingTerminalPanel
-  }))
-)
-// Load the pet asset/overlay only when enabled.
-const PetOverlay = lazy(() => import('../components/pet/PetOverlay'))
-// Avoid fetching onboarding assets for users past first launch.
-const OnboardingFlow = lazy(() => import('../components/onboarding/OnboardingFlow'))
 
 function shouldMountUpdateCardForStatus(status: UpdateStatus): boolean {
   if (status.state === 'idle') {
@@ -142,7 +103,7 @@ export const AppRootSurfaces = memo(function AppRootSurfaces(props: {
 
   return (
     <>
-      {floatingWorkspace.shouldMountPanel ? (
+      {floatingWorkspace.shouldMountPanel && editionSupports('terminalPane') ? (
         <Suspense fallback={null}>
           <OverlayBoundary
             boundaryId="overlay.floating-workspace"
@@ -161,7 +122,7 @@ export const AppRootSurfaces = memo(function AppRootSurfaces(props: {
           </OverlayBoundary>
         </Suspense>
       ) : null}
-      {statusBarVisible ? (
+      {statusBarVisible && editionSupports('statusBar') ? (
         <Suspense
           fallback={
             <div className="h-6 min-h-[24px] shrink-0 border-t border-border bg-[var(--bg-titlebar,var(--card))]" />
@@ -301,9 +262,11 @@ export const AppRootSurfaces = memo(function AppRootSurfaces(props: {
             <UnexpectedSignoutCard />
           </OverlayBoundary>
         </Suspense>
-        <OverlayBoundary boundaryId="overlay.star-nag" resetKey={activeView}>
-          <StarNagCard />
-        </OverlayBoundary>
+        {editionSupports('starNag') && (
+          <OverlayBoundary boundaryId="overlay.star-nag" resetKey={activeView}>
+            <StarNagCard />
+          </OverlayBoundary>
+        )}
         <OverlayBoundary boundaryId="overlay.codex-shared-settings-notice" resetKey={activeView}>
           <CodexSharedSettingsNoticeCard />
         </OverlayBoundary>
@@ -311,14 +274,18 @@ export const AppRootSurfaces = memo(function AppRootSurfaces(props: {
       <OverlayBoundary boundaryId="overlay.native-chat-resume-on-restart" resetKey={activeView}>
         <NativeChatResumeOnRestartModal />
       </OverlayBoundary>
-      <OverlayBoundary boundaryId="overlay.star-nag-toast" resetKey={activeView}>
-        <StarNagToastHost />
-      </OverlayBoundary>
-      <StarNagAgentValueMomentObserver />
+      {editionSupports('starNag') && (
+        <OverlayBoundary boundaryId="overlay.star-nag-toast" resetKey={activeView}>
+          <StarNagToastHost />
+        </OverlayBoundary>
+      )}
+      {editionSupports('starNag') && <StarNagAgentValueMomentObserver />}
       {/* Mount once per session; the internal gate selects pre-telemetry users (telemetry-plan.md §First-launch experience). */}
-      <OverlayBoundary boundaryId="overlay.telemetry-first-launch" resetKey={telemetryOptedIn}>
-        <TelemetryFirstLaunchSurface />
-      </OverlayBoundary>
+      {editionSupports('telemetry') && (
+        <OverlayBoundary boundaryId="overlay.telemetry-first-launch" resetKey={telemetryOptedIn}>
+          <TelemetryFirstLaunchSurface />
+        </OverlayBoundary>
+      )}
       <OverlayBoundary boundaryId="overlay.zoom" resetKey={activeView}>
         <ZoomOverlay />
       </OverlayBoundary>
