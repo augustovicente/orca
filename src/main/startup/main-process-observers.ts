@@ -11,6 +11,7 @@ import {
 import { agentHookServer } from '../agent-hooks/server'
 import { installHookStatusSessionTabsRepublish } from '../agent-hooks/hook-status-session-tabs-republish'
 import { initTelemetry, track } from '../telemetry/client'
+import { editionSupports } from '../../shared/edition'
 import { setCodexTrustGrantTelemetry } from '../codex/codex-trust-grant-telemetry'
 import { initObservability } from '../observability'
 import { recordDurableCrashBreadcrumb } from '../crash-reporting/durable-crash-breadcrumb'
@@ -81,11 +82,13 @@ export function initializeMainProcessObservers(): void {
     unsubscribeStatusFreshness()
     uninstallHookStatusRepublish()
   }
-  // Initialize before IPC/renderers can track; the telemetry client gates dev/disabled cases itself.
-  // Load the SDK after first paint (#35752); headless serve and GPU failures never show a window.
-  initTelemetry(store, (start) =>
-    runAfterFirstWindowShown(start, TELEMETRY_CLIENT_START_FALLBACK_MS)
-  )
+  if (editionSupports('telemetry')) {
+    // Initialize before IPC/renderers can track; the telemetry client gates dev/disabled cases itself.
+    // Load the SDK after first paint (#35752); headless serve and GPU failures never show a window.
+    initTelemetry(store, (start) =>
+      runAfterFirstWindowShown(start, TELEMETRY_CLIENT_START_FALLBACK_MS)
+    )
+  }
   const profileStateStartup = state.profileStateStartup
   if (profileStateStartup) {
     track('profile_state_authority_selected', {

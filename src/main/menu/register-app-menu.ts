@@ -12,6 +12,7 @@ import { createAppMenuSelectionItem, resolveNativeEditTarget } from './app-menu-
 import { createAppMenuQuitItems, type AppMenuQuitHandlers } from './app-menu-quit-item'
 import { createAppMenuReloadAndDevToolsItems } from './app-menu-reload-devtools-items'
 import { createAppWindowMenu } from './app-menu-window'
+import { buildAppearanceSubmenu } from './app-menu-appearance-submenu'
 
 export type AppearanceMenuState = {
   showTasksButton: boolean
@@ -131,7 +132,7 @@ function buildAndApplyMenu(options: RegisterAppMenuOptions): void {
     label: options.appMenuLabel ?? app.name,
     submenu: [
       { role: 'about' },
-      checkForUpdatesItem,
+      ...(editionSupports('developerTools') ? [checkForUpdatesItem] : []),
       settingsItem,
       { type: 'separator' },
       { role: 'services' },
@@ -196,65 +197,27 @@ function buildAndApplyMenu(options: RegisterAppMenuOptions): void {
   }
 
   // Electron menus are not reactive; rebuild after appearance settings change.
-  const appearanceSubmenu: Electron.MenuItemConstructorOptions = {
-    label: translateMain('menu.appearance', 'Appearance'),
-    submenu: [
-      {
-        // Display hints only: native accelerators bypass markdown bold handling and renderer-owned sidebar state.
-        label: `${translateMain('menu.toggleLeftSidebar', 'Toggle Left Sidebar')}\t${shortcutLabel('sidebar.left.toggle')}`,
-        click: () => onToggleLeftSidebar()
-      },
-      {
-        label: `${translateMain('menu.toggleRightSidebar', 'Toggle Right Sidebar')}\t${shortcutLabel('sidebar.right.toggle')}`,
-        click: () => onToggleRightSidebar()
-      },
-      {
-        label: translateMain('menu.showStatusBar', 'Show Status Bar'),
-        type: 'checkbox',
-        checked: appearance.statusBarVisible,
-        click: () => onToggleAppearance('statusBarVisible')
-      },
-      { type: 'separator' },
-      ...(editionSupports('taskProviders')
-        ? [
-            {
-              label: translateMain('menu.showTasksButton', 'Show Tasks Button'),
-              type: 'checkbox' as const,
-              checked: appearance.showTasksButton,
-              click: () => onToggleAppearance('showTasksButton')
-            }
-          ]
-        : []),
-      {
-        label: translateMain('menu.showAutomationsButton', 'Show Automations Button'),
-        type: 'checkbox',
-        checked: appearance.showAutomationsButton,
-        click: () => onToggleAppearance('showAutomationsButton')
-      },
-      {
-        label: translateMain('menu.showMobileButton', 'Show Orca Mobile Button'),
-        type: 'checkbox',
-        checked: appearance.showMobileButton,
-        click: () => onToggleAppearance('showMobileButton')
-      },
-      {
-        label: translateMain('menu.showTitlebarAppName', 'Show Titlebar App Name'),
-        type: 'checkbox',
-        checked: appearance.showTitlebarAppName,
-        click: () => onToggleAppearance('showTitlebarAppName')
-      }
-    ]
-  }
+  const appearanceSubmenu = buildAppearanceSubmenu({
+    appearance,
+    onToggleLeftSidebar,
+    onToggleRightSidebar,
+    onToggleAppearance,
+    shortcutLabel
+  })
 
   const viewMenu: Electron.MenuItemConstructorOptions = {
     label: translateMain('menu.view', 'View'),
     submenu: [
-      ...createAppMenuReloadAndDevToolsItems({
-        forceReloadShortcutLabel: shortcutLabel('app.forceReload'),
-        onBeforeReload,
-        toggleFocusedPageDevTools: options.toggleFocusedPageDevTools
-      }),
-      { type: 'separator' },
+      ...(editionSupports('developerTools')
+        ? [
+            ...createAppMenuReloadAndDevToolsItems({
+              forceReloadShortcutLabel: shortcutLabel('app.forceReload'),
+              onBeforeReload,
+              toggleFocusedPageDevTools: options.toggleFocusedPageDevTools
+            }),
+            { type: 'separator' as const }
+          ]
+        : []),
       {
         label: `${translateMain('menu.resetSize', 'Reset Size')}\t${shortcutLabel('zoom.reset')}`,
         click: () => onZoomReset()
@@ -284,16 +247,16 @@ function buildAndApplyMenu(options: RegisterAppMenuOptions): void {
   const helpMenu: Electron.MenuItemConstructorOptions = {
     label: translateMain('menu.help', 'Help'),
     submenu: [
-      crashReportItem,
-      { type: 'separator' },
-      featureTourItem,
-      setupGuideItem,
+      ...(editionSupports('developerTools')
+        ? [crashReportItem, { type: 'separator' as const }]
+        : []),
+      ...(editionSupports('onboarding') ? [featureTourItem, setupGuideItem] : []),
       ...(isMac
         ? []
         : ([
             { type: 'separator' },
             { role: 'about' },
-            checkForUpdatesItem
+            ...(editionSupports('developerTools') ? [checkForUpdatesItem] : [])
           ] satisfies Electron.MenuItemConstructorOptions[]))
     ]
   }

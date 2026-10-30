@@ -9,6 +9,7 @@ import {
   buildCmdJSettingsResults
 } from '@/components/cmd-j/palette-results'
 import { getCmdJQuickActions } from '@/components/cmd-j/quick-actions'
+import { editionSupports } from '../../../shared/edition'
 import {
   buildPluginNewFileQuickActions,
   buildPluginQuickActions
@@ -51,8 +52,12 @@ export function useWorktreeJumpPaletteProjectTargets({
     () =>
       buildCmdJActionResults([
         ...getCmdJQuickActions(),
-        ...buildPluginNewFileQuickActions(pluginNewFiles),
-        ...buildPluginQuickActions(pluginCommands)
+        ...(editionSupports('plugins')
+          ? [
+              ...buildPluginNewFileQuickActions(pluginNewFiles),
+              ...buildPluginQuickActions(pluginCommands)
+            ]
+          : [])
       ]),
     [pluginCommands, pluginNewFiles]
   )

@@ -6,6 +6,7 @@ import { resolveLeftSidebarStyleVariables } from '@/lib/left-sidebar-appearance'
 import { resolveLeftTitlebarChromeLayout } from '@/lib/titlebar-left-chrome'
 import { shouldShowWorktreeCreationSurface } from '@/lib/worktree-creation-surface'
 import { useAppStore } from '../store'
+import { editionSupports } from '../../../shared/edition'
 import { FLOATING_TERMINAL_WORKTREE_ID } from '../../../shared/constants'
 import { selectActiveTerminalChromeState } from '../store/active-terminal-chrome-selector'
 import { useSystemPrefersDark } from '../components/terminal-pane/use-system-prefers-dark'
@@ -138,9 +139,16 @@ export function useAppChromeLayout() {
     rightSidebarTab,
     shouldMountTerminalWorkbench,
     showSidebar,
-    showRightSidebarControls: !creationLayoutActive && canShowRightSidebarForView(activeView),
+    showRightSidebarControls:
+      editionSupports('rightSidebar') &&
+      !creationLayoutActive &&
+      canShowRightSidebarForView(activeView),
     showTitlebarAppName: settings?.showTitlebarAppName !== false,
-    showTitlebarExpandButton: workspaceChromeActive && !hasTabBar && effectiveActiveTabExpanded,
+    showTitlebarExpandButton:
+      editionSupports('terminalPane') &&
+      workspaceChromeActive &&
+      !hasTabBar &&
+      effectiveActiveTabExpanded,
     sidebarOpen,
     stackedSidebarOpen,
     // Retained workbench panes need a separate visibility condition.

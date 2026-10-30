@@ -2,6 +2,7 @@ import { app, nativeTheme } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { performance } from 'node:perf_hooks'
 import { StarNagService } from '../star-nag/service'
+import { editionSupports } from '../../shared/edition'
 import { AgentBrowserBridge } from '../browser/agent-browser-bridge'
 import { EmulatorBridge } from '../emulator/emulator-bridge'
 import { RpcDispatcher } from '../runtime/rpc/dispatcher'
@@ -54,10 +55,14 @@ export async function initializeReadyRuntimeServices(): Promise<void> {
   initializeMainProcessAutomations()
   configureRuntimeServices(runtime)
   installFirstWorkRenameHookSubscription()
-  await initializeMainProcessPlugins(runtime)
-  state.starNag = new StarNagService(store, state.stats!)
-  state.starNag.start()
-  state.starNag.registerIpcHandlers()
+  if (editionSupports('plugins')) {
+    await initializeMainProcessPlugins(runtime)
+  }
+  if (editionSupports('starNag')) {
+    state.starNag = new StarNagService(store, state.stats!)
+    state.starNag.start()
+    state.starNag.registerIpcHandlers()
+  }
   state.agentBrowserBridge = new AgentBrowserBridge(browserManager, {
     onTabsChanged: (worktreeId) => runtime.notifyMobileSessionTabsChanged(worktreeId)
   })
@@ -80,9 +85,11 @@ export async function initializeReadyRuntimeServices(): Promise<void> {
       return response.result
     }
   })
-  // Only Orca-managed emulator helpers belong to workspaces; external serve-sim stays independent. macOS capability gates live in CLI/runtime.
-  state.emulatorBridge = new EmulatorBridge()
-  runtime.setEmulatorBridge(state.emulatorBridge)
+  if (editionSupports('emulators')) {
+    // Only Orca-managed emulator helpers belong to workspaces; external serve-sim stays independent. macOS capability gates live in CLI/runtime.
+    state.emulatorBridge = new EmulatorBridge()
+    runtime.setEmulatorBridge(state.emulatorBridge)
+  }
   // Finish recorded deletes and old trash left across crashes; defer disk sweeps so they do not compete with first paint/catalog hydration.
   runAfterFirstWindowShown(() => {
     void sweepStaleWorktreeTrash(
@@ -93,12 +100,16 @@ export async function initializeReadyRuntimeServices(): Promise<void> {
     runtime.finishInterruptedWorktreeRemovals()
   }, WORKTREE_TRASH_SWEEP_FALLBACK_MS)
   // Defer noncritical plugin-file refresh past first paint.
-  runAfterFirstWindowShown(() => {
-    refreshInstalledOpenCodeStatusPlugins(store.getSettings())
-  }, WORKTREE_TRASH_SWEEP_FALLBACK_MS)
-  runAfterFirstWindowShown(() => {
-    new WslUsageReporter(store, app.getPath('userData')).start()
-  }, WORKTREE_TRASH_SWEEP_FALLBACK_MS)
+  if (editionSupports('plugins')) {
+    runAfterFirstWindowShown(() => {
+      refreshInstalledOpenCodeStatusPlugins(store.getSettings())
+    }, WORKTREE_TRASH_SWEEP_FALLBACK_MS)
+  }
+  if (editionSupports('telemetry')) {
+    runAfterFirstWindowShown(() => {
+      new WslUsageReporter(store, app.getPath('userData')).start()
+    }, WORKTREE_TRASH_SWEEP_FALLBACK_MS)
+  }
   runAfterFirstWindowShown(() => {
     void pruneDesktopOrcadArtifactCache(app.getPath('userData')).catch((error) => {
       console.warn('[orcad-artifacts] Failed to bound the slot cache:', error)
