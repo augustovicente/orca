@@ -18,6 +18,7 @@ import {
   temporaryDirectories,
   TERMINAL_HANDLE
 } from './orchestration-mailbox-notification-test-harness'
+import { ackThenCheck } from './orchestration-mailbox-ack-then-check.test-fixture'
 import { createRootDispatch } from './orchestration/db/root-dispatch-test-fixture'
 
 describe('orchestration mailbox routing races', () => {
@@ -104,34 +105,18 @@ describe('orchestration mailbox routing races', () => {
       )
       .all(`dispatch:${dispatch.id}`, 51) as { detail: string }[]
     expect(plan.map((row) => row.detail).join(' ')).toContain('idx_messages_unread_current_inbox')
-    const first = await checkBoundMailbox(harness.runtime, {
+    const coordinator = {
       terminal: SECOND_TERMINAL_HANDLE,
       paneKey: SECOND_PANE_KEY,
       launchToken: SECOND_LAUNCH_TOKEN
-    })
-    const second = await checkBoundMailbox(harness.runtime, {
-      ack: first.deliveryId!,
-      terminal: SECOND_TERMINAL_HANDLE,
-      paneKey: SECOND_PANE_KEY,
-      launchToken: SECOND_LAUNCH_TOKEN
-    })
-    const third = await checkBoundMailbox(harness.runtime, {
-      ack: second.deliveryId!,
-      terminal: SECOND_TERMINAL_HANDLE,
-      paneKey: SECOND_PANE_KEY,
-      launchToken: SECOND_LAUNCH_TOKEN
-    })
-    const fourth = await checkBoundMailbox(harness.runtime, {
-      ack: third.deliveryId!,
-      terminal: SECOND_TERMINAL_HANDLE,
-      paneKey: SECOND_PANE_KEY,
-      launchToken: SECOND_LAUNCH_TOKEN
-    })
+    }
+    const first = await checkBoundMailbox(harness.runtime, coordinator)
+    const second = await ackThenCheck(harness.runtime, first.deliveryId!, coordinator)
+    const third = await ackThenCheck(harness.runtime, second.deliveryId!, coordinator)
+    const fourth = await ackThenCheck(harness.runtime, third.deliveryId!, coordinator)
     const acknowledged = await checkBoundMailbox(harness.runtime, {
-      ack: fourth.deliveryId!,
-      terminal: SECOND_TERMINAL_HANDLE,
-      paneKey: SECOND_PANE_KEY,
-      launchToken: SECOND_LAUNCH_TOKEN
+      ...coordinator,
+      ack: fourth.deliveryId!
     })
     expect(first.count).toBe(50)
     expect(second.count).toBe(50)
