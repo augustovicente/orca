@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import { act, cleanup, fireEvent, render, within } from '@testing-library/react'
 import { afterEach, beforeEach, expect, vi } from 'vitest'
 import type { GlobalSettings } from '../../../../shared/global-settings-types'
@@ -34,7 +35,7 @@ export function installAccountFixture(): void {
 }
 
 export const accountRenders = new Map<string, number>()
-export function AccountCard({ session }: { session: AiVaultSession }) {
+export const AccountCard = memo(function AccountCard({ session }: { session: AiVaultSession }) {
   const label = useAiVaultSessionAccount(session)
   accountRenders.set(session.id, (accountRenders.get(session.id) ?? 0) + 1)
   return (
@@ -42,7 +43,7 @@ export function AccountCard({ session }: { session: AiVaultSession }) {
       <SessionAccountSection accountLabel={label} />
     </div>
   )
-}
+})
 export function accountCards(sessions: AiVaultSession[]) {
   return sessions.map((session) => <AccountCard key={session.id} session={session} />)
 }

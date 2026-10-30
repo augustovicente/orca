@@ -1,114 +1,41 @@
-import type { GlobalSettings } from '../../../../shared/global-settings-types'
 import type {
   ClaudeManagedAccountSummary,
   CodexManagedAccountSummary
 } from '../../../../shared/managed-account-types'
 import { normalizeRuntimePathForComparison } from '../../../../shared/cross-platform-path'
-import {
-  getCodexAccountDisplayLabel,
-  normalizeCodexAccountEmail
-} from '@/lib/codex-account-display-label'
 import type { ProviderAccountsSnapshot } from '@/runtime/runtime-provider-accounts-client'
 import { accountRuntimeScope, type NativeAccountBinding } from './ai-vault-account-binding'
-
-export type SessionAccountSettings = Pick<
-  GlobalSettings,
-  'claudeManagedAccounts' | 'codexManagedAccounts'
->
-type Saved = {
-  id: string
-  email: string
-  workspaceLabel?: string | null
-  scope: string
-  paths: string[]
-  proof: string
-  updatedAt: number
-}
-const address = (scope: string, path: string): string => JSON.stringify([scope, path])
-const emailGroup = (scope: string, email: string): string =>
-  address(scope, normalizeCodexAccountEmail(email))
-function first<K, V>(map: Map<K, V>, key: K, value: V): void {
-  if (!map.has(key)) {
-    map.set(key, value)
-  }
-}
-function append<K, V>(map: Map<K, V[]>, key: K, value: V): void {
-  const entries = map.get(key)
-  if (entries) {
-    entries.push(value)
-  } else {
-    map.set(key, [value])
-  }
-}
-
-class SavedIndex {
-  readonly paths = new Map<string, Saved>()
-  readonly ids = new Map<string, Saved[]>()
-  readonly groups = new Map<string, Saved[]>()
-  readonly topology = new Map<string, string>()
-  constructor(settings: SessionAccountSettings | null, kind: 'claude' | 'codex') {
-    const topology = new Map<string, unknown[]>()
-    for (const account of (kind === 'claude'
-      ? settings?.claudeManagedAccounts
-      : settings?.codexManagedAccounts) ?? []) {
-      const claude = 'managedAuthPath' in account
-      const scope = accountRuntimeScope(
-        claude ? account.managedAuthRuntime : account.managedHomeRuntime,
-        account.wslDistro
-      )
-      const paths = [
-        claude ? account.managedAuthPath : account.managedHomePath,
-        claude ? account.wslLinuxAuthPath : account.wslLinuxHomePath
-      ]
-        .filter((path): path is string => !!path)
-        .map(normalizeRuntimePathForComparison)
-      const workspaceLabel = 'workspaceLabel' in account ? account.workspaceLabel : undefined
-      const saved: Saved = {
-        id: account.id,
-        email: account.email,
-        workspaceLabel,
-        scope,
-        paths,
-        updatedAt: account.updatedAt,
-        proof: JSON.stringify([
-          account.id,
-          scope,
-          paths,
-          account.email,
-          workspaceLabel,
-          account.lastAuthenticatedAt,
-          claude ? account.authMethod : account.providerAccountId,
-          claude ? account.organizationUuid : account.workspaceAccountId
-        ])
-      }
-      for (const path of paths) {
-        first(this.paths, address(scope, path), saved)
-      }
-      append(this.ids, account.id, saved)
-      append(this.groups, emailGroup(scope, account.email), saved)
-      append(topology, scope, [account.id, paths])
-    }
-    for (const [scope, entries] of topology) {
-      this.topology.set(scope, JSON.stringify(entries.map((entry) => JSON.stringify(entry)).sort()))
-    }
-  }
-}
+import {
+  SavedAccountIndex,
+  accountAddress as address,
+  accountEmailGroup as emailGroup,
+  firstAccount as first,
+  appendAccount as append,
+  type SessionAccountSettings
+} from './ai-vault-saved-account-index'
+import {
+  AccountDisplayPeers,
+  emptyAccountDisplayPeers,
+  resolveNativeAccountDisplay,
+  type NativeAccountDisplay
+} from './ai-vault-account-display'
+export type { SessionAccountSettings } from './ai-vault-saved-account-index'
 
 export class NativeAccountInputs {
-  readonly claude: SavedIndex
-  readonly codex: SavedIndex
+  readonly claude: SavedAccountIndex
+  readonly codex: SavedAccountIndex
   constructor(
     readonly settings: SessionAccountSettings | null,
     previous?: NativeAccountInputs
   ) {
     this.claude =
-      previous?.settings?.claudeManagedAccounts === settings?.claudeManagedAccounts && previous
+      previous && previous.settings?.claudeManagedAccounts === settings?.claudeManagedAccounts
         ? previous.claude
-        : new SavedIndex(settings, 'claude')
+        : new SavedAccountIndex(settings, 'claude')
     this.codex =
-      previous?.settings?.codexManagedAccounts === settings?.codexManagedAccounts && previous
+      previous && previous.settings?.codexManagedAccounts === settings?.codexManagedAccounts
         ? previous.codex
-        : new SavedIndex(settings, 'codex')
+        : new SavedAccountIndex(settings, 'codex')
   }
 }
 
@@ -120,6 +47,7 @@ export class NativeAccountEvidence {
   readonly codexCollisions = new Map<string, CodexManagedAccountSummary[]>()
   readonly codexIds = new Map<string, CodexManagedAccountSummary>()
   readonly codexGroups = new Map<string, CodexManagedAccountSummary[]>()
+  readonly displayPeers = new Map<string, AccountDisplayPeers>()
   constructor(
     readonly inputs: NativeAccountInputs,
     readonly snapshot: Partial<ProviderAccountsSnapshot>
@@ -145,66 +73,80 @@ export class NativeAccountEvidence {
         append(this.codexCollisions, address(scope, account.id), account)
         append(this.codexGroups, emailGroup(scope, account.email), account)
       }
+      for (const [key, entries] of this.codexGroups) {
+        this.displayPeers.set(key, new AccountDisplayPeers(entries))
+      }
     }
   }
 }
 
-// Compare saved-input coverage before IO; summaries identify routed-home and email-group dependencies.
-export function nativeAccountDependency(
+// Coverage compares both saved snapshots under the SAME routed-home/peer evidence.
+export function sameNativeAccountDependency(
   binding: NativeAccountBinding,
-  inputs: NativeAccountInputs,
+  left: NativeAccountInputs,
+  right: NativeAccountInputs,
   evidence: NativeAccountEvidence | null
-): string {
-  const index = inputs[binding.kind]
+): boolean {
+  const index = left[binding.kind]
+  if (index === right[binding.kind]) {
+    return true
+  }
+  const pair = index.compare(right[binding.kind])
   const key = address(binding.scope, binding.path)
+  if (!pair.same('paths', key)) {
+    return false
+  }
   const saved = index.paths.get(key)
   if (binding.kind === 'claude') {
+    if (!pair.same('topology', binding.scope)) {
+      return false
+    }
     const current = evidence?.claudeHomes.get(key)
-    const collisions = evidence?.claudeCollisions.get(key) ?? []
-    const candidates = current
-      ? index.ids.get(current.id)
-      : saved
-        ? index.ids.get(saved.id)
-        : undefined
-    const idCollisions = saved ? (evidence?.claudeIdCollisions.get(saved.id) ?? []) : []
-    return JSON.stringify([
-      index.topology.get(binding.scope),
-      saved?.proof,
-      candidates?.map((entry) => entry.proof),
-      !current && idCollisions.length > 1
-        ? index.ids.get(saved!.id)?.map((entry) => entry.updatedAt)
-        : null,
-      collisions.length > 1
-        ? collisions.map((entry) => index.ids.get(entry.id)?.map((saved) => saved.updatedAt))
-        : null
-    ])
+    const id = current?.id ?? saved?.id
+    if (id && !pair.same('proofs', id)) {
+      return false
+    }
+    if (
+      !current &&
+      saved &&
+      (evidence?.claudeIdCollisions.get(saved.id)?.length ?? 0) > 1 &&
+      !pair.same('orders', saved.id)
+    ) {
+      return false
+    }
+    const collisions = evidence?.claudeCollisions.get(key)
+    return (
+      !evidence ||
+      !collisions ||
+      collisions.length < 2 ||
+      pair.sameEdges(evidence, key, () =>
+        collisions.every((entry) => pair.same('orders', entry.id))
+      )
+    )
   }
   if (!saved) {
-    return JSON.stringify([index.topology.get(binding.scope)])
+    return pair.same('topology', binding.scope)
   }
-  const current = evidence?.codexIds.get(address(binding.scope, saved.id))
-  const emails = new Set([saved.email, current?.email].map(normalizeCodexAccountEmail))
-  const collisions = evidence?.codexCollisions.get(address(binding.scope, saved.id)) ?? []
-  const livePeers =
-    evidence?.codexGroups.get(emailGroup(binding.scope, current?.email ?? saved.email)) ?? []
-  return JSON.stringify([
-    saved.proof,
-    livePeers
-      .map((peer) =>
-        index.ids
-          .get(peer.id)
-          ?.filter((entry) => entry.scope === binding.scope)
-          .map((entry) => entry.proof)
+  const idKey = address(binding.scope, saved.id)
+  if ((evidence?.codexCollisions.get(idKey)?.length ?? 0) > 1 && !pair.same('orders', saved.id)) {
+    return false
+  }
+  const current = evidence?.codexIds.get(idKey)
+  const currentGroup = emailGroup(binding.scope, current?.email ?? saved.email)
+  if (
+    evidence &&
+    !pair.sameEdges(evidence, currentGroup, () =>
+      (evidence.codexGroups.get(currentGroup) ?? []).every((peer) =>
+        pair.same('scopedProofs', address(binding.scope, peer.id))
       )
-      .sort(),
-    collisions.length > 1 ? index.ids.get(saved.id)?.map((entry) => entry.updatedAt) : null,
-    [...emails].map((email) =>
-      index.groups
-        .get(emailGroup(binding.scope, email))
-        ?.map((entry) => entry.proof)
-        .sort()
     )
-  ])
+  ) {
+    return false
+  }
+  return (
+    pair.same('emailProofs', emailGroup(binding.scope, saved.email)) &&
+    pair.same('emailProofs', emailGroup(binding.scope, current?.email ?? ''))
+  )
 }
 
 export function nativeEvidenceCovers(
@@ -212,17 +154,14 @@ export function nativeEvidenceCovers(
   inputs: NativeAccountInputs,
   evidence: NativeAccountEvidence
 ): boolean {
-  return (
-    nativeAccountDependency(binding, inputs, evidence) ===
-    nativeAccountDependency(binding, evidence.inputs, evidence)
-  )
+  return sameNativeAccountDependency(binding, inputs, evidence.inputs, evidence)
 }
 
-export function nativeAccountLabel(
+export function nativeAccountDisplay(
   binding: NativeAccountBinding,
   inputs: NativeAccountInputs,
   evidence: NativeAccountEvidence | null
-): string | null {
+): NativeAccountDisplay {
   const key = address(binding.scope, binding.path)
   const saved = inputs[binding.kind].paths.get(key)
   if (binding.kind === 'claude') {
@@ -243,8 +182,24 @@ export function nativeAccountLabel(
     return null
   }
   const current = evidence?.codexIds.get(address(binding.scope, saved.id)) ?? saved
-  const group = evidence?.snapshot.codex
-    ? (evidence.codexGroups.get(emailGroup(binding.scope, current.email)) ?? [])
-    : (inputs.codex.groups.get(emailGroup(binding.scope, current.email)) ?? [])
-  return getCodexAccountDisplayLabel(current, group)
+  const keyGroup = emailGroup(binding.scope, current.email)
+  return {
+    account: {
+      id: current.id,
+      email: current.email,
+      workspaceLabel: current.workspaceLabel?.trim() || null
+    },
+    peers:
+      (evidence?.snapshot.codex ? evidence.displayPeers : inputs.codex.displayPeers).get(
+        keyGroup
+      ) ?? emptyAccountDisplayPeers
+  }
+}
+
+export function nativeAccountLabel(
+  binding: NativeAccountBinding,
+  inputs: NativeAccountInputs,
+  evidence: NativeAccountEvidence | null
+): string | null {
+  return resolveNativeAccountDisplay(nativeAccountDisplay(binding, inputs, evidence))
 }

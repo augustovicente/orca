@@ -3,12 +3,19 @@ import * as fs from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { installFakeAppEnvironment } from '../../../../../config/scripts/vitest-host-ports-setup'
-import { RuntimeAccountController } from '../../../../main/runtime/runtime-account-controller'
+import {
+  RuntimeAccountController,
+  type RuntimeAccountServices
+} from '../../../../main/runtime/runtime-account-controller'
 import { RuntimeSubscriptionRegistry } from '../../../../main/runtime/runtime-subscription-registry'
 import { RateLimitService } from '../../../../main/rate-limits/service'
 import { getManagedDataAccountService } from '../../../../main/managed-data-accounts/service'
 import { ACCOUNT_METHODS } from '../../../../main/runtime/rpc/methods/accounts'
-import { eraseRpcMethods, isStreamingMethod } from '../../../../main/runtime/rpc/core'
+import {
+  eraseRpcMethods,
+  isStreamingMethod,
+  type RpcContext
+} from '../../../../main/runtime/rpc/core'
 import type { RuntimeRpcResponse } from '../../../../shared/runtime-rpc-envelope'
 import type {
   ManagedDataAccountProvider,
@@ -18,6 +25,28 @@ import {
   emptyClaudeAccountsState,
   emptyCodexAccountsState
 } from '@/runtime/runtime-provider-accounts-client'
+
+type StreamServicePorts = {
+  claudeAccounts: Pick<RuntimeAccountServices['claudeAccounts'], 'listAccounts'>
+  codexAccounts: Pick<RuntimeAccountServices['codexAccounts'], 'listAccounts'>
+  rateLimits: RateLimitService
+}
+type StreamRuntime = Pick<
+  RpcContext['runtime'],
+  | 'getAccountsSnapshot'
+  | 'getAccountsStreamSnapshot'
+  | 'getDataAccountsSnapshot'
+  | 'onAccountsChanged'
+  | 'registerSubscriptionCleanup'
+  | 'refreshAccountsForMobileSubscriber'
+>
+
+type StreamContext = { runtime: StreamRuntime; connectionId?: string }
+type StreamControllerPort = { setServices(services: StreamServicePorts): void }
+type StreamHandlerPort = {
+  handler(params: unknown, context: StreamContext, emit: (frame: unknown) => void): Promise<void>
+}
+type RequestHandlerPort = { handler(params: unknown, context: StreamContext): unknown }
 
 export const P = '11111111-1111-4111-8111-111111111111'
 export const Q = '22222222-2222-4222-8222-222222222222'
@@ -94,15 +123,15 @@ export function accountStreamFixture() {
   }))
   const controller = new RuntimeAccountController()
   // The stream producer calls only these native list ports; no native disk IO is part of this contract.
-  Reflect.apply(controller.setServices, controller, [
-    {
-      claudeAccounts: { listAccounts: nativeClaude },
-      codexAccounts: { listAccounts: nativeCodex },
-      rateLimits: usage
-    }
-  ])
+  const services: StreamServicePorts = {
+    claudeAccounts: { listAccounts: nativeClaude },
+    codexAccounts: { listAccounts: nativeCodex },
+    rateLimits: usage
+  }
+  const controllerPort: StreamControllerPort = controller
+  controllerPort.setServices(services)
   const subscriptions = new RuntimeSubscriptionRegistry()
-  const runtime = {
+  const runtime: StreamRuntime = {
     getAccountsSnapshot: controller.getSnapshot.bind(controller),
     getAccountsStreamSnapshot: controller.getStreamSnapshot.bind(controller),
     getDataAccountsSnapshot: controller.dataAccountsSnapshot.bind(controller),
@@ -115,6 +144,7 @@ export function accountStreamFixture() {
   if (!method || !isStreamingMethod(method)) {
     throw new Error('Missing account stream')
   }
+  const stream: StreamHandlerPort = method
   const frames: unknown[] = []
   const slots: {
     emit: (frame: unknown) => void
@@ -183,9 +213,7 @@ export function accountStreamFixture() {
           error: { code: 'fixture_error', message: 'Disconnected' }
         })
       slots.push({ emit, fail, end, unsubscribe, releaseHandle: () => handle.resolve() })
-      const work = Promise.resolve(
-        Reflect.apply(method.handler, undefined, [null, { runtime, connectionId }, emit])
-      )
+      const work = Promise.resolve(stream.handler(null, { runtime, connectionId }, emit))
       running.push(work)
       if (holdHandles) {
         await handle.promise
@@ -236,10 +264,8 @@ export function accountStreamFixture() {
       if (!strict || isStreamingMethod(strict)) {
         throw new Error('Missing one-shot')
       }
-      return Reflect.apply(strict.handler, undefined, [
-        name === 'accounts.list' ? { refreshUsage: false } : null,
-        { runtime }
-      ])
+      const request: RequestHandlerPort = strict
+      return request.handler(name === 'accounts.list' ? { refreshUsage: false } : null, { runtime })
     },
     dispose: async () => {
       for (const slot of slots) {

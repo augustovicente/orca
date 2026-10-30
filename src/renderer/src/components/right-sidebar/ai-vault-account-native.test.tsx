@@ -5,9 +5,11 @@ import type {
   ClaudeRateLimitAccountsState,
   CodexRateLimitAccountsState
 } from '../../../../shared/managed-account-types'
-import * as paths from '../../../../shared/cross-platform-path'
 import { useAppStore } from '../../store'
-import * as index from './ai-vault-native-account-index'
+import { nativeClient, changeSettings } from './ai-vault-account-native-test-fixture'
+import { sessionAccountBinding } from './ai-vault-account-binding'
+import { readSessionAccount, subscribeSessionAccount } from './ai-vault-account-directory'
+import { accountWorkCounters } from './ai-vault-account-work-test-fixture'
 import {
   accountSettings,
   recordedSession,
@@ -20,206 +22,230 @@ import {
 vi.mock('@/i18n/i18n', () => ({ translate: (_key: string, fallback: string) => fallback }))
 installAccountFixture()
 
-function nativeClient(settings: ReturnType<typeof accountSettings>) {
-  let claude: ClaudeRateLimitAccountsState = {
-    accounts: settings.claudeManagedAccounts.map((account) => ({
-      ...account,
-      home: account.managedAuthPath
-    })),
-    activeAccountId: null
-  }
-  let codex: CodexRateLimitAccountsState = {
-    accounts: settings.codexManagedAccounts,
-    activeAccountId: null
-  }
-  const claudeList = vi.fn(async () => claude)
-  const codexList = vi.fn(async () => codex)
-  window.api.claudeAccounts = { ...window.api.claudeAccounts, list: claudeList }
-  window.api.codexAccounts = { ...window.api.codexAccounts, list: codexList }
-  return {
-    claudeList,
-    codexList,
-    setClaude: (value: ClaudeRateLimitAccountsState) => {
-      claude = value
-    },
-    setCodex: (value: CodexRateLimitAccountsState) => {
-      codex = value
-    }
-  }
-}
-async function changeSettings(
-  update: (settings: ReturnType<typeof accountSettings>) => ReturnType<typeof accountSettings>
-) {
-  await act(async () => {
-    const settings = useAppStore.getState().settings
-    if (!settings) {
-      throw new Error('Missing fixture settings')
-    }
-    useAppStore.setState({ settings: update(settings) })
-  })
-}
-
 it.each([
   { count: 2, size: 100 },
+  { count: 20, size: 100 },
+  { count: 2, size: 1000 },
   { count: 20, size: 1000 }
-])(
-  'selects native evidence before IO at $count readers/$size accounts',
-  async ({ count, size }) => {
-    const settings = accountSettings(size)
-    useAppStore.setState({ settings })
-    const client = nativeClient(settings)
-    const comparisons = vi.spyOn(paths, 'normalizeRuntimePathForComparison')
-    const project = vi.spyOn(index, 'nativeAccountDependency')
-    const resolve = vi.spyOn(index, 'nativeAccountLabel')
-    let settingsListeners = 0
-    const subscribe = useAppStore.subscribe
-    vi.spyOn(useAppStore, 'subscribe').mockImplementation((listener) => {
-      settingsListeners++
-      const close = subscribe(listener)
-      return () => {
-        settingsListeners--
-        close()
-      }
-    })
-    const a = recordedSession('claude')
-    const sessions = Array.from({ length: count }, (_, i) => ({ ...a, id: `reader-${i}` }))
-    const panel = render(
-      accountCards([...sessions, { ...a, id: 'remote', executionHostId: 'runtime:other' }])
-    )
-    await flushAccountWork()
+])('shares semantic work at K=$count distinct bindings/S=$size', async ({ count, size }) => {
+  const settings = accountSettings(size)
+  useAppStore.setState({ settings })
+  const client = nativeClient(settings)
+  const metrics = accountWorkCounters()
+  const sessions = Array.from({ length: count }, (_, i) => recordedSession('claude', i))
+  const panel = render(accountCards(sessions.slice(0, 1)))
+  await flushAccountWork()
+  expect(client.claudeList).toHaveBeenCalledTimes(1)
+  expect(metrics.settingsListeners()).toBe(1)
+  const acquireRest = async () => {
+    metrics.reset()
+    accountRenders.clear()
+    for (let i = 2; i <= count; i++) {
+      panel.rerender(accountCards(sessions.slice(0, i)))
+      await flushAccountWork()
+      expect(panel.getByTestId(sessions[i - 1]!.id).textContent).toContain(
+        `claude-${i - 1}@example.com`
+      )
+    }
+    expect(metrics.work.resolutions).toBe(count - 1)
+    expect(metrics.work.savedMembers).toBe(0)
+    expect(metrics.work.topologyEncodedBytes).toBe(0)
+    expect(metrics.work.displayMembers).toBe(0)
+    expect(metrics.work.comparedMembers).toBeLessThanOrEqual(4 * count)
+    expect(metrics.work.selected).toBeLessThanOrEqual(2 * count)
+    expect(metrics.work.notifications).toBe(0)
+    expect(accountRenders.get(sessions[0]!.id) ?? 0).toBe(0)
     expect(client.claudeList).toHaveBeenCalledTimes(1)
     expect(client.codexList).toHaveBeenCalledTimes(1)
-    expect(panel.getByTestId('reader-0').textContent).toContain('claude-0@example.com')
-    expect(settingsListeners).toBe(1)
-    expect(resolve).toHaveBeenCalledTimes(2)
-    expect(project.mock.calls.length).toBeLessThanOrEqual(6)
-    expect(comparisons.mock.calls.length).toBeLessThanOrEqual(4 * size + 4 * count)
-    for (const update of [
-      (s: typeof settings) => ({ ...s, terminalFontSize: s.terminalFontSize + 1 }),
-      (s: typeof settings) => ({ ...s, activeClaudeManagedAccountId: 'claude-9' }),
-      (s: typeof settings) => ({
-        ...s,
-        codexManagedAccounts: s.codexManagedAccounts.map((a) => ({
-          ...a,
-          email: 'other-provider@example.com'
-        }))
-      }),
-      (s: typeof settings) => ({
-        ...s,
-        claudeManagedAccounts: s.claudeManagedAccounts.map((a, i) =>
-          i === 1
-            ? { ...a, email: 'unused@example.com', updatedAt: 22, organizationName: 'Unused' }
-            : a
-        )
-      }),
-      (s: typeof settings) => ({
-        ...s,
-        claudeManagedAccounts: [
-          ...s.claudeManagedAccounts,
-          {
-            ...s.claudeManagedAccounts[1]!,
-            id: 'distro',
-            managedAuthRuntime: 'wsl' as const,
-            wslDistro: 'Debian'
-          }
-        ]
-      })
-    ]) {
-      accountRenders.clear()
-      comparisons.mockClear()
-      project.mockClear()
-      resolve.mockClear()
-      await changeSettings(update)
-      expect(accountRenders.size).toBe(0)
-      expect(client.claudeList).toHaveBeenCalledTimes(1)
-      expect(client.codexList).toHaveBeenCalledTimes(1)
-      expect(project.mock.calls.length).toBeLessThanOrEqual(2)
-      expect(resolve).not.toHaveBeenCalled()
-      expect(comparisons.mock.calls.length).toBeLessThanOrEqual(2 * (size + 1))
-    }
-    accountRenders.clear()
-    await act(async () =>
-      useAppStore.setState((state) => {
-        const statuses = new Map(state.runtimeStatusByEnvironmentId)
-        statuses.set('runtime:other', { status: null, checkedAt: 2 })
-        return { runtimeStatusByEnvironmentId: statuses }
-      })
-    )
-    expect(accountRenders.size).toBe(0)
-    expect(client.claudeList).toHaveBeenCalledTimes(1)
-    // B changed while unused: its new acquire cannot certify the old native roster.
-    client.setClaude({
-      accounts: [
-        { ...settings.claudeManagedAccounts[0]!, home: '/accounts/claude-0' },
-        {
-          ...settings.claudeManagedAccounts[1]!,
-          home: '/accounts/claude-1',
-          email: 'unused@example.com'
-        }
-      ],
-      activeAccountId: 'claude-9'
-    })
-    const b = { ...recordedSession('claude', 1), id: 'new-b' }
-    accountRenders.clear()
-    panel.rerender(accountCards([...sessions, b]))
-    await flushAccountWork()
-    expect(client.claudeList).toHaveBeenCalledTimes(2)
-    expect(panel.getByTestId('new-b').textContent).toContain('unused@example.com')
-    accountRenders.clear()
-    client.setClaude({
-      accounts: [
-        {
-          ...settings.claudeManagedAccounts[0]!,
-          home: '/accounts/claude-0',
-          email: 'changed@example.com'
-        },
-        {
-          ...settings.claudeManagedAccounts[1]!,
-          home: '/accounts/claude-1',
-          email: 'unused@example.com'
-        }
-      ],
-      activeAccountId: null
-    })
-    await changeSettings((s) => ({
-      ...s,
-      claudeManagedAccounts: s.claudeManagedAccounts.map((a, i) =>
-        i === 0 ? { ...a, email: 'changed@example.com', lastAuthenticatedAt: 2 } : a
-      )
-    }))
-    expect(panel.getByTestId('reader-0').textContent).toContain('changed@example.com')
-    expect(accountRenders.get('new-b') ?? 0).toBe(0)
-    const missing = {
-      ...a,
-      id: 'discover',
-      accountHome: { variable: 'CLAUDE_CONFIG_DIR', path: '/new/home' }
-    }
-    panel.rerender(accountCards([...sessions, b, missing]))
-    await flushAccountWork()
-    expect(panel.getByTestId('discover').textContent).toContain('Unknown')
-    client.setClaude({
-      accounts: [{ ...settings.claudeManagedAccounts[0]!, home: '/new/home' }],
-      activeAccountId: null
-    })
-    await changeSettings((s) => ({
-      ...s,
-      claudeManagedAccounts: s.claudeManagedAccounts.map((a, i) =>
-        i === 0 ? { ...a, managedAuthPath: '/new/home' } : a
-      )
-    }))
-    expect(panel.getByTestId('discover').textContent).toContain('claude-0@example.com')
-    expect(panel.getByTestId('reader-0').textContent).toContain('Unknown')
-    client.setClaude({ accounts: [], activeAccountId: null })
-    await changeSettings((s) => ({
-      ...s,
-      claudeManagedAccounts: s.claudeManagedAccounts.filter((a) => a.id !== 'claude-0')
-    }))
-    expect(panel.getByTestId('discover').textContent).toContain('Unknown')
-    panel.unmount()
-    await flushAccountWork()
-    expect(settingsListeners).toBe(0)
   }
-)
+  await acquireRest()
+  const unused = (s: typeof settings) => ({
+    ...s,
+    claudeManagedAccounts: s.claudeManagedAccounts.map((a, i) =>
+      i === size - 1 ? { ...a, email: 'unused@example.com', lastAuthenticatedAt: 20 } : a
+    )
+  })
+  const quiet = async (update: Parameters<typeof changeSettings>[0], builds: number) => {
+    metrics.reset()
+    accountRenders.clear()
+    await changeSettings(update)
+    expect(metrics.work.settingsCallbacks).toBe(1)
+    expect(client.claudeList).toHaveBeenCalledTimes(1)
+    expect(client.codexList).toHaveBeenCalledTimes(1)
+    expect(metrics.work.savedMembers).toBe(builds)
+    expect(metrics.work.topologyEncodedBytes).toBeLessThanOrEqual(80 * builds)
+    // These count actual proxy member accesses/consumed string bytes inside shared equality.
+    expect(metrics.work.comparedMembers).toBeLessThanOrEqual(4 * size + 8 * count)
+    expect(metrics.work.comparedBytes).toBeLessThanOrEqual(400 * size + 1200 * count)
+    expect(metrics.work.selected).toBeLessThanOrEqual(2 * count)
+    expect(metrics.work.resolutions).toBe(0)
+    expect(metrics.work.helpers).toBe(0)
+    expect(metrics.work.notifications).toBe(0)
+    expect(accountRenders.size).toBe(0)
+  }
+  await quiet((s) => ({ ...s, terminalFontSize: s.terminalFontSize + 1 }), 0)
+  expect(metrics.work.comparisons).toBe(0)
+  await quiet((s) => ({ ...s, activeClaudeManagedAccountId: 'claude-99' }), 0)
+  await quiet(
+    (s) => ({
+      ...s,
+      codexManagedAccounts: s.codexManagedAccounts.map((a) => ({
+        ...a,
+        email: 'other@example.com'
+      }))
+    }),
+    size
+  )
+  expect(metrics.work.comparedMembers).toBe(0)
+  expect(metrics.work.comparisons).toBe(0)
+  // Only A is active when B arrives: the following new keys have no warmed per-key comparison.
+  panel.rerender(accountCards(sessions.slice(0, 1)))
+  await flushAccountWork()
+  await quiet(unused, size)
+  await acquireRest()
+  await quiet(
+    (s) => ({ ...s, claudeManagedAccounts: settings.claudeManagedAccounts.map((a) => ({ ...a })) }),
+    size
+  )
+  // A -> unused B -> recreated A still proves A, including newly acquired covered keys.
+  expect(panel.getByTestId(sessions[0]!.id).textContent).toContain('claude-0@example.com')
+  await quiet(
+    (s) => ({
+      ...s,
+      claudeManagedAccounts: s.claudeManagedAccounts.map((a) => ({ ...a, updatedAt: 25 }))
+    }),
+    size
+  )
+  await quiet(
+    (s) => ({
+      ...s,
+      claudeManagedAccounts: [
+        ...s.claudeManagedAccounts,
+        {
+          ...s.claudeManagedAccounts[0]!,
+          id: 'distro',
+          managedAuthRuntime: 'wsl',
+          wslDistro: 'Debian'
+        }
+      ]
+    }),
+    size + 1
+  )
+  metrics.reset()
+  accountRenders.clear()
+  await act(async () =>
+    useAppStore.setState((state) => {
+      const statuses = new Map(state.runtimeStatusByEnvironmentId)
+      statuses.set('runtime:other', { status: null, checkedAt: 2 })
+      return { runtimeStatusByEnvironmentId: statuses }
+    })
+  )
+  expect(metrics.work.selected).toBe(0)
+  expect(accountRenders.size).toBe(0)
+  await quiet(unused, size + 1)
+  // A formerly unused changed binding is not covered by its old native evidence.
+  client.setClaude({
+    accounts: settings.claudeManagedAccounts.map((a, i) => ({
+      ...a,
+      home: a.managedAuthPath,
+      email: i === size - 1 ? 'unused@example.com' : a.email
+    })),
+    activeAccountId: null
+  })
+  const b = recordedSession('claude', size - 1)
+  panel.rerender(accountCards([...sessions, b]))
+  await flushAccountWork()
+  expect(client.claudeList).toHaveBeenCalledTimes(2)
+  expect(panel.getByTestId(b.id).textContent).toContain('unused@example.com')
+  client.setClaude({
+    accounts: [
+      { ...settings.claudeManagedAccounts[0]!, home: '/new/home', email: 'current@example.com' }
+    ],
+    activeAccountId: null
+  })
+  const discovered = {
+    ...sessions[0]!,
+    id: 'discover',
+    accountHome: { variable: 'CLAUDE_CONFIG_DIR', path: '/new/home' }
+  }
+  panel.rerender(accountCards([...sessions, b, discovered]))
+  await flushAccountWork()
+  expect(panel.getByTestId('discover').textContent).toContain('Unknown')
+  await changeSettings((s) => ({
+    ...s,
+    claudeManagedAccounts: s.claudeManagedAccounts.map((a, i) =>
+      i === 0 ? { ...a, managedAuthPath: '/new/home', lastAuthenticatedAt: 30 } : a
+    )
+  }))
+  expect(panel.getByTestId('discover').textContent).toContain('current@example.com')
+  expect(panel.getByTestId(sessions[0]!.id).textContent).toContain('Unknown')
+  client.setClaude({ accounts: [], activeAccountId: null })
+  await changeSettings((s) => ({
+    ...s,
+    claudeManagedAccounts: s.claudeManagedAccounts.filter((a) => a.id !== 'claude-0')
+  }))
+  expect(panel.getByTestId('discover').textContent).toContain('Unknown')
+  const unknownCodex = {
+    ...recordedSession('codex'),
+    id: 'unknown-codex',
+    accountHome: { variable: 'CODEX_HOME', path: '/new/codex' }
+  }
+  panel.rerender(accountCards([unknownCodex]))
+  await flushAccountWork()
+  expect(panel.getByTestId('unknown-codex').textContent).toContain('Unknown')
+  const added = {
+    ...settings.codexManagedAccounts[0]!,
+    id: 'new-codex',
+    managedHomePath: '/new/codex',
+    email: 'new@example.com'
+  }
+  client.setCodex({ accounts: [added], activeAccountId: null })
+  const beforeDiscovery = client.codexList.mock.calls.length
+  await changeSettings((s) => ({ ...s, codexManagedAccounts: [...s.codexManagedAccounts, added] }))
+  expect(client.codexList).toHaveBeenCalledTimes(beforeDiscovery + 1)
+  expect(panel.getByTestId('unknown-codex').textContent).toContain('new@example.com')
+  panel.unmount()
+  await flushAccountWork()
+  expect(metrics.settingsListeners()).toBe(0)
+})
+
+it.each([2, 20])('shares a single binding independently of %i duplicate readers', async (count) => {
+  const settings = accountSettings(100)
+  useAppStore.setState({ settings })
+  const client = nativeClient(settings)
+  const metrics = accountWorkCounters()
+  const a = recordedSession('claude')
+  const sessions = Array.from({ length: count }, (_, i) => ({ ...a, id: `reader-${i}` }))
+  const panel = render(
+    accountCards([...sessions, { ...a, id: 'remote', executionHostId: 'runtime:other' }])
+  )
+  await flushAccountWork()
+  expect(metrics.work.resolutions).toBe(2)
+  expect(client.claudeList).toHaveBeenCalledTimes(1)
+  metrics.reset()
+  accountRenders.clear()
+  client.setClaude({
+    accounts: [
+      {
+        ...settings.claudeManagedAccounts[0]!,
+        home: '/accounts/claude-0',
+        email: 'changed@example.com'
+      }
+    ],
+    activeAccountId: null
+  })
+  await changeSettings((s) => ({
+    ...s,
+    claudeManagedAccounts: s.claudeManagedAccounts.map((a, i) =>
+      i === 0 ? { ...a, lastAuthenticatedAt: 2 } : a
+    )
+  }))
+  expect(metrics.work.resolutions).toBe(2)
+  expect(metrics.work.notifications).toBe(2 * count)
+  expect(accountRenders.get('remote') ?? 0).toBe(0)
+  expect(panel.getByTestId('reader-0').textContent).toContain('changed@example.com')
+  expect(client.claudeList).toHaveBeenCalledTimes(2)
+})
 
 it('drains actual deferred list dispatches through R0, R1, R2, failures and legitimate recovery', async () => {
   const settings = accountSettings()
@@ -293,7 +319,14 @@ it('drains actual deferred list dispatches through R0, R1, R2, failures and legi
   await settle(3, 'claude')
   expect(panel.getByTestId('codex').textContent).toContain('healthy-3@example.com')
   expect(reads).toHaveLength(4)
-  await mutate()
+  panel.rerender(
+    accountCards([
+      a,
+      { ...recordedSession('codex'), id: 'codex' },
+      { ...recordedSession('codex'), id: 'healthy-provider-recovery' }
+    ])
+  )
+  expect(reads).toHaveLength(5)
   await settle(4, 'both')
   await flushAccountWork()
   expect(reads).toHaveLength(5)
@@ -360,4 +393,53 @@ it('retains Codex saved fallback and refreshes relevant same-email peer groups',
   }))
   expect(panel.getByTestId(a.id).textContent).toContain('codex-0@example.com')
   expect(panel.getByTestId(a.id).textContent).not.toContain('(codex-0)')
+})
+
+it('reactivates the exact held native entry against changed inputs before its cleanup turn', async () => {
+  const settings = accountSettings()
+  useAppStore.setState({ settings })
+  const client = nativeClient(settings)
+  const metrics = accountWorkCounters()
+  const selected = sessionAccountBinding(recordedSession('claude'))
+  if (!('key' in selected)) {
+    throw new Error('Missing native binding')
+  }
+  const old = vi.fn()
+  const next = vi.fn()
+  const close = subscribeSessionAccount(selected.key, selected.binding, old)
+  await flushAccountWork()
+  expect(readSessionAccount(selected.key)).toBe('claude-0@example.com')
+  client.setClaude({
+    accounts: [
+      {
+        ...settings.claudeManagedAccounts[0]!,
+        home: '/accounts/claude-0',
+        email: 'reactivated@example.com'
+      }
+    ],
+    activeAccountId: null
+  })
+  let release = () => {}
+  await act(async () => {
+    close()
+    useAppStore.setState({
+      settings: {
+        ...settings,
+        claudeManagedAccounts: settings.claudeManagedAccounts.map((a) => ({
+          ...a,
+          lastAuthenticatedAt: 2
+        }))
+      }
+    })
+    expect(client.claudeList).toHaveBeenCalledTimes(1)
+    release = subscribeSessionAccount(selected.key, selected.binding, next)
+    expect(readSessionAccount(selected.key)).toBeNull()
+  })
+  expect(client.claudeList).toHaveBeenCalledTimes(2)
+  expect(readSessionAccount(selected.key)).toBe('reactivated@example.com')
+  expect(metrics.settingsListeners()).toBe(1)
+  expect(next).toHaveBeenCalledTimes(1)
+  release()
+  await flushAccountWork()
+  expect(metrics.settingsListeners()).toBe(0)
 })

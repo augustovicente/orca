@@ -4,11 +4,14 @@ import { act, render } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import * as fs from 'node:fs'
 import type { RuntimeRpcResponse } from '../../../../shared/runtime-rpc-envelope'
+import { useAppStore } from '../../store'
+import { nativeClient } from './ai-vault-account-native-test-fixture'
 import type { AiVaultSession } from '../../../../shared/ai-vault-types'
 import { decodeAccountsSnapshot } from '../../../../../mobile/src/components/accounts-snapshot'
 import { createRateLimitsApi } from '@/web/preload-api/web-rate-limits-api'
 import { accountStreamFixture, P, Q, D, profile } from './ai-vault-account-stream-test-fixture'
 import {
+  accountSettings,
   accountCards,
   accountRenders,
   details,
@@ -228,16 +231,39 @@ it('fences lost streams and late handles, recovers old readers on new acquire, a
   expect(source.subscribe).toHaveBeenCalledTimes(5)
   expect(reacquired.getByTestId('p').textContent).toContain('Work')
   await act(async () => source.slots[3]!.releaseHandle())
-  window.api.claudeAccounts = {
-    ...window.api.claudeAccounts,
-    list: vi.fn().mockResolvedValue({ accounts: [], activeAccountId: null })
-  }
-  window.api.codexAccounts = {
-    ...window.api.codexAccounts,
-    list: vi.fn().mockResolvedValue({ accounts: [], activeAccountId: null })
-  }
-  reacquired.rerender(accountCards([recordedSession('claude')]))
+  const settings = accountSettings()
+  useAppStore.setState({ settings })
+  const native = nativeClient(settings)
+  let nativeListeners = 0
+  const subscribe = useAppStore.subscribe
+  vi.spyOn(useAppStore, 'subscribe').mockImplementation((listener) => {
+    nativeListeners++
+    const close = subscribe(listener)
+    return () => {
+      nativeListeners--
+      close()
+    }
+  })
+  const c = recordedSession('claude')
+  reacquired.rerender(accountCards([p, c]))
+  await flushAccountWork()
+  expect(native.claudeList).toHaveBeenCalledTimes(1)
+  expect(source.listenerCounts()).toEqual([1, 1])
+  expect(nativeListeners).toBe(1)
+  // Releasing either domain drops its roots/source independently while the other remains live.
+  reacquired.rerender(accountCards([p]))
+  await flushAccountWork()
+  expect(nativeListeners).toBe(0)
+  expect(source.listenerCounts()).toEqual([1, 1])
+  reacquired.rerender(accountCards([p, c]))
+  await flushAccountWork()
+  expect(native.claudeList).toHaveBeenCalledTimes(2)
+  reacquired.rerender(accountCards([c]))
   await flushAccountWork()
   expect(source.listenerCounts()).toEqual([0, 0])
+  expect(nativeListeners).toBe(1)
   expect(source.slots[3]!.unsubscribe).toHaveBeenCalledTimes(1)
+  reacquired.unmount()
+  await flushAccountWork()
+  expect(nativeListeners).toBe(0)
 })

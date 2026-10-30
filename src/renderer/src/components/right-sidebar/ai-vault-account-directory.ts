@@ -1,3 +1,9 @@
+import { profileDirectory } from './ai-vault-account-profiles'
+import {
+  initializeNativeAccount,
+  prepareNativeAccounts,
+  type AccountDirectoryEntry as Entry
+} from './ai-vault-account-publication'
 import { useAppStore } from '../../store'
 import { subscribeRuntimeRpc } from '@/runtime/runtime-rpc-subscribe'
 import {
@@ -9,16 +15,16 @@ import type { AccountBinding, NativeAccountBinding } from './ai-vault-account-bi
 import {
   NativeAccountInputs,
   NativeAccountEvidence,
-  nativeAccountDependency,
-  nativeAccountLabel,
+  sameNativeAccountDependency,
   nativeEvidenceCovers
 } from './ai-vault-native-account-index'
 
-type Entry = { binding: AccountBinding; value: string | null; listeners: Set<() => void> }
 type NativeAttempt = { inputs: NativeAccountInputs; watcher?: ProviderAccountsWatcher }
 type DataAttempt = { close?: () => void }
 type Directory = {
   entries: Map<string, Entry>
+  nativeEntries: Map<string, Entry>
+  dataEntries: Map<string, Entry>
   inputs: NativeAccountInputs
   desired: NativeAccountInputs
   evidence: NativeAccountEvidence | null
@@ -29,46 +35,25 @@ type Directory = {
 }
 let directory: Directory | undefined
 
-const nativeEntries = (owner: Directory): (Entry & { binding: NativeAccountBinding })[] =>
-  [...owner.entries.values()].filter(
-    (entry): entry is Entry & { binding: NativeAccountBinding } =>
-      entry.binding.kind !== 'opencode' && entry.listeners.size > 0
-  )
-const hasData = (owner: Directory): boolean =>
-  [...owner.entries.values()].some(
-    (entry) => entry.binding.kind === 'opencode' && entry.listeners.size > 0
-  )
-
-function publish(owner: Directory, domain: 'native' | 'data'): void {
+function publishData(owner: Directory): void {
   const changed: Entry[] = []
-  for (const entry of owner.entries.values()) {
-    const binding = entry.binding
-    if ((binding.kind === 'opencode') !== (domain === 'data')) {
+  for (const entry of owner.dataEntries.values()) {
+    if (entry.binding.kind !== 'opencode') {
       continue
     }
-    const proof =
-      binding.kind !== 'opencode' &&
-      owner.evidence &&
-      nativeEvidenceCovers(binding, owner.inputs, owner.evidence)
-        ? owner.evidence
-        : null
-    const value =
-      binding.kind === 'opencode'
-        ? (owner.profiles.get(binding.id) ?? null)
-        : nativeAccountLabel(binding, owner.inputs, proof)
+    const value = owner.profiles.get(entry.binding.id) ?? null
     if (value !== entry.value) {
       entry.value = value
       changed.push(entry)
     }
   }
-  // Establish every scalar before callbacks can synchronously acquire or mutate inputs.
   for (const entry of changed) {
     entry.listeners.forEach((notify) => notify())
   }
 }
 
 function drainNative(owner: Directory): void {
-  if (directory !== owner || owner.native || nativeEntries(owner).length === 0) {
+  if (directory !== owner || owner.native || owner.nativeEntries.size === 0) {
     return
   }
   const attempt: NativeAttempt = { inputs: owner.desired }
@@ -80,13 +65,9 @@ function drainNative(owner: Directory): void {
     attempt.watcher?.close()
     owner.native = null
     const evidence = snapshot ? new NativeAccountEvidence(attempt.inputs, snapshot) : null
-    // A routed-home candidate first discovered by this result also needs current saved-input coverage.
-    if (
-      evidence &&
-      nativeEntries(owner).some(
-        ({ binding }) => !nativeEvidenceCovers(binding, owner.inputs, evidence)
-      )
-    ) {
+    const publication = prepareNativeAccounts(owner.nativeEntries.values(), owner.inputs, evidence)
+    // Response-discovered homes must also be covered before any new label is installed.
+    if (evidence && publication.uncovered) {
       owner.desired = owner.inputs
     }
     if (attempt.inputs !== owner.desired) {
@@ -94,7 +75,7 @@ function drainNative(owner: Directory): void {
       return
     }
     owner.evidence = evidence
-    publish(owner, 'native')
+    publication.commit()
   }
   try {
     const watcher = watchProviderAccounts(
@@ -125,79 +106,47 @@ function observeNative(owner: Directory): void {
         return
       }
       owner.inputs = new NativeAccountInputs(state.settings, previous)
-      const relevant = nativeEntries(owner).some(
-        ({ binding }) =>
-          nativeAccountDependency(binding, previous, owner.evidence) !==
-          nativeAccountDependency(binding, owner.inputs, owner.evidence)
+      const publication = prepareNativeAccounts(
+        owner.nativeEntries.values(),
+        owner.inputs,
+        owner.evidence,
+        previous
       )
-      if (relevant) {
+      if (publication.relevant) {
         owner.desired = owner.inputs
-        publish(owner, 'native')
+      }
+      publication.commit()
+      if (publication.relevant) {
         drainNative(owner)
       }
     })
   }
-  const uncovered = nativeEntries(owner).some(
-    ({ binding }) =>
-      !owner.evidence ||
-      !nativeEvidenceCovers(binding, owner.inputs, owner.evidence) ||
-      (binding.kind === 'claude'
-        ? owner.evidence.snapshot.failedProviders?.includes('claude')
-        : owner.evidence.snapshot.failedProviders?.includes('codex'))
-  )
-  if (uncovered) {
+}
+
+function acquireNative(
+  owner: Directory,
+  entry: Entry,
+  binding: NativeAccountBinding,
+  initialize: boolean
+): void {
+  observeNative(owner)
+  if (initialize) {
+    initializeNativeAccount(entry, binding, owner.inputs, owner.evidence)
+  }
+  const failed = !owner.evidence || !!owner.evidence.snapshot.failedProviders?.length
+  if (!initialize && (owner.native || !failed)) {
+    return
+  }
+  const uncovered = !owner.evidence || !nativeEvidenceCovers(binding, owner.inputs, owner.evidence)
+  if (uncovered || (!owner.native && failed)) {
     if (
       !owner.native ||
-      nativeEntries(owner).some(
-        ({ binding }) =>
-          nativeAccountDependency(
-            binding,
-            owner.native?.inputs ?? owner.desired,
-            owner.evidence
-          ) !== nativeAccountDependency(binding, owner.inputs, owner.evidence)
-      )
+      !sameNativeAccountDependency(binding, owner.native.inputs, owner.inputs, owner.evidence)
     ) {
       owner.desired = owner.inputs
     }
     drainNative(owner)
   }
-  publish(owner, 'native')
-}
-
-function profileDirectory(frame: unknown): Map<string, string> {
-  const profiles = new Map<string, string>()
-  if (typeof frame !== 'object' || frame === null || !('snapshot' in frame)) {
-    return profiles
-  }
-  const snapshot = frame.snapshot
-  if (typeof snapshot !== 'object' || snapshot === null || !('opencode' in snapshot)) {
-    return profiles
-  }
-  const data = snapshot.opencode
-  if (
-    typeof data !== 'object' ||
-    data === null ||
-    !('accounts' in data) ||
-    !Array.isArray(data.accounts)
-  ) {
-    return profiles
-  }
-  for (const account of data.accounts) {
-    if (
-      typeof account !== 'object' ||
-      account === null ||
-      typeof account.id !== 'string' ||
-      typeof account.label !== 'string' ||
-      !account.id ||
-      !account.label
-    ) {
-      return new Map()
-    }
-    if (!profiles.has(account.id)) {
-      profiles.set(account.id, account.label)
-    }
-  }
-  return profiles
 }
 
 function observeData(owner: Directory): void {
@@ -214,7 +163,7 @@ function observeData(owner: Directory): void {
     owner.data = null
     owner.profiles = new Map()
     attempt.close?.()
-    publish(owner, 'data')
+    publishData(owner)
   }
   void subscribeRuntimeRpc({ kind: 'local' }, 'accounts.subscribe', null, {
     onEvent: (frame) => {
@@ -225,7 +174,7 @@ function observeData(owner: Directory): void {
         lose()
       } else if (frame.type === 'ready' || frame.type === 'snapshot') {
         owner.profiles = profileDirectory(frame)
-        publish(owner, 'data')
+        publishData(owner)
       }
     },
     onError: lose,
@@ -250,6 +199,8 @@ export function subscribeSessionAccount(
 ): () => void {
   const owner = (directory ??= {
     entries: new Map(),
+    nativeEntries: new Map(),
+    dataEntries: new Map(),
     inputs: new NativeAccountInputs(null),
     desired: new NativeAccountInputs(null),
     evidence: null,
@@ -258,23 +209,22 @@ export function subscribeSessionAccount(
     profiles: new Map()
   })
   let entry = owner.entries.get(key)
-  const newBinding = !entry
   if (!entry) {
     entry = { binding, value: null, listeners: new Set() }
     owner.entries.set(key, entry)
   }
   const held = entry
+  const initialize = held.listeners.size === 0
   held.listeners.add(listener)
+  const active = binding.kind === 'opencode' ? owner.dataEntries : owner.nativeEntries
+  active.set(key, held)
   if (binding.kind === 'opencode') {
     observeData(owner)
-    if (newBinding) {
-      publish(owner, 'data')
+    if (initialize) {
+      held.value = owner.profiles.get(binding.id) ?? null
     }
-  } else if (
-    newBinding ||
-    (!owner.native && (!owner.evidence || owner.evidence.snapshot.failedProviders?.length))
-  ) {
-    observeNative(owner)
+  } else {
+    acquireNative(owner, held, binding, initialize)
   }
   let released = false
   return () => {
@@ -283,18 +233,22 @@ export function subscribeSessionAccount(
     }
     released = true
     held.listeners.delete(listener)
+    if (held.listeners.size === 0) {
+      active.delete(key)
+      held.display = undefined
+    }
     queueMicrotask(() => {
       if (directory !== owner || owner.entries.get(key) !== held || held.listeners.size > 0) {
         return
       }
       owner.entries.delete(key)
-      if (!hasData(owner)) {
+      if (owner.dataEntries.size === 0) {
         const attempt = owner.data
         owner.data = null
         owner.profiles.clear()
         attempt?.close?.()
       }
-      if (nativeEntries(owner).length === 0) {
+      if (owner.nativeEntries.size === 0) {
         const attempt = owner.native
         owner.native = null
         attempt?.watcher?.close()
