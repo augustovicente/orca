@@ -133,7 +133,9 @@ export abstract class RuntimeConstructionServices {
     handle: string
   ): OrchestrationMailboxTerminal | null
   protected abstract hasMailboxTerminalHandle(handle: string): boolean
-  protected abstract getMailboxTerminalHandleForPaneKey(paneKey: string): string | null
+  protected abstract getMailboxTerminalForPaneKey(
+    paneKey: string
+  ): OrchestrationMailboxTerminal | null
   protected abstract startTuiIdleVisibleReadProbe(
     waiter: TerminalWaiter,
     waiterTimeoutMs: number,

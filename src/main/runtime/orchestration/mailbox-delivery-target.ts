@@ -1,8 +1,11 @@
 import type { OrchestrationDb } from './db'
+import type { OrchestrationMailboxTerminal } from './mailbox-owner'
 
 type OrchestrationMailboxDeliveryTargetDependencies = {
   getDb: () => OrchestrationDb | null
-  getMailboxTerminalHandleForPaneKey: (paneKey: string) => string | null
+  /** The terminal now in the pane, keyed by its PTY, so a replaced or unlisted PTY is still reached. */
+  getMailboxTerminalForPaneKey: (paneKey: string) => OrchestrationMailboxTerminal | null
+  getTerminalForHandle: (handle: string) => OrchestrationMailboxTerminal | null
   hasTerminalHandle: (handle: string) => boolean
   /** A structured worker or a chat has no PTY handle; its own lane delivers, so this must not claim it. */
   isStructuredSessionOwner: (handle: string) => boolean
@@ -16,9 +19,9 @@ export class OrchestrationMailboxDeliveryTarget {
 
   constructor(private readonly deps: OrchestrationMailboxDeliveryTargetDependencies) {}
 
-  resolveTerminalHandle(handle: string): string | null {
+  resolveTerminal(handle: string): OrchestrationMailboxTerminal | null {
     if (this.deps.hasTerminalHandle(handle)) {
-      return handle
+      return this.deps.getTerminalForHandle(handle)
     }
     if (this.deps.isStructuredSessionOwner(handle)) {
       return null
@@ -34,9 +37,13 @@ export class OrchestrationMailboxDeliveryTarget {
     const paneKey = run
       ? run.coordinator_pane_key
       : (dispatch?.assignee_pane_key ?? remote?.pane_key)
-    const ownerHandle =
-      (paneKey ? this.deps.getMailboxTerminalHandleForPaneKey(paneKey) : null) ??
-      (run ? run.coordinator_handle : (dispatch?.assignee_handle ?? remote?.terminal_handle))
+    const paneTerminal = paneKey ? this.deps.getMailboxTerminalForPaneKey(paneKey) : null
+    if (paneTerminal) {
+      return paneTerminal
+    }
+    const ownerHandle = run
+      ? run.coordinator_handle
+      : (dispatch?.assignee_handle ?? remote?.terminal_handle)
     if (!ownerHandle) {
       return null
     }
@@ -51,7 +58,7 @@ export class OrchestrationMailboxDeliveryTarget {
       })
       return null
     }
-    return ownerHandle
+    return this.deps.getTerminalForHandle(ownerHandle)
   }
 
   deferForAbsenceProbe(

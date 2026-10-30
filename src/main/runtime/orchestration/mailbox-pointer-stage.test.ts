@@ -23,10 +23,9 @@ function pointerDeps(
 ) {
   return {
     mailboxOwner: { resolve: () => 'run:run-1' },
-    deliveryTarget: { resolveTerminalHandle: () => 'term-1', deferForAbsenceProbe: () => false },
+    deliveryTarget: { resolveTerminal: () => TERMINAL, deferForAbsenceProbe: () => false },
     getDb: () => db,
     getTerminal: () => TERMINAL,
-    getTerminalForHandle: () => TERMINAL,
     // Hold the pane settled to isolate staging and Enter phases from the idle gate.
     isAgentSettledForDelivery: () => true,
     getMessageWaiters: () => undefined,

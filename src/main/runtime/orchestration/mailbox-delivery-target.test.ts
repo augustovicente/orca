@@ -7,7 +7,8 @@ describe('OrchestrationMailboxDeliveryTarget absence probe', () => {
     let answer: (absent: boolean) => void = () => {}
     const target = new OrchestrationMailboxDeliveryTarget({
       getDb: () => null,
-      getMailboxTerminalHandleForPaneKey: () => null,
+      getMailboxTerminalForPaneKey: () => null,
+      getTerminalForHandle: () => null,
       hasTerminalHandle: () => true,
       isStructuredSessionOwner: () => false,
       canProbePtyLiveness: () => true,
