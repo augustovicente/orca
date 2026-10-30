@@ -1,3 +1,4 @@
+import { capturePointContextMenuAnchor } from '@/components/ui/point-context-menu-content'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSortable } from '@dnd-kit/sortable'
 import { GitCompareArrows, Eye, ShieldAlert, Pin, ListChecks } from 'lucide-react'
@@ -128,7 +129,7 @@ export default function EditorFileTab({
     (s) => file.isPreview === true && s.settings?.editorPreviewTabsEnabled !== false
   )
   const [menuOpen, setMenuOpen] = useState(false)
-  const [menuPoint, setMenuPoint] = useState({ x: 0, y: 0 })
+  const [menuPoint, setMenuPoint] = useState(capturePointContextMenuAnchor)
   const [isRenaming, setIsRenaming] = useState(false)
   const renameInputRef = useRef<HTMLInputElement>(null)
   const renameFocusFrameRef = useRef<number | null>(null)
@@ -373,9 +374,8 @@ export default function EditorFileTab({
       <div
         {...slotProps}
         onContextMenuCapture={(event) => {
-          event.preventDefault()
           window.dispatchEvent(new Event(CLOSE_ALL_CONTEXT_MENUS_EVENT))
-          setMenuPoint({ x: event.clientX, y: event.clientY })
+          setMenuPoint(capturePointContextMenuAnchor(event))
           setMenuOpen(true)
         }}
       >

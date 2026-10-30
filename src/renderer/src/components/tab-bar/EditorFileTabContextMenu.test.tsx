@@ -4,6 +4,12 @@ const shortcutLabelMock = vi.hoisted(() => vi.fn())
 const revealInFileManager = vi.hoisted(() => vi.fn())
 const storeSettings = vi.hoisted((): { activeRuntimeEnvironmentId?: string } => ({}))
 
+vi.mock('@/components/ui/point-context-menu-content', () => ({
+  PointContextMenuContent(props: { children?: unknown }) {
+    return { type: 'DropdownMenuContent', props }
+  }
+}))
+
 vi.mock('@/components/ui/dropdown-menu', () => ({
   DropdownMenu: function DropdownMenu(props: { children?: unknown }) {
     return { type: 'DropdownMenu', props }

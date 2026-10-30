@@ -1,7 +1,10 @@
+import {
+  PointContextMenuContent,
+  type PointContextMenuAnchor
+} from '@/components/ui/point-context-menu-content'
 import { Pencil, Pin, PinOff, X } from 'lucide-react'
 import {
   DropdownMenu,
-  DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuShortcut,
@@ -27,7 +30,7 @@ import { CloseSplitPaneMenuItem } from './CloseSplitPaneMenuItem'
 
 type EditorFileTabContextMenuProps = {
   open: boolean
-  menuPoint: { x: number; y: number }
+  menuPoint: PointContextMenuAnchor
   file: OpenFile & { tabId?: string }
   unifiedTabId: string
   groupId: string
@@ -108,7 +111,8 @@ export function EditorFileTabContextMenu({
           style={{ left: menuPoint.x, top: menuPoint.y }}
         />
       </DropdownMenuTrigger>
-      <DropdownMenuContent
+      <PointContextMenuContent
+        openingEvent={menuPoint.openingEvent}
         className={TAB_CONTEXT_MENU_CONTENT_CLASS}
         sideOffset={0}
         align="start"
@@ -230,7 +234,7 @@ export function EditorFileTabContextMenu({
             </DropdownMenuItem>
           </>
         )}
-      </DropdownMenuContent>
+      </PointContextMenuContent>
     </DropdownMenu>
   )
 }

@@ -1,7 +1,10 @@
+import {
+  PointContextMenuContent,
+  type PointContextMenuAnchor
+} from '@/components/ui/point-context-menu-content'
 import { Pencil, Pin, PinOff, SquareTerminal, X } from 'lucide-react'
 import {
   DropdownMenu,
-  DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuShortcut,
@@ -87,7 +90,7 @@ type SortableTabContextMenuProps = {
   groupId: string
   isActive: boolean
   open: boolean
-  point: { x: number; y: number }
+  point: PointContextMenuAnchor
   tabCount: number
   hasTabsToRight: boolean
   hasTabsToLeft: boolean
@@ -157,7 +160,12 @@ export function SortableTabContextMenu({
           style={{ left: point.x, top: point.y }}
         />
       </DropdownMenuTrigger>
-      <DropdownMenuContent className={TAB_CONTEXT_MENU_CONTENT_CLASS} sideOffset={0} align="start">
+      <PointContextMenuContent
+        openingEvent={point.openingEvent}
+        className={TAB_CONTEXT_MENU_CONTENT_CLASS}
+        sideOffset={0}
+        align="start"
+      >
         <TerminalTabSplitMenuSection
           unifiedTabId={unifiedTabId}
           groupId={groupId}
@@ -243,7 +251,7 @@ export function SortableTabContextMenu({
             })}
           </div>
         </div>
-      </DropdownMenuContent>
+      </PointContextMenuContent>
     </DropdownMenu>
   )
 }

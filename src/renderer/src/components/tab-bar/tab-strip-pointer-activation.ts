@@ -44,6 +44,7 @@ export function useTabStripPointerActivation({
       const cleanup = (): void => {
         window.removeEventListener('pointerup', onPointerUp)
         window.removeEventListener('pointercancel', onPointerCancel)
+        window.removeEventListener('contextmenu', onPointerCancel)
         window.removeEventListener('blur', onPointerCancel)
         window.removeEventListener('focus', onWindowFocus)
         releaseTabStripPointerGesture()
@@ -72,6 +73,7 @@ export function useTabStripPointerActivation({
 
       window.addEventListener('pointerup', onPointerUp)
       window.addEventListener('pointercancel', onPointerCancel)
+      window.addEventListener('contextmenu', onPointerCancel)
       window.addEventListener('blur', onPointerCancel)
       window.addEventListener('focus', onWindowFocus)
       cleanupRef.current = cleanup

@@ -1,3 +1,4 @@
+import { capturePointContextMenuAnchor } from '@/components/ui/point-context-menu-content'
 import { useCallback, useEffect, useState } from 'react'
 import { useSortable } from '@dnd-kit/sortable'
 import { X, Minimize2, Pin } from 'lucide-react'
@@ -141,7 +142,7 @@ export default function SortableTab({
     onOpenChange: setMenuOpen,
     onComplete
   } = useSortableTabContextMenu()
-  const [menuPoint, setMenuPoint] = useState({ x: 0, y: 0 })
+  const [menuPoint, setMenuPoint] = useState(capturePointContextMenuAnchor)
   const {
     isEditing,
     renameValue,
@@ -357,9 +358,8 @@ export default function SortableTab({
         onContextMenuCapture={(event) => {
           // The hover card is portalled: React still routes its events through this slot.
           if (event.target instanceof Node && event.currentTarget.contains(event.target)) {
-            event.preventDefault()
             window.dispatchEvent(new Event(CLOSE_ALL_CONTEXT_MENUS_EVENT))
-            setMenuPoint({ x: event.clientX, y: event.clientY })
+            setMenuPoint(capturePointContextMenuAnchor(event))
             setMenuOpen(true)
           }
         }}

@@ -1,9 +1,12 @@
+import {
+  PointContextMenuContent,
+  capturePointContextMenuAnchor
+} from '@/components/ui/point-context-menu-content'
 import { useEffect, useState } from 'react'
 import { useSortable } from '@dnd-kit/sortable'
 import { X, Pin, PinOff, Volume2, VolumeX } from 'lucide-react'
 import {
   DropdownMenu,
-  DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger
@@ -105,7 +108,7 @@ export default function BrowserTab({
     data: dragData
   })
   const [menuOpen, setMenuOpen] = useState(false)
-  const [menuPoint, setMenuPoint] = useState({ x: 0, y: 0 })
+  const [menuPoint, setMenuPoint] = useState(capturePointContextMenuAnchor)
 
   // Only HTTP(S) URLs can open in the system browser; disable unsupported or malformed destinations.
   const openInBrowserUrl = redactKagiSessionToken(getLiveBrowserUrl(tab.id) ?? tab.url)
@@ -243,9 +246,8 @@ export default function BrowserTab({
       <div
         {...slotProps}
         onContextMenuCapture={(event) => {
-          event.preventDefault()
           window.dispatchEvent(new Event(CLOSE_ALL_CONTEXT_MENUS_EVENT))
-          setMenuPoint({ x: event.clientX, y: event.clientY })
+          setMenuPoint(capturePointContextMenuAnchor(event))
           setMenuOpen(true)
         }}
       >
@@ -277,7 +279,8 @@ export default function BrowserTab({
             style={{ left: menuPoint.x, top: menuPoint.y }}
           />
         </DropdownMenuTrigger>
-        <DropdownMenuContent
+        <PointContextMenuContent
+          openingEvent={menuPoint.openingEvent}
           className={cn(
             'rounded-[11px] border-border/80 p-1 shadow-[0_16px_36px_rgba(0,0,0,0.24)]',
             TAB_CONTEXT_MENU_CONTENT_CLASS
@@ -326,7 +329,7 @@ export default function BrowserTab({
           >
             {translate('auto.components.tab.bar.BrowserTab.6e0bc8f3a8', 'Open In Browser')}
           </DropdownMenuItem>
-        </DropdownMenuContent>
+        </PointContextMenuContent>
       </DropdownMenu>
     </>
   )
