@@ -207,6 +207,28 @@ function slots(message: NativeChatMessage) {
   })
 }
 
+it('keeps a short message footer-free with copy beside the header timestamp', () => {
+  const message: NativeChatMessage = {
+    id: 'short-agent-message',
+    role: 'user',
+    source: 'transcript',
+    timestamp: 1,
+    from,
+    blocks: [{ type: 'text', text: 'Short agent message.' }]
+  }
+  const { container } = render(card(message))
+  expect(screen.queryByRole('button', { name: /Show more|Show less/ })).toBeNull()
+  const body = screen.getByText('Short agent message.').closest('div[id]')
+  expect(body).toBeInTheDocument()
+  expect(body?.nextElementSibling).toBeNull()
+
+  const copy = screen.getByRole('button', { name: 'Copy message' })
+  const timestamp = container.querySelector('time')
+  expect(timestamp).toBeInTheDocument()
+  expect(screen.getByText('Message from').parentElement).toContainElement(copy)
+  expect(copy.parentElement).toBe(timestamp?.parentElement)
+})
+
 it.each(['task', 'mail'] as const)(
   'keeps native %s progress independent from Markdown and reparses own edits',
   async (kind) => {
@@ -241,7 +263,7 @@ it.each(['task', 'mail'] as const)(
     const renderMarkdown = vi.spyOn(markdown, 'NativeChatMarkdown')
     let mounted = render(card(message))
     expect(
-      screen.getByText(kind === 'task' ? 'Task from your coordinator' : 'Message from')
+      screen.getByText(kind === 'task' ? 'Task from coordinator' : 'Message from')
     ).toBeInTheDocument()
     expect(screen.getByText('task', { selector: 'strong' })).toBeInTheDocument()
     expect(convert).toHaveBeenCalled()

@@ -58,13 +58,7 @@
         "antigravitySignInNeeded": "聊天需要单独的 Antigravity 登录，与终端中的 agy 帐户分开。",
         "searchAgents": "智能体",
         "searchTerminal": "终端",
-        "installed": "已安装",
-        "notInstalled": "未安装",
-        "install": "安装",
-        "searchCli": "CLI",
-        "agentDisabled": "已在智能体设置中关闭",
-        "description": "选择哪些智能体以聊天方式打开。关闭后，已安装的智能体将在终端中打开。",
-        "toggleLabel": "以聊天方式打开 {{value0}}"
+        "searchCli": "CLI"
       },
       "permissionsDescriptionOwnAgents": "新聊天遵循设置 → 智能体中各智能体的权限。"
     },
@@ -329,10 +323,8 @@
       "defaultOpensAs": "{{value0}} 的打开方式",
       "defaultOpensAsChat": "聊天",
       "defaultOpensAsCli": "CLI",
-      "defaultOpensAsScope": "适用于从这台电脑启动的新 {{value0}} 会话，包括在已配对主机上启动的会话。与提供方中的开关一致。",
       "save": "保存",
       "clearDefault": "清除默认智能体",
-      "autoPermissions": "自动",
       "customArgsBadge": "自定义",
       "rowPermissions": "权限",
       "permissionsDescription": "设置智能体在无需询问您的情况下可以执行的操作范围。已设置自定义启动参数的智能体会保留这些参数。",
@@ -380,7 +372,11 @@
         "description": "让每个 Codex 账户以及你自己的 ~/.codex 都能继续在其他账户中开始的对话。关闭后，每个账户的历史记录将保持独立。关闭不会移除任何已共享的内容。",
         "unsupported": "请更新 {{host}} 上的 Orca 以在那里更改此设置。",
         "updateFailed": "无法更新 {{host}} 上的设置。"
-      }
+      },
+      "installCliForTerminal": "安装 {{value0}} CLI 即可在终端中打开。",
+      "chatRuntime": "聊天运行时",
+      "chatChoiceTitle": "以聊天或 CLI 打开",
+      "chatChoiceDescription": "选择每个智能体以聊天还是其 CLI 打开。"
     },
     "followSymlinkedDirectoriesKeywords": {
       "symlink": "符号链接",
@@ -6868,8 +6864,6 @@
           "8fbe1f37c1": "环境",
           "2d133152fa": "无默认环境",
           "agentPermissions": "智能体权限",
-          "agentPermissionsYolo": "Yolo",
-          "agentPermissionsManual": "手动",
           "3f1bdf3cb4": "环境文本过长，无法安全解析。",
           "codexSessionSource": "要导入的 Codex 主目录",
           "codexSessionSourceInfo": "关于导入 Codex 历史记录",
@@ -11396,9 +11390,7 @@
           "installing": "正在安装…",
           "reviewLabel": "审核并安装 {{value0}}",
           "review": "审核并安装",
-          "retry": "重试",
-          "disable": "禁用",
-          "enable": "启用"
+          "retry": "重试"
         },
         "PluginSettingsRow": {
           "loadingLogs": "正在加载日志…",
@@ -12533,15 +12525,13 @@
           "offTitle": "插件已关闭"
         },
         "PluginFilterPopover": {
-          "label": "筛选插件",
           "kind": "类别",
           "catalog": "目录",
           "clear": "清除筛选",
           "themes": "主题",
           "languages": "语言",
           "icons": "图标",
-          "commands": "命令和面板",
-          "machines": "机器和配方"
+          "commands": "命令和面板"
         },
         "PluginUpdateAllDialog": {
           "previewError": "无法读取此更新",
@@ -12596,10 +12586,6 @@
         },
         "PluginSettingsMenu": {
           "autoUpdateHint": "仅在需要新访问权限时再次询问"
-        },
-        "InstalledPluginCarousel": {
-          "previous": "上一组已安装插件",
-          "next": "下一组已安装插件"
         },
         "PluginInUseAction": {
           "inUseDark": "使用中 · 深色",
@@ -13758,8 +13744,7 @@
             "trashFailed": "无法将“{{name}}”移到废纸篓。"
           },
           "useFileExplorerHandlers": {
-            "32cd9fd991": "无法打开符号链接目标",
-            "folderLinksOutsideProject": "此文件夹链接到项目之外，无法在此打开。"
+            "32cd9fd991": "无法打开符号链接目标"
           },
           "useFileExplorerImport": {
             "importFailedCount_other": "无法导入 {{count}} 个文件。",
@@ -14455,8 +14440,8 @@
           "aa97420ba4": "复制安装链接",
           "ac1eb64952": "安卓",
           "711e6f4b47": "iOS系统",
-          "e75647ace0": "使用手机扫描二维码或打开安装链接以获取 Orca 手机端。",
-          "0d9b33299e": "获取应用程序。",
+          "e75647ace0": "用手机相机扫描此下载二维码。已经安装 Orca Mobile？继续到第 2 步查看配对二维码。",
+          "0d9b33299e": "下载应用。",
           "92ddfdfa1f": "第 1 步（共 2 步）",
           "ff48d9d520": "与另一台设备配对",
           "f9cbf4bb53": "撤销设备",
@@ -14643,6 +14628,9 @@
           "reconnectBody": "再次登录以使用 Orca Relay，或使用 LAN 通过 Tailscale 或同一 Wi-Fi 进行配对。",
           "notEntitledTitle": "此 Orca 账户不包含 Orca Relay。",
           "rateLimitedBody": "Orca Relay 正忙。请等待一分钟再重试，或使用 LAN 通过 Tailscale 或同一 Wi‑Fi 配对。"
+        },
+        "relayClockSkewMessage": {
+          "message": "你的电脑时钟偏差约 {{seconds}} 秒。请开启自动设置时间，然后重试。"
         }
       },
       "gitlab": {
@@ -16588,7 +16576,10 @@
                     "024467ceac": "取消",
                     "449d2c2629": "注释意图",
                     "38d320108c": "折叠注释",
-                    "9f209891a7": "展开注释"
+                    "9f209891a7": "展开注释",
+                    "includePageDetails": "包含页面详情",
+                    "copyFeedback": "复制反馈",
+                    "copyFeedbackWithPageDetails": "复制反馈及页面详情"
                   }
                 }
               }
@@ -19619,7 +19610,7 @@
       "heroBody": "一次性下载 {{size}} MB，由运行此聊天的电脑上的 {{agent}} 聊天共用。",
       "heroBodyNoSize": "一次性下载，由运行此聊天的电脑上的 {{agent}} 聊天共用。",
       "stripSize": "在运行此聊天的电脑上下载 {{size}} MB",
-      "settingsHint": "也可在 设置 › 聊天 › 供应商 中安装",
+      "settingsHint": "也可在 设置 › 智能体 中安装",
       "installShort": "安装",
       "tryAgain": "重试",
       "cancelShort": "取消",
@@ -20873,7 +20864,8 @@
     },
     "codexSharedSettingsNotice": {
       "title": "Orca 中的 Codex 现在使用 ~/.codex",
-      "description": "Codex 可能会再次要求信任文件夹或批准命令。重新添加您仅在 Orca 中添加的所有 MCP 服务器。"
+      "description": "Codex 可能会再次要求信任文件夹或批准命令。重新添加您仅在 Orca 中添加的所有 MCP 服务器。",
+      "dismiss": "关闭"
     },
     "codexSharedServerBanner": {
       "title": "此 Codex 与您的其他 Codex 选项卡共享服务器",

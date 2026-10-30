@@ -43,8 +43,6 @@ export type MobileRelayRpcSession = RpcClient &
     getResumeExpiresAt(): number | null
     getResumeConfirmation(): DeviceResumeConfirmed | null
     getFailure(): Error | null
-    // One decisive probe for a relay retained through a real background stay.
-    probeAfterBackground(): void
   }
 
 export function connectMobileRelayRpcSession(args: {
@@ -76,7 +74,7 @@ export function connectMobileRelayRpcSession(args: {
   const streams = new MobileRelayRpcStreams({
     nextId: () => pending.nextId(),
     sendFrame,
-    waitForConnected: () => waitForConnected()
+    waitForConnected: () => connectWaiters.wait(requestTimeoutMs)
   })
 
   const link = new MobileRelayE2eeLink({
@@ -117,7 +115,7 @@ export function connectMobileRelayRpcSession(args: {
     async sendRequest(method, params, options) {
       throwIfSignalAborted(options?.signal)
       const budget = openRpcRequestBudget(options)
-      await waitForPromiseWithSignal(waitForConnected(budget.timeoutMs), options?.signal)
+      await waitForPromiseWithSignal(connectWaiters.wait(budget.timeoutMs), options?.signal)
       throwIfSignalAborted(options?.signal)
       options?.beforeSend?.()
       const timeoutMs = resolvePostConnectRequestTimeout(budget, requestTimeoutMs)
@@ -142,9 +140,16 @@ export function connectMobileRelayRpcSession(args: {
       stateListeners.add(listener)
       return () => stateListeners.delete(listener)
     },
-    notifyForeground: (reason) => {
-      if (state === 'connected' && reason !== 'network-change') {
-        livenessWatchdog.probeNow(livenessIdentity)
+    notifyForeground: (reason = 'focus') => {
+      if (state === 'connected') {
+        if (reason === 'app-resume') {
+          livenessWatchdog.probeAfterBackground(livenessIdentity)
+        } else {
+          livenessWatchdog.probeNow(
+            livenessIdentity,
+            reason === 'network-change' ? DECISIVE_PROBE_TIMEOUT_MS : null
+          )
+        }
       }
     },
     close() {
@@ -165,9 +170,6 @@ export function connectMobileRelayRpcSession(args: {
     getResumeExpiresAt: () => resumeExpiresAt,
     getResumeConfirmation: () => resumeConfirmation,
     getFailure: () => failure,
-    probeAfterBackground: () =>
-      state === 'connected' &&
-      livenessWatchdog.probeNow(livenessIdentity, DECISIVE_PROBE_TIMEOUT_MS),
     probeLivenessNow: () => state === 'connected' && livenessWatchdog.probeCurrentDecisively()
   }
   const connectWaiters = new MobileRelayConnectWaiters(client)
@@ -283,10 +285,6 @@ export function connectMobileRelayRpcSession(args: {
       return
     }
     streams.handleResponse(value)
-  }
-
-  function waitForConnected(timeoutMs = requestTimeoutMs): Promise<void> {
-    return connectWaiters.wait(timeoutMs)
   }
 
   function publishState(next: ConnectionState): void {
