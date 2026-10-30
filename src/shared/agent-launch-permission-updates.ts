@@ -82,7 +82,7 @@ export function legacyArgumentsUpdates(
   settings: AgentLaunchSettingsSource,
   agent: TuiAgent,
   value: string,
-  platform: NodeJS.Platform = agentPermissionHostPlatform()
+  platform: NodeJS.Platform | undefined = agentPermissionHostPlatform()
 ): AgentLaunchSettingsSource {
   const shell = resolveStartupShell(
     platform,

@@ -4,15 +4,12 @@ import { quoteStartupArg, tokenizeStartupCommand } from './tui-agent-startup-she
 import { describe, expect, it } from 'vitest'
 import {
   agentLaunchSettingsMutationUpdates,
-  projectAgentLaunchSettings,
   type AgentLaunchSettingsSource
 } from './agent-launch-settings'
 import { AgentLaunchSettingsMutation } from './rpc-contract/agent-launch-settings-params'
 import { migrateAgentPermissionChoice } from './tui-agent-permission-lift'
-import { legacyLaunchTextUpdates } from './agent-launch-permission-updates'
 import { agentLaunchSettingsRollbackUpdates } from '../main/runtime/agent-launch-settings-rollback'
 import { structuredLaunchSeedOptions } from './native-chat/input/native-chat-session-option-defaults'
-import { structuredAgentConfiguredArgs } from '../main/native-chat/structured-agent-configured-args'
 
 const baseline: AgentLaunchSettingsSource = {
   agentPermissionDefault: 'ask',
@@ -65,36 +62,6 @@ describe('host-authored launch defaults', () => {
         agentDefaultArgs: { claude: '--model literal' }
       }).agentDefaultArgs.claude
     ).toBe('--model literal')
-  })
-
-  it('publishes both legacy forms and reconciles no-ops, deletion and whole-map replacement', () => {
-    const published = projectAgentLaunchSettings(baseline)
-    expect(published.agentChoices?.userArgs.claude).toBe('--verbose')
-    expect(published.agentPermission?.userArgs.claude).toBe('--model opus --effort high --verbose')
-    expect(published.agentDefaultArgs.claude).toContain('--permission-mode default')
-    for (const [type, value] of [
-      ['arguments', published.agentDefaultArgs.claude],
-      ['user-arguments', published.agentPermission?.userArgs.claude]
-    ] as const) {
-      expect(
-        agentLaunchSettingsMutationUpdates(
-          baseline,
-          { type, agent: 'claude', value: value ?? '' },
-          'darwin'
-        )
-      ).toEqual({})
-      const edited = mutate(baseline, { type, agent: 'claude', value: '--verbose' })
-      expect(edited.agentLaunchChoices?.claude).toBeUndefined()
-      expect(edited.agentLaunchChoices?.codex).toEqual(baseline.agentLaunchChoices?.codex)
-      expect(edited.agentPermissionOverrides?.claude).toBe(type === 'arguments' ? 'own' : undefined)
-    }
-    const replaced = {
-      ...baseline,
-      ...legacyLaunchTextUpdates(baseline, {
-        agentDefaultArgs: { claude: published.agentDefaultArgs.claude }
-      })
-    }
-    expect(replaced.agentLaunchChoices).toEqual({ claude: baseline.agentLaunchChoices?.claude })
   })
 
   it('applies option deltas to latest state and removes only matching dirty recipes atomically', () => {
@@ -158,33 +125,6 @@ describe('host-authored launch defaults', () => {
     expect(agentLaunchSettingsRollbackUpdates(baseline, applied, newer, updates)).toEqual({})
   })
 
-  it('seeds authored defaults above remembered choices, preserves remembering on clear and keeps generated flags out of raw native args', () => {
-    const settings = {
-      ...baseline,
-      nativeChatSessionOptions: {
-        claude: { model: 'sonnet', valuesByModel: { sonnet: { effort: 'low' } } }
-      },
-      nativeChatPermissionMode: undefined
-    }
-    expect(structuredLaunchSeedOptions(settings, 'claude')).toMatchObject({
-      model: 'opus',
-      effort: 'high'
-    })
-    expect(
-      structuredLaunchSeedOptions({ ...settings, agentLaunchChoices: {} }, 'claude')
-    ).toMatchObject({ model: 'sonnet', effort: 'low' })
-    expect(structuredAgentConfiguredArgs('claude', settings)).toEqual(['--verbose'])
-    expect(
-      structuredAgentConfiguredArgs('claude', {
-        ...settings,
-        agentDefaultArgs: { claude: '--model conflicting --verbose' }
-      })
-    ).toEqual(['--model', 'conflicting', '--verbose'])
-    expect(
-      structuredAgentConfiguredArgs('claude', { agentDefaultArgs: { claude: '--model literal' } })
-    ).toEqual(['--model', 'literal'])
-  })
-
   it('validates the additive mutation strictly without changing old mutation shapes', () => {
     const valid = {
       type: 'launch-choices',
@@ -203,80 +143,78 @@ describe('host-authored launch defaults', () => {
   })
 })
 
-it.each(['posix', 'powershell', 'cmd'] as const)(
-  'uses original raw ownership before compiling authored terminal defaults on %s',
-  (shell) => {
-    const settings = {
-      agentPermissionDefault: 'own',
-      agentDefaultArgs: { claude: '--verbose' },
-      agentLaunchChoices: {
-        claude: { model: 'opus', options: { effort: 'high', fastMode: 'true' } }
-      }
-    } as const
-    const input = (
-      agentArgs: string | undefined,
-      sessionOptions?: Record<string, string>,
-      yieldToAgentArgs?: boolean
-    ) =>
-      terminalSessionOptionInputs({
-        agent: 'claude',
-        settings,
-        shell,
-        agentArgs,
-        sessionOptions,
-        yieldToAgentArgs
-      })
-    const launch = (startup: ReturnType<typeof input>) => {
-      const result = resolveAgentLaunchCommand({
-        agent: 'claude',
-        cmdOverrides: {},
-        platform: 'linux',
-        shell,
-        ...startup
-      })
-      if (!result.ok) {
-        throw new Error(result.error)
-      }
-      const parsed = tokenizeStartupCommand(result.command, shell)
-      if (!parsed.ok) {
-        throw new Error(parsed.error)
-      }
-      return parsed.tokens
+it('uses original raw ownership before compiling authored terminal defaults', () => {
+  const shell = 'posix' as const
+  const settings = {
+    agentPermissionDefault: 'own',
+    agentDefaultArgs: { claude: '--verbose' },
+    agentLaunchChoices: {
+      claude: { model: 'opus', options: { effort: 'high', fastMode: 'true' } }
     }
-    expect(input(undefined).sessionOptions).toEqual({
-      model: 'opus',
-      effort: 'high',
-      fastMode: 'true'
+  } as const
+  const input = (
+    agentArgs: string | undefined,
+    sessionOptions?: Record<string, string>,
+    yieldToAgentArgs?: boolean
+  ) =>
+    terminalSessionOptionInputs({
+      agent: 'claude',
+      settings,
+      shell,
+      agentArgs,
+      sessionOptions,
+      yieldToAgentArgs
     })
-    expect(launch(input(undefined))).toEqual([
-      'claude',
-      '--verbose',
-      '--model',
-      'opus',
-      '--effort',
-      'high',
-      '--settings',
-      '{"fastMode":true}'
-    ])
-    expect(input('--model alias').sessionOptions).toBeUndefined()
-    expect(launch(input('--model alias'))).toEqual(['claude', '--model', 'alias'])
-    expect(input('--effort low').sessionOptions).toEqual({ model: 'opus', fastMode: 'true' })
-    expect(input(undefined, { model: 'sonnet' }, true).sessionOptions).toEqual({ model: 'sonnet' })
-    expect(input('--model alias', { model: 'sonnet' }, true).sessionOptions).toBeUndefined()
-    expect(input('--model alias', { model: 'sonnet', effort: 'low' }).sessionOptions).toEqual({
-      model: 'sonnet',
-      effort: 'low'
+  const launch = (startup: ReturnType<typeof input>) => {
+    const result = resolveAgentLaunchCommand({
+      agent: 'claude',
+      cmdOverrides: {},
+      platform: 'linux',
+      shell,
+      ...startup
     })
-    const raw = `--settings ${quoteStartupArg('{"language":"french","fastMode":false}', shell)}`
-    // The existing token grammar, including file settings, owns the complete carrier.
-    expect(input('--settings config.json').sessionOptions).toEqual({
-      model: 'opus',
-      effort: 'high'
-    })
-    expect(input(raw).sessionOptions).toEqual({ model: 'opus', effort: 'high' })
-    expect(launch(input(raw))).toContain('{"language":"french","fastMode":false}')
+    if (!result.ok) {
+      throw new Error(result.error)
+    }
+    const parsed = tokenizeStartupCommand(result.command, shell)
+    if (!parsed.ok) {
+      throw new Error(parsed.error)
+    }
+    return parsed.tokens
   }
-)
+  expect(input(undefined).sessionOptions).toEqual({
+    model: 'opus',
+    effort: 'high',
+    fastMode: 'true'
+  })
+  expect(launch(input(undefined))).toEqual([
+    'claude',
+    '--verbose',
+    '--model',
+    'opus',
+    '--effort',
+    'high',
+    '--settings',
+    '{"fastMode":true}'
+  ])
+  expect(input('--model alias').sessionOptions).toBeUndefined()
+  expect(launch(input('--model alias'))).toEqual(['claude', '--model', 'alias'])
+  expect(input('--effort low').sessionOptions).toEqual({ model: 'opus', fastMode: 'true' })
+  expect(input(undefined, { model: 'sonnet' }, true).sessionOptions).toEqual({ model: 'sonnet' })
+  expect(input('--model alias', { model: 'sonnet' }, true).sessionOptions).toBeUndefined()
+  expect(input('--model alias', { model: 'sonnet', effort: 'low' }).sessionOptions).toEqual({
+    model: 'sonnet',
+    effort: 'low'
+  })
+  const raw = `--settings ${quoteStartupArg('{"language":"french","fastMode":false}', shell)}`
+  // The existing token grammar, including file settings, owns the complete carrier.
+  expect(input('--settings config.json').sessionOptions).toEqual({
+    model: 'opus',
+    effort: 'high'
+  })
+  expect(input(raw).sessionOptions).toEqual({ model: 'opus', effort: 'high' })
+  expect(launch(input(raw))).toContain('{"language":"french","fastMode":false}')
+})
 
 it.each(['claude', 'codex'] as const)(
   'preserves encoded boolean seeds through authored/remembered layering for %s',

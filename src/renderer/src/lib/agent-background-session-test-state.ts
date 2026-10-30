@@ -73,7 +73,7 @@ export function createAgentBackgroundSessionTestState(mocks: {
   registerAgentLaunchConfig: TestMock
 }): AgentBackgroundSessionTestState {
   const state: AgentBackgroundSessionTestState = {
-    runtimeStatusByEnvironmentId: new Map(),
+    runtimeStatusByEnvironmentId: new Map<string, never>(),
     activeRepoId: 'repo-1',
     activeWorktreeId: 'wt-1',
     lastTerminalInputAtByPaneKey: {},
@@ -126,7 +126,7 @@ export function createAgentBackgroundSessionTestState(mocks: {
 
 export function resetAgentBackgroundSessionTestState(state: AgentBackgroundSessionTestState): void {
   clearHostAgentMenuSettingsForTests()
-  state.runtimeStatusByEnvironmentId = new Map()
+  state.runtimeStatusByEnvironmentId = new Map<string, never>()
   state.activeRepoId = 'repo-1'
   state.activeWorktreeId = 'wt-1'
   state.lastTerminalInputAtByPaneKey = {}

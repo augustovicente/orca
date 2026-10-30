@@ -180,9 +180,11 @@ describe('the first message owned by create', () => {
         ...resume
       })
       await launch.launchResult
-      expect(createParams().options?.model).toBe(resume.resumeFrom ? undefined : 'claude-gone')
+      expect(createParams().options?.model).toBe(
+        'resumeFrom' in resume && resume.resumeFrom ? undefined : 'claude-gone'
+      )
       expect(createParams().firstMessage?.selection).toEqual(
-        resume.resumeFrom ? {} : { model: 'claude-gone' }
+        'resumeFrom' in resume && resume.resumeFrom ? {} : { model: 'claude-gone' }
       )
     } finally {
       mocks.settings = {}

@@ -115,7 +115,7 @@ export async function prepareQuickComposerStartup(
     ? await ensureAgentLaunchPreferences(useAppStore.getState(), {
         kind: 'git-worktree',
         repoId: input.repoId,
-        executionHostId: input.executionHostId
+        executionHostId: input.executionHostId ?? undefined
       })
     : undefined
   const { prompt, draftPrompt } = resolveQuickCreateLinkedWorkItemPrompt(

@@ -166,8 +166,8 @@ export function useHostAgentMenuSettings(
       },
       [subscription]
     ),
-    effectiveSnapshot,
-    effectiveSnapshot
+    () => effectiveSnapshot(undefined),
+    () => effectiveSnapshot(undefined)
   )
   if (!environmentId) {
     return { settings: desktopSettings, pending: false }

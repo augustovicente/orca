@@ -545,6 +545,7 @@ it.each(['native', 'blank', 'terminal'] as const)(
         expect(mocks.activateAndRevealWorktree).not.toHaveBeenCalled()
         answer.resolve({
           defaultTuiAgent: 'codex',
+          disabledTuiAgents: undefined,
           agentLaunchChoices: { codex: { model: 'owner-result' } }
         })
       }
@@ -566,7 +567,7 @@ it.each(['native', 'blank', 'terminal'] as const)(
         expect(mocks.activateAndRevealWorktree.mock.lastCall?.[1].startup).toBeUndefined()
       }
     } finally {
-      answer.resolve({})
+      answer.resolve({ defaultTuiAgent: undefined, disabledTuiAgents: undefined })
     }
   }
 )

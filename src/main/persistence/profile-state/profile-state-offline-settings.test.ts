@@ -155,7 +155,7 @@ describe.each(['json', 'sqlite'] as const)('offline settings %s updates', (backe
           initialized ? {} : { claude: { model: 'opus', options: { effort: 'high' } } }
         )
         expect(reopened.getSettings().agentStatusHooksEnabled).toBe(false)
-        expect(reopened.getSettings().agentDefaultArgs.claude).toContain('--verbose')
+        expect(reopened.getSettings().agentDefaultArgs?.claude).toContain('--verbose')
       } finally {
         await reopened.freezeWritesAsync()
       }

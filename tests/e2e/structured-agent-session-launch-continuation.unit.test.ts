@@ -5,7 +5,8 @@ import {
   cleanupCreateMessageFixture,
   created,
   createParams
-} from './structured-agent-session-launch-create-message.test-fixture'
+} from '../../src/renderer/src/lib/structured-agent-session-launch-create-message.test-fixture'
+import type { AgentSessionModelCatalogResult } from '../../src/shared/agent-session-wire'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { act, renderHook } from '@testing-library/react'
 import type * as HostCapability from '@/runtime/structured-agent-session-host-capability'
@@ -13,34 +14,34 @@ import { createBrowserUuid } from '@/lib/browser-uuid'
 import { mkdir, mkdtemp, writeFile, rm, realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
-import { OrcaRuntimeService } from '../../../main/runtime/orca-runtime'
-import { prepareStructuredAgentSessionCreateForWorktree } from '../../../main/runtime/rpc/methods/structured-agent-session-create'
-import type { StructuredAgentSessionHost } from '../../../main/native-chat/agent-session-wire/structured-agent-session-host'
-import { setStructuredAgentSessionHost } from '../../../main/native-chat/agent-session-wire/structured-agent-session-registry'
-import { structuredAgentRuntimeMetadata } from '../../../main/runtime/structured-agent-runtime-metadata'
-import { claudeStructuredSpawnOptions } from '../../../main/claude/claude-structured-spawn-options'
-import { openCodexThread } from '../../../main/codex/codex-structured-thread-open'
-import { resolvedCodexMessageOptions } from '../../../main/codex/codex-structured-message-options'
-import { optionSession } from '../../../main/codex/codex-structured-option-session.test-fixture'
-import { startStructuredAgentLaunch } from './structured-agent-session-launch'
-import { getStructuredAgentSessionLaunchSelection } from './structured-agent-session-launch-options'
+import { OrcaRuntimeService } from '../../src/main/runtime/orca-runtime'
+import { prepareStructuredAgentSessionCreateForWorktree } from '../../src/main/runtime/rpc/methods/structured-agent-session-create'
+import type { StructuredAgentSessionHost } from '../../src/main/native-chat/agent-session-wire/structured-agent-session-host'
+import { setStructuredAgentSessionHost } from '../../src/main/native-chat/agent-session-wire/structured-agent-session-registry'
+import { structuredAgentRuntimeMetadata } from '../../src/main/runtime/structured-agent-runtime-metadata'
+import { claudeStructuredSpawnOptions } from '../../src/main/claude/claude-structured-spawn-options'
+import { openCodexThread } from '../../src/main/codex/codex-structured-thread-open'
+import { resolvedCodexMessageOptions } from '../../src/main/codex/codex-structured-message-options'
+import { optionSession } from '../../src/main/codex/codex-structured-option-session.test-fixture'
+import { startStructuredAgentLaunch } from '../../src/renderer/src/lib/structured-agent-session-launch'
+import { getStructuredAgentSessionLaunchSelection } from '../../src/renderer/src/lib/structured-agent-session-launch-options'
 import { replaceRuntimeEnvironmentRevisions } from '@/runtime/runtime-environment-revision'
 import { recordHostModelCatalogSnapshot } from '@/runtime/host-model-catalog-snapshots'
 import { useStructuredAgentSessionOptions } from '@/components/native-chat/use-structured-agent-session-options'
 import { useNativeChatProvisionalLaunch } from '@/components/native-chat/use-native-chat-provisional-launch'
-import { structuredAgentSessionMessageSelection } from '../../../shared/structured-agent-session-option-view'
-import { structuredAgentSessionModelId } from '../../../shared/structured-agent-session-option-state'
-import { createGlobalSettingsFixture } from '../../../shared/global-settings-test-fixture'
-import { CreateIntentParams } from '../../../shared/rpc-contract/structured-agent-session-params'
-import { structuredAgentSessionCreateFingerprint } from '../../../shared/structured-agent-session-mutation'
+import { structuredAgentSessionMessageSelection } from '../../src/shared/structured-agent-session-option-view'
+import { structuredAgentSessionModelId } from '../../src/shared/structured-agent-session-option-state'
+import { createGlobalSettingsFixture } from '../../src/shared/global-settings-test-fixture'
+import { CreateIntentParams } from '../../src/shared/rpc-contract/structured-agent-session-params'
+import { structuredAgentSessionCreateFingerprint } from '../../src/shared/structured-agent-session-mutation'
 import {
   retryStructuredAgentSessionLaunchIntent,
   restoreStructuredAgentSessionLaunchIntent
-} from './launch-structured-agent-session'
+} from '../../src/renderer/src/lib/launch-structured-agent-session'
 import {
   resetStructuredAgentLaunchRegistryForTests,
   getStructuredLaunchStateBySessionId
-} from './agent-session/launch/structured-agent-session-launch-registry'
+} from '../../src/renderer/src/lib/agent-session/launch/structured-agent-session-launch-registry'
 
 vi.mock('@/runtime/structured-agent-session-host-capability', async (original) => ({
   ...(await original<typeof HostCapability>()),
@@ -50,7 +51,7 @@ vi.mock('@/runtime/structured-agent-session-host-capability', async (original) =
 vi.mock('@/components/native-chat/StructuredAgentSessionStatusBridge', () => ({
   useStructuredAgentSessionStatusSummary: () => ({ summary: null, observation: 'live' })
 }))
-vi.mock('../../../main/agent-workspace-trust', () => ({
+vi.mock('../../src/main/agent-workspace-trust', () => ({
   applyAgentWorkspaceTrust: vi.fn(async () => ({}))
 }))
 let restore: (() => void) | undefined
@@ -322,7 +323,7 @@ it('admits paired continuation picks after support, keeps unknown display unsent
   const create = Promise.withResolvers<unknown>()
   const hydration = Promise.withResolvers<unknown>()
   const target = { kind: 'environment', environmentId: 'alpha' } as const
-  const catalog = {
+  const catalog: AgentSessionModelCatalogResult = {
     origin: 'probe',
     fetchedAt: 1,
     defaultHoldsInEveryWorkspace: true,
@@ -340,7 +341,7 @@ it('admits paired continuation picks after support, keeps unknown display unsent
         efforts: [{ value: 'high', label: 'High' }]
       }
     ]
-  } as const
+  }
   replaceRuntimeEnvironmentRevisions([{ id: 'alpha', createdAt: 1 }])
   recordHostModelCatalogSnapshot(target, 'claude', null, catalog)
   mocks.admit.mockReturnValue(admission.promise)

@@ -66,7 +66,11 @@ export async function launchAgentInWebHostTab(args: {
       (capable ? {} : useAppStore.getState().settings?.agentLaunchChoices)
   )
   if (!startupPlan) {
-    return { delivered: false, failureNotified: false }
+    return {
+      delivered: false,
+      failureNotified: false,
+      outcome: { status: 'failed', message: '' }
+    }
   }
   const hasPrompt = prompt.length > 0
   const launchPreferences = toAgentLaunchPreferences(

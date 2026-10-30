@@ -48,6 +48,7 @@ it.each(['claude', 'codex'] as const)(
       providerSession: { key: 'session_id', id: 'existing' },
       platform: 'win32',
       shell: 'powershell',
+      cmdOverrides: {},
       ...plan?.launchConfig
     })
     expect(resume?.launchCommand).toContain('--verbose')

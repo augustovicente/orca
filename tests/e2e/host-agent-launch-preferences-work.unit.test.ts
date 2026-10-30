@@ -1,23 +1,26 @@
 // @vitest-environment happy-dom
-import { rpc, status } from './new-tab-agent-menu-host-preferences-test-fixture'
+import {
+  rpc,
+  status
+} from '../../src/renderer/src/components/tab-bar/new-tab-agent-menu-host-preferences-test-fixture'
 import { act, renderHook } from '@testing-library/react'
 import { expect, it, vi } from 'vitest'
 import { useAppStore } from '@/store'
-import { useNewTabAgentMenuRows } from './use-new-tab-agent-menu-rows'
-import { useAgentLaunchPickerInventory } from '../agent/use-agent-launch-picker-inventory'
-import * as acquisitions from '../agent/agent-launch-picker-acquisition'
+import { useNewTabAgentMenuRows } from '../../src/renderer/src/components/tab-bar/use-new-tab-agent-menu-rows'
+import { useAgentLaunchPickerInventory } from '../../src/renderer/src/components/agent/use-agent-launch-picker-inventory'
+import * as acquisitions from '../../src/renderer/src/components/agent/agent-launch-picker-acquisition'
 import * as routes from '@/lib/agent-launch-route-input'
-import * as profile from '../../../../shared/agent-launch-profile'
-import * as composition from '../../../../shared/tui-agent-launch-defaults'
-import { createGlobalSettingsFixture } from '../../../../shared/global-settings-test-fixture'
-import type { RuntimeStore } from '../../../../main/runtime/runtime-store-contract'
-import { RuntimeClientSettingsController } from '../../../../main/runtime/runtime-client-settings'
-import { mutateHostAgentLaunchSettings } from '../settings/agent-launch-settings-transport'
-import { AGENT_LAUNCH_CHOICES_CAPABILITY } from '../../../../shared/agent-launch-runtime-capability'
-import { structuredLaunchSeedOptions } from '../../../../shared/native-chat/input/native-chat-session-option-defaults'
+import * as profile from '../../src/shared/agent-launch-profile'
+import * as composition from '../../src/shared/tui-agent-launch-defaults'
+import { createGlobalSettingsFixture } from '../../src/shared/global-settings-test-fixture'
+import type { RuntimeStore } from '../../src/main/runtime/runtime-store-contract'
+import { RuntimeClientSettingsController } from '../../src/main/runtime/runtime-client-settings'
+import { mutateHostAgentLaunchSettings } from '../../src/renderer/src/components/settings/agent-launch-settings-transport'
+import { AGENT_LAUNCH_CHOICES_CAPABILITY } from '../../src/shared/agent-launch-runtime-capability'
+import { structuredLaunchSeedOptions } from '../../src/shared/native-chat/input/native-chat-session-option-defaults'
 import { replaceRuntimeEnvironmentRevisions } from '@/runtime/runtime-environment-revision'
 
-vi.mock('../../../../main/agent-hooks/managed-agent-hook-controls', () => ({
+vi.mock('../../src/main/agent-hooks/managed-agent-hook-controls', () => ({
   applyAgentStatusHooksEnabled: vi.fn(async () => {})
 }))
 
@@ -81,7 +84,7 @@ it.each([20, 200])(
         ...status(),
         status: {
           ...status().status!,
-          capabilities: [...status().status!.capabilities, AGENT_LAUNCH_CHOICES_CAPABILITY]
+          capabilities: [...(status().status!.capabilities ?? []), AGENT_LAUNCH_CHOICES_CAPABILITY]
         }
       })
     }))

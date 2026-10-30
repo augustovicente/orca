@@ -1,12 +1,13 @@
+import { newAgentLaunchRequestId } from '@/lib/agent-launch-request-id'
 import type * as TerminalOperation from '@/runtime/web-runtime-terminal-create-operation'
 import type * as WebEnvironment from '@/runtime/web-runtime-session-environment'
 import { stubRuntimeEnvironmentBridge } from '@/runtime/runtime-environment-bridge-fixture'
-import { AGENT_LAUNCH_CHOICES_CAPABILITY } from '../../../shared/agent-launch-runtime-capability'
-import { OrcaRuntimeService } from '../../../main/runtime/orca-runtime'
-import { consumeOldHostPreparedCommand } from '../../../../tests/e2e/prepared-action-launch.test-fixture'
+import { AGENT_LAUNCH_CHOICES_CAPABILITY } from '../../src/shared/agent-launch-runtime-capability'
+import { OrcaRuntimeService } from '../../src/main/runtime/orca-runtime'
+import { consumeOldHostPreparedCommand } from './prepared-action-launch.test-fixture'
 import { clearHostAgentMenuSettingsForTests } from '@/components/settings/use-host-agent-launch-preferences'
-import { projectAgentLaunchSettings } from '../../../shared/agent-launch-settings'
-import type { AgentLaunchChoices } from '../../../shared/agent-launch-choices'
+import { projectAgentLaunchSettings } from '../../src/shared/agent-launch-settings'
+import type { AgentLaunchChoices } from '../../src/shared/agent-launch-choices'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
@@ -142,7 +143,8 @@ describe('launchAgentInNewTab paired web runtime', () => {
       hostTabId: 'host-tab::leaf-1'
     })
     store.tabsByWorktree['wt-1'].push({ id: 'local-agent-tab', launchAgent: 'claude' })
-    const { launchAgentInNewTab } = await import('./launch-agent-in-new-tab')
+    const { launchAgentInNewTab } =
+      await import('../../src/renderer/src/lib/launch-agent-in-new-tab')
 
     const result = launchAgentInNewTab({
       requestId: 'request-1',
@@ -198,8 +200,10 @@ describe('launchAgentInNewTab paired web runtime', () => {
       settings: ReturnType<typeof projectAgentLaunchSettings>
     }>()
     mocks.hostRpc.mockReturnValueOnce(pending.promise)
-    const { launchAgentInNewTab } = await import('./launch-agent-in-new-tab')
+    const { launchAgentInNewTab } =
+      await import('../../src/renderer/src/lib/launch-agent-in-new-tab')
     const result = launchAgentInNewTab({
+      requestId: newAgentLaunchRequestId(),
       agent: 'claude',
       worktreeId: 'wt-1',
       requestedSurface: 'terminal'
@@ -223,6 +227,7 @@ describe('launchAgentInNewTab paired web runtime', () => {
     )
     mocks.createWebRuntimeSessionTerminal.mockClear()
     const picked = launchAgentInNewTab({
+      requestId: newAgentLaunchRequestId(),
       agent: 'claude',
       worktreeId: 'wt-1',
       requestedSurface: 'terminal',
@@ -244,6 +249,7 @@ describe('launchAgentInNewTab paired web runtime', () => {
     })
     store.settings.agentCmdOverrides = { claude: 'cx' }
     const prepared = launchAgentInNewTab({
+      requestId: newAgentLaunchRequestId(),
       agent: 'claude',
       worktreeId: 'wt-1',
       requestedSurface: 'terminal'
@@ -256,6 +262,23 @@ describe('launchAgentInNewTab paired web runtime', () => {
       launchConfig: { agentCommand: "cx '--verbose'", agentArgs: '--verbose' }
     })
     expect(mocks.createTab).not.toHaveBeenCalled()
+    const dispatched = mocks.createWebRuntimeSessionTerminal.mock.calls.length
+    store.settings.agentCmdOverrides = { claude: 'claude --model sonnet' }
+    const refused = launchAgentInNewTab({
+      requestId: newAgentLaunchRequestId(),
+      agent: 'claude',
+      worktreeId: 'wt-1',
+      requestedSurface: 'terminal',
+      prompt: 'keep this prompt',
+      sessionOptions: { model: 'opus' }
+    })
+    await expect(refused?.terminalCompletion).resolves.toEqual({
+      delivered: false,
+      failureNotified: false,
+      outcome: { status: 'failed', message: '' }
+    })
+    expect(mocks.createWebRuntimeSessionTerminal).toHaveBeenCalledTimes(dispatched)
+    expect(mocks.toastError).not.toHaveBeenCalled()
   })
 
   it.each(['deadline', 'prepared', 'authoritative', 'old'] as const)(
@@ -330,8 +353,10 @@ describe('launchAgentInNewTab paired web runtime', () => {
           throw new Error(`Unexpected operation ${request.method}`)
         })
         stubRuntimeEnvironmentBridge({ call: dispatch })
-        const { launchAgentInNewTab } = await import('./launch-agent-in-new-tab')
+        const { launchAgentInNewTab } =
+          await import('../../src/renderer/src/lib/launch-agent-in-new-tab')
         const result = launchAgentInNewTab({
+          requestId: newAgentLaunchRequestId(),
           agent: 'claude',
           worktreeId: 'wt-1',
           requestedSurface: 'terminal',
@@ -404,7 +429,8 @@ describe('launchAgentInNewTab paired web runtime', () => {
   it('forwards prompt launch env and captured config to the host runtime', async () => {
     store.settings.agentDefaultArgs = { codex: '--model gpt-5 --reasoning-effort high' }
     store.settings.agentDefaultEnv = { codex: { CODEX_PROFILE: 'captured' } }
-    const { launchAgentInNewTab } = await import('./launch-agent-in-new-tab')
+    const { launchAgentInNewTab } =
+      await import('../../src/renderer/src/lib/launch-agent-in-new-tab')
 
     const result = launchAgentInNewTab({
       requestId: 'request-2',

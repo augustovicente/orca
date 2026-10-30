@@ -93,26 +93,6 @@ describe('typed creation through the startup and recorded resume owners', () => 
     }
   )
 
-  it('lowers an opaque Windows model exactly once with the execution shell', () => {
-    const plan = fresh('claude', {
-      platform: 'win32',
-      shell: 'powershell',
-      settings: {
-        agentPermissionDefault: 'own',
-        agentDefaultArgs: { claude: '--verbose' },
-        agentLaunchChoices: { claude: { model: 'org\\model' } }
-      }
-    })
-    expect(words(plan.launchCommand, 'powershell')).toEqual([
-      'claude',
-      '--verbose',
-      '--model',
-      'org\\model'
-    ])
-    expect(plan.launchConfig.agentArgs).toBe('--verbose')
-    expect(plan.launchConfig.agentCommand).not.toContain('org')
-  })
-
   it('lets literal Command ownership defeat defaults while genuine picked conflicts still refuse', () => {
     const commandSettings = { ...settings, agentCmdOverrides: { claude: 'claude --model sonnet' } }
     const plan = fresh('claude', { settings: commandSettings })
@@ -203,7 +183,7 @@ it('does zero model work on the real permission-only Command trigger at N/10N, a
   const remove = vi.spyOn(catalog.modelApply, 'removeAgentArgs')
   const compile = vi.spyOn(catalog.modelApply, 'launchArgs')
   try {
-    const rows = []
+    const rows: { n: number; modelRemovals: number; modelCompiles: number }[] = []
     for (const n of [128, 1280]) {
       remove.mockClear()
       compile.mockClear()

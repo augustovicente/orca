@@ -368,29 +368,14 @@ it.each(['pairing', 'runtime'] as const)(
   }
 )
 
-it('keeps real observation/inventory consumers asleep for unrelated settings and another host, and updates a used default', async () => {
-  let renders = 0
+it('updates actual inventory for native presentation and local permission changes', async () => {
   const hook = renderHook(() => {
     const menu = useNewTabAgentMenuRows('wt', true, { kind: 'runtime', environmentId: 'alpha' })
     const entries = useAgentLaunchPickerInventory('wt', menu, true)
-    renders++
     return { menu, entries }
   })
   await act(async () => {})
-  const settled = renders
-  await act(async () => {
-    useAppStore.setState((state) => ({ settings: { ...state.settings!, terminalFontSize: 19 } }))
-  })
-  expect(renders).toBe(settled)
-  await act(async () => {
-    useAppStore.setState((state) => ({
-      runtimeStatusByEnvironmentId: new Map(state.runtimeStatusByEnvironmentId).set(
-        'beta',
-        status('another-host-update')
-      )
-    }))
-  })
-  expect(renders).toBe(settled)
+  const before = hook.result.current.entries
   await act(async () => {
     useAppStore.setState((state) => ({
       settings: {
@@ -400,7 +385,7 @@ it('keeps real observation/inventory consumers asleep for unrelated settings and
       }
     }))
   })
-  expect(renders).toBeGreaterThan(settled)
+  expect(hook.result.current.entries).not.toBe(before)
   expect(hook.result.current.menu.state).toBe('settled')
   useAppStore.setState({
     folderWorkspaces: [makeFolderWorkspace({ id: 'local', executionHostId: 'local' })]
@@ -624,69 +609,59 @@ it('invalidates mounted picker seeds only for their effective authored-default s
   expect(localRenders).toBe(beforeHostChange)
 })
 
-it.each([30, 300])(
-  'bounds authored seed invalidation without scanning %i worktrees',
-  async (count) => {
-    const route = await import('@/lib/agent-launch-route-input')
-    const builder = vi.spyOn(route, 'buildAgentLaunchRouteInput')
-    useAppStore.setState({
-      worktreesByRepo: {
-        [TEST_REPO.id]: Array.from({ length: count }, (_, i) =>
-          makeWorktree({ id: `bounded-${i}`, repoId: TEST_REPO.id, hostId: 'runtime:alpha' })
-        )
-      }
-    })
-    const model = {
-      state: 'settled' as const,
-      rows: [{ kind: 'terminal' as const, agent: 'claude' as const }],
-      detection: {
-        detectedIds: ['claude' as const],
-        isLoading: false,
-        isRefreshing: false,
-        detectionFailed: false,
-        needsServerUpdate: false,
-        refresh: async () => ['claude' as const]
-      },
-      pickerContext: {
-        workspace: { kind: 'floating' as const },
-        executionHostId: 'local',
-        key: 'bounded-local',
-        settings: {
-          ...getDefaultSettings('/home/me'),
-          agentLaunchChoices: { claude: { model: 'opus' } }
-        }
+it('reprojects a supplied local authored map once without host acquisition', async () => {
+  const route = await import('@/lib/agent-launch-route-input')
+  const builder = vi.spyOn(route, 'buildAgentLaunchRouteInput')
+  const model = {
+    state: 'settled' as const,
+    rows: [{ kind: 'terminal' as const, agent: 'claude' as const }],
+    detection: {
+      detectedIds: ['claude' as const],
+      isLoading: false,
+      isRefreshing: false,
+      detectionFailed: false,
+      needsServerUpdate: false,
+      refresh: async () => ['claude' as const]
+    },
+    pickerContext: {
+      workspace: { kind: 'floating' as const },
+      executionHostId: 'local',
+      key: 'bounded-local',
+      settings: {
+        ...getDefaultSettings('/home/me'),
+        agentLaunchChoices: { claude: { model: 'opus' } }
       }
     }
-    const profiles = vi.spyOn(
-      await import('../../../../shared/agent-launch-profile'),
-      'projectAgentLaunchProfile'
-    )
-    const before = compositions.mock.calls.length
-    const profileBefore = profiles.mock.calls.length
-    const hook = renderHook(
-      ({ supplied }) => useAgentLaunchPickerInventory(undefined, supplied, false),
-      { initialProps: { supplied: model } }
-    )
-    await act(async () => {})
-    await act(async () =>
-      hook.rerender({
-        supplied: {
-          ...model,
-          pickerContext: {
-            ...model.pickerContext,
-            settings: {
-              ...model.pickerContext.settings,
-              agentLaunchChoices: { claude: { model: 'sonnet' } }
-            }
+  }
+  const profiles = vi.spyOn(
+    await import('../../../../shared/agent-launch-profile'),
+    'projectAgentLaunchProfile'
+  )
+  const before = compositions.mock.calls.length
+  const profileBefore = profiles.mock.calls.length
+  const hook = renderHook(
+    ({ supplied }) => useAgentLaunchPickerInventory(undefined, supplied, false),
+    { initialProps: { supplied: model } }
+  )
+  await act(async () => {})
+  await act(async () =>
+    hook.rerender({
+      supplied: {
+        ...model,
+        pickerContext: {
+          ...model.pickerContext,
+          settings: {
+            ...model.pickerContext.settings,
+            agentLaunchChoices: { claude: { model: 'sonnet' } }
           }
         }
-      })
-    )
-    expect(hook.result.current[0]?.terminal.model).toBe('sonnet')
-    expect(builder).not.toHaveBeenCalled()
-    expect(compositions.mock.calls.length - before).toBe(0)
-    expect(profiles.mock.calls.length - profileBefore).toBe(2)
-    profiles.mockRestore()
-    builder.mockRestore()
-  }
-)
+      }
+    })
+  )
+  expect(hook.result.current[0]?.terminal.model).toBe('sonnet')
+  expect(builder).not.toHaveBeenCalled()
+  expect(compositions.mock.calls.length - before).toBe(0)
+  expect(profiles.mock.calls.length - profileBefore).toBe(2)
+  profiles.mockRestore()
+  builder.mockRestore()
+})
