@@ -5,14 +5,48 @@ import {
   isNoUpstreamError,
   normalizeGitErrorMessage,
   pullArgsSpecifyReconciliation,
-  runPullWithDivergenceFallback
+  runPullWithDivergenceFallback,
+  stripCredentialsFromMessage
 } from './git-remote-error'
 
 afterEach(() => {
   vi.restoreAllMocks()
 })
 
+describe('stripCredentialsFromMessage', () => {
+  it.each([
+    ['https://user:secret@host/repo', 'https://host/repo'],
+    ['custom+git.1://user:sec:ret@host/repo', 'custom+git.1://host/repo'],
+    ['SSH://git:secret@host/repo', 'SSH://host/repo'],
+    ['HTTPS://token@host/repo', 'HTTPS://host/repo'],
+    ['http://token@host/repo', 'http://host/repo'],
+    ['ssh://git@host/repo', 'ssh://git@host/repo'],
+    ['git@host:repo', 'git@host:repo'],
+    ['123://user:secret@host', '123://user:secret@host'],
+    ['123git+1://user:secret@host', '123git+1://host'],
+    ['https://user:secret/path@host', 'https://user:secret/path@host'],
+    ['https://user:secret\u00a0tail@host', 'https://user:secret\u00a0tail@host'],
+    ['https://user:secret@token@host', 'https://host'],
+    [
+      '界 https://user:secret@host/😀 ssh://git@host https://token@other',
+      '界 https://host/😀 ssh://git@host https://other'
+    ]
+  ])('preserves URL structure when redacting %s', (input, expected) => {
+    expect(stripCredentialsFromMessage(input)).toBe(expected)
+  })
+})
+
 describe('normalizeGitErrorMessage', () => {
+  it('bounds redaction time when ANSI stripping joins a long scheme-like word', () => {
+    const error = new Error(
+      `remote: ${'\x1b[31ma\x1b[0m'.repeat(65_536)}\nfatal: denied https://user:secret@host/repo`
+    )
+    const start = performance.now()
+
+    expect(normalizeGitErrorMessage(error, 'push')).toBe('fatal: denied https://host/repo')
+    expect(performance.now() - start).toBeLessThan(2_000)
+  })
+
   it.each([
     ' ! [rejected] main -> main (stale info)',
     '\t!\t[rejected] main -> main (stale info)\t',
