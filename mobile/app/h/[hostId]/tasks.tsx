@@ -3,6 +3,7 @@ import { MobileWebShellScreen } from '../../../src/mobile-web-shell/MobileWebShe
 import { shellScreenRoute } from '../../../src/mobile-web-shell/shell-screen-route'
 import { PageRouteUnavailableScreen } from '../../../src/mobile-web-shell/PageRouteUnavailableScreen'
 import { firstParam } from '../../../src/navigation/route-param-reader'
+import { mobileEditionSupports } from '../../../src/mobile-edition'
 
 // Pass native pathname and taskSource via init.route.params; page restores its URL before first render.
 export default function MobileTasksRoute() {
@@ -13,6 +14,10 @@ export default function MobileTasksRoute() {
   }>()
   const hostId = firstParam(params.hostId)
   const taskSource = firstParam(params.taskSource)
+
+  if (!mobileEditionSupports('taskProviders')) {
+    return <PageRouteUnavailableScreen hostId={hostId ?? ''} />
+  }
 
   const route = hostId
     ? shellScreenRoute({

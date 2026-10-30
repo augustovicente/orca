@@ -3,6 +3,13 @@
 const APS_ENVIRONMENT =
   process.env.ORCA_IOS_APS_ENVIRONMENT === 'production' ? 'production' : 'development'
 
+const IOS_BUNDLE_ID =
+  process.env.ORCA_IOS_BUNDLE_ID || process.env.EXPO_PUBLIC_IOS_BUNDLE_ID || 'com.contadorca.mobile'
+const ANDROID_PACKAGE =
+  process.env.ORCA_ANDROID_PACKAGE ||
+  process.env.EXPO_PUBLIC_ANDROID_PACKAGE ||
+  'com.contadorca.mobile'
+
 module.exports = ({ config }) => ({
   ...config,
   // `expo run` installs a dev-client build cached for the current native fingerprint instead of
@@ -10,7 +17,12 @@ module.exports = ({ config }) => ({
   buildCacheProvider: { plugin: './scripts/native-build-cache.cjs' },
   ios: {
     ...config.ios,
+    bundleIdentifier: IOS_BUNDLE_ID,
     entitlements: { ...config.ios?.entitlements, 'aps-environment': APS_ENVIRONMENT }
+  },
+  android: {
+    ...config.android,
+    package: ANDROID_PACKAGE
   },
   plugins: (config.plugins ?? []).map((plugin) =>
     plugin === 'expo-notifications'

@@ -3,11 +3,16 @@ import { MobileWebShellScreen } from '../../../src/mobile-web-shell/MobileWebShe
 import { shellScreenRoute } from '../../../src/mobile-web-shell/shell-screen-route'
 import { PageRouteUnavailableScreen } from '../../../src/mobile-web-shell/PageRouteUnavailableScreen'
 import { firstParam } from '../../../src/navigation/route-param-reader'
+import { mobileEditionSupports } from '../../../src/mobile-edition'
 
 /** The shell route for the host's agent accounts, in `tasks.tsx`'s shape. */
 export default function MobileAccountsRoute() {
   const params = useLocalSearchParams<{ hostId?: string | string[] }>()
   const hostId = firstParam(params.hostId)
+
+  if (!mobileEditionSupports('agentPicker')) {
+    return <PageRouteUnavailableScreen hostId={hostId ?? ''} />
+  }
 
   const route = hostId
     ? shellScreenRoute({ pathname: `/h/${encodeURIComponent(hostId)}/accounts` })

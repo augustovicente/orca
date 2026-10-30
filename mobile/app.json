@@ -1,12 +1,12 @@
 {
   "expo": {
-    "name": "Orca Dev",
-    "slug": "orca-mobile",
+    "name": "Contadorca",
+    "slug": "contadorca-mobile",
     "version": "0.0.60",
     "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
-    "scheme": "orca",
+    "scheme": ["orca", "contadorca"],
     "newArchEnabled": true,
     "locales": {
       "en": "./locales/en.json",
@@ -28,13 +28,13 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.stably.orca.mobile",
+      "bundleIdentifier": "com.contadorca.mobile",
       "buildNumber": "1",
       "infoPlist": {
         "CFBundleAllowMixedLocalizations": true,
-        "NSLocalNetworkUsageDescription": "Orca connects to the desktop app on your LAN.",
-        "NSMicrophoneUsageDescription": "Allow Orca to record voice dictation and transcribe it on your paired desktop.",
-        "NSPhotoLibraryUsageDescription": "Allow Orca to attach photos from your library to a terminal session on your paired desktop.",
+        "NSLocalNetworkUsageDescription": "Contadorca connects to the desktop app on your LAN.",
+        "NSMicrophoneUsageDescription": "Allow Contadorca to record voice dictation and transcribe it on your paired desktop.",
+        "NSPhotoLibraryUsageDescription": "Allow Contadorca to attach photos from your library to a terminal session on your paired desktop.",
         "NSAppTransportSecurity": {
           "NSAllowsLocalNetworking": true,
           "NSExceptionDomains": {
@@ -88,7 +88,7 @@
       "usesCleartextTraffic": true,
       "allowBackup": false,
       "permissions": ["RECORD_AUDIO", "MODIFY_AUDIO_SETTINGS"],
-      "package": "com.stably.orca.mobile",
+      "package": "com.contadorca.mobile",
       "versionCode": 24
     },
     "plugins": [
@@ -119,15 +119,15 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow Orca to use the camera for QR code scanning.",
-          "microphonePermission": "Allow Orca to use your microphone for voice dictation sent to your paired desktop for transcription.",
+          "cameraPermission": "Allow Contadorca to use the camera for QR code scanning.",
+          "microphonePermission": "Allow Contadorca to use your microphone for voice dictation sent to your paired desktop for transcription.",
           "recordAudioAndroid": false
         }
       ],
       [
         "expo-image-picker",
         {
-          "photosPermission": "Allow Orca to attach photos from your library to a terminal session on your paired desktop."
+          "photosPermission": "Allow Contadorca to attach photos from your library to a terminal session on your paired desktop."
         }
       ],
       [

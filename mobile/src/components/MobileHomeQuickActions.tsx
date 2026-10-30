@@ -5,11 +5,12 @@ import type { HostProfile } from '../transport/types'
 import { colors, radii, spacing } from '../theme/mobile-theme'
 import { themedStyleSheet } from '../theme/themed-styles'
 import { useMobileColorScheme } from '../theme/use-mobile-color-scheme'
+import { mobileEditionSupports } from '../mobile-edition'
 
 type Props = {
   connectedHosts: HostProfile[]
   onPairDesktop: () => void
-  onCreateWorkspace: () => void
+  onCreateWorkspace?: () => void
 }
 
 export function MobileHomeQuickActions(props: Props) {
@@ -35,24 +36,26 @@ export function MobileHomeQuickActions(props: Props) {
             {t('components.homeQuickActions.pairDesktop', 'Pair Desktop')}
           </Text>
         </Pressable>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityState={{ disabled: !canCreateWorkspace }}
-          disabled={!canCreateWorkspace}
-          style={({ pressed }) => [
-            styles.quickAction,
-            !canCreateWorkspace && styles.quickActionDisabled,
-            pressed && styles.quickActionPressed
-          ]}
-          onPress={props.onCreateWorkspace}
-        >
-          <View style={styles.quickActionIcon}>
-            <Plus size={16} color={colors.textSecondary} />
-          </View>
-          <Text style={styles.quickActionLabel}>
-            {t('components.homeQuickActions.newWorkspace', 'New Workspace')}
-          </Text>
-        </Pressable>
+        {props.onCreateWorkspace && mobileEditionSupports('gitWorkflows') ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ disabled: !canCreateWorkspace }}
+            disabled={!canCreateWorkspace}
+            style={({ pressed }) => [
+              styles.quickAction,
+              !canCreateWorkspace && styles.quickActionDisabled,
+              pressed && styles.quickActionPressed
+            ]}
+            onPress={props.onCreateWorkspace}
+          >
+            <View style={styles.quickActionIcon}>
+              <Plus size={16} color={colors.textSecondary} />
+            </View>
+            <Text style={styles.quickActionLabel}>
+              {t('components.homeQuickActions.newWorkspace', 'New Workspace')}
+            </Text>
+          </Pressable>
+        ) : null}
       </View>
     </>
   )

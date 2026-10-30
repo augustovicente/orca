@@ -12,7 +12,9 @@ export const hostStatusSchema = z.looseObject({
   floatingWorkspaceEnabled: salvagedOptional('floatingWorkspaceEnabled', z.boolean()),
   capabilities: salvagedOptional('capabilities', z.array(z.string())),
   hostPlatform: salvagedOptional('hostPlatform', z.enum(NODE_PLATFORM_NAMES)),
-  machineName: salvagedOptional('machineName', z.string())
+  machineName: salvagedOptional('machineName', z.string()),
+  // Additive host edition advertisement. Missing/unknown => treat as full (old host or unknown).
+  edition: salvagedOptional('edition', z.enum(['full', 'contadorca']))
 })
 
 export type HostStatusReply = z.output<typeof hostStatusSchema>

@@ -52,6 +52,7 @@ import { isDesktopBrowserBridgeHostEnabled } from './desktop-browser-bridge/desk
 import { DESKTOP_BROWSER_BRIDGE_RUNTIME_CAPABILITY } from '../../shared/desktop-browser-bridge-protocol'
 import { darkSwitchRuntimeCapabilities } from './dark-switch-runtime-capabilities'
 import { supportsDurableTerminalPromptDelivery } from './durable-terminal-prompt-delivery-support'
+import { ORCA_EDITION_ID } from '../../shared/edition'
 
 type RuntimeStatusHost = {
   getAvailableAuthoritativeWindow(): unknown
@@ -167,7 +168,8 @@ export abstract class OrcaRuntimeWithGetStatus extends OrcaRuntimeWithPtyControl
       terminalWindowsShell: this.store?.getSettings?.().terminalWindowsShell ?? null,
       floatingWorkspaceEnabled: this.store?.getSettings?.().floatingTerminalEnabled !== false,
       protocolVersion: RUNTIME_PROTOCOL_VERSION,
-      minCompatibleMobileVersion: MIN_COMPATIBLE_RUNTIME_CLIENT_VERSION
+      minCompatibleMobileVersion: MIN_COMPATIBLE_RUNTIME_CLIENT_VERSION,
+      ...(ORCA_EDITION_ID === 'contadorca' ? { edition: 'contadorca' as const } : {})
     }
   }
 

@@ -18,6 +18,7 @@ import type {
 import type { CliStatusCaller } from './orchestration-caller-status'
 import type { RuntimeHostDescriptor } from './runtime-host-descriptor'
 import type { TuiAgent } from './tui-agent'
+import type { OrcaEdition } from './edition'
 
 export type * from './runtime-mobile-session-tab-contracts'
 
@@ -99,6 +100,8 @@ export type RuntimeStatus = {
   // COMPAT(runtimeStatusMobileAliases): added 2026-05-15 for older mobile builds.
   protocolVersion?: number
   minCompatibleMobileVersion?: number
+  /** Optional host edition advertisement; missing or unknown values read as full. */
+  edition?: OrcaEdition
 }
 
 export type CliRuntimeState =

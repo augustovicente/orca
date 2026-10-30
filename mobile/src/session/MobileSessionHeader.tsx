@@ -9,6 +9,7 @@ import { useMobileColorScheme } from '../theme/use-mobile-color-scheme'
 import { useMobileTranslation } from '../i18n/use-mobile-translation'
 import { useHostSidebarReveal } from '../layout/host-sidebar-reveal'
 import { useResponsiveLayout } from '../layout/responsive-layout'
+import { mobileEditionSupports } from '../mobile-edition'
 import type { MobileSessionController } from './use-mobile-session-controller'
 
 export function MobileSessionHeader({
@@ -97,14 +98,16 @@ export function MobileSessionHeader({
             onPress={() => handlePanelTap('files')}
           />
         )}
-        {!isFolderWorkspaceRoute && !isFloatingWorkspaceRoute && (
-          <MobileSessionHeaderIconButton
-            active={activePanel === 'sourceControl'}
-            accessibilityLabel={t('session.header.openSourceControl', 'Open source control')}
-            icon={GitBranch}
-            onPress={() => handlePanelTap('sourceControl')}
-          />
-        )}
+        {!isFolderWorkspaceRoute &&
+          !isFloatingWorkspaceRoute &&
+          mobileEditionSupports('sourceControl') && (
+            <MobileSessionHeaderIconButton
+              active={activePanel === 'sourceControl'}
+              accessibilityLabel={t('session.header.openSourceControl', 'Open source control')}
+              icon={GitBranch}
+              onPress={() => handlePanelTap('sourceControl')}
+            />
+          )}
         {showHeaderMoreButton ? (
           <MobileSessionHeaderIconButton
             active={activePanel === 'pr'}

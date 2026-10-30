@@ -3,6 +3,7 @@ import type { ActionSheetAction } from '../components/ActionSheetModal'
 import { colors } from '../theme/mobile-theme'
 import type { ExecutionHostId } from '../../../src/shared/execution-host'
 import { workspaceRouteHref } from '../navigation/workspace-execution-host'
+import { mobileEditionSupports } from '../mobile-edition'
 import { MOBILE_AI_VAULT_CAPABILITY } from './agent-history-capability'
 import { MobileAgentSessionHistoryIcon } from './MobileAgentSessionHistoryIcon'
 import { translate } from '../i18n/mobile-i18n'
@@ -24,8 +25,9 @@ export function buildWorktreeNavigationActions(args: Args): ActionSheetAction[] 
     return []
   }
   const executionHost = args.executionHost
-  const actions: ActionSheetAction[] = [
-    {
+  const actions: ActionSheetAction[] = []
+  if (mobileEditionSupports('sourceControl')) {
+    actions.push({
       id: 'sourceControl',
       label: translate('agentHistory.worktreeNavigationActions.sourceControl', 'Source Control'),
       icon: GitBranch,
@@ -39,8 +41,8 @@ export function buildWorktreeNavigationActions(args: Args): ActionSheetAction[] 
         )
         args.onDone()
       }
-    }
-  ]
+    })
+  }
   if (args.hostCapabilities.includes(MOBILE_AI_VAULT_CAPABILITY)) {
     actions.push({
       id: 'agentSessionHistory',
