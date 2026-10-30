@@ -144,6 +144,7 @@ export function useAgentLaunchPickerInventory(
                   controller.signal
                 ).catch(() => null)
                 let defaults: AgentPickerDefaultSettings | undefined
+                let structuredKnown = false
                 if (usable(host)) {
                   const permission = host.agentPermission
                   defaults = {
@@ -171,12 +172,15 @@ export function useAgentLaunchPickerInventory(
                   ).catch(() => null)
                   if (usable(legacy?.settings)) {
                     defaults = legacy.settings
+                    structuredKnown = true
                   }
                 }
                 return defaults
                   ? build(defaults).map((entry) => ({
                       ...entry,
                       defaultsPending: false,
+                      structuredDefaultsPending:
+                        entry.surfaces.includes('chat') && !structuredKnown,
                       ownerKey: key
                     }))
                   : undefined

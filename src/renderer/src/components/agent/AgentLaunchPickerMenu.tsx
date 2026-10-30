@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useId, useRef, useState, type PointerEvent } from 'react'
 import { Input } from '@/components/ui/input'
 import { DropdownMenuItem, DropdownMenuShortcut } from '@/components/ui/dropdown-menu'
 import { AgentIcon } from '@/lib/agent-catalog'
@@ -28,28 +28,36 @@ export function pickerLaunchRow(
 
 type Launch = (row: NewTabAgentMenuRow, draft?: AgentPickerDraft, entry?: AgentPickerEntry) => void
 
+function keepSetupFocus(event: PointerEvent<HTMLDivElement>) {
+  // Radix row hover must not steal focus from the row's portaled setup or its nested controls.
+  if (event.currentTarget.querySelector('[data-slot="popover-trigger"][aria-expanded="true"]')) {
+    event.preventDefault()
+  }
+}
+
 export function AgentLaunchPickerMenu({
   model,
   disabled,
   setupDisabled,
+  mode,
+  value,
   runLaunch,
   entries,
   hideSearch,
-  mode,
-  value,
   onSelectAgent
 }: {
   model: NewTabAgentMenuModel
   disabled?: boolean
   setupDisabled?: boolean
+  mode?: 'launch' | 'select'
+  value?: AgentPickerDraft
   runLaunch: Launch
   entries: AgentPickerEntry[]
   hideSearch?: boolean
-  mode?: 'launch' | 'select'
-  value?: AgentPickerDraft
   onSelectAgent?: (agent: AgentPickerEntry['agent']) => void
 }) {
   const [query, setQuery] = useState('')
+  const [openSetup, setOpenSetup] = useState<string | null>(null)
   const root = useRef<HTMLDivElement>(null)
   const shortcut = useOptionalShortcutLabel('tab.newAgent')
   const setups = searchAgentPickerSetups(entries, query)
@@ -91,6 +99,9 @@ export function AgentLaunchPickerMenu({
           key={`${setup.entry.agent}:${setup.model.id}:${setup.choices.options?.effort ?? ''}`}
           entry={setup.entry}
           mode={mode}
+          setupDisabled={setupDisabled}
+          openSetup={openSetup}
+          onSetupOpenChange={setOpenSetup}
           label={setup.label}
           initial={{
             agent: setup.entry.agent,
@@ -98,8 +109,7 @@ export function AgentLaunchPickerMenu({
             choices: setup.choices
           }}
           onSelectAgent={onSelectAgent}
-          disabled={disabled || setupDisabled}
-          setupDisabled={setupDisabled}
+          disabled={disabled}
           runLaunch={runLaunch}
         />
       ))}
@@ -109,8 +119,10 @@ export function AgentLaunchPickerMenu({
           entry={entry}
           mode={mode}
           selected={value?.agent === entry.agent ? value : undefined}
-          disabled={disabled}
           setupDisabled={setupDisabled}
+          openSetup={openSetup}
+          onSetupOpenChange={setOpenSetup}
+          disabled={disabled}
           runLaunch={runLaunch}
           onSelectAgent={onSelectAgent}
           shortcut={
@@ -134,17 +146,21 @@ export function AgentLaunchPickerMenu({
 
 function AgentPickerMenuRow({
   entry,
+  openSetup,
+  onSetupOpenChange,
   label = entry.label,
   initial,
   selected,
   mode,
-  disabled,
   setupDisabled,
+  disabled,
   runLaunch,
   shortcut,
   onSelectAgent
 }: {
   entry: AgentPickerEntry
+  openSetup: string | null
+  onSetupOpenChange: (id: string | null) => void
   label?: string
   initial?: AgentPickerDraft
   selected?: AgentPickerDraft
@@ -155,61 +171,70 @@ function AgentPickerMenuRow({
   shortcut?: string
   onSelectAgent?: (agent: AgentPickerEntry['agent']) => void
 }) {
+  const setupId = useId()
   const item = useRef<HTMLDivElement>(null)
   const configured = useRef<AgentPickerDraft | undefined>(undefined)
   const unavailable = entry.rows.find((row) => row.kind === 'chat-unavailable')
   return (
-    <DropdownMenuItem
-      ref={item}
-      variant="launch"
-      disabled={disabled || !entry.surfaces.length}
-      onSelect={() => {
-        const draft = configured.current ?? initial
-        configured.current = undefined
-        const surface = draft?.surface ?? entry.defaultSurface
-        const row = draft
-          ? pickerLaunchRow(entry, surface)
-          : (entry.rows.find((row) =>
-              surface === 'chat'
-                ? row.kind === 'chat'
-                : row.kind === 'terminal' || row.kind === 'cli'
-            ) ?? pickerLaunchRow(entry, surface))
-        if (draft) {
-          runLaunch(row, draft, entry)
-        } else {
-          runLaunch(row, undefined)
+    <AgentLaunchSetupButton
+      entry={entry}
+      initial={initial ?? selected}
+      mode={mode}
+      open={openSetup === setupId}
+      replacedByAnotherSetup={openSetup !== null && openSetup !== setupId}
+      disabled={disabled || setupDisabled}
+      onOpenChange={(next) => {
+        onSetupOpenChange(next ? setupId : null)
+        if (next) {
+          onSelectAgent?.(entry.agent)
         }
       }}
-      onKeyDown={(event) => {
-        if (event.key === 'ArrowRight') {
-          event.preventDefault()
-          item.current?.querySelector<HTMLButtonElement>('button')?.focus()
-        }
+      onUse={(draft) => {
+        configured.current = draft
+        item.current?.click()
       }}
-    >
-      <AgentIcon agent={entry.agent} size={14} />
-      <span className="flex-1">{label}</span>
-      {shortcut ? <DropdownMenuShortcut>{shortcut}</DropdownMenuShortcut> : null}
-      {unavailable?.kind === 'chat-unavailable' && !entry.surfaces.includes('chat') ? (
-        <span className="text-xs text-muted-foreground">
-          {chatUnavailableLabel(unavailable.reason)}
-        </span>
-      ) : null}
-      <AgentLaunchSetupButton
-        entry={entry}
-        initial={initial ?? selected}
-        mode={mode}
-        disabled={disabled || setupDisabled}
-        onOpenChange={(next) => {
-          if (next) {
-            onSelectAgent?.(entry.agent)
-          }
-        }}
-        onUse={(draft) => {
-          configured.current = draft
-          item.current?.click()
-        }}
-      />
-    </DropdownMenuItem>
+      renderAnchor={(trigger) => (
+        <DropdownMenuItem
+          ref={item}
+          variant="launch"
+          disabled={disabled || !entry.surfaces.length}
+          onSelect={() => {
+            const draft = configured.current ?? initial
+            configured.current = undefined
+            const surface = draft?.surface ?? entry.defaultSurface
+            const row = draft
+              ? pickerLaunchRow(entry, surface)
+              : (entry.rows.find((row) =>
+                  surface === 'chat'
+                    ? row.kind === 'chat'
+                    : row.kind === 'terminal' || row.kind === 'cli'
+                ) ?? pickerLaunchRow(entry, surface))
+            if (draft) {
+              runLaunch(row, draft, entry)
+            } else {
+              runLaunch(row, undefined)
+            }
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'ArrowRight') {
+              event.preventDefault()
+              item.current?.querySelector<HTMLButtonElement>('button')?.focus()
+            }
+          }}
+          onPointerMove={keepSetupFocus}
+          onPointerLeave={keepSetupFocus}
+        >
+          <AgentIcon agent={entry.agent} size={14} />
+          <span className="flex-1">{label}</span>
+          {shortcut ? <DropdownMenuShortcut>{shortcut}</DropdownMenuShortcut> : null}
+          {unavailable?.kind === 'chat-unavailable' && !entry.surfaces.includes('chat') ? (
+            <span className="text-xs text-muted-foreground">
+              {chatUnavailableLabel(unavailable.reason)}
+            </span>
+          ) : null}
+          {trigger}
+        </DropdownMenuItem>
+      )}
+    />
   )
 }

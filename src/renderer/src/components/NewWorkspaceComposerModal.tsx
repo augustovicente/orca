@@ -210,7 +210,8 @@ function QuickTabBody({
   const observation = useAgentMenuObservation(
     cardProps.agentRows?.target ?? null,
     active && Boolean(cardProps.agentRows),
-    cardProps.agentRows?.detectionTarget
+    cardProps.agentRows?.detectionTarget,
+    { wakeOnOpen: true }
   )
   const pickerDraft =
     quickAgentPick.agent === quickAgent && quickAgentPick.contextKey === observation.contextKey

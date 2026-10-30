@@ -1,13 +1,13 @@
 import { useState } from 'react'
-import { Check, ChevronRight } from 'lucide-react'
+import { Check, ChevronDown, ChevronLeft, ChevronRight, CornerDownLeft } from 'lucide-react'
 import { getAgentSessionOptionLaunchCatalog } from '../../../../shared/agent-session-option-catalog'
 import { Button } from '@/components/ui/button'
-import { Label } from '@/components/ui/label'
 import {
   Command,
   CommandInput,
   CommandList,
   CommandEmpty,
+  CommandGroup,
   CommandItem
 } from '@/components/ui/command'
 import { translate } from '@/i18n/i18n'
@@ -41,17 +41,23 @@ import {
 export function AgentLaunchSetupPanel({
   entry,
   initial,
-  disabled,
   mode = 'launch',
+  disabled,
+  onDraftChange,
   onUse
 }: {
   entry: AgentPickerEntry
   initial?: AgentPickerDraft
-  disabled?: boolean
   mode?: 'launch' | 'select'
+  disabled?: boolean
+  onDraftChange?: (draft: AgentPickerDraft) => void
   onUse: (draft: AgentPickerDraft) => void
 }) {
-  const [draft, setDraft] = useState(() => initial ?? agentPickerDraft(entry))
+  const [draft, updateDraft] = useState(() => initial ?? agentPickerDraft(entry))
+  const setDraft = (next: AgentPickerDraft) => {
+    updateDraft(next)
+    onDraftChange?.(next)
+  }
   const [modelQuery, setModelQuery] = useState('')
   const [legacy, setLegacy] = useState(false)
   const [argumentsOpen, setArgumentsOpen] = useState(entry.defaultSurface === 'terminal')
@@ -69,7 +75,8 @@ export function AgentLaunchSetupPanel({
     (!defaultsPending && listedDefaultKnown
       ? models.find((model) => model.isDefault)?.id
       : undefined)
-  const modelDisabled = disabled || defaultsPending || !currentModel
+  // Settled with nothing chosen still lets the user pick; nothing is checked and the agent keeps its own default.
+  const modelDisabled = disabled || defaultsPending
   const options = agentPickerEntryOptions(entry, currentModel, draft.surface)
   const argumentsView = agentPickerPanelArguments(entry, draft, currentModel)
   const optionRows: SessionOptionDescriptor[] = options.map((option) => {
@@ -107,6 +114,11 @@ export function AgentLaunchSetupPanel({
         settable: false
       }
     }
+    const valueKnown =
+      current !== undefined ||
+      (option.id === 'serviceTier' &&
+        entry.catalog.origin !== 'unknown' &&
+        Boolean(liveModel?.serviceTiers?.length))
     return {
       id: option.id,
       label: option.label,
@@ -122,12 +134,13 @@ export function AgentLaunchSetupPanel({
                   : option.kind.choices,
               currentValue: current
             },
-      valueSource: current === undefined ? 'unknown' : 'default',
+      valueSource: valueKnown ? 'default' : 'unknown',
       transport: 'agent-session',
       settable:
         !disabled &&
         !defaultsPending &&
-        current !== undefined &&
+        // A settled level the agent picks itself shows unselected but stays pickable.
+        (valueKnown || option.kind.type === 'select') &&
         (!(option.id === 'fastMode' || option.id === 'serviceTier') ||
           !entry.surfaces.includes('terminal') ||
           argumentsKnown)
@@ -138,6 +151,8 @@ export function AgentLaunchSetupPanel({
       options={rows}
       shownReason={null}
       pendingIds={new Set()}
+      divided={false}
+      layout="settings"
       onSet={(option, value) =>
         setDraft(
           option.id === 'fastMode' || option.id === 'serviceTier'
@@ -149,9 +164,10 @@ export function AgentLaunchSetupPanel({
     />
   )
   const use = (surface: AgentPickerSurface) => onUse({ ...draft, surface })
+  const legacyCount = models.filter((model) => model.isLegacy && !model.hidden).length
   return (
     <div
-      className="w-96 max-w-full space-y-3 p-3"
+      className="flex w-full flex-col"
       onKeyDown={(event) => {
         event.stopPropagation()
         if (
@@ -164,43 +180,46 @@ export function AgentLaunchSetupPanel({
         }
       }}
     >
-      <div className="space-y-1">
-        <Label variant="settings">{translate('agentPicker.model', 'Model')}</Label>
-        <Command
-          density="menu"
-          onKeyDownCapture={(event) => {
-            if (
-              !disabled &&
-              event.key === 'Enter' &&
-              event.currentTarget.querySelector(
-                '[cmdk-item][data-selected="true"][data-current="true"]'
-              )
-            ) {
-              event.preventDefault()
-              event.stopPropagation()
-              use(mode === 'select' ? draft.surface : entry.defaultSurface)
-            }
-          }}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') {
-              event.stopPropagation()
-            }
-          }}
-        >
-          <CommandInput
-            disabled={modelDisabled}
-            value={modelQuery}
-            onValueChange={setModelQuery}
-            aria-label={translate('agentPicker.searchModels', 'Search models')}
-            placeholder={translate('agentPicker.searchModels', 'Search models')}
-          />
-          <CommandList className="max-h-48">
-            <CommandEmpty>
-              {translate('agentPicker.noModels', 'No models match your search.')}
-            </CommandEmpty>
+      <Command
+        surface="inline"
+        density="model"
+        onKeyDownCapture={(event) => {
+          if (
+            !disabled &&
+            event.key === 'Enter' &&
+            event.currentTarget.querySelector(
+              '[cmdk-item][data-selected="true"][data-current="true"]'
+            )
+          ) {
+            event.preventDefault()
+            event.stopPropagation()
+            use(mode === 'select' ? draft.surface : entry.defaultSurface)
+          }
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            event.stopPropagation()
+          }
+        }}
+      >
+        <CommandInput
+          disabled={modelDisabled}
+          value={modelQuery}
+          onValueChange={setModelQuery}
+          aria-label={translate('agentPicker.searchModels', 'Search models')}
+          placeholder={translate('agentPicker.searchAgentModels', 'Search {{agent}} models…', {
+            agent: entry.label
+          })}
+        />
+        <CommandList className="max-h-56">
+          <CommandEmpty>
+            {translate('agentPicker.noModels', 'No models match your search.')}
+          </CommandEmpty>
+          <CommandGroup>
             {legacy && !modelQuery ? (
               <CommandItem value="__back__" disabled={disabled} onSelect={() => setLegacy(false)}>
-                {translate('agentPicker.backModels', 'Back to current models')}
+                <ChevronLeft className="size-3.5 text-muted-foreground" />
+                {translate('agentPicker.legacyModels', 'Legacy models')}
               </CommandItem>
             ) : null}
             {models
@@ -219,12 +238,24 @@ export function AgentLaunchSetupPanel({
                   onSelect={() => setDraft(editAgentPickerDraft(draft, { model: model.id }))}
                 >
                   {model.label}
-                  {currentModel === model.id ? <Check className="ml-auto size-3.5" /> : null}
+                  <span className="ml-auto flex size-3.5 shrink-0 items-center justify-center">
+                    {currentModel === model.id ? (
+                      <Check className="size-3.5 text-muted-foreground" />
+                    ) : null}
+                  </span>
                 </CommandItem>
               ))}
-            {!legacy && !modelQuery && models.some((model) => model.isLegacy) ? (
+            {!legacy && !modelQuery && legacyCount > 0 ? (
               <CommandItem value="__legacy__" disabled={disabled} onSelect={() => setLegacy(true)}>
-                {translate('agentPicker.legacyModels', 'Legacy models')}
+                <span className="flex min-w-0 flex-col">
+                  <span>{translate('agentPicker.legacyModels', 'Legacy models')}</span>
+                  <span className="text-muted-foreground">
+                    {translate('agentPicker.legacyModelCount', '{{total}} models', {
+                      total: legacyCount
+                    })}
+                  </span>
+                </span>
+                <ChevronRight className="ml-auto size-3.5 text-muted-foreground" />
               </CommandItem>
             ) : null}
             {currentModel && !models.some((model) => model.id === currentModel) ? (
@@ -235,86 +266,105 @@ export function AgentLaunchSetupPanel({
                 data-current="true"
               >
                 {currentModel}
-                <Check className="ml-auto size-3.5" />
+                <Check className="ml-auto size-3.5 text-muted-foreground" />
               </CommandItem>
             ) : null}
-          </CommandList>
-        </Command>
-      </div>
-      {renderOptions(optionRows.filter((row) => row.id !== 'fastMode' && row.id !== 'serviceTier'))}
-      <AgentPermissionMenu
-        agentId={entry.agent}
-        label={entry.label}
-        layout="stacked"
-        showInherited={false}
-        rawValue={argumentsView.selectedPermission ? undefined : argumentsView.permission}
-        disabled={
-          disabled ||
-          defaultsPending ||
-          !argumentsView.permission ||
-          (entry.surfaces.includes('terminal') && !argumentsKnown)
-        }
-        permission={{
-          choice: argumentsView.selectedPermission ?? 'own',
-          defaultChoice: argumentsView.selectedPermission ?? 'own',
-          choices: agentPickerPermissions(entry.agent, draft.surface),
-          source: 'agent',
-          flag: '',
-          argsSetPermission: false,
-          onSelect: (choice) => {
-            if (choice !== 'default') {
-              setDraft(editAgentPickerPermission(entry, draft, choice))
+          </CommandGroup>
+        </CommandList>
+      </Command>
+      <div className="grid min-w-0 grid-cols-1 gap-2.5 border-t border-border px-3 pt-2.5 pb-1">
+        {renderOptions(
+          optionRows.filter((row) => row.id !== 'fastMode' && row.id !== 'serviceTier')
+        )}
+        <div>
+          <AgentPermissionMenu
+            agentId={entry.agent}
+            label={entry.label}
+            layout="row"
+            showInherited={false}
+            rawValue={argumentsView.selectedPermission ? undefined : argumentsView.permission}
+            disabled={
+              disabled ||
+              defaultsPending ||
+              !argumentsView.permission ||
+              (entry.surfaces.includes('terminal') && !argumentsKnown)
             }
-          }
-        }}
-      />
-      {renderOptions(optionRows.filter((row) => row.id === 'fastMode' || row.id === 'serviceTier'))}
-      {entry.surfaces.includes('terminal') ? (
-        <div className="relative pl-4">
-          <Collapsible open={argumentsOpen} onOpenChange={setArgumentsOpen}>
-            <CollapsibleTrigger
-              aria-label={translate('agentPicker.toggleArguments', 'Toggle Arguments')}
-              className="absolute top-0 left-0 flex items-center"
-            >
-              <ChevronRight
-                className={
-                  argumentsOpen
-                    ? 'size-3 text-muted-foreground rotate-90'
-                    : 'size-3 text-muted-foreground'
+            permission={{
+              choice: argumentsView.selectedPermission ?? 'own',
+              defaultChoice: argumentsView.selectedPermission ?? 'own',
+              choices: agentPickerPermissions(entry.agent, draft.surface),
+              source: 'agent',
+              flag: '',
+              argsSetPermission: false,
+              onSelect: (choice) => {
+                if (choice !== 'default') {
+                  setDraft(editAgentPickerPermission(entry, draft, choice))
                 }
-              />
-            </CollapsibleTrigger>
-            {!argumentsOpen ? (
-              <Label variant="settings">{translate('agentPicker.arguments', 'Arguments')}</Label>
-            ) : null}
-            <CollapsibleContent>
-              <AgentDefaultArgsInput
-                defaultArgs={argumentsView.text}
-                argsOverride={argumentsView.text}
-                disabled={disabled || !argumentsKnown}
-                onSaveArgs={() => {}}
-                onDraftChange={(text) =>
-                  setDraft(editAgentPickerPanelText(entry, draft, text, currentModel))
-                }
-                choiceChips={argumentsView.chips.map((chip) => ({
-                  key: chip.key,
-                  label: entry.label,
-                  source: 'arguments',
-                  flag: chip.flag,
-                  onRemove: (text) => {
-                    setDraft(chip.remove())
-                    return text
-                  }
-                }))}
-                note={translate('agentPicker.argumentsHint', 'Applies only to CLI launches.')}
-              />
-            </CollapsibleContent>
-          </Collapsible>
+              }
+            }}
+          />
         </div>
-      ) : null}
-      <div className="flex justify-end gap-2 border-t border-border pt-3">
+        {renderOptions(
+          optionRows.filter((row) => row.id === 'fastMode' || row.id === 'serviceTier')
+        )}
+        {entry.surfaces.includes('terminal') ? (
+          <div>
+            <Collapsible open={argumentsOpen} onOpenChange={setArgumentsOpen}>
+              <CollapsibleTrigger asChild>
+                <button
+                  type="button"
+                  aria-label={translate('agentPicker.toggleArguments', 'Toggle Arguments')}
+                  className="flex min-h-7 w-full items-center gap-1.5 text-left text-xs"
+                >
+                  <span className="flex size-3.5 shrink-0 items-center justify-center text-muted-foreground">
+                    {argumentsOpen ? (
+                      <ChevronDown className="size-3.5" />
+                    ) : (
+                      <ChevronRight className="size-3.5" />
+                    )}
+                  </span>
+                  <span className="text-muted-foreground">
+                    {translate('agentPicker.arguments', 'Arguments')}
+                  </span>
+                  <span className="ml-auto truncate text-muted-foreground/70">
+                    {translate(
+                      'agentPicker.argumentsTerminalHint',
+                      'Only applies to terminal (CLI) launches'
+                    )}
+                  </span>
+                </button>
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <div className="pb-1">
+                  <AgentDefaultArgsInput
+                    hideLabel
+                    defaultArgs={argumentsView.text}
+                    argsOverride={argumentsView.text}
+                    disabled={disabled || !argumentsKnown}
+                    onSaveArgs={() => {}}
+                    onDraftChange={(text) =>
+                      setDraft(editAgentPickerPanelText(entry, draft, text, currentModel))
+                    }
+                    choiceChips={argumentsView.chips.map((chip) => ({
+                      key: chip.key,
+                      label: entry.label,
+                      source: 'arguments',
+                      flag: chip.flag,
+                      onRemove: (text) => {
+                        setDraft(chip.remove())
+                        return text
+                      }
+                    }))}
+                  />
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
+          </div>
+        ) : null}
+      </div>
+      <div className="flex items-center justify-end gap-2 border-t border-border px-2.5 py-2">
         {mode === 'select' ? (
-          <Button type="button" size="sm" disabled={disabled} onClick={() => use(draft.surface)}>
+          <Button type="button" size="xs" disabled={disabled} onClick={() => use(draft.surface)}>
             {translate('agentPicker.use', 'Use')}
           </Button>
         ) : (
@@ -322,14 +372,17 @@ export function AgentLaunchSetupPanel({
             <Button
               key={surface}
               type="button"
-              size="sm"
+              size="xs"
               disabled={disabled}
               variant={surface === entry.defaultSurface ? 'default' : 'outline'}
               onClick={() => use(surface)}
             >
               {surface === 'chat'
-                ? translate('agentPicker.openChat', 'Open chat')
-                : translate('agentPicker.openTerminal', 'Open terminal')}
+                ? translate('agentPicker.launchChat', 'Launch chat')
+                : translate('agentPicker.launchTerminal', 'Launch terminal')}
+              {surface === entry.defaultSurface ? (
+                <CornerDownLeft className="size-3 opacity-60" />
+              ) : null}
             </Button>
           ))
         )}

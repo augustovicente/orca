@@ -3,6 +3,7 @@ import { createElement, Suspense, startTransition, useLayoutEffect, useState } f
 import { act, cleanup, fireEvent, render, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { AgentLaunchPickerMenu } from './AgentLaunchPickerMenu'
+import { exerciseAgentPickerFreshness } from './agent-launch-picker-freshness-test-fixture'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import {
   DropdownMenu,
@@ -57,7 +58,7 @@ vi.mock('@/runtime/structured-agent-session-client', () => ({
 function model(
   host = 'alpha',
   agents: picker.AgentPickerEntry['agent'][] = ['codex']
-): NewTabAgentMenuModel {
+): Extract<NewTabAgentMenuModel, { state: 'settled' }> {
   return {
     state: 'settled',
     rows: agents.map((agent) => ({ agent, kind: 'chat', executionHostId: `runtime:${host}` })),
@@ -108,6 +109,14 @@ beforeEach(() => {
     )
 })
 afterEach(cleanup)
+
+it('revalidates completed host Chat defaults behind held siblings through the actual producer, resource and panel', async () => {
+  await exerciseAgentPickerFreshness({
+    menu: model('source-freshness', ['claude']),
+    session: mocks.session,
+    catalog
+  })
+})
 
 it('publishes only committed selection to physical catalog admission after a suspended render', async () => {
   const menu = model('committed-priority', ['codex', 'claude', 'gemini', 'cursor', 'amp'])
@@ -319,7 +328,7 @@ it.each(['slow', 'failed'] as const)(
     await act(async () => {})
     expect(hook.result.current[0]).toMatchObject({
       defaultsPending: false,
-      structuredDefaultsPending: false,
+      structuredDefaultsPending: kind === 'failed',
       arguments: '--host-only',
       terminal: { permissionMode: 'ask' },
       catalog: { origin: 'unknown' }
@@ -424,9 +433,14 @@ it('updates terminal availability when detection changes while the Chat rows sta
   if (menu.state !== 'settled') {
     throw new Error('settled fixture')
   }
-  const hook = renderHook(({ value }) => useAgentLaunchPickerInventory('wt', value, true), {
-    initialProps: { value: { ...menu, detection: { ...menu.detection, detectedIds: [] } } }
-  })
+  const initialProps: { value: Extract<NewTabAgentMenuModel, { state: 'settled' }> } = {
+    value: { ...menu, detection: { ...menu.detection, detectedIds: [] } }
+  }
+  const hook = renderHook(
+    ({ value }: { value: Extract<NewTabAgentMenuModel, { state: 'settled' }> }) =>
+      useAgentLaunchPickerInventory('wt', value, true),
+    { initialProps }
+  )
   await act(async () => {})
   expect(hook.result.current[0].surfaces).toEqual(['chat'])
   hook.rerender({ value: menu })
@@ -683,19 +697,19 @@ it('updates a mounted setup from current host rows without making ordinary actio
     'button[aria-label="Configure Codex"]'
   )!
   fireEvent.click(configure)
-  expect(document.body.textContent).toContain('Open terminal')
-  expect(document.body.textContent).not.toContain('Open chat')
+  expect(document.body.textContent).toContain('Launch terminal')
+  expect(document.body.textContent).not.toContain('Launch chat')
   for (const answer of ['yes', 'ssh', 'yes'] as const) {
     view.rerender(createElement(Menu, { answer }))
     await act(async () => {})
     expect(current[0].defaultSurface).toBe('terminal')
     expect(current[0].defaultsPending).toBe(true)
     expect(current[0].surfaces).toEqual(answer === 'yes' ? ['chat', 'terminal'] : ['terminal'])
-    expect(document.body.textContent?.includes('Open chat')).toBe(answer === 'yes')
+    expect(document.body.textContent?.includes('Launch chat')).toBe(answer === 'yes')
     expect(document.querySelector('textarea')).toHaveProperty('disabled', true)
     expect(
       [...document.querySelectorAll('button')].find(
-        (button) => button.textContent === 'Open terminal'
+        (button) => button.textContent === 'Launch terminal'
       )
     ).toHaveProperty('disabled', false)
   }

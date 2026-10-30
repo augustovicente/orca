@@ -10,6 +10,7 @@ import {
   TerminalSquare
 } from 'lucide-react'
 import { AgentIcon } from '@/lib/agent-catalog'
+import { PluginContributionIcon } from '../plugins/PluginContributionIcon'
 import { cn } from '@/lib/utils'
 import { FilePathCursorTooltip, FilenameFirstPath } from '@/components/file-path-cursor-tooltip'
 import { translate } from '@/i18n/i18n'
@@ -72,7 +73,8 @@ export function EntryActionRow({
         aria-selected={selected}
         disabled={disabled}
         className={cn(
-          'flex h-6 w-full items-center gap-1.5 rounded-[7px] px-1 text-left text-[11px] leading-5 outline-none disabled:cursor-not-allowed disabled:opacity-50',
+          // Why min-w-0: a long agent setup must truncate so the row's › stays inside the menu.
+          'flex h-6 w-full min-w-0 items-center gap-1.5 rounded-[7px] px-1 text-left text-[11px] leading-5 outline-none disabled:cursor-not-allowed disabled:opacity-50',
           selected
             ? 'bg-black/8 text-accent-foreground dark:bg-white/14'
             : // Why: CSS :hover still matches a disabled button, so a pending row would
@@ -166,6 +168,12 @@ function getActionPresentation(
         <Globe className="size-3.5 shrink-0" aria-hidden="true" />
       ) : option.option.kind === 'new-markdown' ? (
         <FilePlus className="size-3.5 shrink-0" aria-hidden="true" />
+      ) : option.option.kind === 'new-plugin-file' ? (
+        <PluginContributionIcon
+          url={option.option.pluginNewFile?.iconUrl}
+          fallback={FilePlus}
+          className="size-3.5 shrink-0"
+        />
       ) : option.option.kind === 'open-markdown' ? (
         <FileText className="size-3.5 shrink-0" aria-hidden="true" />
       ) : option.option.kind === 'new-simulator' || option.option.kind === 'go-to-simulator' ? (

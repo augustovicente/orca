@@ -39,7 +39,7 @@ it('carries the accepted route across preparation and retains CLI startup/prompt
     linkedLinearIssueWorkspaceId: undefined,
     linkedLinearIssueOrganizationUrlKey: undefined,
     effectiveBranchNameOverride: 'feature/test',
-    branchIntent: 'open-existing',
+    branchIntent: 'open-existing-v2',
     submitBaseBranch: undefined,
     createDisplayName: undefined,
     pendingFirstAgentMessageRename: false,
@@ -111,7 +111,7 @@ it('carries the accepted route across preparation and retains CLI startup/prompt
         agentLaunchRoute: route,
         quickPrompt: 'Fix the checkout',
         branchNameOverride: 'feature/test',
-        branchIntent: 'open-existing',
+        branchIntent: 'open-existing-v2',
         launchInputs: { sessionOptions: { model: 'team-model' }, agentArgs: '--add-dir docs' }
       })
       if (route === 'terminal-tui') {

@@ -31,6 +31,7 @@ import {
 
 import { buildNewTabAgentMenuRows } from '../../../shared/agent-launch-picker-rows'
 import type { ExecutionHostId } from '../../../shared/execution-host'
+import { fetchCodexModelCatalogListing } from './codex-model-catalog-reader-test-fixture'
 
 vi.mock('@/hooks/useShortcutLabel', () => ({ useOptionalShortcutLabel: () => null }))
 afterEach(() => {
@@ -211,7 +212,7 @@ describe('picker window launch contract', () => {
                         isRefreshing: false,
                         detectionFailed: false,
                         needsServerUpdate: false,
-                        refresh: async () => ['claude']
+                        refresh: async (): Promise<AgentPickerEntry['agent'][]> => ['claude']
                       }
                     }
                   })
@@ -233,7 +234,7 @@ describe('picker window launch contract', () => {
           expect(dispatch).not.toHaveBeenCalled()
           fireEvent.click(
             [...document.querySelectorAll('button')].find(
-              (button) => button.textContent === 'Open terminal'
+              (button) => button.textContent === 'Launch terminal'
             )!
           )
           expect(dispatch).toHaveBeenCalledOnce()
@@ -290,7 +291,8 @@ it.each(['claude', 'codex'] as const)(
     const { agentPickerDraft, agentPickerLaunchInputs } =
       await import('../../../shared/agent-launch-picker')
     const { editAgentPickerSpeed } = await import('../../../shared/agent-launch-picker-arguments')
-    const options = agent === 'claude' ? { fastMode: 'false' } : { serviceTier: 'default' }
+    const options: Record<string, string> =
+      agent === 'claude' ? { fastMode: 'false' } : { serviceTier: 'default' }
     const entry = {
       agent,
       label: agent,
@@ -441,7 +443,7 @@ it.each(['claude', 'codex'] as const)(
           )
         }
       }
-      for (const button of ['Open chat', 'Open terminal']) {
+      for (const button of ['Launch chat', 'Launch terminal']) {
         fireEvent.click(view.getByText(button))
       }
       fireEvent.keyDown(view.getByLabelText('Arguments'), { key: 'Enter' })
@@ -472,7 +474,7 @@ it.each(['claude', 'codex'] as const)(
       expect(input).toHaveProperty('disabled', false)
       for (const text of ['--add-dir src', '']) {
         fireEvent.change(input, { target: { value: text } })
-        fireEvent.click(view.getByText('Open terminal'))
+        fireEvent.click(view.getByText('Launch terminal'))
         const launch = agentPickerLaunchInputs(launches.at(-1)!, current!)
         expect(launch.agentArgs).toContain(
           agent === 'claude' ? '--permission-mode default' : '-a on-request -s read-only'
@@ -510,8 +512,6 @@ it.each(['claude', 'codex'] as const)(
 it('passes the recorded Codex catalog tier and approval/sandbox policy through the common reader, picker and real compiler', async () => {
   const { default: capture } =
     await import('../../../shared/fixtures/agent-picker-cli-recordings.json')
-  const { fetchCodexModelCatalogListing } =
-    await import('../../../main/codex/codex-structured-model-catalog')
   const { launchAgentInNewTab } = await import('./launch-agent-in-new-tab')
   const listing = await fetchCodexModelCatalogListing({
     connection: { request: vi.fn().mockResolvedValue(capture.modelList) }

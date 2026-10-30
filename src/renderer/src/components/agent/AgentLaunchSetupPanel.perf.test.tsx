@@ -16,6 +16,7 @@ import {
 } from '../../../../shared/agent-launch-picker'
 
 import { entry, host, root, onUse } from './agent-launch-setup-panel-test-fixture'
+import { fetchCodexModelCatalogListing } from '../../lib/codex-model-catalog-reader-test-fixture'
 
 function observeSettingsWork() {
   let depth = 0
@@ -168,7 +169,7 @@ it('bounds effective-settings work for direct analysis, collapsed Chat render an
           )
         }
         fireEvent.click(
-          [...host.querySelectorAll('button')].find((b) => b.textContent === 'Open terminal')!
+          [...host.querySelectorAll('button')].find((b) => b.textContent === 'Launch terminal')!
         )
         const launch = agentPickerLaunchInputs(onUse.mock.calls.at(-1)![0], own)
         expect(tokenizeStartupCommand(launch.agentArgs ?? '', 'posix')).toMatchObject({
@@ -189,8 +190,6 @@ it('bounds effective-settings work for direct analysis, collapsed Chat render an
 it('bounds catalog projection independently of raw model operands and retains Codex tier and Cursor composition through the real editor', async () => {
   const { default: capture } =
     await import('../../../../shared/fixtures/agent-picker-cli-recordings.json')
-  const { fetchCodexModelCatalogListing } =
-    await import('../../../../main/codex/codex-structured-model-catalog')
   const listing = await fetchCodexModelCatalogListing({
     connection: { request: vi.fn().mockResolvedValue(capture.modelList) }
   })
@@ -260,7 +259,7 @@ it('bounds catalog projection independently of raw model operands and retains Co
           host.querySelector(`button[aria-label="Remove -c service_tier=${tier}"]`)
         ).not.toBeNull()
         fireEvent.click(
-          [...host.querySelectorAll('button')].find((b) => b.textContent === 'Open terminal')!
+          [...host.querySelectorAll('button')].find((b) => b.textContent === 'Launch terminal')!
         )
         const launch = agentPickerLaunchInputs(onUse.mock.calls.at(-1)![0], own)
         expect(launch.agentArgs).toContain(`service_tier=${tier}`)
@@ -289,7 +288,7 @@ it('bounds catalog projection independently of raw model operands and retains Co
       target: { value: '--model claude-opus-4-8 --verbose' }
     })
     fireEvent.click(
-      [...host.querySelectorAll('button')].find((b) => b.textContent === 'Open terminal')!
+      [...host.querySelectorAll('button')].find((b) => b.textContent === 'Launch terminal')!
     )
     const launch = agentPickerLaunchInputs(onUse.mock.calls.at(-1)![0], own)
     expect(launch.agentArgs).toContain('--model claude-opus-4-8')
