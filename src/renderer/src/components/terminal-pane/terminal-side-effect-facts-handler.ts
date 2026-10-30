@@ -45,7 +45,9 @@ export {
 const {
   admitLegacyTerminalSemanticResident,
   followLocalTerminalSemanticSource,
-  admitRemoteTerminalSemanticResident
+  admitRemoteTerminalSemanticResident,
+  installTerminalSideEffectSource,
+  qualifyTerminalSideEffectSource
 } = createTerminalResidentSourceAdmissions((ptyId, resident) => {
   for (const entry of consumersByPtyId.get(ptyId) ?? []) {
     attachResidentConsumer(entry, resident)
@@ -54,7 +56,8 @@ const {
 export {
   admitLegacyTerminalSemanticResident,
   followLocalTerminalSemanticSource,
-  admitRemoteTerminalSemanticResident
+  admitRemoteTerminalSemanticResident,
+  installTerminalSideEffectSource
 }
 
 export function observeTerminalSemanticResidentExit(
@@ -86,43 +89,12 @@ import type { TerminalSideEffectBatch } from '../../../../shared/terminal-side-e
 const consumersByPtyId = new Map<string, Set<ConsumerEntry>>()
 let channelUnsubscribe: (() => void) | null = null
 
-/** Only the current endpoint subscription's positive ready may switch optional delivery. */
-export function installTerminalSideEffectSource(
-  endpoint: string,
-  source: object,
-  capable: boolean
-): void {
-  for (const [ptyId, resident] of residentsByPtyId) {
-    if (resident.identity.endpoint !== endpoint) {
-      continue
-    }
-    sourceSubscriptionsByPtyId.get(ptyId)?.close?.()
-    sourceSubscriptionsByPtyId.delete(ptyId)
-    disposeLegacySource(ptyId)
-    if (capable) {
-      continue
-    }
-    const options = {
-      ptyId,
-      binding: resident.policy.binding,
-      byteSource: true,
-      selectLegacy: true,
-      installationSource: source
-    }
-    admitLegacyTerminalSemanticResident(options)
-    admitRemoteTerminalSemanticResident(options)
-  }
-}
-
 export function dispatchTerminalSideEffectBatch(
   batch: TerminalSideEffectBatch,
   installation?: RuntimeClientEventInstallation
 ): void {
-  if (installation?.baseline && batch.terminalState && parseRemoteRuntimePtyId(batch.ptyId)) {
-    const captured = residentsByPtyId.get(batch.ptyId)
-    if (captured && !captured.installSource(batch)) {
-      return
-    }
+  if (!qualifyTerminalSideEffectSource(batch, installation?.source)) {
+    return
   }
   const entries = consumersByPtyId.get(batch.ptyId)
   const entry = entries?.values().next().value

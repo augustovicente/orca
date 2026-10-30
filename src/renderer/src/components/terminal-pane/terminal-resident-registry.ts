@@ -81,8 +81,21 @@ export class TerminalResident<Policy extends TerminalResidentPolicy> {
       runtimeId: source.runtimeId,
       incarnationId: source.incarnationId
     })
-    this.consumption.install(source.snapshot)
+    const live = this.consumption.install(
+      source.snapshot,
+      batch.replay
+        ? undefined
+        : batch.facts.map((fact) =>
+            fact.kind === 'pr-link' ? { kind: 'pr-link', url: fact.link.url } : fact
+          )
+    )
     this.policy.restoreCurrent(source.snapshot.current, true)
+    for (const effect of live.effects) {
+      this.policy.applyEffect(effect, source.snapshot.current)
+    }
+    for (const link of live.links) {
+      this.policy.observePrLink(link.url)
+    }
     return true
   }
 

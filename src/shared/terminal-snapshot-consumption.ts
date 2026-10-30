@@ -8,16 +8,10 @@ import {
 
 export class TerminalSnapshotConsumption {
   private previous: TerminalTransientObservation | null = null
-  install(snapshot: TerminalTransientObservation): void {
+  install(snapshot: TerminalTransientObservation, facts: readonly TerminalTransientFact[] = []) {
     this.previous = snapshot
-  }
-  consumeLive(snapshot: TerminalTransientObservation, facts: readonly TerminalTransientFact[]) {
-    const consumed = this.consume(snapshot)
-    if (!consumed?.first) {
-      return consumed
-    }
     return {
-      ...consumed,
+      first: true,
       effects: facts.flatMap((fact) => {
         const key = terminalEffectKey(fact)
         const effect = key ? snapshot.effects[key] : undefined
@@ -29,6 +23,10 @@ export class TerminalSnapshotConsumption {
           : []
       )
     }
+  }
+  consumeLive(snapshot: TerminalTransientObservation, facts: readonly TerminalTransientFact[]) {
+    const consumed = this.consume(snapshot)
+    return consumed?.first ? this.install(snapshot, facts) : consumed
   }
   consume(snapshot: TerminalTransientObservation): {
     effects: TerminalSnapshotEffect[]

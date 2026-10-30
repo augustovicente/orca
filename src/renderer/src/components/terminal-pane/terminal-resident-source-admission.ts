@@ -1,3 +1,4 @@
+import type { TerminalSideEffectBatch } from '../../../../shared/terminal-side-effect-facts'
 import { createTerminalResidentPolicy } from './terminal-resident-policy'
 import type { TerminalResidentBinding, TerminalResidentServices } from './terminal-resident-policy'
 import { subscribeToPtyData } from './pty-data-sidecar-subscriptions'
@@ -177,9 +178,59 @@ export function createTerminalResidentSourceAdmissions(
     }
   })
 
+  const pendingSourceInstallations = new WeakMap<TerminalSemanticResident, object>()
+
+  /** Only the current endpoint subscription's positive ready may switch optional delivery. */
+  function installTerminalSideEffectSource(
+    endpoint: string,
+    source: object,
+    capable: boolean
+  ): void {
+    for (const [ptyId, resident] of residentsByPtyId) {
+      if (resident.identity.endpoint !== endpoint) {
+        continue
+      }
+      sourceSubscriptionsByPtyId.get(ptyId)?.close?.()
+      sourceSubscriptionsByPtyId.delete(ptyId)
+      disposeLegacySource(ptyId)
+      pendingSourceInstallations.delete(resident)
+      if (capable) {
+        pendingSourceInstallations.set(resident, source)
+        continue
+      }
+      const options = {
+        ptyId,
+        binding: resident.policy.binding,
+        byteSource: true,
+        selectLegacy: true,
+        installationSource: source
+      }
+      admitLegacyTerminalSemanticResident(options)
+      admitRemoteTerminalSemanticResident(options)
+    }
+  }
+
+  function qualifyTerminalSideEffectSource(
+    batch: TerminalSideEffectBatch,
+    source?: object
+  ): boolean {
+    if (source && batch.terminalState && parseRemoteRuntimePtyId(batch.ptyId)) {
+      const captured = residentsByPtyId.get(batch.ptyId)
+      if (captured && pendingSourceInstallations.get(captured) === source) {
+        if (!captured.installSource(batch)) {
+          return false
+        }
+        pendingSourceInstallations.delete(captured)
+      }
+    }
+    return true
+  }
+
   return {
     admitLegacyTerminalSemanticResident,
     followLocalTerminalSemanticSource,
-    admitRemoteTerminalSemanticResident
+    admitRemoteTerminalSemanticResident,
+    installTerminalSideEffectSource,
+    qualifyTerminalSideEffectSource
   }
 }
