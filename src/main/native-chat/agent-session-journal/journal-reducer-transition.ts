@@ -69,7 +69,9 @@ class JournalDraft {
       let copy: object | undefined
       const current = (): object => copy ?? value
       const writable = (): object => {
-        copy ??= shallowCopy(value)
+        copy ??= Array.isArray(value)
+          ? [...value]
+          : Object.assign(Object.create(Object.getPrototypeOf(value)), value)
         return copy
       }
       const assignedKeys = new Set<PropertyKey>()
@@ -122,14 +124,26 @@ class JournalDraft {
             return value
           }
           const result = writable()
-          for (const key of Reflect.ownKeys(result)) {
-            const child = ownValue(result, key)
+          const keys = Reflect.ownKeys(result)
+          for (const key of keys) {
+            const child: unknown = Reflect.getOwnPropertyDescriptor(result, key)?.value
             if (assignedKeys.has(key) || this.assigned.has(value) || this.tracks(child)) {
               Reflect.set(result, key, this.finish(child))
             }
           }
-          // Holders of reducer objects across commits keep reading the live object.
-          restoreInPlace(value, result)
+          // Holders of reducer objects across commits keep reading the live object, so apply the
+          // committed copy to it, keeping the key order in-place mutation would have left.
+          const previous = Reflect.ownKeys(value)
+          const reordered =
+            !Array.isArray(value) && previous.some((key, index) => key !== keys[index])
+          for (const key of previous) {
+            if (reordered || !Object.hasOwn(result, key)) {
+              Reflect.deleteProperty(value, key)
+            }
+          }
+          for (const key of keys) {
+            Reflect.set(value, key, Reflect.getOwnPropertyDescriptor(result, key)?.value)
+          }
           return value
         },
         listen
@@ -183,38 +197,13 @@ class JournalDraft {
     }
     // Values created during the fold may hold drafts introduced by spread or destructuring.
     for (const key of Reflect.ownKeys(value)) {
-      const child = ownValue(value, key)
+      const child: unknown = Reflect.getOwnPropertyDescriptor(value, key)?.value
       const finished = this.finish(child)
       if (finished !== child) {
         Reflect.set(value, key, finished)
       }
     }
     return value
-  }
-}
-
-function shallowCopy(value: object): object {
-  return Array.isArray(value)
-    ? [...value]
-    : Object.assign(Object.create(Object.getPrototypeOf(value)), value)
-}
-
-function ownValue(value: object, key: PropertyKey): unknown {
-  return Reflect.getOwnPropertyDescriptor(value, key)?.value
-}
-
-/** Apply a committed copy to its original, keeping the key order in-place mutation would leave. */
-function restoreInPlace(target: object, source: object): void {
-  const keys = Reflect.ownKeys(source)
-  const previous = Reflect.ownKeys(target)
-  const reordered = !Array.isArray(target) && previous.some((key, index) => key !== keys[index])
-  for (const key of previous) {
-    if (reordered || !Object.hasOwn(source, key)) {
-      Reflect.deleteProperty(target, key)
-    }
-  }
-  for (const key of keys) {
-    Reflect.set(target, key, ownValue(source, key))
   }
 }
 
