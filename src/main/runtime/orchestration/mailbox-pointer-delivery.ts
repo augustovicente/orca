@@ -33,12 +33,8 @@ export class OrchestrationMailboxPointerDelivery<TWaiter extends OrchestrationMe
   constructor(private readonly deps: PointerDeliveryDependencies<TWaiter>) {}
 
   deliverForHandle(handle: string, reservedTypes?: ReadonlySet<string>): void {
-    const terminalHandle = this.deps.deliveryTarget.resolveTerminalHandle(handle)
-    if (!terminalHandle) {
-      return
-    }
     try {
-      const terminal = this.deps.getTerminalForHandle(terminalHandle)
+      const terminal = this.deps.deliveryTarget.resolveTerminal(handle)
       // Skip ownership resolution, and the reconciliation it schedules, for a terminal deliver() would refuse.
       if (!terminal || !isMailboxTerminalTakingInput(terminal)) {
         return

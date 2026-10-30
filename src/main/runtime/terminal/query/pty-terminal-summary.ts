@@ -1,4 +1,4 @@
-import { OrcaRuntimeWithGetPtyRecordForPaneKey } from '../../orchestration/terminal-pane-mail-routing'
+import { OrcaRuntimeWithMailboxTerminalIdentity } from '../../orchestration/mailbox-terminal-identity'
 import type {
   RuntimeLeafRecord,
   RuntimePtyWorktreeRecord
@@ -19,9 +19,8 @@ import { readTerminalTail } from '../../terminal-tail-read'
 import { structuredWorkerTerminalRefusal } from '../../structured-worker-terminal-refusal'
 import { randomUUID } from 'node:crypto'
 import { ORCA_LAYOUT_OWNER_IS_MAIN } from '../../../../shared/layout-owner-switch'
-import type { OrchestrationMailboxTerminal } from '../../orchestration/mailbox-owner'
 
-export abstract class OrcaRuntimeWithBuildPtyTerminalSummary extends OrcaRuntimeWithGetPtyRecordForPaneKey {
+export abstract class OrcaRuntimeWithBuildPtyTerminalSummary extends OrcaRuntimeWithMailboxTerminalIdentity {
   protected abstract bindPtyIncarnationHandle(
     retained: PtyIncarnationHandleRecord,
     leaf: RuntimeLeafRecord
@@ -141,71 +140,6 @@ export abstract class OrcaRuntimeWithBuildPtyTerminalSummary extends OrcaRuntime
       : undefined
   }
 
-  /** The terminal orchestration points at its mail, whether or not a window pane shows it. */
-  protected getOrchestrationMailboxTerminal(ptyId: string): OrchestrationMailboxTerminal | null {
-    const pty = this.ptysById.get(ptyId)
-    const handle = pty?.connected ? this.getTerminalHandleForPty(ptyId) : undefined
-    return pty && handle ? this.buildOrchestrationMailboxTerminal(handle, pty) : null
-  }
-
-  protected getOrchestrationMailboxTerminalForHandle(
-    handle: string
-  ): OrchestrationMailboxTerminal | null {
-    try {
-      const { pty } = this.getTerminalPtyForHandle(handle)
-      return pty.connected ? this.buildOrchestrationMailboxTerminal(handle, pty) : null
-    } catch {
-      return null
-    }
-  }
-
-  private buildOrchestrationMailboxTerminal(
-    handle: string,
-    pty: RuntimePtyWorktreeRecord
-  ): OrchestrationMailboxTerminal | null {
-    const paneKeys = this.getMailboxPaneKeysForPty(pty)
-    const { ptyId, lastAgentStatus, lastAgentStatusObservedLive } = pty
-    return paneKeys.length > 0
-      ? { ptyId, handle, paneKeys, lastAgentStatus, lastAgentStatusObservedLive }
-      : null
-  }
-
-  /** The handle a terminal is known by: its own, else the one its window pane issued. */
-  private getTerminalHandleForPty(ptyId: string): string | undefined {
-    const handle =
-      this.handleByPtyId.get(ptyId) ??
-      this.handleByPtyIncarnation.get(ptyId)?.handle ??
-      this.getLeavesForPty(ptyId)
-        .map((leaf) => this.handleByLeafKey.get(this.getLeafKey(leaf.tabId, leaf.leafId)))
-        .find((leafHandle) => leafHandle !== undefined)
-    try {
-      return handle && this.getTerminalPtyForHandle(handle).pty.ptyId === ptyId ? handle : undefined
-    } catch {
-      return undefined
-    }
-  }
-
-  /** The panes Runs and Dispatches bind this terminal by: every window pane showing it, else the
-   *  pane it records, unless another terminal holds or shares that pane (then no mail is typed). */
-  private getMailboxPaneKeysForPty(pty: RuntimePtyWorktreeRecord): string[] {
-    const shownIn = this.getLeavesForPty(pty.ptyId)
-    if (shownIn.length > 0) {
-      return shownIn.map((leaf) => `${leaf.tabId}:${leaf.leafId}`)
-    }
-    const { paneKey } = this.paneOfPty(pty)
-    const pane = parsePaneKey(paneKey ?? '')
-    if (!paneKey || (pane && this.leaves.get(this.getLeafKey(pane.tabId, pane.leafId))?.ptyId)) {
-      return []
-    }
-    // A retained predecessor and its replacement can both claim a pane no window shows.
-    for (const other of this.ptysById.values()) {
-      if (other !== pty && other.connected && this.paneOfPty(other).paneKey === paneKey) {
-        return []
-      }
-    }
-    return [paneKey]
-  }
-
   /** Whether a handle names a terminal, including one a graph reload cleared the record of. */
   protected hasMailboxTerminalHandle(handle: string): boolean {
     const named = this.getLivePtyForHandle(handle)?.pty ?? this.getRetainedHandlePty(handle)
@@ -243,7 +177,7 @@ export abstract class OrcaRuntimeWithBuildPtyTerminalSummary extends OrcaRuntime
       return null
     }
     // Why: renderer adoption can race with CLI reads; keep ptyId → handle populated so summaries don't mint a second handle for the same terminal.
-    this.handleByPtyId.set(record.ptyId, handle)
+    this.setPtyHandle(record.ptyId, handle)
     return { record, pty }
   }
 
@@ -330,6 +264,7 @@ export abstract class OrcaRuntimeWithBuildPtyTerminalSummary extends OrcaRuntime
     this.handleByLeafKey.set(leafKey, handle)
     if (leaf.ptyId) {
       this.handleByPtyIncarnation.set(leaf.ptyId, { handle, incarnationId, leafKey })
+      this.wakeMailForNewPtyHandle(leaf.ptyId)
     }
     return handle
   }

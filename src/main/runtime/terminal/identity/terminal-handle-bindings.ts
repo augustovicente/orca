@@ -120,7 +120,7 @@ export abstract class OrcaRuntimeWithBindPtyIncarnationHandle extends OrcaRuntim
         existingRecord.runtimeId === this.runtimeId &&
         existingRecord.ptyId === pty.ptyId
       ) {
-        this.handleByPtyId.set(pty.ptyId, existingHandle)
+        this.setPtyHandle(pty.ptyId, existingHandle)
         return existingHandle
       }
     }
@@ -140,7 +140,7 @@ export abstract class OrcaRuntimeWithBindPtyIncarnationHandle extends OrcaRuntim
       ptyId: pty.ptyId,
       ptyGeneration: 0
     })
-    this.handleByPtyId.set(pty.ptyId, handle)
+    this.setPtyHandle(pty.ptyId, handle)
     return handle
   }
 

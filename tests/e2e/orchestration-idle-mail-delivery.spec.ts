@@ -498,10 +498,11 @@ test.describe('orchestration push-on-idle mail delivery', () => {
       runId: mailbox.slice('run:'.length),
       subject: 'Held batch'
     })
-    const newerId = await sendMail(client, mailbox, { subject: 'Newer mail' })
-
-    // The fake starts working as the reminder lands, inside the Enter delay.
+    // Mail is typed mid-turn too, so settle idle first or the idle title can land after the reaction.
     pane.agent.setTitle(CODEX_IDLE_TITLE)
+    await waitForObservedTitle(client, pane.handle, CODEX_IDLE_TITLE)
+    // The fake starts working as the reminder lands, inside the Enter delay.
+    const newerId = await sendMail(client, mailbox, { subject: 'Newer mail' })
     await expect
       .poll(() => countOccurrences(pane.agent.readStdin(), reminder), {
         timeout: DELIVERY_TIMEOUT_MS,
