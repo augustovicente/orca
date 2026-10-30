@@ -251,4 +251,9 @@ it('round trips the complete replayed reducer, including insertion order and und
     turnItemId: itemId(5)
   })
   expect(liveTestJournalRows(database.db, identity.sessionId)).toHaveLength(rows.length)
+  // An unreleased whole-state layout used version 1; its chats replay instead of decoding it.
+  database.db
+    .prepare('UPDATE journal_state SET version = 1 WHERE session_id = ?')
+    .run(identity.sessionId)
+  expect(readJournalSavedState(database.db, identity.sessionId, epoch)).toBeNull()
 })

@@ -114,12 +114,13 @@ it('commits through a statement-only projection failure, skips the lag, repairs 
   await rig.writer.enqueue(status('second'))
   expect(savepoints()).toBe(1)
   await rig.projection.repair()
-  expect(vi.getTimerCount()).toBeGreaterThan(0)
   expectProjectionMatches(database, rig.state())
   rig.projection.close()
   rig.queue.markClosed()
   const loaded = restoreJournal(database.db, sessionId)
-  if (!loaded) throw new Error('missing journal')
+  if (!loaded) {
+    throw new Error('missing journal')
+  }
   expect(loaded.projectionThrough).toBe(1)
   const reopened = rigFor(loaded.state)
   await reopened.writer.enqueue(status('third'))
@@ -145,6 +146,33 @@ it('commits through a statement-only projection failure, skips the lag, repairs 
   expect(aborted.committed).not.toHaveBeenCalled()
   expect(database.db.prepare('SELECT COUNT(*) AS n FROM test_receipts').get()?.n).toBe(1)
   expectProjectionMatches(database, live)
+})
+
+it('backs off a failing repair on its own timer, then publishes once the cause clears', async () => {
+  const initial = seedProjectionRows(database, [projectionEpochRow])
+  saveJournalState(database, initial)
+  const rig = rigFor(initial)
+  database.db.exec(`CREATE TRIGGER fail_projection BEFORE INSERT ON journal_state
+    BEGIN SELECT RAISE(ABORT, 'database or disk is full'); END`)
+  vi.spyOn(console, 'warn').mockImplementation(() => {})
+  const exec = vi.spyOn(database.db, 'exec')
+  const transactions = () => exec.mock.calls.filter(([sql]) => sql === 'BEGIN IMMEDIATE').length
+  await rig.writer.enqueue(status('lagging'))
+  const appended = transactions()
+  // A fixed retry would publish the whole chat ten times in ten minutes.
+  await vi.advanceTimersByTimeAsync(10 * 60_000)
+  expect(transactions() - appended).toBeGreaterThan(0)
+  expect(transactions() - appended).toBeLessThanOrEqual(4)
+  expect(readJournalSavedState(database.db, sessionId, epoch)?.lastSequence).toBe(1)
+  database.db.exec('DROP TRIGGER fail_projection')
+  await vi.advanceTimersByTimeAsync(60 * 60_000)
+  expect(readJournalSavedState(database.db, sessionId, epoch)?.lastSequence).toBe(
+    rig.state().lastSequence
+  )
+  await rig.writer.enqueue(status('healthy'))
+  expect(readJournalSavedState(database.db, sessionId, epoch)?.lastSequence).toBe(
+    rig.state().lastSequence
+  )
 })
 
 it('leaves every live reducer value and the Stop handle unchanged after fold then failed COMMIT', async () => {
@@ -217,7 +245,9 @@ it('leaves every live reducer value and the Stop handle unchanged after fold the
   ]
   const realExec = database.db.exec.bind(database.db)
   const commit = vi.spyOn(database.db, 'exec').mockImplementation((sql) => {
-    if (sql === 'COMMIT') throw new Error('commit failed')
+    if (sql === 'COMMIT') {
+      throw new Error('commit failed')
+    }
     realExec(sql)
   })
   await expect(rig.writer.enqueueRows(() => rows, notified)).rejects.toThrow('commit failed')
