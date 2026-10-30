@@ -70,6 +70,9 @@ export abstract class AgentBrowserBridgeQueue extends AgentBrowserBridgeShutdown
       browserPageId,
       options.requireScopedTarget
     )
+    if (!browserPageId && options.elements) {
+      this.assertRefsFromPage(pageId, options.elements)
+    }
     const sessionName = `${ORCA_TAB_SESSION_PREFIX}${pageId}`
     const agentCommand = this.browserManager.beginAgentCommand(pageId)
 
