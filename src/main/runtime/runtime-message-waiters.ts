@@ -105,6 +105,15 @@ export class RuntimeMessageWaiters {
     return true
   }
 
+  /** Wake the waiters of every handle with this prefix, one notification per handle. */
+  notifyPrefix(prefix: string): void {
+    for (const handle of this.waitersByHandle.keys()) {
+      if (handle.startsWith(prefix)) {
+        this.notify(handle)
+      }
+    }
+  }
+
   cancel(handle: string): void {
     const waiters = this.waitersByHandle.get(handle)
     if (!waiters) {

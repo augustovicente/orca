@@ -82,7 +82,7 @@ export function reportWorkerTurnStop(
     stop.reason !== 'exited' &&
     (deps.isWaitingForMail(`dispatch:${dispatchId}`) ||
       (stop.reason === 'finished' &&
-        (db.hasPendingAskedQuestion(dispatchId) ||
+        (db.awaitsAnswerToLatestQuestion(dispatchId) ||
           (target.kind === 'local' && db.hasOpenHelperDispatch(dispatchId)))))
   ) {
     return

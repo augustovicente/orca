@@ -240,6 +240,25 @@ describe('terminal worker turn stops', () => {
     await settle()
     expect(ctx.mail().map((m) => m.subject)).toEqual(['Worker stopped without reporting'])
   })
+
+  it('reports a later stall once new mail reached the worker, though its question is pending', async () => {
+    const ctx = setup()
+    ctx.db.createQuestion({
+      runId: ctx.run.id,
+      dispatchId: ctx.dispatch.id,
+      askerHandle: HANDLE,
+      question: 'Which file?'
+    })
+    ctx.db.insertMessage({
+      from: 'term_coordinator',
+      to: `dispatch:${ctx.dispatch.id}`,
+      subject: 'Change of plan',
+      runId: ctx.run.id
+    })
+    terminal(ctx, { row: hookRow({}) }).observe(moved('working', 'done'))
+    await settle()
+    expect(ctx.mail().map((m) => m.subject)).toEqual(['Worker stopped without reporting'])
+  })
 })
 
 describe('chat worker turn stops', () => {

@@ -169,15 +169,20 @@ export function answerQuestion(
   }
 }
 
-/** Whether the Dispatch asked a question still awaiting its answer, here or at its paired Run home. */
-export function hasPendingAskedQuestion(this: OrchestrationDb, dispatchId: string): boolean {
+/** Whether the Dispatch's last turn ended on its own pending question: no mail has reached it since it asked. */
+export function awaitsAnswerToLatestQuestion(this: OrchestrationDb, dispatchId: string): boolean {
+  const unanswered = (table: string) =>
+    `EXISTS (
+       SELECT 1 FROM ${table} q
+        WHERE q.dispatch_id = ? AND q.status = 'pending'
+          AND NOT EXISTS (
+            SELECT 1 FROM messages m
+             WHERE m.to_handle = 'dispatch:' || q.dispatch_id AND m.created_at >= q.created_at
+          )
+     )`
   const row = this.db
     .prepare(
-      `SELECT EXISTS (
-         SELECT 1 FROM question_threads WHERE dispatch_id = ? AND status = 'pending'
-       ) OR EXISTS (
-         SELECT 1 FROM remote_questions WHERE dispatch_id = ? AND status = 'pending'
-       ) AS pending`
+      `SELECT ${unanswered('question_threads')} OR ${unanswered('remote_questions')} AS pending`
     )
     .get(dispatchId, dispatchId)
   return row?.pending === 1
@@ -205,7 +210,7 @@ export type QuestionThreadsMethods = {
   getQuestion: typeof getQuestion
   getQuestionRaw: typeof getQuestionRaw
   answerQuestion: typeof answerQuestion
-  hasPendingAskedQuestion: typeof hasPendingAskedQuestion
+  awaitsAnswerToLatestQuestion: typeof awaitsAnswerToLatestQuestion
   closeQuestionsForDispatch: typeof closeQuestionsForDispatch
 }
 
@@ -215,7 +220,7 @@ export function attachQuestionThreads(ctor: { prototype: object }): void {
     getQuestion,
     getQuestionRaw,
     answerQuestion,
-    hasPendingAskedQuestion,
+    awaitsAnswerToLatestQuestion,
     closeQuestionsForDispatch
   })
 }

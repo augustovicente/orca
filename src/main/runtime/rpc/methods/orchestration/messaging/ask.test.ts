@@ -6,6 +6,7 @@ import type { OrcaRuntimeService } from '../../../../orca-runtime'
 import { ORCHESTRATION_ASK_MAX_TIMEOUT_MS } from '../../../../../../shared/orchestration-ask-timeout'
 import { createRootDispatch } from '../../../../orchestration/db/root-dispatch-test-fixture'
 import { MessageWake } from '../../../../runtime-message-waiters'
+import { deliverQuestionAnswer } from '../../../../orchestration/question-answer-delivery'
 
 describe('orchestration RPC methods', () => {
   const h = createOrchestrationRpcHarness()
@@ -498,6 +499,48 @@ describe('orchestration RPC methods', () => {
       expect(woke()).toBe(false)
       const answerId = db.getQuestion(question.id)!.answer_message_id!
       expect(db.getMessageById(answerId)?.read).toBe(1)
+    })
+
+    it('leaves an answer that lands as its waiting ask is cancelled to wake the worker', async () => {
+      setup()
+      const { dispatch, woke } = askingDispatch()
+      const controller = new AbortController()
+      const method = findMethod('orchestration.ask')
+      const asking = method.handler(
+        method.params!.parse({ from: 'term_worker', question: 'Proceed?', timeoutMs: 5_000 }),
+        { runtime, signal: controller.signal }
+      )
+      await flush()
+
+      const question = askedQuestion()
+      controller.abort()
+      const answered = db.answerQuestion({
+        messageId: question.id,
+        runId: activeRunId!,
+        consumerGeneration: db.getRun(activeRunId!)!.consumer_generation,
+        body: 'yes'
+      })
+      deliverQuestionAnswer(runtime, { message_id: question.id, dispatch_id: dispatch.id })
+
+      await expect(asking).resolves.toMatchObject({ cancelled: true, answer: null })
+      await flush()
+      expect(db.getMessageById(answered.message.id)?.read).toBe(0)
+      expect(woke()).toBe(true)
+    })
+
+    it('ends a waiting ask at once when its Dispatch is abandoned', async () => {
+      setup()
+      const { dispatch } = askingDispatch()
+      const asking = call('orchestration.ask', {
+        from: 'term_worker',
+        question: 'Proceed?',
+        timeoutMs: 60_000
+      })
+      await flush()
+
+      db.closeQuestionsForDispatch(dispatch.id)
+      runtime.notifyMessageArrived(`dispatch:${dispatch.id}`, 'status')
+      await expect(asking).rejects.toMatchObject({ code: 'dispatch_inactive' })
     })
   })
 })

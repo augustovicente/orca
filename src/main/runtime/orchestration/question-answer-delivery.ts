@@ -2,14 +2,21 @@ import type { OrcaRuntimeService } from '../orca-runtime'
 import { OrchestrationError } from './orchestration-error'
 
 type QuestionState = {
+  message_id: string
+  dispatch_id: string
   status: 'pending' | 'answered' | 'closed'
   answer_body: string | null
   answer_message_id: string | null
 }
 
+/** Every waiting ask on a Dispatch's questions, which a Dispatch notification wakes to recheck closure. */
+export function questionAnswerWaitPrefix(dispatchId: string): string {
+  return `question:${dispatchId}:`
+}
+
 /** A waiting ask listens on its question, not its Dispatch mailbox, so other mail still wakes the worker. */
-function questionAnswerWaitHandle(questionId: string): string {
-  return `question:${questionId}`
+function questionAnswerWaitHandle(question: { dispatch_id: string; message_id: string }): string {
+  return `${questionAnswerWaitPrefix(question.dispatch_id)}${question.message_id}`
 }
 
 /** A waiting ask takes its own answer; otherwise the answer is Dispatch mail that wakes the worker. */
@@ -17,7 +24,7 @@ export function deliverQuestionAnswer(
   runtime: Pick<OrcaRuntimeService, 'notifyMessageWaiters' | 'notifyMessageArrived'>,
   question: { message_id: string; dispatch_id: string }
 ): void {
-  if (!runtime.notifyMessageWaiters(questionAnswerWaitHandle(question.message_id))) {
+  if (!runtime.notifyMessageWaiters(questionAnswerWaitHandle(question))) {
     runtime.notifyMessageArrived(`dispatch:${question.dispatch_id}`, 'status')
   }
 }
@@ -45,7 +52,10 @@ export function askedQuestionReceipt(
 
 /** The older waiting form of ask, kept for callers that still wait (older CLIs, --wait, --resume). */
 export async function waitForQuestionAnswer(args: {
-  runtime: Pick<OrcaRuntimeService, 'waitForMessage' | 'getOrchestrationDb'>
+  runtime: Pick<
+    OrcaRuntimeService,
+    'waitForMessage' | 'getOrchestrationDb' | 'notifyMessageArrived'
+  >
   questionId: string
   readQuestion: () => QuestionState | undefined
   closedMessage: string
@@ -65,6 +75,13 @@ export async function waitForQuestionAnswer(args: {
   const deadline = Date.now() + timeoutMs
   while (true) {
     const current = args.readQuestion()
+    if (args.signal?.aborted) {
+      // A departed caller must not take the answer: leave it unread and wake the worker with it.
+      if (current?.status === 'answered') {
+        args.runtime.notifyMessageArrived(`dispatch:${current.dispatch_id}`, 'status')
+      }
+      return { ...unanswered, timedOut: false, cancelled: true, connectionLost: true }
+    }
     if (!current || current.status === 'closed') {
       throw new OrchestrationError('dispatch_inactive', args.closedMessage)
     }
@@ -84,14 +101,11 @@ export async function waitForQuestionAnswer(args: {
         timeoutMs
       }
     }
-    if (args.signal?.aborted) {
-      return { ...unanswered, timedOut: false, cancelled: true, connectionLost: true }
-    }
     const remainingMs = deadline - Date.now()
     if (remainingMs <= 0) {
       return { ...unanswered, timedOut: true, cancelled: false, connectionLost: false }
     }
-    await args.runtime.waitForMessage(questionAnswerWaitHandle(questionId), {
+    await args.runtime.waitForMessage(questionAnswerWaitHandle(current), {
       timeoutMs: remainingMs,
       signal: args.signal
     })
