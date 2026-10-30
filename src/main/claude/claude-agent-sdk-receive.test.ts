@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { afterEach, expect, it, vi } from 'vitest'
 import { query } from '@anthropic-ai/claude-agent-sdk'
+import { createClaudeUserMessageQueue } from './claude-agent-sdk-user-message-queue'
 import { createFakePipedChild } from '../../shared/__fixtures__/fake-spawned-child'
 import { buildClaudePermissionCallbacks } from './claude-structured-inbound-control'
 import { ClaudePromptRegistry } from './claude-structured-prompt-replies'
@@ -27,6 +28,61 @@ function fakeChild() {
     signalCode: null,
     killed: false
   })
+}
+function receivedFrame(index: number) {
+  return {
+    type: 'user',
+    session_id: 's1-provider',
+    uuid: `s1-result-${index}`,
+    message: {
+      role: 'user',
+      content: [
+        {
+          type: 'tool_result',
+          tool_use_id: `s1-tool-${index}`,
+          content: `complete finite S1 body ${index}`
+        }
+      ]
+    }
+  }
+}
+function actualSdk(external = true, beforeReadError?: Error) {
+  const child = fakeChild(),
+    inbox = createClaudeUserMessageQueue()
+  if (beforeReadError) {
+    const beforeRead = (event: string | symbol) => {
+      // Error observation is installed before exit observation, before the transport starts reading.
+      if (event === 'exit') {
+        child.removeListener('newListener', beforeRead)
+        child.stdout.write(
+          [1, 2, 3].map((index) => `${JSON.stringify(receivedFrame(index))}\n`).join('')
+        )
+        child.emit('error', beforeReadError)
+        child.stdout.end()
+      }
+    }
+    child.on('newListener', beforeRead)
+  }
+  child.stdin.on('data', (bytes) => {
+    for (const line of String(bytes).trim().split('\n')) {
+      const frame = JSON.parse(line)
+      if (frame.type === 'control_request') {
+        child.stdout.write(
+          `${JSON.stringify({ type: 'control_response', response: { subtype: 'success', request_id: frame.request_id, response: { commands: [], models: [] } } })}\n`
+        )
+      }
+    }
+  })
+  const session = query({
+    prompt: inbox.messages,
+    options: {
+      env: {},
+      pathToClaudeCodeExecutable: 'claude',
+      spawnClaudeCodeProcess: () => child,
+      ...(external ? { processReceiveLifecycle: 'external' as const } : {})
+    }
+  })
+  return { session, child, inbox }
 }
 afterEach(() => {
   vi.restoreAllMocks()
@@ -66,24 +122,7 @@ it.each(['eof-before-close', 'close-before-eof', 'empty', 'process-error'] as co
     const sdkExitListeners = child.listenerCount('exit')
     try {
       expect(actual?.receiveCompleted).toBeInstanceOf(Promise)
-      const frames =
-        boundary === 'empty'
-          ? []
-          : [1, 2, 3].map((index) => ({
-              type: 'user',
-              session_id: 's1-provider',
-              uuid: `s1-result-${index}`,
-              message: {
-                role: 'user',
-                content: [
-                  {
-                    type: 'tool_result',
-                    tool_use_id: `s1-tool-${index}`,
-                    content: `complete finite S1 body ${index}`
-                  }
-                ]
-              }
-            }))
+      const frames = boundary === 'empty' ? [] : [1, 2, 3].map(receivedFrame)
       child.stdout.write(frames.map((frame) => `${JSON.stringify(frame)}\n`).join(''))
       if (frames.length) {
         await first.promise
@@ -213,5 +252,101 @@ it('settles the actual SDK control response before receive cleanup cancels a pen
     child.stdout.end()
     child.stderr.end()
     await connection.close().catch(() => {})
+  }
+})
+
+it.each(['close', 'return', 'throw'] as const)(
+  'actual SDK %s cannot acknowledge unconsumed received records',
+  async (operation) => {
+    const { session, child, inbox } = actualSdk()
+    try {
+      child.stdout.write(
+        [1, 2, 3].map((index) => `${JSON.stringify(receivedFrame(index))}\n`).join('')
+      )
+      await expect(session.next()).resolves.toMatchObject({ done: false, value: receivedFrame(1) })
+      child.stdout.end()
+      const receipt = expect(session.receiveCompleted).rejects.toThrow(
+        'Query closed before response received'
+      )
+      if (operation === 'close') {
+        session.close()
+      } else if (operation === 'return') {
+        await expect(session.return(undefined)).resolves.toMatchObject({ done: true })
+      } else {
+        const cause = new Error('explicit public throw')
+        await expect(session.throw(cause)).rejects.toBe(cause)
+      }
+      await receipt
+      expect(child.kill).not.toHaveBeenCalled()
+      expect(child.exitCode).toBeNull()
+      expect(child.killed).toBe(false)
+    } finally {
+      inbox.end()
+      child.stdout.end()
+      child.stderr.end()
+      await session.return(undefined)
+    }
+  }
+)
+
+it('keeps the default actual SDK EOF lifecycle waiting for real root exit', async () => {
+  const { session, child, inbox } = actualSdk(false)
+  const rootWait = Promise.withResolvers<void>()
+  const onSubscription = (event: string | symbol) => {
+    if (event === 'exit') {
+      rootWait.resolve()
+    }
+  }
+  try {
+    child.stdout.write(`${JSON.stringify(receivedFrame(1))}\n`)
+    await expect(session.next()).resolves.toMatchObject({ done: false, value: receivedFrame(1) })
+    child.on('newListener', onSubscription)
+    let completed = false
+    const tail = session.next().then((result) => {
+      completed = true
+      return result
+    })
+    child.stdout.end()
+    await rootWait.promise
+    expect(completed).toBe(false)
+    expect(child.stdin.writableEnded).toBe(false)
+    Object.assign(child, { exitCode: 0 })
+    child.emit('exit', 0, null)
+    await expect(tail).resolves.toEqual({ done: true, value: undefined })
+    expect(child.stdin.writableEnded).toBe(true)
+    expect(child.kill).not.toHaveBeenCalled()
+  } finally {
+    child.removeListener('newListener', onSubscription)
+    inbox.end()
+    child.stdout.end()
+    child.stderr.end()
+    Object.assign(child, { exitCode: 0 })
+    child.emit('exit', 0, null)
+    await session.return(undefined)
+  }
+})
+
+it('delivers the complete resident prefix before an actual SDK process error installed before reading', async () => {
+  const { session, child, inbox } = actualSdk(true, new Error('original pre-read process failure'))
+  try {
+    expect(session.receiveCompleted).toBeInstanceOf(Promise)
+    const receipt = expect(session.receiveCompleted).rejects.toThrow(
+      'original pre-read process failure'
+    )
+    for (const index of [1, 2, 3]) {
+      await expect(session.next()).resolves.toMatchObject({
+        done: false,
+        value: receivedFrame(index)
+      })
+    }
+    await expect(session.next()).rejects.toThrow('original pre-read process failure')
+    await receipt
+    expect(child.exitCode).toBeNull()
+    expect(child.kill).not.toHaveBeenCalled()
+  } finally {
+    inbox.end()
+    child.stdout.end()
+    child.stderr.end()
+    await session.return(undefined)
   }
 })
