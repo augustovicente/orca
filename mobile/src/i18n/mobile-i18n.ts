@@ -4,6 +4,7 @@ import { pseudoLocalizeString } from '../../../src/shared/pseudo-localization'
 import { DEFAULT_UI_LOCALE, type SupportedUiLocale } from '../../../src/shared/ui-locale'
 import enRuntimeRequired from './en-runtime-required.json'
 import { importLocaleCatalog } from './locale-catalog-imports'
+import { applyMobileEditionCopy } from './mobile-edition-copy'
 
 export type Translate = (key: string, fallback: string, options?: TOptions) => string
 
@@ -46,7 +47,8 @@ function translateUncached(key: string, fallback: string, options?: TOptions): s
     // Catalog text never nests keys; interpolated values must not either.
     nest: false
   })
-  return pseudoLocalization ? pseudoLocalizeString(value, { expand: true }) : value
+  const editionValue = applyMobileEditionCopy(value)
+  return pseudoLocalization ? pseudoLocalizeString(editionValue, { expand: true }) : editionValue
 }
 
 // Same call shape as desktop, so extraction and catalog gates are shared.

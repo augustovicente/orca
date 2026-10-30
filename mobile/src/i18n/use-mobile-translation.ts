@@ -1,5 +1,6 @@
 import { useMemo, useSyncExternalStore } from 'react'
 import type { SupportedUiLocale } from '../../../src/shared/ui-locale'
+import { applyMobileEditionCopy } from './mobile-edition-copy'
 import {
   getMobileUiLocale,
   getMobileUiRevision,
@@ -13,7 +14,7 @@ import {
 export function useMobileTranslation(): Translate {
   const revision = useSyncExternalStore(subscribeMobileUiLanguage, getMobileUiRevision)
   return useMemo<Translate>(
-    () => (key, fallback, options) => translate(key, fallback, options),
+    () => (key, fallback, options) => applyMobileEditionCopy(translate(key, fallback, options)),
     [revision]
   )
 }
