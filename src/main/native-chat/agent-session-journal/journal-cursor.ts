@@ -22,6 +22,18 @@ export function sameJournalCursor(a: AgentJournalCursor, b: AgentJournalCursor):
   return a.epoch === b.epoch && a.sequence === b.sequence
 }
 
+export function journalWroteBeforeOpen(
+  current: Pick<AgentJournalCursor, 'epoch'>,
+  openedThrough: AgentJournalCursor,
+  sequence: number | undefined
+): boolean {
+  return (
+    sequence !== undefined &&
+    current.epoch === openedThrough.epoch &&
+    sequence <= openedThrough.sequence
+  )
+}
+
 /** Reload snapshots for epoch mismatches, rolled-back prefixes or compacted cursors. */
 export function resolveJournalResume(
   range: JournalCursorRange,
