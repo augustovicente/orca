@@ -7,8 +7,10 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { WorktreeMeta } from '../../shared/worktree/meta-types'
 import type { GitPushTarget } from '../../shared/worktree/types'
 import type { GitRemoteExec, WorktreePushTargetStore } from './worktree-push-target-cleanup'
-import { configureCreatedWorktreePushTargetWithExec } from './worktree-push-target-setup'
-import { prepareWorktreePushTargetWithExec } from './worktree-push-target-setup'
+import {
+  configureCreatedWorktreePushTargetWithExec,
+  prepareWorktreePushTargetWithExec
+} from './worktree-push-target-setup'
 import { resolveFetchTrackingRef } from '../../shared/git-branch-cleanup-fetch'
 import { migrateForkRemoteRefspecsWithExec } from './worktree-push-target-refspec-migration'
 

@@ -2,12 +2,11 @@ import type * as WorktreeGit from '../git/worktree'
 import { execFile } from 'node:child_process'
 import { mkdtemp, mkdir, realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { preservedBranchCleanupByScope } from './worktrees/removal/preserved-branch-cleanup'
 import { preservedBranchCleanupScopeKey } from '../../shared/preserved-branch-cleanup'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { resolve } from 'node:path'
 import {
   registerWorktreeRootsForRepo,
   resolveRegisteredWorktreePath
