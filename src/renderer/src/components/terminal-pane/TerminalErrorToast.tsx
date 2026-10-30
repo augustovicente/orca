@@ -20,6 +20,8 @@ import {
   describeSshSignInRequiredTerminalError,
   isSshSignInRequiredTerminalError
 } from './terminal-ssh-sign-in-error'
+import { editionSupports } from '../../../../shared/edition'
+import { TerminalErrorToastMessage } from './terminal-error-toast-message'
 
 const SSH_PREFIX = 'SSH connection is not active'
 // Produced by pty-connection.ts reportError() when a PTY reattach can't reach its SSH host.
@@ -249,18 +251,27 @@ export function TerminalErrorToast({
   const paneOwnerUnverified = isPaneOwnerRecoveryError(error)
   const showDaemonRestart = !ssh && onRestartDaemon && shouldOfferDaemonRestart(error)
   // Restart cannot recover a session after its owning daemon exits.
-  const showIssueLink =
+  const offerHelpLink =
     !ssh &&
     !paneOwnerUnverified &&
     !showDaemonRestart &&
     !isAgentLaunchOnlyError(error) &&
     !isExplainedTerminalError(error) &&
     !isFolderWorkspacePathOnlyError(error)
+  // Upstream issue links belong to the developer edition; customers write to branded support.
+  const plainLanguage = !editionSupports('developerTools')
+  const showIssueLink = !plainLanguage && offerHelpLink
+  const showSupportLink = plainLanguage && offerHelpLink
   const humanizedError = humanizeTerminalError(error, agentId)
-  // Why: the toast appends its own linked request, so the host's plain-text one would repeat it.
-  const displayError = showIssueLink
+  // Why: the toast appends its own help link, so the host's plain-text request would repeat it.
+  const displayError = offerHelpLink
     ? withoutTerminalSpawnIssueRequest(humanizedError)
     : humanizedError
+  const plainHeadline = translate(
+    'contadorca.chat.failure.headline',
+    'Não foi possível concluir esta etapa.'
+  )
+  const [technicalOpen, setTechnicalOpen] = useState(false)
   const tint = paneOwnerUnverified
     ? null
     : ssh
@@ -334,35 +345,17 @@ export function TerminalErrorToast({
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
         <span style={{ minWidth: 0 }}>
-          {displayError}
-          {showDaemonRestart ? (
-            <>
-              {'\n'}
-              {translate(
-                'auto.components.terminal.pane.TerminalErrorToast.cc6d997c65',
-                'Restart the terminal daemon from here to clear stale daemon state.'
-              )}
-            </>
-          ) : showIssueLink ? (
-            <>
-              {'\n'}
-              {translate(
-                'auto.components.terminal.pane.TerminalErrorToast.5c8ce20be6',
-                'If this persists, please'
-              )}{' '}
-              <a
-                href="https://github.com/stablyai/orca/issues"
-                style={{ color: 'inherit', textDecoration: 'underline' }}
-              >
-                {translate(
-                  'auto.components.terminal.pane.TerminalErrorToast.a7e2fd2699',
-                  'file an issue'
-                )}
-              </a>
-              .
-            </>
-          ) : null}
-          {showClientEnvironment && footer ? `\n\n${footer}` : null}
+          <TerminalErrorToastMessage
+            plainHeadline={plainLanguage ? plainHeadline : null}
+            displayError={displayError}
+            showDaemonRestart={Boolean(showDaemonRestart)}
+            showIssueLink={showIssueLink}
+            showSupportLink={showSupportLink}
+            showClientEnvironment={showClientEnvironment}
+            footer={footer}
+            technicalOpen={technicalOpen}
+            onToggleTechnical={() => setTechnicalOpen(!technicalOpen)}
+          />
           {paneOwnerUnverified && retryFailed
             ? `\n${translate(
                 'auto.components.terminal.pane.TerminalErrorToast.retryUnavailable',

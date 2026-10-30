@@ -32,6 +32,7 @@ import {
   validateLocalPathTarget
 } from './shell-owned-path-target'
 import { registerShellPathExistenceHandlers } from './shell-path-existence-handlers'
+import { ORCA_EDITION_ID } from '../../shared/edition'
 
 export { EXTERNAL_EDITOR_CLI_COMMAND }
 
@@ -150,7 +151,11 @@ export function registerShellHandlers(
       return
     }
 
-    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    if (
+      parsed.protocol !== 'https:' &&
+      parsed.protocol !== 'http:' &&
+      !(ORCA_EDITION_ID === 'contadorca' && parsed.protocol === 'mailto:')
+    ) {
       return
     }
 
