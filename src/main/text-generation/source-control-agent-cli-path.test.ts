@@ -11,7 +11,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   createProviderSpawnSpec,
   INSTALLED_LOOKUP_REQUEST,
-  INSTALLED_PLAN_REPLY,
   POSIX_PROVIDER_SUPERVISOR_SCRIPT
 } from '../provider-process/provider-process-supervisor'
 import { supervisedProviderSpawnFailure } from '../provider-process/provider-spawn-failure-report'
@@ -20,13 +19,15 @@ import { spawnSourceControlAgent } from './source-control-agent-launch'
 import { runLocalSourceControlPlan } from './source-control-local-process'
 import { cancelLocalGeneration } from './source-control-generation-lanes'
 import {
+  installedNamingScalingContract,
+  type AttemptEvent
+} from './source-control-agent-cli-scaling.test-fixture'
+import {
   _setGuestWindowsDriveMountsForTests,
   oneShotGuestPathPolicy
 } from '../ipc/wsl-guest-windows-drive-path'
 
 const {
-  chmodSync,
-  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -40,13 +41,21 @@ const fixture = vi.hoisted(() => {
   function initialHold(): { entered: () => void; gate: Promise<void> } | null {
     return null
   }
+  function initialAdvisoryBoundary(): {
+    command: string
+    beforeOpen?: () => void | Promise<void>
+    afterOpen?: (file: asyncFs.FileHandle) => void | Promise<void>
+  } | null {
+    return null
+  }
   return {
     preload: '',
     children: new Array<ChildProcess>(),
     specs: new Array<ProcessSpec>(),
     messages: new Array<unknown>(),
     handles: new Array<asyncFs.FileHandle>(),
-    hold: initialHold()
+    hold: initialHold(),
+    advisoryBoundary: initialAdvisoryBoundary()
   }
 })
 vi.mock('@orca/process-host', async (importOriginal) => {
@@ -94,10 +103,18 @@ vi.mock('node:fs/promises', async (importOriginal) => {
     access: vi.fn(actual.access),
     readFile: vi.fn(actual.readFile),
     open: vi.fn(async (...args: Parameters<typeof actual.open>) => {
+      const boundary = fixture.advisoryBoundary
+      if (String(args[0]) === boundary?.command) {
+        await boundary.beforeOpen?.()
+      }
       const file = await actual.open(...args)
+      vi.spyOn(file, 'stat')
       vi.spyOn(file, 'read')
       vi.spyOn(file, 'close')
       fixture.handles.push(file)
+      if (String(args[0]) === boundary?.command) {
+        await boundary.afterOpen?.(file)
+      }
       return file
     }),
     readdir: vi.fn(async (...args: Parameters<typeof actual.readdir>) => {
@@ -119,6 +136,7 @@ beforeEach(() => {
   fixture.messages = []
   fixture.handles = []
   fixture.hold = null
+  fixture.advisoryBoundary = null
   vi.mocked(asyncFs.stat).mockClear()
   vi.mocked(asyncFs.open).mockClear()
   vi.mocked(asyncFs.access).mockClear()
@@ -204,161 +222,9 @@ describe.skipIf(process.platform === 'win32')('installed one-shot naming CLI', (
     }
   )
 
-  it.each([
-    { agentId: 'codex', versions: 10 },
-    { agentId: 'codex', versions: 100 },
-    { agentId: 'claude', versions: 10 },
-    { agentId: 'claude', versions: 100 }
-  ] as const)(
-    'names a chat with $agentId at the last of $versions nvm versions in linear probes',
-    async ({ agentId, versions }) => {
-      const inventory = join(root, '.nvm', 'versions', 'node')
-      for (let version = 1; version <= versions; version++) {
-        mkdirSync(join(inventory, `v20.${version}.0`, 'bin'), { recursive: true })
-      }
-      const bin = join(inventory, 'v20.1.0', 'bin')
-      symlinkSync(process.execPath, join(bin, 'node'))
-      const program = join(bin, agentId)
-      writeFileSync(
-        program,
-        `#!/usr/bin/env node
-const { realpathSync } = require('node:fs')
-if (realpathSync(process.env.PATH.split(':')[0]) !== realpathSync(__dirname)) process.exit(2)
-process.stdin.resume()
-process.stdin.on('end', () => console.log('Fix login flow'))
-`
-      )
-      chmodSync(program, 0o755)
-      const request = async (pathEnv = '/usr/bin:/bin', literal?: string) => {
-        const before = fixture.specs.length
-        const dirReads = vi.mocked(asyncFs.readdir).mockClear()
-        const stats = vi.mocked(asyncFs.stat).mockClear()
-        const opens = vi.mocked(asyncFs.open).mockClear()
-        vi.mocked(asyncFs.access).mockClear()
-        vi.mocked(asyncFs.readFile).mockClear()
-        fixture.handles = []
-        writeFileSync(`${fixture.preload}.events`, '')
-        const result = await generateConversationNameFromContext(
-          { firstPrompt: 'Fix login' },
-          literal
-            ? { agentId: 'custom', model: '', customAgentCommand: `"${literal}"` }
-            : { agentId, model: agentId === 'codex' ? 'gpt-5.5' : 'sonnet' },
-          {
-            kind: 'local',
-            cwd: root,
-            env: {
-              ...process.env,
-              PATH: pathEnv,
-              ORCA_TEST_ATTEMPTS: join(root, 'attempts'),
-              CODEX_HOME: join(root, '.codex'),
-              CLAUDE_CONFIG_DIR: join(root, '.claude')
-            }
-          }
-        )
-        expect(result).toMatchObject({ success: true, name: 'Fix login flow' })
-        expect(fixture.specs.length - before).toBe(1)
-        const events = readEvents()
-        const enumerations = dirReads.mock.calls.filter(
-          ([path]) => String(path) === inventory
-        ).length
-        const entries = (
-          await Promise.all(
-            dirReads.mock.results.map(async (result, index) =>
-              String(dirReads.mock.calls[index][0]) === inventory && result.type === 'return'
-                ? (await result.value).length
-                : 0
-            )
-          )
-        ).reduce((sum, count) => sum + count, 0)
-        return {
-          enumerations,
-          entries,
-          candidates:
-            stats.mock.calls.length +
-            opens.mock.calls.length +
-            vi.mocked(asyncFs.access).mock.calls.length +
-            vi.mocked(asyncFs.readFile).mock.calls.length +
-            dirReads.mock.calls.length +
-            fixture.handles.reduce(
-              (sum, file) =>
-                sum +
-                vi.mocked(file.read).mock.calls.length +
-                vi.mocked(file.close).mock.calls.length,
-              0
-            ),
-          aliasReads: stats.mock.calls.filter(([path]) => String(path).includes('/.nvm/alias/'))
-            .length,
-          events,
-          spec: fixture.specs.at(-1)!,
-          reply: events.find((event) => event.plan)?.plan
-        }
-      }
-      const scan = await request(`missing:: relative :${'/missing/'.repeat(120)}:/usr/bin:/bin`)
-      expect(scan.enumerations).toBe(1)
-      expect(scan.entries).toBe(versions)
-      expect(scan.candidates).toBeLessThanOrEqual(versions + 40)
-      expect(scan.aliasReads).toBeLessThanOrEqual(11)
-      for (const file of fixture.handles) {
-        expect(file.close).toHaveBeenCalledTimes(1)
-      }
-      expect(
-        [
-          ...vi.mocked(fs.statSync).mock.calls,
-          ...vi.mocked(fs.readdirSync).mock.calls,
-          ...vi.mocked(fs.openSync).mock.calls
-        ].some(([path]) => String(path).startsWith(inventory))
-      ).toBe(false)
-      expect(scan.events.filter((event) => event.attempt).length).toBe(1 + versions)
-      expect(scan.events.filter((event) => event.started)).toEqual([
-        expect.objectContaining({ started: program })
-      ])
-      expect(fixture.messages.filter((message) => lookupMessage(message))).toHaveLength(1)
-      expect(scan.reply).toMatchObject({
-        type: INSTALLED_PLAN_REPLY,
-        runtimePathBase: expect.any(String),
-        candidates: expect.arrayContaining([{ command: program, runtimeDirectory: bin }])
-      })
-      const serialized = JSON.stringify(scan.reply)
-      expect(serialized.split('runtimePathBase').length).toBe(2)
-      expect(serialized).not.toContain('"PATH":')
-      const launchSpec = JSON.parse(
-        Buffer.from(scan.spec.env!.ORCA_PROVIDER_SUPERVISOR_SPEC!, 'base64').toString()
-      )
-      expect(launchSpec).toMatchObject({ installedFallback: true })
-      expect(launchSpec).not.toHaveProperty('candidates')
-      expect(JSON.stringify(launchSpec).length).toBeLessThan(512)
-
-      if (agentId === 'codex' && versions === 10) {
-        expect(await request(`${bin}:/usr/bin:/bin`)).toMatchObject({ enumerations: 0, entries: 0 })
-        expect(await request('/usr/bin:/bin', program)).toMatchObject({
-          enumerations: 0,
-          entries: 0,
-          candidates: 0,
-          aliasReads: 0
-        })
-        const newer = join(inventory, 'v20.10.0', 'bin', agentId)
-        copyFileSync(program, newer)
-        symlinkSync(process.execPath, join(inventory, 'v20.10.0', 'bin', 'node'))
-        expect((await request()).events.some((event) => event.started === newer)).toBe(true)
-        unlinkSync(newer)
-        expect((await request()).events.some((event) => event.started === program)).toBe(true)
-      }
-    }
-  )
+  installedNamingScalingContract(() => root, fixture, readEvents, lookupMessage)
 })
 
-type AttemptEvent = {
-  attempt?: string
-  failed?: string
-  code?: string
-  started?: string
-  closed?: string
-  plan?: {
-    type: string
-    runtimePathBase: string | null
-    candidates: { command: string; runtimeDirectory: string | null }[]
-  }
-}
 function readEvents(): AttemptEvent[] {
   const path = `${fixture.preload}.events`
   return existsSync(path)
@@ -388,6 +254,10 @@ function installed(
   const path = join(bin, command)
   writeFileSync(path, script, { mode })
   return path
+}
+async function makeFifo(path: string): Promise<void> {
+  const made = await runProcess({ program: '/usr/bin/mkfifo', args: [path], timeoutMs: 5000 })
+  expect(made.code).toBe(0)
 }
 function onPath(directory: string, script: string, mode = 0o755): string {
   mkdirSync(directory, { recursive: true })
@@ -527,7 +397,7 @@ describe.skipIf(process.platform === 'win32')('exec-authoritative naming and set
       expect(fixture.messages.filter(lookupMessage)).toHaveLength(1)
     }
   )
-  it.each(['missing', 'denied', 'format', 'literal'])(
+  it.each(['missing', 'denied', 'FIFO', 'format', 'literal'])(
     'terminates %s exhaustion or host terminal failure without replay',
     async (failure) => {
       const sentinel = join(root, 'sentinel')
@@ -541,13 +411,19 @@ describe.skipIf(process.platform === 'win32')('exec-authoritative naming and set
             : '#!/nonexistent/orca-interpreter\n',
         failure === 'denied' ? 0o644 : 0o755
       )
+      if (failure === 'FIFO') {
+        unlinkSync(first)
+        await makeFifo(first)
+        symlinkSync(process.execPath, join(first, '..', 'node'))
+      }
       if (failure === 'format' || failure === 'literal') {
         installed(1, undefined, `#!/bin/sh\necho ran > '${sentinel}'\necho Wrong title\n`)
       }
       const result = await name(failure === 'literal' ? `"${first}"` : undefined)
       expect(result.success).toBe(false)
-      if (failure === 'denied') {
+      if (failure === 'denied' || failure === 'FIFO') {
         expect(result).toMatchObject({ error: expect.stringContaining('failed to start') })
+        expect(readEvents()).toContainEqual({ failed: first, code: 'EACCES' })
       }
       if (failure === 'missing' || failure === 'literal') {
         expect(result).toMatchObject({ error: expect.stringContaining('not found on PATH') })
@@ -558,6 +434,146 @@ describe.skipIf(process.platform === 'win32')('exec-authoritative naming and set
       expect(fixture.messages.filter(lookupMessage)).toHaveLength(failure === 'literal' ? 0 : 1)
     }
   )
+  it.each(['FIFO', 'symlink', 'swap before open', 'swap after open'])(
+    'executes every candidate after advisory inspection of %s without a writer',
+    async (kind) => {
+      const first = installed(2)
+      const last = installed(1)
+      symlinkSync(process.execPath, join(first, '..', 'node'))
+      const fifo = join(root, 'unwritten-fifo')
+      await makeFifo(fifo)
+      const replaceWithFifo = (): void => {
+        unlinkSync(first)
+        symlinkSync(fifo, first)
+      }
+      if (kind === 'FIFO') {
+        unlinkSync(first)
+        await makeFifo(first)
+      } else if (kind !== 'swap before open') {
+        replaceWithFifo()
+      }
+      fixture.advisoryBoundary = {
+        command: first,
+        beforeOpen: kind === 'swap before open' ? replaceWithFifo : undefined,
+        afterOpen:
+          kind === 'swap after open'
+            ? () => {
+                unlinkSync(first)
+                writeFileSync(first, '#!/bin/sh\necho Forbidden title\n', { mode: 0o644 })
+              }
+            : undefined
+      }
+      let results = 0
+      const result = name().then((value) => {
+        results++
+        return value
+      })
+      await expect(result).resolves.toMatchObject({ success: true, name: 'Working title' })
+      const child = fixture.children[0]
+      if (child.exitCode === null && child.signalCode === null) {
+        await new Promise((resolve) => child.once('close', resolve))
+      }
+      const events = readEvents()
+      expect(events.filter((event) => event.attempt).map((event) => event.attempt)).toEqual([
+        'orca-fixture-agent',
+        first,
+        last
+      ])
+      expect(events).toContainEqual({ failed: first, code: 'EACCES' })
+      expect(events.filter((event) => event.started)).toEqual([
+        expect.objectContaining({ started: last })
+      ])
+      expect(events.find((event) => event.plan)?.plan?.candidates).toContainEqual({
+        command: first,
+        runtimeDirectory: join(first, '..')
+      })
+      expect(results).toBe(1)
+      expect(fixture.children).toHaveLength(1)
+      expect(fixture.messages.filter(lookupMessage)).toHaveLength(1)
+      expect(
+        fixture.messages.filter(
+          (message) => typeof message === 'object' && message !== null && 'pgid' in message
+        )
+      ).toHaveLength(1)
+      expect(fixture.handles).toHaveLength(1)
+      const file = fixture.handles[0]
+      expect(file.read).not.toHaveBeenCalled()
+      expect(file.stat).toHaveBeenCalledTimes(1)
+      expect((await vi.mocked(file.stat).mock.results[0].value).isFIFO()).toBe(true)
+      expect(file.close).toHaveBeenCalledTimes(1)
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      expect(process.getActiveResourcesInfo()).not.toContain('FSReqPromise')
+      expect(child.listenerCount('message')).toBe(0)
+    }
+  )
+  it.each(['stat', 'read'] as const)(
+    'closes an acquired handle after advisory %s failure',
+    async (operation) => {
+      const first = installed(2, undefined, '#!/nonexistent/orca-interpreter\n')
+      installed(1)
+      symlinkSync(process.execPath, join(first, '..', 'node'))
+      fixture.advisoryBoundary = {
+        command: first,
+        afterOpen: (file) => {
+          vi.mocked(file[operation]).mockRejectedValueOnce(new Error('advisory I/O failure'))
+        }
+      }
+      await expect(name()).resolves.toMatchObject({ success: true, name: 'Working title' })
+      expect(fixture.handles[0][operation]).toHaveBeenCalledTimes(1)
+      expect(fixture.handles[0].close).toHaveBeenCalledTimes(1)
+      expect(readEvents().find((event) => event.plan)?.plan?.candidates).toContainEqual({
+        command: first,
+        runtimeDirectory: join(first, '..')
+      })
+    }
+  )
+  it('closes a FIFO acquired before cancellation without sending a stale plan', async () => {
+    const first = installed(2)
+    installed(1)
+    unlinkSync(first)
+    await makeFifo(first)
+    symlinkSync(process.execPath, join(first, '..', 'node'))
+    let release!: () => void
+    let acquired!: () => void
+    const ready = new Promise<void>((resolve) => {
+      acquired = resolve
+    })
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    fixture.advisoryBoundary = {
+      command: first,
+      afterOpen: async () => {
+        acquired()
+        await gate
+      }
+    }
+    const execution = runLocalSourceControlPlan({
+      plan: { binary: 'orca-fixture-agent', args: [], stdinPayload: 'prompt', label: 'Fixture' },
+      operation: 'conversation-name',
+      cwd: root,
+      env: { PATH: join(root, 'absent') },
+      spawnAgent: spawnSourceControlAgent
+    })
+    let results = 0
+    void execution.result.then(() => results++)
+    await ready
+    const child = fixture.children[0]
+    const send = vi.spyOn(child, 'send')
+    cancelLocalGeneration('conversation-name', root)
+    await expect(execution.result).resolves.toMatchObject({ canceled: true })
+    await execution.processClosed
+    release()
+    await vi.waitFor(() => expect(fixture.handles[0].close).toHaveBeenCalledTimes(1))
+    expect(fixture.handles[0].read).not.toHaveBeenCalled()
+    expect(results).toBe(1)
+    expect(send).not.toHaveBeenCalled()
+    expect(readEvents().filter((event) => event.attempt)).toEqual([
+      { attempt: 'orca-fixture-agent' }
+    ])
+    expect(child.listenerCount('message')).toBe(0)
+    expect(process.getActiveResourcesInfo()).not.toContain('FSReqPromise')
+  })
   it('captures a relative launch cwd once for raw execution', async () => {
     onPath(root, '#!/bin/sh\necho Working title\n')
     await expect(name(undefined, '', {}, relative(process.cwd(), root))).resolves.toMatchObject({

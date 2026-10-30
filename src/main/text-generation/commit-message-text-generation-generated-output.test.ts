@@ -12,6 +12,7 @@ import {
 } from '../../shared/__fixtures__/kimi-generation-source-shaped'
 import { cleanGeneratedCommitMessage } from '../../shared/commit-message-prompt'
 import { finalizeFromAgentOutput } from './source-control-agent-failure'
+import { createMockDiscoveryChild } from './commit-message-text-generation-test-harness'
 vi.mock('child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof ChildProcessModule>()
   return {
@@ -246,15 +247,8 @@ describe('generateCommitMessageFromContext', () => {
   })
 
   it.each(['custom', 'kimi'] as const)('%s PR failure metadata', async (agentId) => {
-    const listeners = new Map<string, (value: unknown) => void>()
-    spawnMock.mockReturnValue({
-      pid: 123,
-      kill: vi.fn(),
-      stdout: { on: vi.fn((event, callback) => listeners.set(`stdout:${event}`, callback)) },
-      stderr: { on: vi.fn((event, callback) => listeners.set(`stderr:${event}`, callback)) },
-      stdin: { end: vi.fn() },
-      on: vi.fn((event, callback) => listeners.set(event, callback))
-    } as never)
+    const child = createMockDiscoveryChild()
+    spawnMock.mockReturnValue(child)
 
     const pullRequest = generatePullRequestFieldsFromContext(
       {
@@ -279,8 +273,8 @@ describe('generateCommitMessageFromContext', () => {
       }
     )
 
-    listeners.get('stdout:data')?.(Buffer.from('not json'))
-    listeners.get('close')?.(0)
+    child.stdout.emit('data', Buffer.from('not json'))
+    child.emit('close', 0)
 
     await expect(pullRequest).resolves.toMatchObject({
       success: false,

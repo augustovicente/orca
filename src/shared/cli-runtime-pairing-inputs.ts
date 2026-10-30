@@ -66,11 +66,14 @@ export async function installedCliRuntimeDirectory(
   }
   let file: Awaited<ReturnType<typeof open>> | undefined
   try {
-    file = await open(command, 'r')
-    const head = Buffer.alloc(4)
-    const { bytesRead } = await file.read(head, 0, head.length, 0)
-    if (hasNativeSignature(head, bytesRead)) {
-      return null
+    file = await open(command, constants.O_RDONLY | constants.O_NONBLOCK)
+    // Inspect the acquired object: a pathname check can race with replacement by a stream.
+    if ((await file.stat()).isFile()) {
+      const head = Buffer.alloc(4)
+      const { bytesRead } = await file.read(head, 0, head.length, 0)
+      if (hasNativeSignature(head, bytesRead)) {
+        return null
+      }
     }
   } catch {
     // Match synchronous pairing: an unreadable signature is not recognized as native.
