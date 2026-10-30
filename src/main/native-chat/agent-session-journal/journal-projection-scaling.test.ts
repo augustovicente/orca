@@ -13,6 +13,8 @@ import {
   saveTestJournalState
 } from './journal-host-database-test-support'
 import { restoreJournal } from './journal-open'
+import { applyJournalRow, type JournalReducerState } from './journal-reducer'
+import { isolateJournalTransition } from './journal-reducer-transition'
 import { readJournalSavedState, sweepJournalSavedState } from './journal-saved-state'
 import { backfillJournalState } from './journal-state-backfill'
 import type { JournalHostDatabase } from './journal-host-database'
@@ -88,7 +90,25 @@ const answer =
     body: message(text, 'assistant')
   })
 
-/** A published chat with `size` sends, statuses and their keyed entries, plus one handed-over send. */
+const card = (
+  seq: number,
+  messageId: string,
+  outcome: { attempt?: string; returned?: { reason: string } } = {}
+): JournalRow => ({
+  ...base(seq),
+  kind: 'queue',
+  messageId,
+  change: {
+    op: 'queued',
+    body: message(messageId),
+    position: seq,
+    queuedAt: { epoch, sequence: seq - 1 },
+    ...outcome
+  }
+})
+
+/** A published chat with `size` accepted sends (receipts and aliases), statuses, and waiting,
+ * dispatched and returned queue cards, plus one handed-over send. */
 function chatOf(size: number, label: string) {
   const database = openTestJournalHostDatabase(join(root, label))
   const rows: JournalRow[] = [projectionEpochRow]
@@ -96,19 +116,43 @@ function chatOf(size: number, label: string) {
     rows.push(send(rows.length + 1, `earlier-${index}`, message(`Earlier ${index}`)))
     rows.push({
       ...base(rows.length + 1),
+      kind: 'dispatch',
+      clientMessageId: `earlier-${index}`,
+      state: 'accepted',
+      providerItemId: `provider-${index}`,
+      reason: null
+    })
+    rows.push({
+      ...base(rows.length + 1),
       kind: 'item',
       itemId: `status-${index}`,
       revision: 1,
       body: { kind: 'status', text: `Status ${index}` }
     })
+    rows.push(card(rows.length + 1, `waiting-${index}`))
+    rows.push(card(rows.length + 1, `dispatched-${index}`, { attempt: `attempt-${index}` }))
+    rows.push(card(rows.length + 1, `returned-${index}`, { returned: { reason: 'refused' } }))
   }
   rows.push(send(rows.length + 1, 'send', message('Continue'), true))
   const state = seedProjectionRows(database, rows)
+  expect(state.receipts.size).toBe(size)
+  expect(state.aliases.size).toBe(size)
   saveTestJournalState(database, state)
   const rig = projectionWriter(database, state)
   rigs.push(rig)
   return { database, rig }
 }
+
+/** Reducer nodes the draft layer tracks to fold `row` onto `state`, without adopting it. */
+const trackedNodes = (state: JournalReducerState, row: JournalRow) =>
+  isolateJournalTransition(state, (draft) => applyJournalRow(draft, row, row.ts)).tracked()
+
+/** The card scan reads every card, and the body of each returned card. */
+const cardNodes = (state: JournalReducerState) =>
+  [...state.queue.cards.values()].reduce(
+    (n, queued) => n + (queued.state === 'returned' ? 2 : 1),
+    0
+  )
 
 /** Count every row write and its JSON bytes on the log and the three projection tables. */
 function countWrites(
@@ -147,29 +191,51 @@ it('writes the same rows and bytes per streamed revision and per acceptance at N
     const writes = countWrites(database)
     await rig.writer.enqueue(answer('x'.repeat(4_096), 1))
     writes()
-    await rig.writer.enqueue(answer('y'.repeat(4_096), 2))
+    const next = () => rig.state().lastSequence + 1
+    const revision = answer('y'.repeat(4_096), 2)
+    const streamedNodes = trackedNodes(rig.state(), revision(next(), 10_000))
+    await rig.writer.enqueue(revision)
     const streamed = writes()
-    // Acceptance still scans every submission for its echo; that O(n) loop predates the projection.
-    await rig.writer.enqueue((seq, ts) => ({
+    const echo = (seq: number, ts: number): JournalRow => ({
       ...base(seq),
       ts,
       kind: 'item',
       itemId: providerItemId,
       revision: 1,
       body: message('Continue')
-    }))
+    })
+    const live = rig.state()
+    const counts = {
+      cards: cardNodes(live),
+      items: live.items.size,
+      submissions: live.submissions.size,
+      streamed: streamedNodes,
+      accepted: trackedNodes(live, echo(next(), 10_000))
+    }
+    // Acceptance still scans every submission for its echo; that O(n) loop predates the projection.
+    await rig.writer.enqueue(echo)
     const accepted = writes()
     expect(rig.state().submissions.get('send')?.dispatchState).toBe('accepted')
-    return { streamed, accepted }
+    return { streamed, accepted, counts }
   }
   const small = await measure(N)
   const large = await measure(10 * N)
   expect(shape(small.streamed)).toContainEqual(['journal_items UPDATE', 1])
   for (const key of ['streamed', 'accepted'] as const) {
     expect(shape(large[key])).toStrictEqual(shape(small[key]))
-    // Only the digits of the larger chat's sequence numbers differ.
+    // Only the digits of the larger chat's sequence numbers and revisions differ.
     expect(Math.abs(bytes(large[key]) - bytes(small[key]))).toBeLessThanOrEqual(32)
   }
+  // A streamed revision's only term that grows with the chat is the card scan.
+  const cards = large.counts.cards - small.counts.cards
+  expect(cards).toBeGreaterThan(0)
+  expect(large.counts.streamed - small.counts.streamed).toBe(cards)
+  // An echo also reads every item with its body, and every submission, to find its send.
+  expect(large.counts.accepted - small.counts.accepted).toBe(
+    2 * (large.counts.items - small.counts.items) +
+      (large.counts.submissions - small.counts.submissions) +
+      cards
+  )
 })
 
 it('reopens a chat with current coverage without reading its rows at N and 10N revisions', async () => {

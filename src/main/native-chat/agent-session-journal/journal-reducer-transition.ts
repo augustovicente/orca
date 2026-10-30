@@ -18,6 +18,8 @@ class JournalDraft {
   private readonly assigned = new WeakSet<object>()
   private readonly pending: (() => void)[] = []
   private readonly resolved = new WeakMap<object, object>()
+  /** Objects and collections the fold reached; scaling tests pin how this grows with chat size. */
+  nodes = 0
 
   readonly access: JournalDraftAccess = {
     wrap: (value, changed, path) => this.wrap(value, changed, path),
@@ -41,6 +43,7 @@ class JournalDraft {
   }
 
   private track<T extends object>(value: T, path: string): DraftNode {
+    this.nodes += 1
     const listeners = new Set<() => void>()
     let dirty = false
     const mark = (): void => {
@@ -222,6 +225,7 @@ export function isolateJournalTransition<T>(
   result: T
   changes: () => JournalEntryChange[]
   adopt: () => JournalReducerState
+  tracked: () => number
 } {
   const draft = new JournalDraft()
   const candidate = draft.wrap(state, () => undefined, '')
@@ -230,6 +234,7 @@ export function isolateJournalTransition<T>(
     state: candidate,
     result,
     changes: () => draft.changes(),
-    adopt: () => draft.adopt(candidate)
+    adopt: () => draft.adopt(candidate),
+    tracked: () => draft.nodes
   }
 }
