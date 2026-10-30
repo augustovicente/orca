@@ -1,6 +1,7 @@
 // Build SSH hook envelopes from parsed events/raw bodies; publication owns shedding and redelivery.
 import type { AgentHookEventPayload } from '../shared/agent-hook-listener/listener-event'
 import type { AgentHookRelayEnvelope, AgentHookSource } from '../shared/agent-hook-relay'
+import { hasSeparateHookSessionAdmission } from '../shared/agent-hook-listener/pane-provider-session'
 import { pickHostTurnEnd } from '../shared/agent-status-types'
 
 // Why: cap metadata to prevent a misbehaving CLI growing the cache unboundedly.
@@ -19,7 +20,7 @@ export function buildRelayHookEnvelope(
       ? { evidenceAgeMs: Math.max(0, Date.now() - event.hostEvidenceObservedAt) }
       : {}),
     agentPresence:
-      source === 'hermes' && event.agentPresence
+      hasSeparateHookSessionAdmission(source) && event.agentPresence
         ? {
             ...event.agentPresence,
             session:

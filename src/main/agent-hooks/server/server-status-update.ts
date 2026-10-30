@@ -181,7 +181,9 @@ export abstract class AgentHookServerStatusUpdate extends AgentHookServerStatusA
       ((stateReconciledPayload.payload.agentType === 'codex' &&
         stateReconciledPayload.toolAgentId) ||
         (origin === 'hook' &&
-          ['copilot', 'hermes'].includes(stateReconciledPayload.payload.agentType ?? '') &&
+          ['copilot', 'hermes', 'antigravity'].includes(
+            stateReconciledPayload.payload.agentType ?? ''
+          ) &&
           this.sameTerminalOwner(previous, stateReconciledPayload)))
         ? previous
         : undefined

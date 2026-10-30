@@ -11,6 +11,11 @@ import type { AgentHookEventPayload } from './listener-event'
 import { isGrokSubagentEvent } from './providers/grok-tool-fields'
 import { isHermesRootSessionEvent, withHermesPaneSessionId } from './providers/hermes-events'
 import { readString } from './tool-input-preview'
+import { readFirstTranscriptRecord } from './transcript-reader'
+
+export function hasSeparateHookSessionAdmission(source: string | undefined): boolean {
+  return source === 'hermes' || source === 'antigravity'
+}
 
 export function readPaneSessionContext(
   state: HookListenerState,
@@ -21,13 +26,14 @@ export function readPaneSessionContext(
   const { paneKey, hookPayloadRecord } = envelope
   return {
     providerSession: readPaneProviderSession(state, source, paneKey, hookPayloadRecord, eventName),
-    statusAdmissionSession:
-      source === 'hermes'
-        ? extractAgentProviderSession(
-            source,
-            withHermesPaneSessionId(state, paneKey, hookPayloadRecord)
-          )?.id
-        : undefined
+    statusAdmissionSession: hasSeparateHookSessionAdmission(source)
+      ? extractAgentProviderSession(
+          source,
+          source === 'hermes'
+            ? withHermesPaneSessionId(state, paneKey, hookPayloadRecord)
+            : hookPayloadRecord
+        )?.id
+      : undefined
   }
 }
 
@@ -64,6 +70,20 @@ function readPaneProviderSession(
   const providerSession = extractAgentProviderSession(source, hookPayload)
   if (!providerSession) {
     return null
+  }
+  if (source === 'antigravity') {
+    const transcriptPath = readPathFromKeys(hookPayload, ['transcriptPath', 'transcript_path'])
+    const origin = transcriptPath ? readFirstTranscriptRecord(transcriptPath) : undefined
+    if (
+      typeof origin !== 'object' ||
+      origin === null ||
+      !('source' in origin) ||
+      origin.source !== 'USER_EXPLICIT' ||
+      !('type' in origin) ||
+      origin.type !== 'USER_INPUT'
+    ) {
+      return null
+    }
   }
   const continued = continuedProviderSession(
     state,
@@ -137,8 +157,10 @@ function readHookStatusSession(incoming: AgentHookEventPayload): string | undefi
   return (
     incoming.statusAdmissionSession ??
     incoming.providerSession?.id ??
-    (incoming.agentPresence?.agent === 'hermes' && !incoming.agentPresence.ended
-      ? incoming.agentPresence.session
+    (hasSeparateHookSessionAdmission(incoming.agentPresence?.agent) &&
+    incoming.agentPresence?.agent === incoming.payload.agentType &&
+    !incoming.agentPresence?.ended
+      ? incoming.agentPresence?.session
       : undefined)
   )
 }
@@ -160,7 +182,7 @@ export function readHookSessionContext<T extends AgentHookEventPayload>(
   return {
     event: rootEvent,
     statusAdmissionSession:
-      fromHook && incoming.payload.agentType === 'hermes'
+      fromHook && hasSeparateHookSessionAdmission(incoming.payload.agentType)
         ? readHookStatusSession(incoming)
         : rootEvent.providerSession?.id
   }
