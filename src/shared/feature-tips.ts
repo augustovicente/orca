@@ -48,8 +48,7 @@ export const FEATURE_TIPS = [
     priority: 'new',
     eyebrow: 'New',
     title: 'Chat UI is here',
-    description:
-      'Agents can now open as a chat, with rich messages, visuals, images and file links.',
+    description: 'Agents can now open as a chat, with rich messages, visuals and images.',
     action: 'use-chat-ui',
     ctaLabel: 'Use Chat UI',
     completedByFeatureInteractions: []

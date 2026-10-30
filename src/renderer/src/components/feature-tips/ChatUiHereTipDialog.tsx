@@ -27,7 +27,7 @@ function variantCopy(variant: ShownVariant): {
       paragraphs: [
         translate(
           'featureTips.chatUiHere.offIntro',
-          'Agents can now open as a chat, with rich messages, visuals, images and file links.'
+          'Agents can now open as a chat, with rich messages, visuals and images.'
         ),
         translate(
           'featureTips.chatUiHere.offTerminal',
@@ -42,7 +42,7 @@ function variantCopy(variant: ShownVariant): {
     paragraphs: [
       translate(
         'featureTips.chatUiHere.onIntro',
-        'Chat UI is out of Experimental and now part of Orca. Your agents keep opening as chats, with rich messages, visuals, images and file links.'
+        'Chat UI is out of Experimental and now part of Orca. Your agents keep opening as chats, with rich messages, visuals and images.'
       ),
       translate(
         'featureTips.chatUiHere.onTerminal',
