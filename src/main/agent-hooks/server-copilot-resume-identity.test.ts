@@ -32,6 +32,14 @@ function rootEnd(sessionKey: string = 'session_id'): Body {
       )
 }
 
+function normalize(body: Body) {
+  const event = normalizeHookPayload(createHookListenerState(), 'copilot', body, 'production')
+  if (!event) {
+    throw new Error('Copilot hook was rejected')
+  }
+  return event
+}
+
 function expectResume(server: AgentHookServer, id: string = ROOT): void {
   const status = server.getStatusSnapshot()[0]
   expect(status?.providerSession?.id).toBe(id)
@@ -60,10 +68,8 @@ it.each([
   ['parentAgentId', 'sessionId']
 ])('keeps docs-shaped Copilot %s child hooks out of the pane restore ID', (marker, sessionKey) => {
   const server = new AgentHookServer()
-  const normalize = (body: Body) =>
-    normalizeHookPayload(createHookListenerState(), 'copilot', body, 'production')
   const root = normalize(rootEnd(sessionKey))
-  expect(root?.providerSession?.id).toBe(ROOT)
+  expect(root.providerSession?.id).toBe(ROOT)
   server.ingestRemote(root, 'host-1')
   // The child shape is documented, not captured; its session field's owner is unspecified.
   const child = normalize(
@@ -75,8 +81,8 @@ it.each([
       tool_input: { question: 'Which target?' }
     })
   )
-  expect(child?.providerSession).toBeUndefined()
-  expect(child?.payload.state).toBe('blocked')
+  expect(child.providerSession).toBeUndefined()
+  expect(child.payload.state).toBe('blocked')
   server.ingestRemote(child, 'host-1')
   expect(server.getStatusSnapshot()[0]?.state).toBe('blocked')
   expectResume(server)
@@ -183,10 +189,7 @@ it.each(['same-launch', 'resumed-launch'])(
 
 it('does not undo a host new-run reset or resurrect its locator on the next child hook', () => {
   const server = new AgentHookServer()
-  server.ingestRemote(
-    normalizeHookPayload(createHookListenerState(), 'copilot', rootEnd(), 'production'),
-    null
-  )
+  server.ingestRemote(normalize(rootEnd()), null)
   server.ingestTerminalStatus({
     paneKey: PANE,
     worktreeId: 'wt-1',
