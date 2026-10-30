@@ -57,7 +57,8 @@ export class PluginKvStore {
   }
 
   get(key: string): PluginJsonValue | undefined {
-    return this.read()?.[key]
+    const settings = this.read()
+    return settings && Object.hasOwn(settings, key) ? settings[key] : undefined
   }
 
   getAll(): Record<string, PluginJsonValue> {
