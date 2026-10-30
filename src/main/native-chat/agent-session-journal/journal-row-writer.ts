@@ -47,6 +47,7 @@ export type JournalRowWriterDeps = {
   readOnly: () => boolean
   highestFence: () => number
   nextSequence: () => number
+  prepare?: (db: Database.Database, rows: readonly JournalRow[], savedAt: number) => () => void
   commit: (rows: readonly JournalRow[], savedAt: number, streamed?: boolean) => void
   /** Streamed-text-only revisions may skip per-commit fsync; settlement makes them durable. */
   streamedTextRevision?: (row: JournalRow) => boolean
@@ -66,11 +67,13 @@ export class JournalRowWriter {
       assertJournalFence(row.fence, this.deps.highestFence())
       const receipt = typeof prepareReceipt === 'function' ? prepareReceipt([row]) : prepareReceipt
       const streamed = !receipt && this.streamed([row])
+      let adopt: (() => void) | undefined
       this.deps.database().transaction((db) => {
         insertJournalRow(db, this.deps.sessionId, row, savedAt)
         receipt?.write(db, row)
+        adopt = this.deps.prepare?.(db, [row], savedAt)
       }, streamed)
-      // Adopt durable sequence state before fallible work: nonthrowing receipt ledger, then fold.
+      adopt?.()
       receipt?.committed()
       this.deps.commit([row], savedAt, streamed)
       return row
@@ -104,12 +107,15 @@ export class JournalRowWriter {
     }
     const receipt = typeof prepareReceipt === 'function' ? prepareReceipt(rows) : prepareReceipt
     const streamed = !receipt && this.streamed(rows)
+    let adopt: (() => void) | undefined
     this.deps.database().transaction((db) => {
       for (const row of rows) {
         insertJournalRow(db, this.deps.sessionId, row, ts)
       }
       receipt?.write(db, receiptRow?.(rows))
+      adopt = this.deps.prepare?.(db, rows, ts)
     }, streamed)
+    adopt?.()
     receipt?.committed()
     this.deps.commit(rows, ts, streamed)
     return rows

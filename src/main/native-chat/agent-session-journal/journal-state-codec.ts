@@ -1,6 +1,7 @@
 // Versioned reducer snapshots preserve insertion order and the presence of undefined echo declarations.
 
 import { z } from 'zod'
+import { assembleJournalState, type JournalStoredEntry } from './journal-state-layout'
 import {
   isAdmissibleAgentJournalRenderItem,
   isAdmissibleAgentJournalMessageBody,
@@ -185,12 +186,14 @@ export function encodeJournalState(state: JournalReducerState): {
 export function decodeJournalState(
   version: number,
   stateJson: string,
-  itemJsons: readonly string[]
+  itemJsons: readonly string[],
+  entries?: readonly JournalStoredEntry[]
 ): JournalReducerState | null {
   if (version !== 1) {
     return null
   }
-  const stored = stateV1.parse(JSON.parse(stateJson))
+  const json: unknown = JSON.parse(stateJson)
+  const stored = stateV1.parse(entries ? assembleJournalState(json, entries) : json)
   const items = fields.items.parse(itemJsons.map((json) => JSON.parse(json)))
   return {
     sessionId: stored.sessionId,

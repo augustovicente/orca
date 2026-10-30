@@ -1,6 +1,6 @@
 // Each session owns its fold and queue; all statements use the host's shared database connection.
 
-import { JournalCheckpoint } from './journal-saved-state'
+import { JournalWriteProjection } from './journal-write-projection'
 import type { AgentJournalDispatchRejection } from '../../../shared/agent-session-failure-words'
 import { randomUUID } from 'node:crypto'
 import { createJournalPublicReader } from './journal-public-read'
@@ -32,7 +32,6 @@ import {
   rejectJournalQueuedSubmissions
 } from './journal-pending-submission-recovery'
 import {
-  applyJournalRow,
   createJournalReducerState,
   resolveJournalItemId,
   type JournalReducerState
@@ -85,7 +84,7 @@ export class AgentSessionJournal {
   private readonly submissionWriter: JournalSubmissionWriter
   private readonly stepWriter: JournalStepWriter
   private readonly restore: () => Promise<void>
-  private readonly checkpoints: JournalCheckpoint
+  private readonly projection: JournalWriteProjection
   /** Queued cards never count as owed work. */
   readonly queuedMessages: JournalQueuedMessages
   readonly stopMarks: JournalCollaborators['stopMarks']
@@ -97,12 +96,13 @@ export class AgentSessionJournal {
     this.database = options.database
     this.state = createJournalReducerState(options.identity.sessionId, '')
     this.queue = new JournalWriteQueue(options.identity.sessionId)
-    this.checkpoints = new JournalCheckpoint({
-      sessionId: this.identity.sessionId,
+    this.projection = new JournalWriteProjection({
       database: this.database,
       state: () => this.state,
       queue: this.queue,
-      dispose: () => this.queuedMessages.editLeases.dispose()
+      adopt: (state) => {
+        this.state = state
+      }
     })
     const collaborators = createJournalStoreCollaborators({
       identity: this.identity,
@@ -115,18 +115,11 @@ export class AgentSessionJournal {
       cursor: this.cursor,
       adopt: (loaded) => {
         this.state = loaded.state
-        this.checkpoints.schedule()
+        this.projection.opened(loaded.projectionThrough ?? 0)
         this.onCommitted?.()
       },
-      commit: (rows, savedAt, streamed) => {
-        for (const row of rows) {
-          applyJournalRow(this.state, row, savedAt)
-        }
-        if (!streamed) {
-          this.checkpoints.schedule()
-        }
-        this.onCommitted?.(rows)
-      },
+      prepare: (db, rows, savedAt) => this.projection.prepare(db, rows, savedAt),
+      commit: (rows) => this.onCommitted?.(rows),
       notifyCommitted: () => this.onCommitted?.([]),
       journal: () => this,
       enqueue: (build, receipt) => this.rowWriter.enqueue(build, receipt)
@@ -166,13 +159,18 @@ export class AgentSessionJournal {
   async open(): Promise<void> {
     await this.restore()
     this.openedThrough = this.cursor()
-    this.checkpoints.schedule()
+    await this.projection.repair()
   }
 
   /** Refuse future writes and drain admitted ones; the host retains database ownership. */
-  close = (): Promise<void> => this.checkpoints.close()
+  close = (): Promise<void> => {
+    this.projection.close()
+    this.queuedMessages.editLeases.dispose()
+    this.queue.markClosed()
+    return this.queue.drain()
+  }
 
-  checkpoint = (): Promise<void> => this.checkpoints.save()
+  repairProjection = (): Promise<void> => this.projection.repair()
 
   /** One nonthrowing listener; undefined rows mean adopted history, an empty array means metadata. */
   observeCommits(listener: (rows?: readonly JournalRow[]) => void): void {

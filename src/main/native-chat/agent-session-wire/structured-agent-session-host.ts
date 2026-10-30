@@ -149,7 +149,7 @@ export class StructuredAgentSessionHost {
 
   private now = (): number => this.deps.now?.() ?? Date.now()
 
-  checkpointOpenJournal = this.sessions.checkpointOpenJournal
+  repairOpenJournalProjection = this.sessions.repairOpenJournalProjection
   hasSession = (sessionId: string): boolean => this.sessions.has(sessionId)
   loadedSessionIds = this.sessions.loadedSessionIds
   hasLoadedProviders = (): boolean => this.loadedSessionIds().length > 0

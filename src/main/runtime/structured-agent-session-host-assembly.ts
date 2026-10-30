@@ -108,7 +108,7 @@ export async function installOnJournal(
     stateDirectory: deps.stateDirectory,
     store,
     journalDatabase,
-    journalBackfill: { database: journalDatabase, checkpointOpen: host.checkpointOpenJournal },
+    journalBackfill: { database: journalDatabase, repairOpen: host.repairOpenJournalProjection },
     logger: deps.logger
   })
   const stopVisualsSweep = deps.nativeChatVisuals

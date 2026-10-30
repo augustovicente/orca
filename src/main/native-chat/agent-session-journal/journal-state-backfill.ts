@@ -1,21 +1,21 @@
-// Pace closed-chat replay between pages; live chats checkpoint through their own write queue.
+// Pace closed-chat replay between pages; live chats repair through their own write queue.
 
 import type { JournalHostDatabase } from './journal-host-database'
 import { startJournalRowFold } from './journal-open'
 import { createJournalReducerState } from './journal-reducer'
 import { readJournalRowsAfter } from './journal-row-table'
 import {
-  logJournalCheckpointFailure,
+  logJournalProjectionFailure,
   readJournalSavedState,
   saveJournalState,
   sweepJournalSavedState,
-  unrefJournalCheckpointTimer
+  unrefJournalProjectionTimer
 } from './journal-saved-state'
 import { JournalWriteQueue } from './journal-write-queue'
 
 export type JournalStateBackfillRun = {
   database: () => JournalHostDatabase | null
-  checkpointOpen: (sessionId: string) => Promise<boolean>
+  repairOpen: (sessionId: string) => Promise<boolean>
   stopped: () => boolean
   now?: () => number
   rest?: (ms: number) => Promise<void>
@@ -28,7 +28,7 @@ export async function backfillJournalState(run: JournalStateBackfillRun): Promis
   const now = run.now ?? (() => performance.now())
   const rest =
     run.rest ??
-    ((ms) => new Promise<void>((resolve) => unrefJournalCheckpointTimer(setTimeout(resolve, ms))))
+    ((ms) => new Promise<void>((resolve) => unrefJournalProjectionTimer(setTimeout(resolve, ms))))
   let sliceAt = now()
   const current = (): JournalHostDatabase | null => {
     const database = run.database()
@@ -71,7 +71,7 @@ export async function backfillJournalState(run: JournalStateBackfillRun): Promis
       if (!(await pace())) {
         return
       }
-      if (await run.checkpointOpen(sessionId)) {
+      if (await run.repairOpen(sessionId)) {
         continue
       }
       const opened = current()
@@ -117,14 +117,14 @@ export async function backfillJournalState(run: JournalStateBackfillRun): Promis
       }
       if (!loaded.damage && !loaded.newer && loaded.state.lastSequence === lastSequence) {
         // Opening meanwhile is safe: publication can only advance the same immutable prefix.
-        if (!(await run.checkpointOpen(sessionId))) {
+        if (!(await run.repairOpen(sessionId))) {
           await new JournalWriteQueue(sessionId).serialize(() =>
             saveJournalState(target, loaded.state)
           )
         }
       }
     } catch (error) {
-      logJournalCheckpointFailure(sessionId, error)
+      logJournalProjectionFailure(sessionId, error)
     }
   }
 }
@@ -145,7 +145,7 @@ export function startJournalStateBackfill(
           }
         })
     }, delay)
-    unrefJournalCheckpointTimer(timer)
+    unrefJournalProjectionTimer(timer)
   }
   schedule(60 * 1_000)
   return {

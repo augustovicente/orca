@@ -28,17 +28,15 @@ export function installAgentSessionAttachments(deps: {
   journalDatabase: Pick<JournalHostDatabase, 'readOnly' | 'isClosed' | 'db'>
   journalBackfill?: {
     database: JournalHostDatabase
-    checkpointOpen: (sessionId: string) => Promise<boolean>
+    repairOpen: (sessionId: string) => Promise<boolean>
   }
   logger: StructuredAgentSessionLogger
 }): void {
   stopAgentSessionAttachments()
   if (deps.journalBackfill) {
-    const { database, checkpointOpen } = deps.journalBackfill
-    journalBackfill = startJournalStateBackfill(
-      { database: () => database, checkpointOpen },
-      (error) =>
-        deps.logger.warn('chat state backfill failed', { scope: 'journal-state-backfill', error })
+    const { database, repairOpen } = deps.journalBackfill
+    journalBackfill = startJournalStateBackfill({ database: () => database, repairOpen }, (error) =>
+      deps.logger.warn('chat state backfill failed', { scope: 'journal-state-backfill', error })
     )
   }
   const root = agentSessionAttachmentStoreRoot(deps.stateDirectory)

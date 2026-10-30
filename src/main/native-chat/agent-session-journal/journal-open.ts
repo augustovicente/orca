@@ -22,6 +22,8 @@ export type JournalDamage = {
 }
 
 export type JournalLoad = {
+  /** Zero when a complete projection has not been published. */
+  projectionThrough?: number
   state: JournalReducerState
   /** Future row versions/kinds require an updated reader. */
   newer: { sequence: number } | null
@@ -38,24 +40,15 @@ export function replayJournal(db: Database.Database, sessionId: string): Journal
 }
 
 /** The saved prefix is authoritative; only the contiguous tail is replayed. */
-export function restoreJournal(
-  db: Database.Database,
-  sessionId: string,
-  repair?: (state: JournalReducerState) => void
-): JournalLoad | null {
+export function restoreJournal(db: Database.Database, sessionId: string): JournalLoad | null {
   const epoch = readJournalSessionEpoch(db, sessionId)
   if (epoch === null) {
     return null
   }
-  let unusable = false
-  const state =
-    readJournalSavedState(db, sessionId, epoch, () => {
-      unusable = true
-    }) ?? createJournalReducerState(sessionId, epoch)
-  const loaded = foldJournalFromState(db, state)
-  if (unusable && !loaded.damage && !loaded.newer) {
-    repair?.(loaded.state)
-  }
+  const saved = readJournalSavedState(db, sessionId, epoch)
+  const through = saved?.lastSequence ?? 0
+  const loaded = foldJournalFromState(db, saved ?? createJournalReducerState(sessionId, epoch))
+  loaded.projectionThrough = through
   return loaded
 }
 

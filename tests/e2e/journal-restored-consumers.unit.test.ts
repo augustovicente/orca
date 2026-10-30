@@ -284,7 +284,7 @@ it.each(clients)(
     const database = openTestJournalHostDatabase(active.root)
     const saved = readJournalSavedState(database.db, SESSION, resumeCursor.epoch)
     if (!saved) {
-      throw new Error('Close did not publish a usable checkpoint')
+      throw new Error('Missing usable projection before tail append')
     }
     const prefix = { epoch: saved.epoch, sequence: saved.lastSequence }
     expect(prefix.sequence).toBeGreaterThanOrEqual(resumeCursor.sequence)
@@ -319,7 +319,7 @@ it.each(clients)(
     const restoredPage = await history({ direction: 'tail' })
     expect(restoredPage.liveCursor?.sequence).toBeGreaterThan(prefix.sequence)
     expect(readJournalSavedState(database.db, SESSION, prefix.epoch)?.lastSequence).toBe(
-      prefix.sequence
+      restoredPage.liveCursor?.sequence
     )
     expect(active.adapter.acquire).toHaveBeenCalledTimes(1)
     const subscribe = vi.spyOn(active.host, 'subscribe')
