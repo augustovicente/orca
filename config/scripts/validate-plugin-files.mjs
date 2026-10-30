@@ -9,7 +9,9 @@ import path from 'node:path'
 import process from 'node:process'
 import { loadPluginSchemaModule } from './plugin-schema-module-loader.mjs'
 
-const { validatePluginFile } = loadPluginSchemaModule('installation/plugin-file-validation.ts')
+const { validatePluginFile, pluginManifestWarnings } = loadPluginSchemaModule(
+  'installation/plugin-file-validation.ts'
+)
 const { parsePluginManifest } = loadPluginSchemaModule('manifest/plugin-manifest.ts')
 const { pluginCatalogReleaseEntry } = loadPluginSchemaModule('catalog/plugin-catalog-release.ts')
 // Why the install code itself: the printed contentHash must be what Orca computes at install.
@@ -153,13 +155,13 @@ async function catalogReleaseEntry(pluginDir) {
     rmSync(tree, { recursive: true, force: true })
   }
 }
-// Why a warning: only the official and community catalogs require it; a private catalog may not.
+// Why a warning: Orca derives the publisher from the owner; older Orca refuses a declared one that differs.
 async function publisherOwnerWarning(pluginDir) {
   const remote = await git(pluginDir, ['remote', 'get-url', 'origin']).catch(() => '')
   const owner = parseGitRepositoryIdentity(remote)?.owner
   const { publisher } = JSON.parse(readFileSync(path.join(pluginDir, 'orca-plugin.json'), 'utf8'))
-  return owner && owner.toLowerCase() !== publisher.toLowerCase()
-    ? `warning: the official and community catalogs require publisher to match the repository owner "${owner}" (publisher is "${publisher}")`
+  return owner && typeof publisher === 'string' && owner.toLowerCase() !== publisher.toLowerCase()
+    ? `warning: Orca lists this plugin under the repository owner "${owner.toLowerCase()}", and older Orca refuses it because publisher is "${publisher}"; remove publisher or set it to "${owner.toLowerCase()}"`
     : null
 }
 
@@ -212,6 +214,11 @@ for (const target of targets) {
     }
     for (const error of errors) {
       console.error(`${file}: ${error}`)
+    }
+    if (errors.length === 0 && path.basename(file) === 'orca-plugin.json') {
+      for (const warning of pluginManifestWarnings(raw)) {
+        console.warn(`${file}: warning: ${warning}`)
+      }
     }
     failed ||= errors.length > 0
     if (errors.length === 0) {

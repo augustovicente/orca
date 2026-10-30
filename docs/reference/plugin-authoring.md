@@ -16,10 +16,28 @@ completion, or from one of:
 | `examples/plugins/orca-gleam-syntax` | `data`           | A syntax, no code                    |
 | `examples/plugins/hello-orca`        | `trusted-worker` | A panel, a worker command and events |
 
-Set `publisher` to the GitHub or GitLab user or organization that owns your repository (`acme`
-for `github.com/acme/gleam-syntax`), or the official and community catalogs reject the listing.
+Leave `publisher` out. Orca names the publisher after where the plugin comes from, the way a
+[Go module path](https://go.dev/ref/mod#module-path) is its repository path: the owner of the
+repository, lowercased (`acme` for `github.com/Acme/gleam-syntax`), so the plugin installs as
+`acme.gleam-syntax`. Nobody can choose a publisher name that is not theirs.
+
+| Installed from                | Publisher                                                     |
+| ----------------------------- | ------------------------------------------------------------- |
+| The official or community catalog | the repository owner, set by the catalog in the entry's `id` |
+| Another catalog               | whatever that catalog's entry `id` says                       |
+| A Git URL                     | the URL's owner (`.` and `_` become `-`)                      |
+| A local or development folder | `local`                                                       |
+
+`publisher` is deprecated: Orca ignores it for catalog and Git installs. Leaving it out needs
+`engines.orca` of at least `>=1.4.246`, because older Orca requires the field and refuses a
+value that differs from the catalog's. To keep supporting older Orca, keep `publisher` and set it
+to the repository owner; `validate:plugin` warns about it either way. An install made before
+1.4.246 keeps its key, approvals and data. A local or development folder that still declares
+`publisher` keeps using it until you remove it.
+
 When copying the Gleam example, also drop its `stablyai` publisher and `orca-` id prefix: both are
-reserved for Orca's own plugins.
+reserved for Orca's own plugins, as are owners named `official`, `anthropic`, `openai`, `github`
+or starting with `orca`.
 
 Pick the lowest `execution` profile that covers what you contribute; it decides what the user is
 asked to approve:
@@ -120,8 +138,9 @@ listen with `orca.on('theme', …)`, to follow it.
 ## 2. Load it while you work
 
 1. Settings → Plugins: click **Turn on plugins**.
-2. **Development folders…** → add the plugin folder. A development folder overrides an installed
-   copy with the same `<publisher>.<id>`.
+2. **Development folders…** → add the plugin folder. It loads as `local.<id>` (or under its
+   deprecated `publisher` while it still declares one), and overrides an installed copy with
+   the same key.
 3. Review and enable it. Nothing runs before that.
 
 Orca watches development folders and reloads the plugin when its manifest or files change.
@@ -139,8 +158,9 @@ pnpm validate:plugin path/to/plugin
 
 This runs the manifest checks Orca runs, strictly: unknown keys, limits, contributions beyond the
 execution profile, and an `engines.orca` too low for the fields used. On a catalog it also
-checks that listed images exist and fit. In a Git repository it warns when `publisher` is not the
-owner of the `origin` remote. Run it in CI for the plugin and catalog repositories.
+checks that listed images exist and fit. It warns when the manifest still declares the deprecated
+`publisher`, and, in a Git repository, when that value is not the owner of the `origin` remote.
+Warnings do not fail the check. Run it in CI for the plugin and catalog repositories.
 
 ## 4. Publish to a catalog
 
@@ -166,6 +186,9 @@ for.
      "releases": [{ "...": "the printed entry" }]
    }
    ```
+
+   The `id` is `<publisher>.<manifest id>`. In your own catalog you choose the publisher; use the
+   repository owner, as the official and community catalogs do.
 
    `commit` must be a full 40-character SHA. A tag or branch name is refused by validation and
    skipped by Orca. Keep the previous release listed when you raise `engines.orca`, so older
