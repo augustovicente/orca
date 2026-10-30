@@ -141,6 +141,11 @@ it('pairs to host-owned options and persists only a genuine pick on that host', 
       },
       'discovery'
     )
+    await modelCatalog.prepareSaved({
+      agent: 'codex',
+      sessionId: REST_TEST_SESSION,
+      inSessionWorkspace: true
+    })
     setStructuredAgentSessionHost(rig.host)
     await server.start()
     const offer = server.createPairingOffer({ name: 'options-consumer', scope: 'runtime' })
