@@ -1,4 +1,6 @@
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import * as fs from 'node:fs'
+import type * as NodeFs from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -14,6 +16,19 @@ import {
 let root: string
 let native: string
 let drive: string
+const { systemDirectories } = vi.hoisted(() => ({ systemDirectories: new Array<string>() }))
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof NodeFs>()
+  return {
+    ...actual,
+    statSync: vi.fn(actual.statSync),
+    readdirSync: vi.fn(actual.readdirSync),
+    readFileSync: vi.fn(actual.readFileSync)
+  }
+})
+vi.mock('../../shared/system-cli-install-dirs', () => ({
+  getSystemCliInstallDirectories: () => systemDirectories
+}))
 
 function install(dir: string): string {
   mkdirSync(dir, { recursive: true })
@@ -28,9 +43,11 @@ beforeEach(() => {
   native = join(root, 'home', '.local', 'bin')
   // Stands in for a Windows drive mount such as /mnt/c.
   drive = join(root, 'c')
+  systemDirectories.splice(0, systemDirectories.length, native)
 })
 
 afterEach(() => {
+  vi.restoreAllMocks()
   vi.useRealTimers()
   _resetWindowsCopyVerdictsForTests()
   rmSync(root, { recursive: true, force: true })
@@ -38,6 +55,34 @@ afterEach(() => {
 
 describe.skipIf(process.platform === 'win32')('resolveGuestNativeProgram', () => {
   const options = () => ({ pathEnv: `${native}:${drive}/npm`, homePath: join(root, 'home') })
+
+  it('skips mounted PATH and home reads before finding a later native install', () => {
+    install(join(drive, 'npm'))
+    const homePath = join(drive, 'home')
+    install(join(homePath, '.nvm', 'versions', 'node', 'v20.1.0', 'bin'))
+    const own = install(native)
+    const stats = vi.mocked(fs.statSync).mockClear()
+    const dirs = vi.mocked(fs.readdirSync).mockClear()
+    const files = vi.mocked(fs.readFileSync).mockClear()
+    expect(
+      resolveGuestNativeProgram('claude', { pathEnv: `${drive}/npm`, homePath }, undefined, [drive])
+    ).toBe(own)
+    const paths = [...stats.mock.calls, ...dirs.mock.calls, ...files.mock.calls]
+    expect(paths.some(([path]) => String(path).startsWith(drive))).toBe(false)
+  })
+
+  it('does not reuse a Windows-only verdict for a different lookup cwd', () => {
+    install(join(drive, 'workspace', 'bin'))
+    const lookup = { pathEnv: 'bin', homePath: join(root, 'home') }
+    expect(
+      resolveGuestNativeProgram('claude', { ...lookup, cwd: join(drive, 'workspace') }, undefined, [
+        drive
+      ])
+    ).toBeNull()
+    expect(resolveGuestNativeProgram('claude', { ...lookup, cwd: root }, undefined, [drive])).toBe(
+      'claude'
+    )
+  })
 
   it('prefers the WSL install over a Windows copy later on PATH', () => {
     const own = install(native)

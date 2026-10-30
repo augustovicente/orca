@@ -1,6 +1,6 @@
 // WSL-host orcad must ignore Windows CLI shims; identify mounts by type because the automount root is configurable.
 import { existsSync, readFileSync } from 'node:fs'
-import { isAbsolute } from 'node:path'
+import { isAbsolute, resolve as resolvePath } from 'node:path'
 import { resolveCliCommand } from '../../shared/node-cli-command-resolution'
 
 const WINDOWS_DRIVE_MOUNT_TYPES = new Set(['drvfs', '9p', 'virtiofs'])
@@ -130,7 +130,8 @@ export function resolveGuestNativeProgram(
   }
   const native = resolve(command, {
     ...options,
-    pathEnv: guestNativePathEnv(options.pathEnv, mounts)
+    acceptPath: (path) =>
+      options.acceptPath?.(path) !== false && !isUnderWindowsDriveMount(resolvePath(path), mounts)
   })
   if (isAbsolute(native)) {
     return native
@@ -148,6 +149,7 @@ function hasWindowsDriveCopy(
     command,
     options.pathEnv ?? process.env.PATH ?? '',
     options.homePath ?? '',
+    options.cwd ?? '',
     options.platform ?? '',
     mounts.join(':')
   ].join('\0')

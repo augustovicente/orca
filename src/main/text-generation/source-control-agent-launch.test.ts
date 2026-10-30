@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type * as RunProcess from '@orca/process-host'
 import type { ProcessSpec } from '@orca/process-host/process-spec'
@@ -42,14 +42,35 @@ beforeEach(() => {
 })
 
 describe('spawnSourceControlAgent', () => {
+  it.skipIf(process.platform === 'win32').each([
+    { useCwdForNative: true, cwd: undefined },
+    { useCwdForNative: false, cwd: folder }
+  ])('uses the process cwd for relative PATH with %j', ({ useCwdForNative, cwd }) => {
+    const program = join(folder, 'cx')
+    writeFileSync(program, '#!/bin/sh\n')
+    chmodSync(program, 0o755)
+    spawnProcessMock.mockReturnValueOnce(fakeChild())
+    spawnSourceControlAgent({
+      binary: 'cx',
+      args: [],
+      env: { PATH: relative(process.cwd(), folder) },
+      stdinMode: 'ignore',
+      useCwdForNative,
+      cwd
+    })
+    expect(lastSpawnSpec()).toMatchObject({ cwd: process.cwd() })
+    expect(lastSpawnSpec().args).toContain(program)
+  })
+
   it.each([
-    ['in its own cwd', true, '/work/repo'],
-    ['in the process cwd', false, process.cwd()]
-  ])('runs a POSIX agent one-shot under the provider supervisor %s', (_, useCwd, cwd) => {
+    ['in its own cwd', true, '/work/repo', '/opt/agent/claude'],
+    ['in the process cwd', false, process.cwd(), '/opt/agent/claude'],
+    ['with a literal relative command', true, '/work/repo', './custom/cx']
+  ])('runs a POSIX agent one-shot under the provider supervisor %s', (_, useCwd, cwd, binary) => {
     spawnProcessMock.mockReturnValueOnce(fakeChild())
     const child = withPlatform('linux', () =>
       spawnSourceControlAgent({
-        binary: '/opt/agent/claude',
+        binary,
         args: ['-p', '--verbose'],
         cwd: '/work/repo',
         env: { PATH: '/usr/bin', AGENT_TOKEN: 'kept' },
@@ -62,7 +83,7 @@ describe('spawnSourceControlAgent', () => {
     expect(child.supervised).toBe(true)
     expect(spec).toMatchObject({
       program: process.execPath,
-      args: ['-e', POSIX_PROVIDER_SUPERVISOR_SCRIPT, '--', '/opt/agent/claude', '-p', '--verbose'],
+      args: ['-e', POSIX_PROVIDER_SUPERVISOR_SCRIPT, '--', binary, '-p', '--verbose'],
       cwd,
       detached: true,
       stdio: ['pipe', 'pipe', 'pipe', 'ipc']
