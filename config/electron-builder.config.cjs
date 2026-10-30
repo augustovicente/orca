@@ -104,6 +104,16 @@ const devChannelRepo = isHourlyChannel
       : null
 const appId = process.env.ORCA_APP_ID || 'com.contadorca.app'
 const productName = process.env.ORCA_APP_NAME || 'contadorca'
+const isContadorcaEdition = process.env.ORCA_EDITION === 'contadorca'
+const updateOwner =
+  process.env.ORCA_UPDATE_OWNER || (isContadorcaEdition ? 'contadorca' : 'stablyai')
+const updateRepo =
+  process.env.ORCA_UPDATE_REPO || (isContadorcaEdition ? 'contadorca' : (devChannelRepo ?? 'orca'))
+if (isContadorcaEdition && (!process.env.ORCA_UPDATE_OWNER || !process.env.ORCA_UPDATE_REPO)) {
+  console.warn(
+    '[electron-builder] Contadorca edition: ORCA_UPDATE_OWNER/ORCA_UPDATE_REPO unset; using contadorca/contadorca defaults. Set both before publishing.'
+  )
+}
 const featureWallResources = {
   from: 'resources/onboarding/feature-wall',
   to: 'onboarding/feature-wall'
@@ -734,10 +744,10 @@ module.exports = {
   npmRebuild: true,
   publish: {
     provider: 'github',
-    owner: 'stablyai',
-    repo: devChannelRepo ?? 'orca',
+    owner: updateOwner,
+    repo: updateRepo,
     // Keep main-repo releases draft until release-cut verifies all assets; early --publish always would expose missing Windows installers.
-    releaseType: devChannelRepo ? 'prerelease' : 'draft'
+    releaseType: devChannelRepo && !isContadorcaEdition ? 'prerelease' : 'draft'
   }
 }
 
