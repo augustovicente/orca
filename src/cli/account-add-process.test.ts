@@ -220,7 +220,9 @@ it('real account-add CLI probes, selects, logs in, hands off capture and cleans 
       const login = events.find(({ kind }) => kind === 'login')
       if (mode.supported === 'neither') {
         expect(login).toBeUndefined()
-        expect(result.stdout).toContain('npm install --prefix ./orca-opencode2 @opencode/cli')
+        expect(JSON.parse(result.stdout).error.message).toMatch(
+          /npm install --prefix [^`\r\n]+ @opencode\/cli/
+        )
       } else {
         expect(login).toMatchObject({
           name: mode.supported,
