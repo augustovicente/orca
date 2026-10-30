@@ -195,9 +195,18 @@ describe('followWslAutomountRoots: one guest read per distro start', () => {
 
   it('picks up a root edited across a restart no probe saw, once Orca wakes the distro', async () => {
     let root = '/old/'
+    const changed = vi.fn()
+    onWslAutomountRootsChanged(changed)
     follow(async () => root)
     await observeRunning(1)
     expect(knownWslAutomountRoots()).toEqual(['/mnt/', '/old/'])
+
+    // An unchanged re-read leaves listeners (the git router's cache) alone.
+    now += WSL_AUTOMOUNT_WAKE_REREAD_INTERVAL_MS
+    noteWslDistroWoken('Ubuntu')
+    now += 1
+    await observeRunning(1)
+    expect(changed).toHaveBeenCalledOnce()
 
     // Stopped and started again between probes, wsl.conf edited meanwhile.
     root = '/new/'
