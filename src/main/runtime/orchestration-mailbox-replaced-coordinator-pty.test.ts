@@ -147,4 +147,24 @@ describe('Run and Dispatch mail for a pane whose PTY was replaced', () => {
     expect(issue).not.toHaveBeenCalled()
     db.close()
   })
+
+  it('wakes a replaced PTY with no exported handle once a terminal list issues one', async () => {
+    vi.useFakeTimers()
+    const db = new OrchestrationDb(':memory:')
+    const harness = createRuntime(db)
+    const run = db.createRun({
+      objective: 'Replacement that never exported a handle',
+      coordinatorHandle: TERMINAL_HANDLE,
+      coordinatorPaneKey: PANE_KEY
+    })
+    await replacePtyWithoutHandle(harness)
+    await deliverWhileIdle(harness, db, `run:${run.id}`, run.id)
+    expect(pointerCount(harness.write)).toBe(0)
+
+    await harness.runtime.listTerminals()
+    await vi.advanceTimersByTimeAsync(600)
+
+    expect(pointerCount(harness.write)).toBe(1)
+    db.close()
+  })
 })

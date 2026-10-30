@@ -177,7 +177,7 @@ export abstract class OrcaRuntimeWithBuildPtyTerminalSummary extends OrcaRuntime
       return null
     }
     // Why: renderer adoption can race with CLI reads; keep ptyId → handle populated so summaries don't mint a second handle for the same terminal.
-    this.handleByPtyId.set(record.ptyId, handle)
+    this.setPtyHandle(record.ptyId, handle)
     return { record, pty }
   }
 
@@ -264,6 +264,7 @@ export abstract class OrcaRuntimeWithBuildPtyTerminalSummary extends OrcaRuntime
     this.handleByLeafKey.set(leafKey, handle)
     if (leaf.ptyId) {
       this.handleByPtyIncarnation.set(leaf.ptyId, { handle, incarnationId, leafKey })
+      this.wakeMailForNewPtyHandle(leaf.ptyId)
     }
     return handle
   }
