@@ -7,20 +7,29 @@ import { createHookListenerState } from '../../shared/agent-hook-listener/listen
 import { resumeRecordFromStatus } from '../../shared/agent-resume-record-from-status'
 import { getAgentResumeArgv } from '../../shared/agent-session-resume'
 import { AgentHookServer } from './server'
-import { buildBody, PANE, postHookEvent } from './server.test-fixtures'
+import { type Body, buildBody, PANE, postHookEvent } from './server.test-fixtures'
 
 const ROOT = 'cf0e6ff2-9ede-46de-a430-5778cf8da164'
 const CHILD = 'copilot-helper'
 
-function rootEnd(sessionKey: string = 'session_id'): Record<string, unknown> {
-  // Copilot 1.0.105 captured root SessionEnd shape; cwd is redacted to a test folder.
-  return {
-    hook_event_name: sessionKey === 'sessionId' ? 'sessionEnd' : 'SessionEnd',
-    [sessionKey]: ROOT,
-    timestamp: '2026-10-30T08:55:40.748Z',
-    cwd: '/test/project',
-    reason: 'user_exit'
-  }
+function rootEnd(sessionKey: string = 'session_id'): Body {
+  // Copilot 1.0.105 captured root SessionEnd payloads; cwd is redacted to a test folder.
+  // The hook script sends the configured event name in the envelope, not the payload.
+  return sessionKey === 'sessionId'
+    ? buildBody(
+        { sessionId: ROOT, timestamp: 1793350540748, cwd: '/test/project', reason: 'user_exit' },
+        { hookEventName: 'sessionEnd' }
+      )
+    : buildBody(
+        {
+          hook_event_name: 'SessionEnd',
+          session_id: ROOT,
+          timestamp: '2026-10-30T08:55:40.748Z',
+          cwd: '/test/project',
+          reason: 'user_exit'
+        },
+        { hookEventName: 'SessionEnd' }
+      )
 }
 
 function expectResume(server: AgentHookServer, id: string = ROOT): void {
@@ -32,7 +41,7 @@ function expectResume(server: AgentHookServer, id: string = ROOT): void {
   const record = resumeRecordFromStatus({
     entry: { ...status, updatedAt: status.receivedAt },
     worktreeId: 'wt-1',
-    capturedAt: Date.now()
+    capturedAt: status.receivedAt
   })
   expect(record?.providerSession.id).toBe(id)
   if (!record) {
@@ -51,25 +60,31 @@ it.each([
   ['parentAgentId', 'sessionId']
 ])('keeps docs-shaped Copilot %s child hooks out of the pane restore ID', (marker, sessionKey) => {
   const server = new AgentHookServer()
-  const normalize = (payload: Record<string, unknown>) =>
-    normalizeHookPayload(createHookListenerState(), 'copilot', buildBody(payload), 'production')
+  const normalize = (body: Body) =>
+    normalizeHookPayload(createHookListenerState(), 'copilot', body, 'production')
   const root = normalize(rootEnd(sessionKey))
   expect(root?.providerSession?.id).toBe(ROOT)
   server.ingestRemote(root, 'host-1')
   // The child shape is documented, not captured; its session field's owner is unspecified.
-  const child = normalize({
-    hook_event_name: 'PreToolUse',
-    [sessionKey]: CHILD,
-    [marker]: marker.startsWith('parent') ? 'parent-agent' : CHILD,
-    tool_name: 'ask_user',
-    tool_input: { question: 'Which target?' }
-  })
+  const child = normalize(
+    buildBody({
+      hook_event_name: 'PreToolUse',
+      [sessionKey]: CHILD,
+      [marker]: marker.startsWith('parent') ? 'parent-agent' : CHILD,
+      tool_name: 'ask_user',
+      tool_input: { question: 'Which target?' }
+    })
+  )
   expect(child?.providerSession).toBeUndefined()
   expect(child?.payload.state).toBe('blocked')
   server.ingestRemote(child, 'host-1')
   expect(server.getStatusSnapshot()[0]?.state).toBe('blocked')
   expectResume(server)
-  const childEnd = normalize({ ...rootEnd(sessionKey), [sessionKey]: CHILD, [marker]: CHILD })
+  const end = rootEnd(sessionKey)
+  const childEnd = normalize({
+    ...end,
+    payload: { ...end.payload, [sessionKey]: CHILD, [marker]: CHILD }
+  })
   server.ingestRemote(childEnd, 'host-1')
   server.ingestRemote(child, 'host-1')
   expectResume(server)
@@ -112,10 +127,10 @@ it.each(['same-launch', 'resumed-launch'])(
   async (token) => {
     const dir = mkdtempSync(join(tmpdir(), 'copilot-resume-identity-'))
     let server = new AgentHookServer()
-    const post = async (payload: Record<string, unknown>, launchToken: string) => {
-      expect(
-        (await postHookEvent(server, buildBody(payload, { launchToken }), '/hook/copilot')).status
-      ).toBe(204)
+    const post = async (body: Body, launchToken: string) => {
+      expect((await postHookEvent(server, { ...body, launchToken }, '/hook/copilot')).status).toBe(
+        204
+      )
     }
     try {
       await server.start({ env: 'production', userDataPath: dir })
@@ -124,8 +139,14 @@ it.each(['same-launch', 'resumed-launch'])(
       server.stop()
       server = new AgentHookServer()
       await server.start({ env: 'production', userDataPath: dir })
+      // Child hooks here are documented shapes, not captured.
       await post(
-        { hook_event_name: 'PreToolUse', session_id: CHILD, agent_id: CHILD, tool_name: 'bash' },
+        buildBody({
+          hook_event_name: 'PreToolUse',
+          session_id: CHILD,
+          agent_id: CHILD,
+          tool_name: 'bash'
+        }),
         token
       )
       expectResume(server)
@@ -133,21 +154,23 @@ it.each(['same-launch', 'resumed-launch'])(
       server = new AgentHookServer()
       await server.start({ env: 'production', userDataPath: dir })
       expectResume(server)
+      const hydrated = server.getStatusSnapshot()[0]
       // Explicit resume seeding is authoritative even when old pane launch evidence remains.
       server.recordLaunchResumeIdentity({
         paneKey: PANE,
         worktreeId: 'wt-1',
         agentType: 'copilot',
         providerSession: { key: 'session_id', id: 'selected-root' },
-        launchedAt: Date.now() + 1
+        // The new launch postdates the hydrated row, so the seed replaces it.
+        launchedAt: (hydrated?.receivedAt ?? 0) + 1
       })
       await post(
-        {
+        buildBody({
           hook_event_name: 'PreToolUse',
           sessionId: CHILD,
           parentAgentId: 'parent-agent',
           tool_name: 'bash'
-        },
+        }),
         'another-launch'
       )
       expectResume(server, 'selected-root')
@@ -161,7 +184,7 @@ it.each(['same-launch', 'resumed-launch'])(
 it('does not undo a host new-run reset or resurrect its locator on the next child hook', () => {
   const server = new AgentHookServer()
   server.ingestRemote(
-    normalizeHookPayload(createHookListenerState(), 'copilot', buildBody(rootEnd()), 'production'),
+    normalizeHookPayload(createHookListenerState(), 'copilot', rootEnd(), 'production'),
     null
   )
   server.ingestTerminalStatus({
