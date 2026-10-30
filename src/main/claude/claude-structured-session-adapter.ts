@@ -54,14 +54,12 @@ export class ClaudeStructuredSessionAdapter implements StructuredAgentSessionAda
   private readonly exits = new Map<string, ClaudeSessionExit>()
   private readonly settledExitErrors = new Map<string, Error>()
   private readonly exitLifecycle: ClaudeExitLifecycle
-  private readonly naming =
-    this.deps.namingInputs &&
-    new ClaudeConversationNaming({
-      snapshot: this.deps.namingInputs,
-      timeoutMs: this.deps.requestTimeoutMs
-    })
+  private readonly naming: ClaudeConversationNaming | undefined
 
   constructor(private readonly deps: ClaudeStructuredSessionAdapterDeps) {
+    const { namingInputs: snapshot, requestTimeoutMs: timeoutMs } = deps
+    this.naming = snapshot && new ClaudeConversationNaming({ snapshot, timeoutMs })
+    this.atRestCommands = deps.atRestCommands
     this.exitLifecycle = {
       sessions: this.sessions,
       exits: this.exits,
@@ -197,7 +195,7 @@ export class ClaudeStructuredSessionAdapter implements StructuredAgentSessionAda
     this.sessions.has(sessionId) ? { supportsTaskStop: true, supportsStopAll: true } : undefined
   readCommands: NonNullable<StructuredAgentSessionAdapter['readCommands']> = (sessionId) =>
     this.sessions.get(sessionId)?.commands.commands
-  readonly atRestCommands = this.deps.atRestCommands
+  readonly atRestCommands: ClaudeStructuredSessionAdapterDeps['atRestCommands']
   holdsDispatch = (sessionId: string): boolean => claudeHoldsDispatch(this.sessions.get(sessionId))
   requiresModelTransitionRestart = claudeOptions.claudeModelTransitionRestart(this.sessions)
   liveTurnId = (sessionId: string): string | null | undefined =>

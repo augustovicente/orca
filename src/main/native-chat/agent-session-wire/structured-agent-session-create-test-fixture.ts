@@ -14,7 +14,7 @@ export const CREATE_TEST_CALLER = { callerKey: 'client-1' }
 export function createTestParams(
   firstMessage?: StructuredAgentSessionFirstMessage,
   overrides: Partial<AgentSessionAttachParams> = {},
-  sessionId = HOST_TEST_SESSION
+  sessionId = overrides.envelope?.sessionId ?? HOST_TEST_SESSION
 ): AgentSessionAttachParams {
   const params = hostTestAttachParams(null, { providerHandle: undefined, ...overrides })
   return {

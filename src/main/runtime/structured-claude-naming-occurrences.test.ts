@@ -2,7 +2,7 @@ import { computeAgentSessionPayloadFingerprint } from '../../shared/agent-sessio
 import { CREATE_TEST_CALLER } from '../native-chat/agent-session-wire/structured-agent-session-create-test-fixture'
 import { appendFile, readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import { expect, it, vi } from 'vitest'
+import { expect, it, onTestFinished, vi } from 'vitest'
 import * as transcriptNaming from '../claude/claude-provider-session-rename'
 import * as transcriptFs from '../native-chat/wsl-transcript-fs-access'
 import { HOST_TEST_SESSION } from '../native-chat/agent-session-wire/structured-agent-session-host-test-data'
@@ -19,7 +19,7 @@ vi.mock('./structured-agent-model-catalog-wiring', () => ({
 
 it.each([10, 100])(
   'coalesces %i applied commits while joining real append, then honors a fresh equal-text occurrence',
-  async (count, { onTestFinished }) => {
+  async (count) => {
     const entered = Promise.withResolvers<void>()
     const release = Promise.withResolvers<void>()
     const fixture = await createClaudeNamingRuntime()

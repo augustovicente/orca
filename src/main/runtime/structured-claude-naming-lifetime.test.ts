@@ -1,5 +1,5 @@
 import { appendFile } from 'node:fs/promises'
-import { expect, it, vi } from 'vitest'
+import { expect, it, onTestFinished, vi } from 'vitest'
 import * as transcriptNaming from '../claude/claude-provider-session-rename'
 import { StructuredAgentSessionAdapterRouter } from '../native-chat/agent-session-wire/structured-agent-session-adapter-router'
 import { HOST_TEST_SESSION } from '../native-chat/agent-session-wire/structured-agent-session-host-test-data'
@@ -233,7 +233,7 @@ it('joins already-issued root cleanup after startup expiry even when delivery an
 
 it.each([true, false])(
   'joins a retiring writer before outside metadata (root proven=%s)',
-  async (proven, { onTestFinished }) => {
+  async (proven) => {
     const entered = Promise.withResolvers<void>()
     const rootExit = Promise.withResolvers<boolean>()
     let retry = false

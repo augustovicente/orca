@@ -6,21 +6,19 @@ import type {
 import { claudeProviderHandleLink } from './claude-structured-owner-identity'
 import type { ClaudePromptRegistry } from '../claude-prompt-registry'
 import type { ClaudeJournalTranslator } from '../claude-journal-translator-contract'
-import type {
-  ClaudeSession,
-  ClaudeAcquisitionAttempt,
-  ClaudeAcquireCallbacks,
-  ClaudeStructuredSessionEvent
+import {
+  mintClaudeAcquisitionGeneration,
+  type ClaudeSession,
+  type ClaudeAcquisitionAttempt,
+  type ClaudeAcquireCallbacks,
+  type ClaudeStructuredSessionEvent,
+  type ClaudeStructuredSessionAdapterDeps
 } from './claude-structured-session-state'
 import { ClaudeBackgroundTaskTracker } from '../claude-background-task-tracker'
 import { ClaudeChildWorkDecoder } from '../claude-child-work-decoder'
 import { ClaudeSlashCommandCatalog } from '../claude-slash-command-catalog'
 import type { ClaudeStructuredLaunch } from '../claude-structured-launch-resolution'
 import type { ClaudeAcquisitionLaunch } from '../claude-structured-acquisition-launch'
-import {
-  mintClaudeAcquisitionGeneration,
-  type ClaudeStructuredSessionAdapterDeps
-} from './claude-structured-session-state'
 import type { ClaudeNamingGeneration } from '../claude-naming-generation'
 import { readClaudeStartupFacts } from './claude-structured-session-startup'
 
