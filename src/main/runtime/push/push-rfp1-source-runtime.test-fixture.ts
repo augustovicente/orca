@@ -2,11 +2,8 @@ import { join } from 'node:path'
 import { mkdirSync } from 'node:fs'
 import { vi } from 'vitest'
 import { runProcess } from '@orca/process-host'
-import {
-  importReleaseCheckoutModule,
-  materializeReleaseCheckout,
-  releaseModuleExport
-} from '../../../../tests/e2e/cross-version-wire/release-checkout'
+import { releaseModuleExport } from '../../../../tests/e2e/cross-version-wire/release-module-export'
+import { AGENT_JOURNAL_THREAD_SCOPE } from '../../../shared/agent-session-journal-types'
 import type { Store } from '../../persistence'
 import type { getDefaultPersistedState } from '../../../shared/constants'
 import type { OrcaRuntimeService } from '../orca-runtime'
@@ -24,6 +21,7 @@ import type { PushGatewayClient } from './push-gateway-client'
 import { agentSessionRecordFixture } from '../../native-chat/agent-session-record-test-fixture'
 import { observationRelayWire, type ObservationCapture } from './push-rfp1-relay.test-fixture'
 import { ownerCleanup } from './push-owner-bridge.test-fixture'
+import { record, text } from '../../../../cloud/apps/push/src/push-owner-integration.test-fixture'
 
 export const RFP1_OLD = '7f4c8f606435d4ca90964e176e860626ffba918a'
 export const RFP1_A = '346a89077ce7973bb56379757bf4a6bbeb5cba00'
@@ -41,9 +39,30 @@ export async function observationRuntime(options: {
 }) {
   const profile = join(options.scratch, options.id, 'profile')
   mkdirSync(profile, { recursive: true })
-  const checkout = await materializeReleaseCheckout(options.pin, {
+  const archivePath = join(
+    import.meta.dirname,
+    '../../../../tests/e2e/cross-version-wire/release-checkout.ts'
+  )
+    .split('\\')
+    .join('/')
+  const archiveNamespace: unknown = await import(/* @vite-ignore */ archivePath)
+  const { materializeReleaseCheckout, importReleaseCheckoutModule } = record(archiveNamespace)
+  if (
+    typeof materializeReleaseCheckout !== 'function' ||
+    typeof importReleaseCheckoutModule !== 'function'
+  ) {
+    throw new Error('Observation requires the actual release checkout materializer and importer')
+  }
+  const materialized: unknown = await materializeReleaseCheckout(options.pin, {
     cacheRoot: join(options.scratch, options.id, 'sources', options.pin)
   })
+  const fields = record(materialized)
+  const checkout = {
+    ref: text(fields.ref),
+    commit: text(fields.commit),
+    label: text(fields.label),
+    root: text(fields.root)
+  }
   const blobs = await runProcess({
     program: 'git',
     args: [
@@ -77,8 +96,10 @@ export async function observationRuntime(options: {
     blobs: blobs.stdout
   })
   const wire = observationRelayWire(checkout.root, checkout.commit, options.capture)
-  const load = async <T>(path: string, name: string): Promise<T> =>
-    releaseModuleExport<T>(await importReleaseCheckoutModule(checkout, path), name)
+  const load = async <T>(path: string, name: string): Promise<T> => {
+    const namespace: unknown = await importReleaseCheckoutModule(checkout, path)
+    return releaseModuleExport<T>(record(namespace), name)
+  }
   // Explicit methods below must never consume the archived default manifest.
   const unused: RpcAnyMethodDeclaration[] = []
   unused[Symbol.iterator] = () => {
@@ -357,11 +378,15 @@ export async function observationRuntime(options: {
           turnId,
           ordinal: 0
         } as const
-        await journal.appendItem(identity, { kind: 'turn', turnId, state: 'running' }, { fence: 1 })
+        await journal.appendItem(
+          identity,
+          { kind: 'turn', turnId, state: 'running' },
+          { fence: 1, turnScope: AGENT_JOURNAL_THREAD_SCOPE }
+        )
         await journal.appendItem(
           identity,
           { kind: 'turn', turnId, state: 'completed', outcome: 'success' },
-          { fence: 1 }
+          { fence: 1, turnScope: AGENT_JOURNAL_THREAD_SCOPE }
         )
         return journal.cursor()
       },

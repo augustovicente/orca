@@ -112,7 +112,7 @@ export function importReleaseCheckoutModule(
   return importModule(checkoutModulePath(checkout.root, rootRelativePath))
 }
 
-export { releaseModuleExport } from './release-module-export'
+export { releaseModuleExport } from './release-module-export.ts'
 
 // Copy under the root tsconfig because root-only CI lacks Expo’s mobile config; pin relative imports to working-tree sources.
 export async function importWorkingTreeModuleCopy(

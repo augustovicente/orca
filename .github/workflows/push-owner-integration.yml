@@ -108,6 +108,8 @@ jobs:
         if: ${{ !cancelled() && steps.cloud-deps.outcome == 'success' && steps.cloud-build.outcome == 'success' && steps.root-setup.outcome == 'success' }}
         working-directory: cloud
         run: pnpm --filter @orca-cloud/push typecheck
+      - name: Run existing release checkout contract including native Node child
+        run: pnpm exec vitest run --config config/vitest.config.ts tests/e2e/cross-version-wire/release-checkout.unit.test.ts --maxWorkers=1
       - name: Run named live owner parent and explicit companions
         if: ${{ !cancelled() && steps.root-deps.outcome == 'success' && steps.mobile-deps.outcome == 'success' && steps.cloud-deps.outcome == 'success' && steps.cloud-build.outcome == 'success' && steps.root-setup.outcome == 'success' && steps.root-compile.outcome == 'success' }}
         run: pnpm exec vitest run --config config/push-owner-root.vitest.config.mjs

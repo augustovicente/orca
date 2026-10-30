@@ -138,13 +138,11 @@ export async function observationRelay(
     return {
       close: () => observer.mockRestore(),
       pair: (target: Runtime) =>
-        native.run(
-          actor.profile,
-          () =>
-            add(actor.profile, {
-              name: 'Server',
-              pairingCode: target.offer('runtime', actor.profile)
-            }).environment
+        native.run(actor.profile, () =>
+          add(actor.profile, {
+            name: 'Server',
+            pairingCode: target.offer('runtime', actor.profile)
+          })
         ),
       ...actor.wire,
       replace: async (environmentId: string, target: Runtime) =>
