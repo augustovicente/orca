@@ -79,7 +79,7 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })))
 })
 
-describe('PluginService lazy content verification', () => {
+describe('PluginService content verification on load', () => {
   it('does not share an in-flight verification across same-key content revisions', async () => {
     const oldPlugin = await createInstalledPlugin({ worker: false })
     const newPlugin = await createInstalledPlugin({ worker: false })
@@ -101,7 +101,7 @@ describe('PluginService lazy content verification', () => {
     await expect(newVerification).resolves.toBeUndefined()
   })
 
-  it('detects tampering only when panel code is first consumed', async () => {
+  it('detects tampering on the first panel load after discovery', async () => {
     const plugin = await createInstalledPlugin({ worker: false })
     const service = createService(plugin)
     await service.initialize()
