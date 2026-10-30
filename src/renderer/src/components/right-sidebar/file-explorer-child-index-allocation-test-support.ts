@@ -30,7 +30,7 @@ export function measureFileExplorerChildIndexAllocations(
     weakSet = WeakMap.prototype.set
   Object.defineProperty(WeakMap.prototype, 'get', {
     ...getDescriptor,
-    value: function (this: WeakMap<object, unknown>, key: object) {
+    value: function (this: WeakMap<WeakKey, unknown>, key: WeakKey) {
       if (key === children()) {
         counts.weakGets++
       }
@@ -39,7 +39,7 @@ export function measureFileExplorerChildIndexAllocations(
   })
   Object.defineProperty(WeakMap.prototype, 'set', {
     ...setDescriptor,
-    value: function (this: WeakMap<object, unknown>, key: object, value: unknown) {
+    value: function (this: WeakMap<WeakKey, unknown>, key: WeakKey, value: unknown) {
       if (key === children()) {
         counts.holders++
       }
