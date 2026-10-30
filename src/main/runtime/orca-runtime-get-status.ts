@@ -170,7 +170,7 @@ export abstract class OrcaRuntimeWithGetStatus extends OrcaRuntimeWithPtyControl
       protocolVersion: RUNTIME_PROTOCOL_VERSION,
       minCompatibleMobileVersion: MIN_COMPATIBLE_RUNTIME_CLIENT_VERSION,
       ...(ORCA_EDITION_ID === 'contadorca' ? { edition: 'contadorca' as const } : {})
-    } as RuntimeStatus
+    }
   }
 
   readMachineName(): string {

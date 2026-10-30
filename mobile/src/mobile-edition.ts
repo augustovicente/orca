@@ -3,7 +3,7 @@ import type { EditionCapabilities, EditionCapability, OrcaEdition } from '../../
 export type MobileEdition = OrcaEdition
 
 // Driven by Expo's public env at build time; `full` is the safe default for old/unbranded builds.
-export function resolveMobileEdition(value: string | undefined): MobileEdition {
+export function resolveMobileEdition(value: unknown): MobileEdition {
   return value === 'contadorca' ? 'contadorca' : 'full'
 }
 
@@ -67,16 +67,16 @@ const CAPABILITIES_BY_EDITION: Record<MobileEdition, EditionCapabilities> = {
 
 export function mobileEditionSupports(
   capability: EditionCapability,
-  edition: MobileEdition = MOBILE_ORCA_EDITION
+  edition: unknown = MOBILE_ORCA_EDITION
 ): boolean {
-  return CAPABILITIES_BY_EDITION[edition][capability]
+  return CAPABILITIES_BY_EDITION[resolveMobileEdition(edition)][capability]
 }
 
 export const editionSupports = mobileEditionSupports
 
 export function isMobileEditionCapabilityAvailable(
   capability: EditionCapability,
-  edition: MobileEdition = MOBILE_ORCA_EDITION
+  edition: unknown = MOBILE_ORCA_EDITION
 ): boolean {
   return mobileEditionSupports(capability, edition)
 }

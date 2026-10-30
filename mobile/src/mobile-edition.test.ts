@@ -44,4 +44,13 @@ describe('mobile edition capabilities', () => {
     expect(MOBILE_ORCA_EDITION).toBe('full')
     expect(mobileEditionSupports('sourceControl')).toBe(true)
   })
+
+  it('resolves an explicit edition argument, including unknown values', async () => {
+    const { mobileEditionSupports } = await import('./mobile-edition')
+
+    expect(mobileEditionSupports('sourceControl', 'full')).toBe(true)
+    expect(mobileEditionSupports('sourceControl', 'contadorca')).toBe(false)
+    expect(mobileEditionSupports('sourceControl', 'accounting')).toBe(true)
+    expect(mobileEditionSupports('sourceControl', undefined)).toBe(true)
+  })
 })
