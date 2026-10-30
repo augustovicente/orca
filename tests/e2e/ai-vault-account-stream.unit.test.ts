@@ -3,11 +3,11 @@ import { renderToString } from 'react-dom/server'
 import { act, render } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import * as fs from 'node:fs'
-import type { RuntimeRpcResponse } from '../../../../shared/runtime-rpc-envelope'
-import { useAppStore } from '../../store'
-import { nativeClient } from './ai-vault-account-native-test-fixture'
-import type { AiVaultSession } from '../../../../shared/ai-vault-types'
-import { decodeAccountsSnapshot } from '../../../../../mobile/src/components/accounts-snapshot'
+import type { RuntimeRpcResponse } from '../../src/shared/runtime-rpc-envelope'
+import { useAppStore } from '@/store'
+import { nativeClient } from '@/components/right-sidebar/ai-vault-account-native-test-fixture'
+import type { AiVaultSession } from '../../src/shared/ai-vault-types'
+import { decodeAccountsSnapshot } from '../../mobile/src/components/accounts-snapshot'
 import { createRateLimitsApi } from '@/web/preload-api/web-rate-limits-api'
 import { accountStreamFixture, P, Q, D, profile } from './ai-vault-account-stream-test-fixture'
 import {
@@ -18,7 +18,7 @@ import {
   recordedSession,
   flushAccountWork,
   installAccountFixture
-} from './ai-vault-account-test-fixture'
+} from '@/components/right-sidebar/ai-vault-account-test-fixture'
 
 vi.mock('node:fs', async (original) => ({ ...(await original<typeof fs>()) }))
 vi.mock('@/i18n/i18n', () => ({ translate: (_key: string, fallback: string) => fallback }))

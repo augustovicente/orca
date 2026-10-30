@@ -2,25 +2,25 @@ import { vi } from 'vitest'
 import * as fs from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { installFakeAppEnvironment } from '../../../../../config/scripts/vitest-host-ports-setup'
+import { installFakeAppEnvironment } from '../../config/scripts/vitest-host-ports-setup'
 import {
   RuntimeAccountController,
   type RuntimeAccountServices
-} from '../../../../main/runtime/runtime-account-controller'
-import { RuntimeSubscriptionRegistry } from '../../../../main/runtime/runtime-subscription-registry'
-import { RateLimitService } from '../../../../main/rate-limits/service'
-import { getManagedDataAccountService } from '../../../../main/managed-data-accounts/service'
-import { ACCOUNT_METHODS } from '../../../../main/runtime/rpc/methods/accounts'
+} from '../../src/main/runtime/runtime-account-controller'
+import { RuntimeSubscriptionRegistry } from '../../src/main/runtime/runtime-subscription-registry'
+import { RateLimitService } from '../../src/main/rate-limits/service'
+import { getManagedDataAccountService } from '../../src/main/managed-data-accounts/service'
+import { ACCOUNT_METHODS } from '../../src/main/runtime/rpc/methods/accounts'
 import {
   eraseRpcMethods,
   isStreamingMethod,
   type RpcContext
-} from '../../../../main/runtime/rpc/core'
-import type { RuntimeRpcResponse } from '../../../../shared/runtime-rpc-envelope'
+} from '../../src/main/runtime/rpc/core'
+import type { RuntimeRpcResponse } from '../../src/shared/runtime-rpc-envelope'
 import type {
   ManagedDataAccountProvider,
   ManagedDataAccountsState
-} from '../../../../shared/managed-account-types'
+} from '../../src/shared/managed-account-types'
 import {
   emptyClaudeAccountsState,
   emptyCodexAccountsState

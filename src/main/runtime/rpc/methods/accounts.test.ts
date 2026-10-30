@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import type { OrcaRuntimeService } from '../../orca-runtime'
 import { eraseRpcMethods, isStreamingMethod, type RpcContext } from '../core'
 import { ACCOUNT_METHODS } from './accounts'
+import { createEmptyRateLimitState } from '../../../../shared/rate-limit-state-factory'
 import type {
   HostAccountSignInChannel,
   HostAccountSignInStatus
@@ -290,7 +291,11 @@ describe('account RPC methods', () => {
         emit: (frame: unknown) => void
       ): Promise<void>
     }
-    const snapshot = { claude: null, codex: null }
+    const snapshot = {
+      claude: { accounts: [], activeAccountId: null },
+      codex: { accounts: [], activeAccountId: null },
+      rateLimits: createEmptyRateLimitState()
+    }
     let cleanup: (() => void) | undefined
     const runtime = {
       getAccountsStreamSnapshot: vi.fn(() => snapshot),

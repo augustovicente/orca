@@ -197,7 +197,7 @@ export function subscribeSessionAccount(
   binding: AccountBinding,
   listener: () => void
 ): () => void {
-  const owner = (directory ??= {
+  const owner: Directory = (directory ??= {
     entries: new Map(),
     nativeEntries: new Map(),
     dataEntries: new Map(),
