@@ -23,7 +23,7 @@ export function formatWorkerAutoCloseCountdown(closesAt: string, nowMs: number):
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
 }
 
-// A temporary worker is re-read often so the strip follows its finish and follow-up turns; anything else rarely.
+// A worker is re-read often so the strip follows its finish, follow-ups and Allow Auto-Close; anything else rarely.
 const POLL_MS = 3_000
 const IDLE_POLL_MS = 15_000
 
@@ -38,7 +38,7 @@ export function pollWorkerAutoClose(
     void read().then((state) => {
       if (!stopped) {
         onState(state)
-        timer = setTimeout(poll, state !== null && !state.kept ? POLL_MS : IDLE_POLL_MS)
+        timer = setTimeout(poll, state !== null ? POLL_MS : IDLE_POLL_MS)
       }
     })
   }
