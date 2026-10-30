@@ -42,6 +42,10 @@ import { normalizeLoadedProfileState } from './normalize-loaded-profile-state'
 import type { StoreRuntimeState } from './store-runtime-state'
 import type { LoadedCohortMigrationOperations } from './loaded-cohort-migrations'
 
+type LoadedProfileState = PersistedState & {
+  settings: PersistedState['settings'] & { experimentalNativeChat?: unknown }
+}
+
 type LoadedStateParsingOperationsRuntime = Pick<
   StoreRuntimeState,
   | 'dataFile'
@@ -80,7 +84,7 @@ export class LoadedStateParsingOperations {
     })
 
     let result: PersistedState | null = null
-    let parsed: PersistedState | undefined
+    let parsed: LoadedProfileState | undefined
     let chatUiLaunchTipAudience: ChatUiLaunchTipAudience | null = null
     try {
       if (fileExistedOnLoad) {
@@ -105,7 +109,7 @@ export class LoadedStateParsingOperations {
         chatUiLaunchTipAudience = this.cohorts.captureChatUiLaunchTipAudience(parsed)
         this.runtime.originalExperimentalNativeChat =
           parsed.settings && Object.hasOwn(parsed.settings, 'experimentalNativeChat')
-            ? { experimentalNativeChat: Reflect.get(parsed.settings, 'experimentalNativeChat') }
+            ? { experimentalNativeChat: parsed.settings.experimentalNativeChat }
             : undefined
         if (parsed.settings?.opencodeSessionCookie) {
           parsed.settings.opencodeSessionCookie = this.runtime.protectedSecrets.decrypt(

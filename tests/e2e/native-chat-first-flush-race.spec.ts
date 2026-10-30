@@ -1,4 +1,3 @@
-import { observeTranscriptPaneLifetime } from './helpers/native-chat-transcript-fixture'
 import { randomUUID } from 'node:crypto'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
@@ -7,6 +6,7 @@ import { test, expect } from './helpers/orca-app'
 import { ensureTerminalVisible, waitForActiveWorktree, waitForSessionReady } from './helpers/store'
 import { waitForActivePaneHookDescriptor, waitForActiveTerminalManager } from './helpers/terminal'
 import {
+  observeTranscriptPaneLifetime,
   seedClaudeProviderSession,
   toggleTerminalTabToChatView,
   claudeTranscriptLines
