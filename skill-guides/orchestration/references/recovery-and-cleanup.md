@@ -121,8 +121,33 @@ After three consecutive failures for one Task, its dispatch context
 circuit-breaks and the Task is failed. Failed `worker-start` attempts count
 across `--retry-of`; a worker's own `failed` report does not. `--retry-of` a
 circuit-broken Dispatch is refused with `task_not_startable`: report the failure
-to the user instead. Do not route around that boundary with a new Run, Task, or
-unrelated Dispatch.
+to the user instead and stop automatic retries. Do not autonomously route around
+that boundary with a new Run, Task, or unrelated Dispatch.
+
+### User-directed recovery after the breaker
+
+Only after the user explicitly instructs you to retry or reassign this Task may
+the current Run coordinator reopen the **same Task**. First inspect every retained
+attempt, not just the last one:
+
+```text
+ORCA orchestration worker-show --dispatch <dispatch_id> --json
+ORCA orchestration worker-read --dispatch <dispatch_id> --json
+```
+
+Settle any live or unknown worker ownership with `worker-stop` or `worker-abandon`
+as appropriate; a startup timeout is not proof that the agent stopped. Then:
+
+```text
+ORCA orchestration task-update --id <task_id> --status ready --run <owning_run_id> --json
+ORCA orchestration worker-start --task <task_id> --worktree <explicit_placement> --agent <agent> --json
+```
+
+The fresh start omits `--retry-of` and starts its failure count at zero. To use a
+proven existing agent whose previous work is settled, replace that `worker-start`
+with `ORCA orchestration worker-start --task <task_id> --terminal <agent_terminal_handle> --json`.
+Never chain `--retry-of` past the breaker or reset it, including on restart;
+the broken attempt and its failure count remain history.
 
 For `outcome_unknown`, inspect first, then make an explicit choice:
 
