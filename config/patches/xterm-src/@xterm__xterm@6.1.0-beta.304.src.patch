@@ -32,20 +32,20 @@ index 67893b7966eb095db4459b8837de9766921f36c5..2bf85d5bb17babc00531013afad5b745
      this._register(addDisposableListener(this.textarea!, 'input', (ev: InputEvent) => this._inputEvent(ev), true));
      this._register(this.onRender(() => this._compositionHelper!.updateCompositionElements()));
    }
-@@ -522,13 +536,6 @@ export class CoreBrowserTerminal extends CoreTerminal implements ITerminal {
- 
+@@ -523,13 +537,6 @@ export class CoreBrowserTerminal extends CoreTerminal implements ITerminal {
      // CSI ? 996 n - color scheme query (https://contour-terminal.org/vt-extensions/color-palette-update-notifications/)
      this._register(this._inputHandler.onRequestColorSchemeQuery(() => this._reportColorScheme()));
--
+ 
 -    // Emit unsolicited color scheme notification on theme change when DECSET 2031 is enabled
 -    this._register(this._themeService.onChangeColors(() => {
 -      if (this.coreService.decPrivateModes.colorSchemeUpdates) {
 -        this._reportColorScheme();
 -      }
 -    }));
- 
+-
      this._characterJoinerService = this._instantiationService.createInstance(CharacterJoinerService);
      this._instantiationService.setService(ICharacterJoinerService, this._characterJoinerService);
+ 
 @@ -552,6 +559,11 @@ export class CoreBrowserTerminal extends CoreTerminal implements ITerminal {
      this._compositionView = this._document.createElement('div');
      this._compositionView.classList.add('composition-view');
