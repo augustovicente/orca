@@ -24,6 +24,7 @@ import { restoreJournal } from './journal-open'
 import { startJournalStateBackfill } from './journal-state-backfill'
 import type { JournalHostDatabase } from './journal-host-database'
 import type { JournalRow } from './journal-row-schema'
+import { deleteJournalEpochRows } from './journal-row-table'
 import {
   expectProjectionMatches,
   projectionBase as base,
@@ -202,7 +203,7 @@ it('stops the repair timer of a chat whose open fails after adopting its history
   expect(publications(watched.statements)).toEqual([])
 })
 
-it('skips a closed chat that cannot publish until a new row arrives', async () => {
+it('skips a closed chat that cannot publish until its rows change, then publishes it', async () => {
   seedProjectionRows(database, [
     projectionEpochRow,
     ...Array.from({ length: 99 }, (_, index) => legacyItem(index + 2))
@@ -224,4 +225,24 @@ it('skips a closed chat that cannot publish until a new row arrives', async () =
   database.transaction((db) => insertTestJournalRow(db, sessionId, legacyItem(101)))
   await vi.advanceTimersByTimeAsync(6 * 60 * 60_000)
   expect(watched.rowsRead()).toBe(64)
+  expect(readJournalSavedState(database.db, sessionId, epoch)).toBeNull()
+
+  // An older build replaces the chat with a clean epoch ending at the same sequence; only the
+  // epoch tells it apart from the parked history.
+  database.transaction((db) => {
+    deleteJournalEpochRows(db, sessionId, epoch)
+    publishTestJournalEpoch(db, sessionId, 'clean')
+    insertTestJournalRow(db, sessionId, { ...projectionEpochRow, epoch: 'clean' })
+    for (let seq = 2; seq <= 101; seq++) {
+      insertTestJournalRow(db, sessionId, { ...legacyItem(seq), epoch: 'clean' })
+    }
+  })
+  await vi.advanceTimersByTimeAsync(6 * 60 * 60_000)
+  const published = readJournalSavedState(database.db, sessionId, 'clean')
+  expect(published?.lastSequence).toBe(101)
+  expect(published?.items.size).toBe(100)
+  if (!published) {
+    throw new Error('missing published clean epoch')
+  }
+  expectProjectionMatches(database, published)
 })
