@@ -46,6 +46,9 @@ const mocks = vi.hoisted(() => ({
       args: Parameters<typeof AgentTabShortcuts.resolveTerminalAgentTabShortcut>[0]
     ) => TerminalAgentTabShortcut
   >(() => ({ actionId: null, agent: null })),
+  actualResolveAgentShortcut: null as
+    | typeof AgentTabShortcuts.resolveTerminalAgentTabShortcut
+    | null,
   launchAgentInNewTab: vi.fn()
 }))
 
@@ -74,10 +77,11 @@ vi.mock('@/lib/floating-workspace-terminal-actions', () => ({
 vi.mock('@/lib/terminal-shortcut-capture-notification', () => ({
   showTerminalShortcutCaptureNotification: vi.fn()
 }))
-vi.mock('./terminal-agent-tab-shortcut', async (importOriginal) => ({
-  ...(await importOriginal<typeof AgentTabShortcuts>()),
-  resolveTerminalAgentTabShortcut: mocks.resolveAgentShortcut
-}))
+vi.mock('./terminal-agent-tab-shortcut', async (importOriginal) => {
+  const actual = await importOriginal<typeof AgentTabShortcuts>()
+  mocks.actualResolveAgentShortcut = actual.resolveTerminalAgentTabShortcut
+  return { ...actual, resolveTerminalAgentTabShortcut: mocks.resolveAgentShortcut }
+})
 vi.mock('@/lib/launch-agent-in-new-tab', () => ({ launchAgentInNewTab: mocks.launchAgentInNewTab }))
 
 vi.mock('./terminal/terminal-tab-actions', () => ({ closeTerminalTab: mocks.closeTerminalTab }))
@@ -583,11 +587,8 @@ describe('agent shortcut delivery and deferred ownership', () => {
 
   it.each([false, true])(
     'opens a terminal from a focused terminal through the shared resolver (floating: %s)',
-    async (floating) => {
-      const actual = await vi.importActual<typeof AgentTabShortcuts>(
-        './terminal-agent-tab-shortcut'
-      )
-      mocks.resolveAgentShortcut.mockImplementation(actual.resolveTerminalAgentTabShortcut)
+    (floating) => {
+      mocks.resolveAgentShortcut.mockImplementation(mocks.actualResolveAgentShortcut!)
       mocks.floatingFocused = floating
       const press = (repeat: boolean): KeyboardEvent => {
         const target = document.createElement('textarea')
@@ -614,9 +615,8 @@ describe('agent shortcut delivery and deferred ownership', () => {
     }
   )
 
-  it('omits an undelivered double-tap gesture while a real ordinary chord still launches', async () => {
-    const actual = await vi.importActual<typeof AgentTabShortcuts>('./terminal-agent-tab-shortcut')
-    mocks.resolveAgentShortcut.mockImplementation(actual.resolveTerminalAgentTabShortcut)
+  it('omits an undelivered double-tap gesture while a real ordinary chord still launches', () => {
+    mocks.resolveAgentShortcut.mockImplementation(mocks.actualResolveAgentShortcut!)
     const keys = { 'tab.newAgent': [], 'tab.newAgent.codex': ['DoubleTap+Ctrl', 'Mod+Shift+X'] }
     renderHook(() => useTerminalKeyboardShortcuts({ ...controller, keybindings: keys }))
     for (let tap = 0; tap < 2; tap++) {
