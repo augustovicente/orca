@@ -1,3 +1,4 @@
+import { ensureAgentLaunchPreferences } from '@/components/settings/use-host-agent-launch-preferences'
 import type { ExecutionHostId } from '../../../shared/execution-host'
 import type { OnboardingState } from '../../../shared/onboarding-state-types'
 import type { TuiAgent } from '../../../shared/tui-agent'
@@ -25,13 +26,13 @@ export type OnboardingFolderAgentLaunch = {
 }
 
 /** Keep planning beside launch: the eagerly imported startup builder cannot reach the launch graph without cycling through store root. */
-export function resolveDismissedOnboardingFolderAgentLaunch(args: {
+export async function resolveDismissedOnboardingFolderAgentLaunch(args: {
   store: ReturnType<typeof useAppStore.getState>
   onboarding: OnboardingState | null
   hasExistingProject: boolean
   executionHostId: string
   worktreeId: string
-}): OnboardingFolderAgentLaunch {
+}): Promise<OnboardingFolderAgentLaunch> {
   const agent = onboardingFolderDefaultAgent(args.store.settings)
   if (
     !agent ||
@@ -56,11 +57,24 @@ export function resolveDismissedOnboardingFolderAgentLaunch(args: {
   if (!context) {
     return { agent, plan }
   }
-  const startup = buildOnboardingFolderAgentStartup(args.store.settings, {
-    platform: context.resolvedLaunchPlatform,
-    shell: context.queuedShell,
-    isRemote: context.isRemote
+  const preferences = await ensureAgentLaunchPreferences(args.store, {
+    kind: 'folder',
+    worktreeId: args.worktreeId
   })
+  const startup = buildOnboardingFolderAgentStartup(
+    args.store.settings
+      ? {
+          ...args.store.settings,
+          agentLaunchChoices:
+            preferences.agentLaunchChoices ?? args.store.settings.agentLaunchChoices
+        }
+      : null,
+    {
+      platform: context.resolvedLaunchPlatform,
+      shell: context.queuedShell,
+      isRemote: context.isRemote
+    }
+  )
   return { agent, plan, startup }
 }
 

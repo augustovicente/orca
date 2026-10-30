@@ -161,7 +161,8 @@ export function AgentCatalogRow({
     isDetected ||
     permission !== undefined ||
     permissionChoice !== undefined ||
-    chatRuntime !== undefined
+    chatRuntime !== undefined ||
+    launchChoiceEditor !== undefined
 
   return (
     <div className={cn('py-3', !isDetected && !opensAs?.cliMissing && 'opacity-70')}>
@@ -289,7 +290,7 @@ export function AgentCatalogRow({
       {expandable && cmdOpen && (
         <div className="mt-3 space-y-3 pl-10">
           {chatRuntime}
-          {(!launchChoiceEditor || !isDetected) && permissionChoice && (
+          {!launchChoiceEditor && permissionChoice && (
             <div ref={permissionRef}>
               <AgentPermissionMenu agentId={agentId} label={label} permission={permissionChoice} />
             </div>
@@ -301,6 +302,7 @@ export function AgentCatalogRow({
               controlRef={permissionRef}
             />
           )}
+          {!isDetected && launchChoiceEditor?.(permissionRef)}
           {isDetected && (
             <div>
               <AgentCommandOverrideInput

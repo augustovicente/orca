@@ -194,6 +194,21 @@ export function resolveTuiAgentLaunchArgs(
   }).args
 }
 
+/** Original configured Arguments and permission, without fresh model defaults. */
+export function resolveTuiAgentLaunchRawArgs(
+  agent: string,
+  settings: AgentLaunchProfileSettings | null | undefined,
+  permissionChoice?: AgentPermissionChoice,
+  shell?: AgentStartupShell
+): string {
+  return resolveTuiAgentLaunchArgs(
+    agent,
+    { ...settings, agentLaunchChoices: undefined },
+    permissionChoice,
+    shell
+  )
+}
+
 /** Legacy missing Arguments use Orca’s bypass default; Manual stores an explicit empty value that overrides it. */
 export function resolvedTuiAgentArgsBypassPermissions(
   agent: TuiAgent,

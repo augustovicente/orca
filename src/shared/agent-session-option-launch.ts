@@ -3,7 +3,7 @@ import {
   rewriteAgentChoiceSettings,
   readAgentChoiceSettings
 } from './agent-choice-settings'
-import { yieldAgentChoicesToArgs } from './agent-choice-layers'
+import { hasAgentModelOptionValues, yieldAgentChoicesToArgs } from './agent-choice-layers'
 import type { AgentType } from './agent-status-types'
 import {
   findCatalogModel,
@@ -36,7 +36,10 @@ export function removeOverriddenAgentSessionArgs(
   agent: AgentType,
   values: Record<string, SessionOptionValue> | null | undefined,
   tokens: readonly string[]
-): string[] {
+): readonly string[] {
+  if (!hasAgentModelOptionValues(values)) {
+    return tokens
+  }
   let result = [...tokens]
   const catalog = getAgentSessionOptionLaunchCatalog(agent)
   if (!catalog || !values) {
@@ -121,6 +124,9 @@ function resolveModelOptionLaunch(
   includeCatalogDefaults: boolean,
   originalArgs: readonly string[]
 ): ResolvedSessionOptionLaunch {
+  if (!hasAgentModelOptionValues(values)) {
+    return { args: [], appliedValues: {} }
+  }
   const catalog = getAgentSessionOptionLaunchCatalog(agent)
   const modelId = typeof values?.model === 'string' ? values.model : null
   if (!catalog || !values) {

@@ -19,12 +19,30 @@ export type AgentChoiceLayersInput = {
   shell?: AgentStartupShell
 }
 
+/** Permission-only layers have no model work; accumulated model/options remain meaningful. */
+export function hasAgentModelOptionValues(
+  values: Readonly<Record<string, unknown>> | null | undefined
+): boolean {
+  return (
+    values != null &&
+    Object.entries(values).some(
+      ([key, value]) =>
+        key !== 'permissionMode' &&
+        key !== 'mode' &&
+        (typeof value === 'boolean' || (typeof value === 'string' && value.trim().length > 0))
+    )
+  )
+}
+
 /** Raw CLI ownership is shared by profile layers and the final option compiler. */
 export function yieldAgentChoicesToArgs<T extends string | boolean>(
   agent: AgentType,
   values: Readonly<Record<string, T>>,
   tokens: readonly string[]
 ): Record<string, T> {
+  if (!hasAgentModelOptionValues(values)) {
+    return values
+  }
   const catalog = getAgentSessionOptionLaunchCatalog(agent)
   if (!catalog || !tokens.length) {
     return { ...values }

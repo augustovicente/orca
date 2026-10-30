@@ -1,7 +1,14 @@
+import { useRef, useState, type Ref } from 'react'
+import type { AgentModelOptionChoices } from '../../../../shared/agent-launch-choices'
+import { AGENT_LAUNCH_CHOICE_KEYS } from '../../../../shared/agent-launch-choices'
+import { AgentDefaultArgsInput } from './AgentLaunchDefaultsEditor'
+import { AgentPermissionMenu, type AgentPermissionChoiceRow } from './AgentPermissionChoiceControls'
+import { agentModelChoiceChips } from './agent-model-choice-chips'
+import { useAgentLaunchFieldWrite } from './use-agent-launch-field-write'
 import { reconcileAgentChoiceArgs } from '../../../../shared/agent-choice-reconciliation'
-import {
-  normalizeAgentModelOptionChoices,
-  type AgentDedicatedChoices
+import type {
+  AgentChoicePatch,
+  AgentDedicatedChoices
 } from '../../../../shared/agent-launch-choices'
 import {
   findCatalogModel,
@@ -31,7 +38,30 @@ export type AgentChoiceControlsProps = {
   onChange: (value: AgentDedicatedChoices | undefined) => void
 }
 
-export function AgentChoiceControls({
+export function AgentChoiceControls(props: AgentChoiceControlsProps): React.JSX.Element | null {
+  return (
+    <AgentChoiceFields
+      {...props}
+      onSelect={(patch) => {
+        if (!props.agent) {
+          return
+        }
+        props.onChange(
+          reconcileAgentChoiceArgs({
+            agent: props.agent,
+            choices: props.value ?? {},
+            userArgs: '',
+            mode: 'choice-edit',
+            keys: new Set(['model', ...Object.keys(patch.options ?? {})]),
+            patch
+          }).choices
+        )
+      }}
+    />
+  )
+}
+
+function AgentChoiceFields({
   agent,
   value,
   disabled,
@@ -39,20 +69,16 @@ export function AgentChoiceControls({
   optionIds,
   defaultLabels,
   layout = 'stacked',
-  onChange
-}: AgentChoiceControlsProps): React.JSX.Element | null {
+  onSelect
+}: Omit<AgentChoiceControlsProps, 'onChange'> & {
+  onSelect: (patch: AgentChoicePatch) => void
+}): React.JSX.Element | null {
   const picksModel = sourceControlActionAgentPicksModel(agent)
   if (!agent || !picksModel) {
     return null
   }
   const catalog = picksModel ? getAgentSessionOptionLaunchCatalog(agent) : null
   const selected = value
-  // Model and permission mode are saved independently; a model change keeps the mode.
-  const save = (next: AgentDedicatedChoices): void =>
-    onChange({
-      ...normalizeAgentModelOptionChoices(next),
-      ...(next.permissionMode ? { permissionMode: next.permissionMode } : {})
-    })
   const model = catalog && selected?.model ? findCatalogModel(catalog, selected.model) : undefined
   const unlistedModel = catalog && selected?.model && !model ? selected.model : undefined
   const options = sourceControlActionOptions(agent, selected?.model ?? '').filter(
@@ -81,18 +107,7 @@ export function AgentChoiceControls({
             ...catalog.models.map(({ id, label }) => ({ value: id, label })),
             ...(unlistedModel ? [{ value: unlistedModel, label: unlistedModel }] : [])
           ]}
-          onChange={(model) =>
-            onChange(
-              reconcileAgentChoiceArgs({
-                agent,
-                choices: selected ?? {},
-                userArgs: '',
-                mode: 'choice-edit',
-                keys: new Set(['model']),
-                patch: { model: model === AGENT_DEFAULT_VALUE ? null : model }
-              }).choices
-            )
-          }
+          onChange={(model) => onSelect({ model: model === AGENT_DEFAULT_VALUE ? null : model })}
         />
       ) : null}
       {options.map(({ option, route }) => {
@@ -130,7 +145,6 @@ export function AgentChoiceControls({
                 : [])
             ]}
             onChange={(next) => {
-              const { [option.id]: _old, ...rest } = selected?.options ?? {}
               const encoded =
                 next === AGENT_DEFAULT_VALUE
                   ? null
@@ -138,11 +152,7 @@ export function AgentChoiceControls({
                       option.kind,
                       option.kind.type === 'boolean' ? next === 'true' : next
                     )
-              const values = {
-                ...rest,
-                ...(encoded === null ? {} : { [option.id]: encoded })
-              }
-              save({ ...selected, options: values })
+              onSelect({ options: { [option.id]: encoded } })
             }}
           />
         )
@@ -169,5 +179,137 @@ export function SourceControlActionModelPicker(
         )
       }
     />
+  )
+}
+
+export function AgentLaunchChoiceEditor({
+  agent,
+  label,
+  choices,
+  userArgs,
+  permission,
+  permissionControlRef,
+  save,
+  showArguments = true
+}: {
+  showArguments?: boolean
+  agent: TuiAgent
+  label: string
+  choices: AgentModelOptionChoices | undefined
+  userArgs: string
+  permission: AgentPermissionChoiceRow | undefined
+  permissionControlRef?: Ref<HTMLDivElement>
+  save: (patch: AgentChoicePatch | undefined, userArgs: string) => Promise<void>
+}): React.JSX.Element {
+  const menu = useRef({ open: false, committed: false })
+  const editorRef = useRef<HTMLDivElement>(null)
+  const [draft, setDraft] = useState<string | null>(null)
+  const text = draft ?? userArgs
+  const { pending, write } = useAgentLaunchFieldWrite()
+  const saveArgs = (raw: string): void => {
+    if (raw === userArgs.trim()) {
+      setDraft(null)
+      return
+    }
+    write(
+      JSON.stringify([null, raw]),
+      () => save(undefined, raw),
+      () => setDraft((current) => (current === raw ? null : current))
+    )
+  }
+  const onOpenChange = (open: boolean): void => {
+    if (!open && !menu.current.committed) {
+      saveArgs(text.trim())
+    }
+    menu.current = { open, committed: false }
+  }
+  const commit = (patch: AgentChoicePatch, raw = text): string => {
+    menu.current.committed = true
+    const result = reconcileAgentChoiceArgs({
+      agent,
+      choices: { ...choices, permissionMode: permission?.choice },
+      userArgs: raw,
+      mode: 'choice-edit',
+      keys: AGENT_LAUNCH_CHOICE_KEYS,
+      patch
+    })
+    setDraft(raw)
+    write(
+      JSON.stringify([patch, raw]),
+      () => save(patch, raw),
+      () => setDraft((current) => (current === raw ? null : current))
+    )
+    return result.userArgs
+  }
+  const chips = agentModelChoiceChips(agent, label, choices, commit)
+  if (permission?.flag && !permission.argsSetPermission) {
+    chips.push({
+      key: 'permissionMode',
+      label,
+      flag: permission.flag,
+      onRemove: (raw) => commit({ permissionMode: 'own' }, raw)
+    })
+  }
+  return (
+    <div
+      ref={editorRef}
+      className="space-y-3"
+      onBlur={(event) => {
+        if (!menu.current.open && !event.currentTarget.contains(event.relatedTarget)) {
+          saveArgs(text.trim())
+        }
+      }}
+    >
+      <div className="space-y-2">
+        <AgentChoiceFields
+          agent={agent}
+          value={choices}
+          disabled={pending}
+          layout="rows"
+          onOpenChange={onOpenChange}
+          optionIds={['effort']}
+          onSelect={(patch) => commit(patch)}
+        />
+        {permission ? (
+          <div ref={permissionControlRef}>
+            <AgentPermissionMenu
+              agentId={agent}
+              label={label}
+              layout="row"
+              disabled={pending}
+              onOpenChange={onOpenChange}
+              permission={{
+                ...permission,
+                onSelect: (permissionMode) => commit({ permissionMode })
+              }}
+            />
+          </div>
+        ) : null}
+      </div>
+      {showArguments ? (
+        <AgentDefaultArgsInput
+          defaultArgs=""
+          argsOverride={text}
+          disabled={pending}
+          onDraftChange={setDraft}
+          containsFocus={(target) =>
+            menu.current.open ||
+            (target instanceof Node && Boolean(editorRef.current?.contains(target)))
+          }
+          onDiscardArgs={() => setDraft(null)}
+          choiceChips={chips}
+          note={
+            permission?.argsSetPermission
+              ? translate(
+                  'settings.agents.permissionArgsTerminalOnly',
+                  'These arguments may control {{agent}}’s terminal permissions, so Orca adds no flag. Chats use the Permissions choice above.',
+                  { agent: label }
+                )
+              : undefined
+          }
+          onSaveArgs={saveArgs}
+        />
+      ) : null}
+    </div>
   )
 }

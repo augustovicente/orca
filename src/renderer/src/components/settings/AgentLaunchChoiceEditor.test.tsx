@@ -26,7 +26,7 @@ const initial: AgentLaunchSettingsSource = {
   agentDefaultArgs: { claude: '--verbose' },
   agentLaunchChoices: { claude: { model: 'opus', options: { effort: 'high' } } }
 }
-function Fixture({ save }: { save: ReturnType<typeof vi.fn> }) {
+function Fixture({ save }: { save: (mutation: unknown) => Promise<void> }) {
   const [settings, setSettings] = useState(initial)
   const projected = projectAgentLaunchSettings(settings)
   return (
@@ -131,7 +131,7 @@ it('saves a dirty Arguments edit with a menu choice once, and shares pending sta
   expect(save).toHaveBeenCalledWith({
     type: 'launch-choices',
     agent: 'claude',
-    patch: { model: 'haiku', options: { effort: null } },
+    patch: { model: 'haiku' },
     userArgs: '--model sonnet --verbose changed'
   })
   await waitFor(() => expect(input).toHaveProperty('value', '--verbose changed'))
@@ -148,4 +148,55 @@ it('saves a dirty Arguments edit with a menu choice once, and shares pending sta
   expect(screen.getByRole('button', { name: 'Haiku' }).hasAttribute('disabled')).toBe(true)
   await act(async () => pending.resolve())
   await waitFor(() => expect(input).toHaveProperty('value', ''))
+})
+
+it.each([
+  ['Opus', '--model sonnet --verbose', { model: 'opus' }],
+  ['High', '--effort low --verbose', { options: { effort: 'high' } }]
+] as const)(
+  'retains the actual checked %s operation against dirty opposing raw',
+  async (label, raw, patch) => {
+    const save = vi.fn(async () => {})
+    render(<Fixture save={save} />)
+    fireEvent.change(screen.getByRole('textbox', { name: 'Arguments' }), { target: { value: raw } })
+    await userEvent.click(screen.getByRole('button', { name: label }))
+    await userEvent.click(screen.getByRole('menuitemradio', { name: label }))
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1))
+    expect(save).toHaveBeenCalledWith({
+      type: 'launch-choices',
+      agent: 'claude',
+      patch,
+      userArgs: raw
+    })
+    await waitFor(() =>
+      expect(screen.getByRole('textbox', { name: 'Arguments' })).toHaveProperty(
+        'value',
+        '--verbose'
+      )
+    )
+  }
+)
+
+it('commits on focus-only outer exit before unmount, without opening a menu', async () => {
+  const save = vi.fn(async () => {})
+  const mounted = render(
+    <>
+      <Fixture save={save} />
+      <button>Outside</button>
+    </>
+  )
+  const input = screen.getByRole('textbox', { name: 'Arguments' })
+  fireEvent.change(input, { target: { value: '--verbose changed' } })
+  input.focus()
+  await userEvent.tab({ shift: true })
+  expect(save).not.toHaveBeenCalled()
+  screen.getByRole('button', { name: 'Outside' }).focus()
+  await waitFor(() => expect(save).toHaveBeenCalledTimes(1))
+  mounted.unmount()
+  expect(save).toHaveBeenCalledWith({
+    type: 'launch-choices',
+    agent: 'claude',
+    patch: undefined,
+    userArgs: '--verbose changed'
+  })
 })

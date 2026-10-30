@@ -220,7 +220,11 @@ describe('launchAgentBackgroundSession remote runtime and SSH startup delivery',
     )
     expect(mockCreateTab).not.toHaveBeenCalled()
     expect(mockUpdateTabPtyId).not.toHaveBeenCalled()
-    expect(mockRuntimeEnvironmentSubscribe).not.toHaveBeenCalled()
+    expect(
+      mockRuntimeEnvironmentSubscribe.mock.calls.filter(
+        ([request]) => request.method !== 'settings.getAgentLaunch'
+      )
+    ).toHaveLength(0)
     expect(mockDispatchEvent).not.toHaveBeenCalled()
   })
 
@@ -493,7 +497,13 @@ describe('launchAgentBackgroundSession remote runtime and SSH startup delivery',
 
   it('closes a created runtime terminal when its data subscription fails', async () => {
     useRemoteAgentBackgroundRuntime(state)
-    mockRuntimeEnvironmentSubscribe.mockRejectedValueOnce(new Error('subscription failed'))
+    const subscribe = mockRuntimeEnvironmentSubscribe.getMockImplementation()
+    mockRuntimeEnvironmentSubscribe.mockImplementation((request, callbacks) => {
+      if (request.method === 'terminal.multiplex') {
+        return Promise.reject(new Error('subscription failed'))
+      }
+      return subscribe?.(request, callbacks)
+    })
     const { launchAgentBackgroundSession } =
       await import('../../src/renderer/src/lib/launch-agent-background-session')
 

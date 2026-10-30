@@ -100,6 +100,10 @@ export const store = {
   markNativeChatLaunchPromptFailed: mockMarkNativeChatLaunchPromptFailed
 }
 
+vi.mock('@/runtime/runtime-rpc-client', () => ({
+  runtimeEnvironmentSupportsCapability: async () => false,
+  callRuntimeRpc: vi.fn()
+}))
 vi.mock('@/store', () => ({
   useAppStore: {
     getState: () => store

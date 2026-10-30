@@ -1,3 +1,6 @@
+import { clearHostAgentMenuSettingsForTests } from '@/components/settings/use-host-agent-launch-preferences'
+import { projectAgentLaunchSettings } from '../../../shared/agent-launch-settings'
+import type { AgentLaunchChoices } from '../../../shared/agent-launch-choices'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
@@ -5,13 +8,16 @@ const mocks = vi.hoisted(() => ({
   closeTab: vi.fn(),
   createWebRuntimeSessionTerminal: vi.fn(),
   setActiveTabType: vi.fn(),
-  toastError: vi.fn()
+  toastError: vi.fn(),
+  capability: vi.fn(async () => false),
+  hostRpc: vi.fn()
 }))
 
 const store = {
   activeRepoId: 'repo-1',
   activeWorktreeId: 'wt-1',
   settings: {
+    agentLaunchChoices: {} as AgentLaunchChoices,
     agentCmdOverrides: {} as Record<string, string>,
     agentDefaultArgs: {} as Record<string, string>,
     agentDefaultEnv: {} as Record<string, Record<string, string>>,
@@ -54,6 +60,10 @@ const store = {
   markNativeChatLaunchPromptFailed: vi.fn()
 }
 
+vi.mock('@/runtime/runtime-rpc-client', () => ({
+  runtimeEnvironmentSupportsCapability: mocks.capability,
+  callRuntimeRpc: mocks.hostRpc
+}))
 vi.mock('@/store', () => ({ useAppStore: { getState: () => store } }))
 vi.mock('sonner', () => ({ toast: { message: vi.fn(), error: mocks.toastError } }))
 vi.mock('@/components/tab-bar/reconcile-order', () => ({ reconcileTabOrder: vi.fn(() => []) }))
@@ -72,7 +82,10 @@ vi.mock('@/runtime/web-runtime-session-environment', () => ({
 describe('launchAgentInNewTab paired web runtime', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    clearHostAgentMenuSettingsForTests()
+    mocks.capability.mockResolvedValue(false)
     store.settings = {
+      agentLaunchChoices: {},
       agentCmdOverrides: {},
       agentDefaultArgs: {},
       agentDefaultEnv: {},
@@ -113,11 +126,8 @@ describe('launchAgentInNewTab paired web runtime', () => {
         pasteDraftAfterLaunch: false
       })
     )
-    const startupPlan = result?.startupPlan
-    expect(startupPlan).toBeDefined()
-    if (!startupPlan) {
-      throw new Error('Expected the terminal startup plan')
-    }
+    await result?.terminalCompletion
+    const startupPlan = mocks.createWebRuntimeSessionTerminal.mock.calls[0][0]
     expect(mocks.createWebRuntimeSessionTerminal).toHaveBeenCalledWith({
       worktreeId: 'wt-1',
       environmentId: 'web-runtime',
@@ -127,7 +137,7 @@ describe('launchAgentInNewTab paired web runtime', () => {
       agentSessionKind: 'fresh',
       launchAgent: 'claude',
       preparedAgentCommand: false,
-      command: startupPlan.launchCommand,
+      command: startupPlan.command,
       env: startupPlan.env,
       launchConfig: startupPlan.launchConfig,
       viewMode: 'terminal'
@@ -145,6 +155,75 @@ describe('launchAgentInNewTab paired web runtime', () => {
     }
     // A local tab closes locally (the host close no-ops), so a launch leaves it alone.
     expect(mocks.closeTab).not.toHaveBeenCalled()
+  })
+
+  it('awaits the capable host map once and preserves explicit/raw and prepared command ownership', async () => {
+    mocks.capability.mockResolvedValue(true)
+    store.settings.agentLaunchChoices = { claude: { model: 'sonnet', options: { effort: 'low' } } }
+    store.settings.agentDefaultArgs = { claude: '--verbose' }
+    store.settings.agentDefaultEnv = { claude: { KEEP: 'caller' } }
+    const pending = Promise.withResolvers<{
+      settings: ReturnType<typeof projectAgentLaunchSettings>
+    }>()
+    mocks.hostRpc.mockReturnValueOnce(pending.promise)
+    const { launchAgentInNewTab } = await import('./launch-agent-in-new-tab')
+    const result = launchAgentInNewTab({
+      agent: 'claude',
+      worktreeId: 'wt-1',
+      requestedSurface: 'terminal'
+    })
+    expect(mocks.createWebRuntimeSessionTerminal).not.toHaveBeenCalled()
+    pending.resolve({
+      settings: projectAgentLaunchSettings({
+        agentLaunchChoices: { claude: { model: 'opus', options: { effort: 'high' } } }
+      })
+    })
+    await result?.terminalCompletion
+    expect(mocks.createWebRuntimeSessionTerminal).toHaveBeenCalledTimes(1)
+    expect(mocks.createWebRuntimeSessionTerminal.mock.calls[0][0]).toMatchObject({
+      command: expect.stringContaining("'opus'"),
+      env: { KEEP: 'caller' },
+      launchConfig: { agentArgs: '--verbose' },
+      preparedAgentCommand: false
+    })
+    expect(mocks.createWebRuntimeSessionTerminal.mock.calls[0][0]).not.toHaveProperty(
+      'launchPreferences'
+    )
+    mocks.createWebRuntimeSessionTerminal.mockClear()
+    const picked = launchAgentInNewTab({
+      agent: 'claude',
+      worktreeId: 'wt-1',
+      requestedSurface: 'terminal',
+      agentArgs: '--model literal',
+      sessionOptions: { model: 'picked' }
+    })
+    await picked?.terminalCompletion
+    expect(mocks.createWebRuntimeSessionTerminal.mock.calls[0][0]).toMatchObject({
+      command: expect.stringContaining("'picked'"),
+      agentArgs: '--model literal',
+      launchPreferences: { model: 'picked' },
+      launchConfig: { agentArgs: '' }
+    })
+    clearHostAgentMenuSettingsForTests()
+    mocks.hostRpc.mockResolvedValue({
+      settings: projectAgentLaunchSettings({
+        agentLaunchChoices: { claude: { options: { effort: 'high' } } }
+      })
+    })
+    store.settings.agentCmdOverrides = { claude: 'cx' }
+    const prepared = launchAgentInNewTab({
+      agent: 'claude',
+      worktreeId: 'wt-1',
+      requestedSurface: 'terminal'
+    })
+    await prepared?.terminalCompletion
+    expect(mocks.createWebRuntimeSessionTerminal.mock.calls.at(-1)?.[0]).toMatchObject({
+      command: "cx '--verbose' '--effort' 'high'",
+      env: { KEEP: 'caller' },
+      preparedAgentCommand: true,
+      launchConfig: { agentCommand: "cx '--verbose'", agentArgs: '--verbose' }
+    })
+    expect(mocks.createTab).not.toHaveBeenCalled()
   })
 
   it('forwards prompt launch env and captured config to the host runtime', async () => {
@@ -166,6 +245,7 @@ describe('launchAgentInNewTab paired web runtime', () => {
         pasteDraftAfterLaunch: false
       })
     )
+    await result?.terminalCompletion
     expect(mocks.createWebRuntimeSessionTerminal).toHaveBeenCalledWith({
       worktreeId: 'wt-1',
       environmentId: 'web-runtime',

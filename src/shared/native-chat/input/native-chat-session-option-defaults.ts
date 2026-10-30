@@ -143,7 +143,7 @@ export function structuredLaunchSeedOptions(
       })
     : undefined
   const selection = choices
-    ? narrowStructuredLaunchSeedOptions({ ...choices.options, model: choices.model })
+    ? parseStructuredLaunchSeedOptions({ ...choices.options, model: choices.model })
     : remembered
   const permissionMode = newChatPermissionModeForSettings(agent, settings)
   return permissionMode

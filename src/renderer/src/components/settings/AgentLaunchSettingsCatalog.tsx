@@ -19,7 +19,6 @@ import {
   agentPermissionChoices,
   PERMISSION_CHOICE_AGENTS,
   resolveAgentPermission,
-  type AgentPermissionChoice,
   type AgentPermissionSettings
 } from '../../../../shared/tui-agent-permission-choice'
 import {
@@ -32,7 +31,10 @@ import {
   type AgentPermissionChoiceRow
 } from './AgentPermissionChoiceControls'
 import type { AgentPermissionsSettingProps } from './AgentPermissionsSetting'
-import { buildAgentRowPermissions } from './agent-row-permission-model'
+import {
+  buildAgentRowPermissions,
+  sharedAgentPermissionChoice as sharedChoice
+} from './agent-row-permission-model'
 import {
   getTuiAgentDefaultArgs,
   getTuiAgentDefaultEnv,
@@ -248,10 +250,11 @@ export function AgentLaunchSettingsCatalog({
     permission: typed ? undefined : permissions.rows.get(agent.id),
     permissionChoice: choiceRow(agent.id),
     launchChoiceEditor:
-      choicesSupported && settings.agentChoices
+      choicesSupported && settings.agentChoices && (isDetected || chatOnly.has(agent.id))
         ? (permissionControlRef) => (
             <AgentLaunchChoiceEditor
               permissionControlRef={permissionControlRef}
+              showArguments={isDetected}
               agent={agent.id}
               label={agent.label}
               choices={settings.agentChoices?.defaults[agent.id]}
@@ -376,10 +379,6 @@ export function AgentLaunchSettingsCatalog({
       />
     </>
   )
-}
-
-function sharedChoice(choices: readonly AgentPermissionChoice[]): AgentPermissionChoice | null {
-  return choices.length > 0 && choices.every((choice) => choice === choices[0]) ? choices[0] : null
 }
 
 export function AgentLaunchSettingsLoading(): React.JSX.Element {

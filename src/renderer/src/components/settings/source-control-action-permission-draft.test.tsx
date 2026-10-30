@@ -722,3 +722,20 @@ it('labels the inherited model and effort with the supplied owning host choices'
   expect(screen.getByRole('combobox', { name: 'Agent default' })).toBeDefined()
   expect(screen.getByRole('combobox', { name: 'Default' })).toBeDefined()
 })
+
+it('labels effort from the effective action model after dropping the previous default model options', () => {
+  const view = render(
+    <SourceControlActionArguments
+      agent="claude"
+      value="--verbose"
+      preferences={{ agentId: 'claude', model: 'sonnet' }}
+      defaults={{ claude: { model: 'opus', options: { effort: 'high' } } }}
+      onArgsChange={() => {}}
+      onPreferencesChange={() => {}}
+    />,
+    { wrapper: TooltipProvider }
+  )
+  expect(screen.getByRole('combobox', { name: 'Same as Claude · Default' })).toBeTruthy()
+  expect(screen.queryByRole('combobox', { name: 'Same as Claude · High' })).toBeNull()
+  view.unmount()
+})

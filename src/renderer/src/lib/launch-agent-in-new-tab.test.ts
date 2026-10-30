@@ -324,6 +324,7 @@ describe('launchAgentInNewTab', () => {
 
     expect(result?.surface).toEqual({ kind: 'host-published' })
     expect(result?.pasteDraftAfterLaunch).toBe(false)
+    await result?.terminalCompletion
     expect(mockCreateWebRuntimeAgentSessionTerminalWithLaunchDraft).toHaveBeenCalledWith(
       expect.objectContaining({
         launchAgent: 'claude',
@@ -354,8 +355,13 @@ describe('launchAgentInNewTab', () => {
     Object.assign(store.repos[0], { executionHostId: 'runtime:web-runtime' })
     const { launchAgentInNewTab } = await import('./launch-agent-in-new-tab')
 
-    launchAgentInNewTab({ requestId: 'request-12', agent: 'codex', worktreeId: 'wt-1' })
+    const result = launchAgentInNewTab({
+      requestId: 'request-12',
+      agent: 'codex',
+      worktreeId: 'wt-1'
+    })
 
+    await result?.terminalCompletion
     expect(mockCreateWebRuntimeSessionTerminal.mock.calls[0]?.[0]).toMatchObject({
       worktreeId: 'wt-1',
       environmentId: 'web-runtime',
@@ -378,8 +384,13 @@ describe('launchAgentInNewTab', () => {
     Object.assign(store.repos[0], { executionHostId: 'runtime:web-runtime' })
     const { launchAgentInNewTab } = await import('./launch-agent-in-new-tab')
 
-    launchAgentInNewTab({ requestId: 'request-13', agent: 'codex', worktreeId: 'wt-1' })
+    const result = launchAgentInNewTab({
+      requestId: 'request-13',
+      agent: 'codex',
+      worktreeId: 'wt-1'
+    })
 
+    await result?.terminalCompletion
     expect(mockCreateWebRuntimeSessionTerminal.mock.calls[0]?.[0]).toMatchObject({
       worktreeId: 'wt-1',
       environmentId: 'web-runtime',

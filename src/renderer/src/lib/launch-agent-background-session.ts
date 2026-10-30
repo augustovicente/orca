@@ -1,3 +1,4 @@
+import { ensureAgentLaunchPreferences } from '@/components/settings/use-host-agent-launch-preferences'
 import { useAppStore } from '@/store'
 import { runtimeTargetForOwnerEnvironment } from '@/runtime/runtime-client-target'
 import { buildAgentStartupPlan } from '@/lib/tui-agent-startup'
@@ -63,13 +64,19 @@ export async function launchAgentBackgroundSession(
     // Why: that server rebuilds the command from its own settings and would drop the extras.
     throw new Error("Extra arguments can't be applied to a paired server's workspace from here.")
   }
+  const preferences = await ensureAgentLaunchPreferences(store, {
+    kind: 'git-worktree',
+    worktreeId
+  })
   // Why before any tab or PTY: an invalid launch must fail the run without creating a terminal.
   const planInputs = resolveAgentStartupPlanInputs({
     agent,
     // Why: the client's Windows shell setting describes this machine, not a remote host.
-    settings: isLocalHost
-      ? (store.settings ?? {})
-      : { ...store.settings, terminalWindowsShell: undefined },
+    settings: {
+      ...store.settings,
+      agentLaunchChoices: preferences.agentLaunchChoices ?? store.settings?.agentLaunchChoices,
+      ...(!isLocalHost ? { terminalWindowsShell: undefined } : {})
+    },
     platform: launchPlatform,
     isRemote,
     // The window quotes by its Settings shell, which its pane's spawn also reads.
@@ -154,8 +161,8 @@ export async function launchAgentBackgroundSession(
         leafId,
         agent,
         ...(hasPrompt && !isFollowupPath ? { prompt: trimmedPrompt } : {}),
-        ...(startupPlan.sessionOptions ? { sessionOptions: startupPlan.sessionOptions } : {}),
         legacy: {
+          ...(startupPlan.sessionOptions ? { sessionOptions: startupPlan.sessionOptions } : {}),
           command: startupPlan.launchCommand,
           env: paneEnv,
           ...(startupPlan.startupCommandDelivery

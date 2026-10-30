@@ -2,8 +2,13 @@ import {
   removeOverriddenAgentSessionArgs,
   resolveAgentSessionOptionLaunch
 } from './agent-session-option-launch'
-import { resolveAgentChoiceLayers } from './agent-choice-layers'
-import { projectAgentLaunchProfile } from './agent-launch-profile'
+import { resolveAgentChoiceLayers, yieldAgentChoicesToArgs } from './agent-choice-layers'
+import { resolveTuiAgentLaunchRawArgs } from './tui-agent-launch-defaults'
+import {
+  hasExtraAgentArgs,
+  parseExtraAgentArgs,
+  mergeParsedExtraAgentArgs
+} from './automation-extra-agent-args'
 import type { AgentLaunchProfileSettings } from './tui-agent-launch-defaults'
 import { readLaunchPermissionChoice } from './tui-agent-permission-choice'
 import type { SessionOptionValue } from './native-chat/input/native-chat-session-options'
@@ -206,27 +211,57 @@ export function terminalSessionOptionInputs(args: {
   yieldToAgentArgs?: boolean
   agentArgs: string | null | undefined
   shell: AgentStartupShell
+  command?: string
+  extraAgentArgs?: string
 }): {
   agentArgs?: string | null
   sessionOptions?: Record<string, SessionOptionValue>
   sessionOptionsOverrideAgentArgs?: true
 } {
   const permission = readLaunchPermissionChoice(args.sessionOptions)
-  const raw =
+  let raw =
     args.agentArgs === undefined
-      ? projectAgentLaunchProfile(
+      ? resolveTuiAgentLaunchRawArgs(
           args.agent,
-          { ...args.settings, agentLaunchChoices: {} },
-          {
-            target: 'terminal',
-            shell: args.shell,
-            ...(permission ? { choices: { permissionMode: 'own' } } : {})
-          }
-        ).args
+          args.settings,
+          permission ? 'own' : undefined,
+          args.shell
+        )
       : args.agentArgs
+  const extras = hasExtraAgentArgs(args.extraAgentArgs)
+    ? parseExtraAgentArgs({ agent: args.agent, extraAgentArgs: args.extraAgentArgs })
+    : undefined
+  if (extras && !extras.ok) {
+    throw new Error(extras.error)
+  }
+  if (extras?.ok) {
+    const merged = mergeParsedExtraAgentArgs({
+      agent: args.agent,
+      defaultArgs: raw,
+      extras,
+      shell: args.shell
+    })
+    if (!merged.ok) {
+      throw new Error(merged.error)
+    }
+    raw = merged.agentArgs
+  }
+  const authored = args.settings?.agentLaunchChoices?.[args.agent]
+  let defaultValues = {
+    ...authored?.options,
+    ...(authored?.model ? { model: authored.model } : {})
+  }
+  if (Object.keys(defaultValues).length) {
+    const command = tokenizeStartupCommand(args.command ?? '', args.shell)
+    defaultValues = yieldAgentChoicesToArgs(args.agent, defaultValues, [
+      ...(command.ok ? command.tokens : []),
+      ...(extras?.ok ? extras.tokens : [])
+    ])
+  }
+  const { model: defaultModel, ...defaultOptions } = defaultValues
   const choices = resolveAgentChoiceLayers({
     agent: args.agent,
-    defaults: args.settings?.agentLaunchChoices?.[args.agent],
+    defaults: { ...(defaultModel ? { model: defaultModel } : {}), options: defaultOptions },
     action: args.sessionOptions
       ? {
           ...(typeof args.sessionOptions.model === 'string'
@@ -251,7 +286,7 @@ export function terminalSessionOptionInputs(args: {
     ...(choices.permissionMode ? { permissionMode: choices.permissionMode } : {})
   }
   return {
-    ...(args.settings ? { agentArgs: raw } : {}),
+    agentArgs: raw,
     ...(Object.keys(sessionOptions).length > 0
       ? { sessionOptions, sessionOptionsOverrideAgentArgs: true as const }
       : {})

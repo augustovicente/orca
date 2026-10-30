@@ -134,11 +134,13 @@ describe('createWebRuntimeSessionTerminal', () => {
           agent,
           worktreeId: WORKTREE_ID,
           environmentId: ENVIRONMENT_ID,
-          startupPlan: plan,
+          buildStartup: () => ({
+            startupPlan: plan,
+            pasteDraftAfterLaunch: null,
+            submitPastedPrompt: false
+          }),
           prompt: 'Fix checks',
           promptDelivery: 'auto-submit',
-          pastePromptAfterReady: null,
-          submitPastedPrompt: false,
           activate: false
         })
       ).resolves.toEqual({

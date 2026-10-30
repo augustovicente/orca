@@ -278,6 +278,15 @@ describe('agent row chat or CLI', () => {
     expect(group.querySelector('[aria-checked="false"]')?.getAttribute('aria-disabled')).toBe(
       'true'
     )
+    const row = group.closest('.py-3')
+    if (!(row instanceof HTMLElement)) {
+      throw new Error('Missing native-only row')
+    }
+    fireEvent.click(within(row).getByRole('button', { name: 'Expand agent settings' }))
+    expect(within(row).getByText('Model')).toBeTruthy()
+    expect(within(row).getByText('Reasoning effort')).toBeTruthy()
+    expect(within(row).queryByRole('textbox', { name: 'Arguments' })).toBeNull()
+    expect(within(row).queryByRole('textbox', { name: 'Command' })).toBeNull()
     expect(checked('Open Claude as')).toBe('Chat')
     expect(checked('Open Codex as')).toBe('Chat')
     vi.unstubAllGlobals()

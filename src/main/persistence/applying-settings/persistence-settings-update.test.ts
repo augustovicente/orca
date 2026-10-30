@@ -520,14 +520,19 @@ describe('Store', () => {
     const store = await createStore()
     store.flush()
 
-    expect(store.getSettings().agentDefaultArgs?.opencode).toBe('--model opencode/gpt-5')
+    expect(store.getSettings().agentDefaultArgs?.opencode).toBe('')
+    expect(store.getSettings().agentLaunchChoices?.opencode).toEqual({ model: 'opencode/gpt-5' })
+    expect(composeAgentLaunchProfile(store.getSettings()).agentDefaultArgs.opencode).toBe(
+      '--model opencode/gpt-5'
+    )
     expect(store.getSettings().agentDefaultArgs?.kilo).toBe('')
     expect(composeAgentLaunchProfile(store.getSettings()).agentDefaultArgs.codex).toBe(
       '--dangerously-bypass-approvals-and-sandbox'
     )
-    expect((readDataFile() as PersistedState).settings.agentDefaultArgs?.opencode).toBe(
-      '--model opencode/gpt-5'
-    )
+    expect((readDataFile() as PersistedState).settings.agentDefaultArgs?.opencode).toBe('')
+    expect((readDataFile() as PersistedState).settings.agentLaunchChoices?.opencode).toEqual({
+      model: 'opencode/gpt-5'
+    })
     expect((readDataFile() as PersistedState).settings.agentDefaultArgs?.kilo).toBe('')
   })
 

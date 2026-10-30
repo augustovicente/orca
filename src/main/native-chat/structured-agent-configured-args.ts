@@ -22,7 +22,11 @@ export function structuredAgentConfiguredArgs(
     }) ?? 'posix'
   const parsed = tokenizeStartupCommand(
     isTuiAgent(agent)
-      ? projectAgentLaunchProfile(agent, settings, { target: 'structured', shell }).args
+      ? projectAgentLaunchProfile(
+          agent,
+          { ...settings, agentLaunchChoices: undefined },
+          { target: 'structured', shell }
+        ).args
       : resolveTuiAgentLaunchArgs(agent, settings),
     shell
   )

@@ -1,3 +1,4 @@
+import { resolveAgentChoiceLayers } from '../../../../shared/agent-choice-layers'
 import {
   findCatalogModel,
   getAgentSessionOptionLaunchCatalog
@@ -109,7 +110,15 @@ export function SourceControlActionArguments({
     commit({ permissionMode })
   }
   const chips = agentModelChoiceChips(agent, label, selected, commit)
-  const defaultChoices = agent ? defaults?.[agent] : undefined
+  const defaultChoices = agent
+    ? resolveAgentChoiceLayers({
+        agent,
+        defaults: defaults?.[agent],
+        action: selected,
+        argumentOwner: 'launch',
+        userArgs: value
+      })
+    : undefined
   const effort = agent
     ? sourceControlActionOptions(agent, defaultChoices?.model ?? '').find(
         ({ option }) => option.id === 'effort'

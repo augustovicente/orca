@@ -1,3 +1,7 @@
+import type { AgentLaunchChoices } from '../../../shared/agent-launch-choices'
+import type { SessionOptionValue } from '../../../shared/native-chat/input/native-chat-session-options'
+import { ensureAgentLaunchPreferences } from '@/components/settings/use-host-agent-launch-preferences'
+import { hostSupportsLaunchChoices } from '@/components/settings/agent-launch-settings-transport'
 import { createWebRuntimeSessionTerminalResult } from '@/runtime/web-runtime-terminal-create-operation'
 import { webTerminalPlacementParentTabId } from '@/runtime/web-session-terminal-placement'
 import { toast } from 'sonner'
@@ -7,7 +11,7 @@ import {
   createWebRuntimeAgentSessionTerminalWithLaunchDraft,
   type createWebRuntimeSessionTerminal
 } from '@/runtime/web-runtime-terminal-creation'
-import type { AgentStartupPlan } from '@/lib/tui-agent-startup'
+import type { LaunchAgentStartupPromptPlan } from '@/lib/launch-agent-startup-prompt-plan'
 import type { Tab } from '../../../shared/tab-types'
 import type { TuiAgent } from '../../../shared/tui-agent'
 import type { AgentPromptDelivery } from '../../../shared/agent-session-host-authority'
@@ -20,17 +24,16 @@ import {
 } from '../../../shared/agent-launch-preferences'
 
 /** Paired web tabs are host-owned; never create a local tab, and return tabId:null. */
-export function launchAgentInWebHostTab(args: {
+export async function launchAgentInWebHostTab(args: {
   agent: TuiAgent
   worktreeId: string
   environmentId: string | null
   groupId?: string
   cwd?: string | null
-  startupPlan: AgentStartupPlan
+  buildStartup: (choices: AgentLaunchChoices | undefined) => LaunchAgentStartupPromptPlan
+  sessionOptions?: Readonly<Record<string, SessionOptionValue>>
   prompt: string
   promptDelivery: 'auto-submit' | 'draft' | 'submit-after-ready'
-  pastePromptAfterReady: string | null
-  submitPastedPrompt: boolean
   agentArgs?: string | null
   viewMode?: Tab['viewMode']
   /** False opens the host's tab without selecting it. */
@@ -43,17 +46,33 @@ export function launchAgentInWebHostTab(args: {
     environmentId,
     groupId,
     cwd,
-    startupPlan,
     prompt,
     promptDelivery,
-    pastePromptAfterReady,
-    submitPastedPrompt,
     agentArgs,
     viewMode,
     onPromptDelivered
   } = args
+  const capable = environmentId ? await hostSupportsLaunchChoices({ environmentId }) : false
+  const preferences = await ensureAgentLaunchPreferences(useAppStore.getState(), {
+    kind: 'git-worktree',
+    worktreeId
+  })
+  const {
+    startupPlan,
+    pasteDraftAfterLaunch: pastePromptAfterReady,
+    submitPastedPrompt
+  } = args.buildStartup(
+    preferences.agentLaunchChoices ??
+      (capable ? {} : useAppStore.getState().settings?.agentLaunchChoices)
+  )
+  if (!startupPlan) {
+    return { delivered: false, failureNotified: false }
+  }
   const hasPrompt = prompt.length > 0
-  const launchPreferences = toAgentLaunchPreferences(startupPlan.sessionOptions, agent)
+  const launchPreferences = toAgentLaunchPreferences(
+    capable ? args.sessionOptions : startupPlan.sessionOptions,
+    agent
+  )
   const structuredPromptDelivery: AgentPromptDelivery =
     promptDelivery === 'draft' ? 'draft' : 'auto-submit'
   const launch = {
@@ -65,7 +84,7 @@ export function launchAgentInWebHostTab(args: {
     ...(cwd?.trim() ? { cwd } : {}),
     ...(viewMode ? { viewMode } : {}),
     agentSessionKind: 'fresh',
-    // Why: with or without a prompt, the desktop's launch settings decide args (#31986).
+    // Prepared delivery retains caller settings; authoritative creation resolves the host defaults.
     launchAgent: agent,
     preparedAgentCommand: agentLaunchNeedsPreparedCommand(agent, startupPlan.sessionOptions),
     command: startupPlan.launchCommand,
@@ -78,7 +97,7 @@ export function launchAgentInWebHostTab(args: {
     ...(hasPrompt && pastePromptAfterReady === null
       ? { promptDelivery: structuredPromptDelivery }
       : {}),
-    ...(launchPreferences?.mode
+    ...(!capable && launchPreferences?.mode
       ? { agentArgs: startupPlan.launchConfig.agentArgs }
       : agentArgs !== undefined
         ? { agentArgs }

@@ -1,3 +1,4 @@
+import { hostSupportsLaunchChoices } from '@/components/settings/agent-launch-settings-transport'
 import { buildDefaultTerminalOptions } from '@/lib/pane-manager/pane-terminal-options'
 import { createAgentSessionKeyboardOptions } from '@/runtime/agent-session-keyboard-capability'
 import type { SleepingAgentLaunchConfig } from '../../../shared/agent-session-resume'
@@ -29,6 +30,7 @@ export async function createRuntimeAgentBackgroundTerminal(args: {
     command: string
     env: Record<string, string>
     startupCommandDelivery?: StartupCommandDelivery
+    sessionOptions?: Record<string, SessionOptionValue>
     launchConfig: SleepingAgentLaunchConfig
     launchToken: string
     title?: string
@@ -37,10 +39,15 @@ export async function createRuntimeAgentBackgroundTerminal(args: {
   const keyboardProtocol = buildDefaultTerminalOptions().vtExtensions?.kittyKeyboard
   const keyboardOptions = createAgentSessionKeyboardOptions(keyboardProtocol)
   const operation = createAgentSessionCreateOperation()
-  const launchPreferences = toAgentLaunchPreferences(args.sessionOptions, args.agent)
+  const capable = await hostSupportsLaunchChoices({ environmentId: args.environmentId })
+  const applied = args.legacy.sessionOptions ?? args.sessionOptions
+  const launchPreferences = toAgentLaunchPreferences(
+    capable ? args.sessionOptions : applied,
+    args.agent
+  )
   return await runRemoteAgentSessionLaunch({
     environmentId: args.environmentId,
-    hostAuthority: agentLaunchNeedsPreparedCommand(args.agent, args.sessionOptions)
+    hostAuthority: agentLaunchNeedsPreparedCommand(args.agent, applied)
       ? undefined
       : () =>
           operation.run(async (clientOperationId) =>
