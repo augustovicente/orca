@@ -131,10 +131,15 @@ it('matches sequential cohort, own-property, carried and duplicate-group frontie
     const special = phaseInput()
     const target = special.model.workspaces[GIT_KEY]
     target.tabs = [terminal('target', 'X', paneLeaf(key))]
-    target.leaves = Object.fromEntries([
-      [key, undefined],
-      ['remaining', { title: 'retained' }]
-    ])
+    const leaves: Record<string, LayoutLeaf> = {}
+    Object.defineProperty(leaves, key, {
+      value: undefined,
+      enumerable: true,
+      configurable: true,
+      writable: true
+    })
+    leaves.remaining = { title: 'retained' }
+    target.leaves = leaves
     special.session.terminalSurfaceTombstonesByPaneKey = { one: tombstone('X', key) }
     const { candidate: next } = comparePhase(special)
     expect(Object.getPrototypeOf(next.workspaces[GIT_KEY].leaves)).toBe(Object.prototype)

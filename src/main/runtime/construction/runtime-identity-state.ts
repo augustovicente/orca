@@ -109,6 +109,8 @@ export abstract class OrcaRuntimeWithRuntimeId extends RuntimeConstructionServic
 
   protected abstract readonly tabs: TerminalIdentitySource['tabs']
 
+  protected legacyStructuredSessionTabIds: readonly string[] = []
+
   mobileSessionTabsByWorktree = new Map<string, RuntimeMobileSessionTabsSnapshot>()
 
   storeMobileSessionSnapshot(

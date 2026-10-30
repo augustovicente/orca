@@ -64,6 +64,9 @@ class DefaultPaneRuntime extends OrcaRuntimeService {
   follow() {
     this.followExportedPaneKeys()
   }
+  paneKeyForHandle(handle: string) {
+    return this.getPaneKeyForTerminalHandle(handle)
+  }
   identityState() {
     return {
       handles: [...this.handles].map(([key, value]) => [key, { ...value, runtimeId: '<runtime>' }]),
@@ -357,7 +360,7 @@ it('follows an exported key after the real accepted placement has persisted and 
       authorityVerified: true
     })
     expect(events.indexOf('follow:restored')).toBeGreaterThan(events.indexOf('applied:true'))
-    expect(f.runtime.getPaneKeyForTerminalHandle('term_restored')).toBe(placedPane)
+    expect(f.runtime.paneKeyForHandle('term_restored')).toBe(placedPane)
   } finally {
     for (const result of rebound.mock.results) {
       if (result.type === 'return') {
