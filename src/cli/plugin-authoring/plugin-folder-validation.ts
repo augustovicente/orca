@@ -15,6 +15,10 @@ import {
 import { strictPluginArtifactErrors } from '../../shared/plugins/authoring/plugin-strict-artifact-checks'
 import { validatePluginFile } from '../../shared/plugins/installation/plugin-file-validation'
 import {
+  localPluginPublisher,
+  withPluginPublisher
+} from '../../shared/plugins/installation/plugin-publisher-derivation'
+import {
   PLUGIN_MANIFEST_FILENAME,
   parsePluginManifest,
   qualifiedPluginKey,
@@ -114,7 +118,10 @@ export async function validatePluginTarget(target: string): Promise<PluginValida
     valid: errors.length === 0,
     errors,
     plugin: {
-      pluginKey: qualifiedPluginKey(manifest),
+      // Why derived: a folder loads under its declared publisher, else `local`, like dev discovery.
+      pluginKey: qualifiedPluginKey(
+        withPluginPublisher(manifest, localPluginPublisher(manifest.publisher))
+      ),
       name: manifest.name,
       version: manifest.version,
       needsApproval: pluginNeedsCliApproval(manifest),
