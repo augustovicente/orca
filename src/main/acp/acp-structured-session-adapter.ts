@@ -21,6 +21,7 @@ import { rejectedAcpDispatch, type AcpStructuredSession } from './acp-structured
 import type { ProviderStartAttempt } from '../provider-process/provider-acquisition-starts'
 import { waitForAcpExit, type AcpStructuredConnection } from './acp-structured-connection'
 import { AcpConnectionClosedError } from './acp-errors'
+import { withProviderSpawnAbsence } from '../provider-process/provider-executable-missing'
 import { applyAcpMessageOptions } from './acp-message-execution-options'
 import { AgentSessionOptionRejectedError } from '../native-chat/agent-session-wire/structured-agent-session-option-error'
 import { awaitAcpTurnEnd, interruptAcpTurn } from './acp-structured-stop'
@@ -137,8 +138,11 @@ export class AcpStructuredSessionAdapter implements SessionAdapter {
       }
       if (connection && exitedOnItsOwn && !isAgentSessionPreSpawnError(error)) {
         throw new AgentSessionAcquisitionExitProvenError(
-          withObservedProviderExit(
-            new Error(connection.stderrTail() || String(error), { cause: error })
+          withProviderSpawnAbsence(
+            withObservedProviderExit(
+              new Error(connection.stderrTail() || String(error), { cause: error })
+            ),
+            connection.spawnAbsence
           )
         )
       }
