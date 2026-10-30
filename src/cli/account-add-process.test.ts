@@ -171,6 +171,7 @@ if (probe && mode.hold) {
   }
 }
 
+// Four serial real CLI subprocesses each have a 15-second deadline.
 it('real account-add CLI probes, selects, logs in, hands off capture and cleans up; failures never enroll', async () => {
   const fixture = await accountFixture()
   try {
@@ -245,5 +246,6 @@ it.skipIf(process.platform === 'win32')(
       await fixture.close()
     }
   },
+  // Allows the 10-second probe-start wait plus child termination and fixture cleanup.
   20_000
 )
