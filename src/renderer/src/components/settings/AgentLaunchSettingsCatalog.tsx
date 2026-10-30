@@ -244,7 +244,10 @@ export function AgentLaunchSettingsCatalog({
   const configuredDetected = configuredAgentId
     ? (detectedIds?.has(configuredAgentId) ?? false)
     : false
-  const configuredLabel = configuredCatalogEntry?.label ?? configuredAgentId ?? 'Blank Terminal'
+  const configuredLabel =
+    configuredCatalogEntry?.label ??
+    configuredAgentId ??
+    translate('settings.agents.blankTerminal', 'Blank Terminal')
 
   return (
     <>
