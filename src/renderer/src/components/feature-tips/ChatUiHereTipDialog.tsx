@@ -86,25 +86,27 @@ export function ChatUiHereTipDialog({
       visual={<ChatUiHereFeatureTipVisual />}
       copyClassName={BUTTONS_ON_CARD_EDGE}
     >
-      <DialogHeader className="gap-4 text-left">
+      <DialogHeader className="text-left">
         <div>
           <FeatureTipEyebrow label={translate('featureTips.eyebrowNew', 'New')} />
-          <DialogTitle className="text-2xl font-semibold leading-tight tracking-tight md:text-[1.75rem]">
+          <DialogTitle size="display">
             {translate('featureTips.chatUiHere.title', 'Chat UI is here')}
           </DialogTitle>
-          <DialogDescription className="mt-3 max-w-2xl space-y-3 text-sm leading-relaxed">
-            {paragraphs.map((paragraph) => (
-              <span key={paragraph} className="block">
-                {paragraph}
-              </span>
-            ))}
-            <FeatureTipSettingsLine
-              text={translate(
-                'featureTips.chatUiHere.changeInSettings',
-                'Change anytime in <link>Settings → Agents</link>.'
-              )}
-              onClick={onSettingsClick}
-            />
+          <DialogDescription className="mt-3 max-w-2xl">
+            <span className="block space-y-3 leading-relaxed">
+              {paragraphs.map((paragraph) => (
+                <span key={paragraph} className="block">
+                  {paragraph}
+                </span>
+              ))}
+              <FeatureTipSettingsLine
+                text={translate(
+                  'featureTips.chatUiHere.changeInSettings',
+                  'Change anytime in <link>Settings → Agents</link>.'
+                )}
+                onClick={onSettingsClick}
+              />
+            </span>
           </DialogDescription>
         </div>
       </DialogHeader>

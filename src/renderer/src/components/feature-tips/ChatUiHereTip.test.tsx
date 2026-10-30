@@ -3,7 +3,7 @@
 import { act, useRef, useState, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { FEATURE_TIPS, type FeatureTip } from '../../../../shared/feature-tips'
+import { FEATURE_TIPS } from '../../../../shared/feature-tips'
 import type { ChatUiLaunchTipVariant } from '../../../../shared/native-chat/chat-ui-launch-tip-audience'
 import { track } from '@/lib/telemetry'
 import { useAppStore } from '@/store'
@@ -230,7 +230,10 @@ describe('Chat UI is here tip', () => {
   })
 
   it('keeps the other tips’ default secondary label', () => {
-    const tip = FEATURE_TIPS.find((entry) => entry.id === 'voice-dictation') as FeatureTip
+    const tip = FEATURE_TIPS.find((entry) => entry.id === 'voice-dictation')
+    if (!tip) {
+      throw new Error('Missing voice dictation tip fixture')
+    }
     act(() =>
       root.render(
         <FeatureTipActions

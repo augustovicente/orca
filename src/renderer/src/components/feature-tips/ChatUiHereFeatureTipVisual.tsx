@@ -19,7 +19,7 @@ import {
 } from './chat-ui-here-feature-tip-demo'
 
 // The smallest chat text size, so the real chat spacing fits the 22rem card the sibling visuals use.
-const CHAT_SCALE = { '--chat-font-size': '12px' } as CSSProperties
+const CHAT_SCALE: CSSProperties & { '--chat-font-size': string } = { '--chat-font-size': '12px' }
 
 /** A row that takes no height until it appears, so the transcript grows from its end. */
 function Row({ on, children }: { on: boolean; children: ReactNode }): JSX.Element {
@@ -66,7 +66,8 @@ export function FlowDiagram({
                 <span className="h-[1.25px] flex-1 origin-left scale-x-0 bg-chart-3 transition-[scale] duration-300 ease-in-out group-data-[on=true]/arrow:scale-x-100" />
                 <svg
                   viewBox="0 0 4 6"
-                  className="-ml-px h-1.5 w-1 fill-none stroke-chart-3 opacity-0 transition-opacity delay-250 duration-100 [stroke-width:1.25] group-data-[on=true]/arrow:opacity-100"
+                  fill="none"
+                  className="-ml-px h-1.5 w-1 stroke-chart-3 opacity-0 transition-opacity delay-250 duration-100 [stroke-width:1.25] group-data-[on=true]/arrow:opacity-100"
                 >
                   <path d="M0 0 L4 3 L0 6" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>

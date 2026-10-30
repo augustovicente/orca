@@ -22,7 +22,7 @@ import { resolveEffectiveTerminalAppearance } from '@/lib/terminal-theme'
 import { cn } from '@/lib/utils'
 
 // The tip's chat miniature, finished and denser so it fits a tile; nothing here animates.
-const CHAT_SCALE = { '--chat-font-size': '10px' } as CSSProperties
+const CHAT_SCALE: CSSProperties & { '--chat-font-size': string } = { '--chat-font-size': '10px' }
 
 /** One tab in the real tab bar's active style, then its "+" button. */
 function MiniWindow({
