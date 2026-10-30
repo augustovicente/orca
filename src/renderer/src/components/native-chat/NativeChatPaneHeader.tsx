@@ -57,7 +57,7 @@ export function NativeChatPaneHeader({
     >
       <div className="pane-title-actions ml-auto flex shrink-0 items-center gap-0">
         {topRightAction}
-        {handOff && focused ? (
+        {handOff ? (
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -65,6 +65,7 @@ export function NativeChatPaneHeader({
                 variant="pane-title"
                 size="icon-xs"
                 aria-label={handOffLabel}
+                style={{ visibility: focused ? 'visible' : 'hidden' }}
                 disabled={handOff.disabled}
                 onClick={(event) => {
                   event.stopPropagation()

@@ -10,6 +10,8 @@ import {
 } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { TooltipProvider } from '@/components/ui/tooltip'
+import { Button } from '@/components/ui/button'
+import { RetainedPaneHost } from '../tab-group/RetainedPaneHost'
 import { useAppStore } from '@/store'
 import { createTabsSliceMockApi } from '@/store/slices/tabs-slice-test-harness'
 import { makeFolderWorkspace } from '@/store/slices/worktrees-slice-test-fixtures'
@@ -89,6 +91,75 @@ it('puts Hand Off first like the terminal header, only on the focused pane, and 
   cleanup()
   renderHeader({ open, disabled: false }, false)
   expect(screen.queryByRole('button', { name: 'Hand Off to Another Agent' })).toBeNull()
+})
+
+it('keeps the switch hit target stable while its inactive pane gains focus during one press', () => {
+  const source = useAppStore.getState().createUnifiedTab('folder:workspace', 'agent-session', {
+    agentSessionAgent: 'claude',
+    executionHostId: 'runtime:remote-host'
+  })
+  const otherGroup = useAppStore
+    .getState()
+    .createEmptySplitGroup(source.worktreeId, source.groupId, 'right')
+  const switchToCli = vi.fn()
+  const handOff = { open: vi.fn(), disabled: false }
+  function FocusableHeader() {
+    const focused = useAppStore(
+      (state) => state.activeGroupIdByWorktree[source.worktreeId] === source.groupId
+    )
+    return (
+      <TooltipProvider>
+        <RetainedPaneHost
+          groupId={source.groupId}
+          isVisible
+          onFocusOwningGroup={(groupId) =>
+            useAppStore.getState().focusGroup(source.worktreeId, groupId)
+          }
+        >
+          <NativeChatPaneHeader
+            tabId={source.id}
+            worktreeId={source.worktreeId}
+            groupId={source.groupId}
+            nativeChat={{ sessionId: source.entityId, agent: 'claude' }}
+            focused={focused}
+            colorScheme="dark"
+            handOff={handOff}
+            topRightAction={<Button onClick={switchToCli}>Switch to CLI</Button>}
+          />
+        </RetainedPaneHost>
+      </TooltipProvider>
+    )
+  }
+  const view = render(<FocusableHeader />)
+  const switchButton = screen.getByRole('button', { name: 'Switch to CLI' })
+  const row = switchButton.closest('.pane-title-actions')!
+  const members = Array.from(row.children)
+  const handOffButton = row.querySelector<HTMLButtonElement>(
+    'button[aria-label="Hand Off to Another Agent"]'
+  )!
+  expect(useAppStore.getState().activeGroupIdByWorktree[source.worktreeId]).toBe(otherGroup)
+  expect(handOffButton).not.toBeNull()
+  expect(getComputedStyle(handOffButton).visibility).toBe('hidden')
+  expect(screen.queryByRole('button', { name: 'Hand Off to Another Agent' })).toBeNull()
+  expect(switchButton.hasAttribute('disabled')).toBe(false)
+
+  fireEvent.pointerDown(switchButton)
+  expect(useAppStore.getState().activeGroupIdByWorktree[source.worktreeId]).toBe(source.groupId)
+  expect(Array.from(row.children)).toEqual(members)
+  expect(screen.getByRole('button', { name: 'Switch to CLI' })).toBe(switchButton)
+  expect(screen.getByRole('button', { name: 'Hand Off to Another Agent' })).toBe(handOffButton)
+  expect(getComputedStyle(handOffButton).visibility).toBe('visible')
+  fireEvent.focus(switchButton)
+  fireEvent.pointerUp(switchButton)
+  fireEvent.click(switchButton)
+  expect(switchToCli).toHaveBeenCalledOnce()
+  expect(handOff.open).not.toHaveBeenCalled()
+
+  act(() => useAppStore.getState().focusGroup(source.worktreeId, otherGroup))
+  expect(Array.from(row.children)).toEqual(members)
+  expect(getComputedStyle(handOffButton).visibility).toBe('hidden')
+  expect(screen.queryByRole('button', { name: 'Hand Off to Another Agent' })).toBeNull()
+  view.unmount()
 })
 
 it('offers the terminal header action order and targets Resume and Close at the displayed chat', async () => {
