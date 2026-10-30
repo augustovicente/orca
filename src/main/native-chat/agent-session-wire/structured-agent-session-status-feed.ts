@@ -11,7 +11,6 @@ import type { AgentChildWorkView } from '../../../shared/agent-status-child-work
 import type { AgentSessionJournal } from '../agent-session-journal/journal-store'
 import {
   structuredAgentSessionNamingSnapshot,
-  createStatusSnapshot,
   notifyStructuredStatusObservers,
   notifyStructuredStatusPublication,
   type StatusFeedSession,
@@ -83,8 +82,6 @@ export class StructuredAgentSessionStatusFeed {
     })
     return () => this.unsubscribe(subscriber.id)
   }
-
-  snapshot = createStatusSnapshot(this.published, () => this.deps)
 
   /** Revoke live ownership/remove sink children while retaining reload history. */
   close(sessionId: string): void {
@@ -161,7 +158,8 @@ export class StructuredAgentSessionStatusFeed {
     }
   }
 
-  readPublished = (sessionId: string) => this.published.get(sessionId)?.summary
+  readPublished = (sessionId: string): AgentSessionStatusSummary | undefined =>
+    this.published.get(sessionId)?.summary
 
   /** Seed unopened lists and the phone sink without reactions or saved-status writes. */
   publishSavedGroup = createSavedStructuredStatusGroup(

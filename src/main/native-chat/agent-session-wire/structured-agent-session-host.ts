@@ -338,7 +338,6 @@ export class StructuredAgentSessionHost {
 
   /** Retains no per-session subscription. */
   subscribeStatus = this.clientDelivery.subscribeStatus
-  readStatusSnapshot = this.clientDelivery.readStatusSnapshot
   publishConversationName = this.clientDelivery.publishConversationName
   regenerateConversationName = (sessionId: string): boolean =>
     this.deps.conversationNaming?.regenerate(sessionId) ?? false

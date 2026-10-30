@@ -3,7 +3,6 @@
 // Session lists read turn state from here instead of replaying transcripts: one stream per client
 // covers every session, and unlike a transcript subscription it retains none of them.
 
-import type { AgentSessionStatusEvent } from '../../../../shared/agent-session-wire'
 import { prepareStructuredTabsIfSupported } from './structured-session-tab-restore'
 import { defineStreamingMethod, type RpcContext } from '../core'
 import { requireStructuredHost as requireHost } from './structured-agent-session-gate'
@@ -57,61 +56,44 @@ export const STRUCTURED_AGENT_SESSION_STATUS_METHODS = [
       const host = requireHost(ctx)
       const subscriptionId = structuredAgentSessionStatusSubscriptionId(ctx)
       let dispose = (): void => {}
-      let stopCapabilities = (): void => {}
-      const stream = bindStructuredAgentSessionStream(ctx, subscriptionId, () => {
-        stopCapabilities()
-        dispose()
-      })
+      const stream = bindStructuredAgentSessionStream(ctx, subscriptionId, () => dispose())
       if (stream.isClosed()) {
         return
       }
-      const audience = () => ({
-        ...ctx,
-        clientCapabilities: ctx.capabilitySource?.current ?? ctx.clientCapabilities
-      })
-      const publish = (event: AgentSessionStatusEvent): void => {
-        if (event.type === 'snapshot') {
-          emit({
-            ...event,
-            ...(event.conversationNames
-              ? {
-                  conversationNames: event.conversationNames.filter((note) => {
-                    const record = host.deps.store.getConversation(note.sessionId)
-                    return record && clientReadsStructuredSessionAgent(audience(), record.provider)
-                  })
-                }
-              : {}),
-            ...(event.namingActiveSessionIds
-              ? {
-                  namingActiveSessionIds: event.namingActiveSessionIds.filter((sessionId) => {
-                    const record = host.deps.store.getConversation(sessionId)
-                    return record && clientReadsStructuredSessionAgent(audience(), record.provider)
-                  })
-                }
-              : {}),
-            sessions: event.sessions.filter((session) =>
-              clientReadsStructuredSessionAgent(audience(), session.agent)
-            )
-          })
-        } else if (
-          event.type !== 'status' ||
-          clientReadsStructuredSessionAgent(audience(), event.session.agent)
-        ) {
-          emit(event)
+      dispose = host.subscribeStatus({
+        id: subscriptionId,
+        emit: (event) => {
+          if (event.type === 'snapshot') {
+            emit({
+              ...event,
+              ...(event.conversationNames
+                ? {
+                    conversationNames: event.conversationNames.filter((note) => {
+                      const record = host.deps.store.getConversation(note.sessionId)
+                      return record && clientReadsStructuredSessionAgent(ctx, record.provider)
+                    })
+                  }
+                : {}),
+              ...(event.namingActiveSessionIds
+                ? {
+                    namingActiveSessionIds: event.namingActiveSessionIds.filter((sessionId) => {
+                      const record = host.deps.store.getConversation(sessionId)
+                      return record && clientReadsStructuredSessionAgent(ctx, record.provider)
+                    })
+                  }
+                : {}),
+              sessions: event.sessions.filter((session) =>
+                clientReadsStructuredSessionAgent(ctx, session.agent)
+              )
+            })
+          } else if (
+            event.type !== 'status' ||
+            clientReadsStructuredSessionAgent(ctx, event.session.agent)
+          ) {
+            emit(event)
+          }
         }
-      }
-      dispose = host.subscribeStatus({ id: subscriptionId, emit: publish })
-      if (!stream.isClosed()) {
-        stopCapabilities =
-          ctx.capabilitySource?.observe((previous) => {
-            if (
-              clientReadsStructuredSessionAgent({ ...ctx, clientCapabilities: previous }, 'pi') !==
-              clientReadsStructuredSessionAgent(audience(), 'pi')
-            ) {
-              publish(host.readStatusSnapshot())
-            }
-          }) ?? (() => {})
-      }
+      })
       if (stream.isClosed()) {
         dispose()
       }
