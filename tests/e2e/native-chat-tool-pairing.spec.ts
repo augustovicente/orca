@@ -174,7 +174,10 @@ test('keeps named output owners and accepted tasks while retaining a standalone 
       contentType: 'image/png'
     })
 
-    const taskToggle = chat.getByRole('button', { name: /Tasks.*0 of 1 tasks completed/ })
+    const taskToggle = chat.getByRole('button', {
+      name: 'Tasks 0 of 1 task completed',
+      exact: true
+    })
     await expect(taskToggle).toBeVisible()
     await taskToggle.click()
     const composerTaskList = taskToggle.locator('..').getByRole('list', { name: 'Tasks' })

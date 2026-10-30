@@ -9,6 +9,7 @@ import { waitForActivePaneHookDescriptor, waitForActiveTerminalManager } from '.
 
 const FIRST = 'Firstparagraph bravo charlie delta.'
 const SECOND = 'Secondparagraph echo foxtrot golf.'
+const PASTED = 'Clipboard text belongs in this composer.'
 
 test('chat right-click offers Copy for selected text and Paste in the composer only', async ({
   orcaPage,
@@ -40,14 +41,52 @@ test('chat right-click offers Copy for selected text and Paste in the composer o
     worktreeId: descriptor.worktreeId,
     paneKey: descriptor.paneKey
   })
+  const nativeMenu = await electronApp.evaluateHandle(({ Menu }) => {
+    const originalBuild = Menu.buildFromTemplate
+    const originalPopup = Menu.prototype.popup
+    const menus: InstanceType<typeof Menu>[] = []
+    let opened: InstanceType<typeof Menu> | null = null
+    // Keep the real menu builder and callbacks; intercept only its OS popup.
+    Menu.buildFromTemplate = (...args) => {
+      const menu = originalBuild(...args)
+      menus.push(menu)
+      menu.popup = () => {
+        opened = menu
+      }
+      return menu
+    }
+    return {
+      items: () =>
+        opened?.items.map((item) => ({ label: item.label, enabled: item.enabled })) ?? [],
+      paste: () => {
+        const item = opened?.items.find((candidate) => candidate.label === 'Paste')
+        if (!item?.enabled) {
+          throw new Error('The actual native composer menu has no enabled Paste command')
+        }
+        item.click()
+      },
+      restore: () => {
+        Menu.buildFromTemplate = originalBuild
+        for (const menu of menus) {
+          menu.popup = originalPopup
+        }
+      }
+    }
+  })
   try {
     // Substitute only the clipboard IPC; never touch the user's system clipboard.
-    await electronApp.evaluate(({ ipcMain }) => {
+    await electronApp.evaluate(({ ipcMain }, pasteText) => {
       ipcMain.removeHandler('clipboard:writeText')
       ipcMain.handle('clipboard:writeText', (_event, text: string) => {
         process.env.ORCA_E2E_COPIED_TEXT = text
       })
-    })
+      ipcMain.removeHandler('clipboard:readText')
+      ipcMain.handle('clipboard:readText', () => pasteText)
+      ipcMain.removeHandler('clipboard:readFilePaths')
+      ipcMain.handle('clipboard:readFilePaths', () => [])
+      ipcMain.removeHandler('clipboard:hasImage')
+      ipcMain.handle('clipboard:hasImage', () => false)
+    }, PASTED)
     const takeCopiedText = (): Promise<string | null> =>
       electronApp.evaluate(() => {
         const text = process.env.ORCA_E2E_COPIED_TEXT ?? null
@@ -95,6 +134,7 @@ test('chat right-click offers Copy for selected text and Paste in the composer o
     await expect(menu).toBeVisible()
     await expect(copy).toHaveCount(0)
     await expect(paste).toHaveCount(0)
+    expect(await nativeMenu.evaluate((menu) => menu.items())).toEqual([])
 
     // Why outside the selection: that press is what collapses it in Chromium when left alone.
     await first.click({ clickCount: 3 })
@@ -112,11 +152,18 @@ test('chat right-click offers Copy for selected text and Paste in the composer o
       await expect.poll(takeCopiedText).toContain(FIRST)
     }
 
-    await orcaPage.locator('[data-native-chat-root="true"]').getByRole('textbox').click({
-      button: 'right'
-    })
-    await expect(paste).toBeVisible()
+    const composer = orcaPage.locator('[data-native-chat-root="true"]').getByRole('textbox')
+    await composer.click()
+    await expect(composer).toBeFocused()
+    await composer.click({ button: 'right' })
+    await expect
+      .poll(() => nativeMenu.evaluate((menu) => menu.items()))
+      .toContainEqual({ label: 'Paste', enabled: true })
+    await nativeMenu.evaluate((menu) => menu.paste())
+    await expect(composer).toHaveText(PASTED)
   } finally {
+    await nativeMenu.evaluate((menu) => menu.restore())
+    await nativeMenu.dispose()
     await testInfo.attach('transcript-pane-lifetime', {
       body: JSON.stringify(await finishLifetime()),
       contentType: 'application/json'
