@@ -1,3 +1,4 @@
+import { exerciseLocalAgentProjectGitRetarget } from './local-agent-project-git-retarget.test-fixture'
 import {
   exerciseInvalidatedLocalAgentFirstProbe,
   exerciseLocalAgentProjectRuntimeRetarget,
@@ -83,6 +84,10 @@ it.each(localTargets)('restarts an invalidated first probe for $worktreeId', asy
 
 it('retargets a mounted first load when the project switches to WSL', async () => {
   await exerciseLocalAgentProjectRuntimeRetarget(detectAgents, updateProject)
+})
+
+it('retargets mounted inventories and menu after a Git-only WSL project update', async () => {
+  await exerciseLocalAgentProjectGitRetarget(detectAgents, updateProject)
 })
 
 it.each(localTargets)(
