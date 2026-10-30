@@ -11,6 +11,8 @@ import type { terminateProviderProcessTree } from '../provider-process/provider-
 import { createAcpAgentConnection, type AcpAgentConnection } from './acp-agent-connection'
 import { startupReceiveRig } from './acp-startup-receive.test-support'
 import { AcpAuthRequiredError } from './acp-errors'
+import { PROVIDER_SPAWN_FAILURE_MARKER } from '../provider-process/provider-spawn-failure-report'
+import { providerExecutableMissing } from '../provider-process/provider-executable-missing'
 import { AcpScriptedAgent, deferred, tick } from './acp-scripted-agent.test-support'
 
 const teardown = vi.hoisted(() =>
@@ -27,6 +29,12 @@ const actual = await vi.importActual<{
 const grace =
   process.platform === 'win32' ? ROOT_ONLY_GRACEFUL_EXIT_MS : PROVIDER_SUPERVISOR_MAX_STOP_MS
 const prompt = [{ type: 'text', text: 'hello' }] as const
+/** What the supervisor writes when it cannot spawn the agent's CLI. */
+const SPAWN_ENOENT_REPORT = `${PROVIDER_SPAWN_FAILURE_MARKER}${JSON.stringify({
+  thrown: false,
+  code: 'ENOENT',
+  message: 'spawn fixture-acp-agent ENOENT'
+})}\n`
 
 afterEach(async () => {
   vi.useRealTimers()
@@ -39,6 +47,22 @@ afterEach(async () => {
 })
 
 describe('ACP process-owning connection', () => {
+  // The supervisor (POSIX only) reports the failed spawn on stderr and exits 127.
+  it.skipIf(process.platform === 'win32')(
+    'marks the exit of a CLI the supervisor could not spawn as a missing executable',
+    async () => {
+      const onExit = vi.fn()
+      const { connection, child } = fixture({ onExit }, { cwd: process.cwd() })
+      child.stderr.write(SPAWN_ENOENT_REPORT)
+      await tick()
+      child.emit('exit', 127, null)
+      child.emit('close', 127, null)
+      await vi.waitFor(() => expect(onExit).toHaveBeenCalledOnce())
+      expect(providerExecutableMissing(onExit.mock.calls[0][0])).toBe(true)
+      expect(connection.spawnAbsence).toBe('executable')
+    }
+  )
+
   it('spawns through the supervisor with the host launch and exposes typed session calls', async () => {
     const { connection, spawn, child, agent } = fixture()
     await connection.spawned

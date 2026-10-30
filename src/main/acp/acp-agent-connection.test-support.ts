@@ -12,7 +12,7 @@ export const opened: { connection: AcpAgentConnection; exit: () => void }[] = []
 export const start = { cwd: '/execution-host/folder', mcpServers: [] }
 export function fixture(
   options: AcpAgentConnectionOptions = {},
-  behavior: { pid?: number | null; exitOnEnd?: boolean; brokenStdin?: boolean } = {}
+  behavior: { pid?: number | null; exitOnEnd?: boolean; brokenStdin?: boolean; cwd?: string } = {}
 ) {
   const agent = new AcpScriptedAgent()
   const child = Object.assign(createFakePipedChild(), {
@@ -40,7 +40,7 @@ export function fixture(
     {
       command: 'fixture-acp-agent',
       args: ['--acp'],
-      cwd: start.cwd,
+      cwd: behavior.cwd ?? start.cwd,
       env: { ACP_ACCOUNT_HOME: '/host/account', STRIPPED: 'overlay' },
       envToDelete: ['STRIPPED']
     },

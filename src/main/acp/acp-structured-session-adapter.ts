@@ -19,7 +19,7 @@ import { acpAgentName } from './acp-structured-agent-definitions'
 import { acquireAcpStructuredSession } from './acp-structured-acquire'
 import { rejectedAcpDispatch, type AcpStructuredSession } from './acp-structured-session'
 import type { ProviderStartAttempt } from '../provider-process/provider-acquisition-starts'
-import { waitForAcpExit, type AcpStructuredConnection } from './acp-structured-connection'
+import * as acpConnection from './acp-structured-connection'
 import { AcpConnectionClosedError } from './acp-errors'
 import { applyAcpMessageOptions } from './acp-message-execution-options'
 import { AgentSessionOptionRejectedError } from '../native-chat/agent-session-wire/structured-agent-session-option-error'
@@ -83,7 +83,7 @@ export class AcpStructuredSessionAdapter implements SessionAdapter {
 
   private async start(
     input: StructuredAgentSessionAcquireInput,
-    attempt: ProviderStartAttempt<AcpStructuredConnection>
+    attempt: ProviderStartAttempt<acpConnection.AcpStructuredConnection>
   ): Promise<AgentSessionAcquisition> {
     const sessionId = input.identity.sessionId
     const generation = this.deps.mintGeneration?.() ?? randomUUID()
@@ -115,7 +115,7 @@ export class AcpStructuredSessionAdapter implements SessionAdapter {
       const { connection } = attempt
       if (connection && error instanceof AcpConnectionClosedError) {
         // Wait briefly for process exit so startup failures include final diagnostics.
-        await waitForAcpExit(connection, this.stopGraceMs(), attempt.signal)
+        await acpConnection.waitForAcpExit(connection, this.stopGraceMs(), attempt.signal)
       }
       // Capture spontaneous exit before close can classify it as requested.
       const exitedOnItsOwn = connection?.exited === true && !attempt.signal.aborted
@@ -134,6 +134,7 @@ export class AcpStructuredSessionAdapter implements SessionAdapter {
         )
         throw connection ? closed : new AgentSessionPreSpawnError(closed)
       }
+      acpConnection.tagAcpSpawnAbsence(error, connection)
       if (connection && exitedOnItsOwn && !isAgentSessionPreSpawnError(error)) {
         throw new AgentSessionAcquisitionExitProvenError(
           withObservedProviderExit(
