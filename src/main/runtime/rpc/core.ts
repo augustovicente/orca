@@ -109,7 +109,7 @@ export type RpcContext = {
   caller?: RpcCallerIdentity
   // Only phones receive truncated payloads; undefined in-process callers remain unclipped.
   clientKind?: 'mobile' | 'runtime'
-  // Long-lived streams project with .current; clientCapabilities is the request-time snapshot (admission, wire contracts).
+  // Session-tab streams re-project with .current; other readers use the request-time clientCapabilities.
   capabilitySource?: RuntimeClientCapabilities
   // Trust socket-negotiated capabilities, never destructive request assertions.
   clientCapabilities?: readonly RuntimeCapability[]
