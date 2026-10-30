@@ -11,6 +11,8 @@ import {
 } from '../../../shared/structured-native-chat-launch-route'
 import type { ExecutionHostId } from '../../../shared/execution-host'
 import type { TuiAgent } from '../../../shared/tui-agent'
+import { editionSupports } from '../../../shared/edition'
+import { resolveEditionDefaultAgent } from './edition-default-agent'
 import { filterEnabledTuiAgents } from '../../../shared/tui-agent-selection'
 import { orderTabLaunchAgents as orderAgents } from '@/components/tab-bar/tab-agent-launch-options'
 import { chatProgramOffered, type ChatProgramObservation } from '@/lib/host-chat-program'
@@ -125,7 +127,7 @@ export function buildNewTabAgentMenuRows(args: {
       )
     }
   }
-  return [
+  const allRows = [
     ...orderAgents(defaultAgent, runnable).map((agent) => ({ kind: 'chat' as const, agent })),
     ...orderAgents(defaultAgent, [...unavailable.keys()]).map((agent) => ({
       kind: 'chat-unavailable' as const,
@@ -141,4 +143,12 @@ export function buildNewTabAgentMenuRows(args: {
       ...(chatToo.has(agent) ? { chat: true as const } : {})
     }))
   ]
+  if (editionSupports('agentPicker')) {
+    return allRows
+  }
+  const configuredAgent = resolveEditionDefaultAgent(args.settings?.defaultTuiAgent)
+  if (configuredAgent === 'blank') {
+    return []
+  }
+  return allRows.filter((row) => row.agent === configuredAgent)
 }

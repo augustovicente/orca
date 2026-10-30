@@ -39,7 +39,9 @@ import {
   resolveTuiAgentLaunchEnv
 } from '../../../../shared/tui-agent-launch-defaults'
 import { isTuiAgentEnabled } from '../../../../shared/tui-agent-selection'
-import { getAgentCatalog } from '@/lib/agent-catalog'
+import { getAgentCatalog, AgentIcon } from '@/lib/agent-catalog'
+import { editionSupports } from '../../../../shared/edition'
+import { resolveEditionDefaultAgent } from '@/lib/edition-default-agent'
 import { agentChoiceOpensAsChat } from '@/lib/host-chat-program'
 import { useAppStore } from '@/store'
 import { useDetectedAgents, type AgentDetectionTarget } from '@/hooks/useDetectedAgents'
@@ -47,6 +49,7 @@ import { AgentDefaultSetting } from './AgentDefaultSetting'
 import { AgentDetectionCatalog } from './AgentDetectionCatalog'
 import type { AgentCatalogRowProps } from './AgentCatalogRow'
 import { HostAgentEnvironmentEditor } from './HostAgentEnvironmentEditor'
+import { SettingsBadge, SettingsSubsectionHeader } from './SettingsFormControls'
 import { buildCodexSessionSourceHomeControl } from './codex-session-source-home-control'
 import { buildDefaultAgentOpensAs } from './native-chat-provider-choice'
 import { useHostStructuredAgentsVersion } from '@/lib/chat-provider-agents'
@@ -231,33 +234,66 @@ export function AgentLaunchSettingsCatalog({
         ? buildCodexSessionSourceHomeControl(local.settings, local.updateSettings)
         : undefined
   })
+  const agentPickerEnabled = editionSupports('agentPicker')
+  const configuredResolved = resolveEditionDefaultAgent(settings.defaultTuiAgent)
+  const configuredAgentId = configuredResolved === 'blank' ? null : configuredResolved
+  const configuredCatalogEntry = configuredAgentId
+    ? (catalog.find((entry) => entry.id === configuredAgentId) ??
+      catalog.find((entry) => entry.id === 'opencode'))
+    : null
+  const configuredDetected = configuredAgentId
+    ? (detectedIds?.has(configuredAgentId) ?? false)
+    : false
+  const configuredLabel = configuredCatalogEntry?.label ?? configuredAgentId ?? 'Blank Terminal'
+
   return (
     <>
-      <AgentDefaultSetting
-        defaultAgent={settings.defaultTuiAgent}
-        detectedIds={detectedIds}
-        enabledDetectedAgents={detectedAgents.filter((agent) =>
-          isTuiAgentEnabled(agent.id, settings.disabledTuiAgents)
-        )}
-        catalog={catalog}
-        description={translate(
-          'settings.agents.hostDefaults',
-          'Defaults for new agents on the selected host.'
-        )}
-        // The chat-or-CLI choice is this computer's, so a paired host's page doesn't offer it.
-        opensAs={
-          local
-            ? buildDefaultAgentOpensAs({
-                defaultAgent: settings.defaultTuiAgent,
-                settings: local.settings,
-                updateSettings: local.updateSettings,
-                installedHere
-              })
-            : undefined
-        }
-        onSetDefault={(agent) => save({ type: 'default', agent })}
-        defaultOpensAsChat={defaultOpensAsChat}
-      />
+      {agentPickerEnabled ? (
+        <AgentDefaultSetting
+          defaultAgent={settings.defaultTuiAgent}
+          detectedIds={detectedIds}
+          enabledDetectedAgents={detectedAgents.filter((agent) =>
+            isTuiAgentEnabled(agent.id, settings.disabledTuiAgents)
+          )}
+          catalog={catalog}
+          description={translate(
+            'settings.agents.hostDefaults',
+            'Defaults for new agents on the selected host.'
+          )}
+          // The chat-or-CLI choice is this computer's, so a paired host's page doesn't offer it.
+          opensAs={
+            local
+              ? buildDefaultAgentOpensAs({
+                  defaultAgent: settings.defaultTuiAgent,
+                  settings: local.settings,
+                  updateSettings: local.updateSettings,
+                  installedHere
+                })
+              : undefined
+          }
+          onSetDefault={(agent) => save({ type: 'default', agent })}
+          defaultOpensAsChat={defaultOpensAsChat}
+        />
+      ) : (
+        <section className="space-y-3">
+          <SettingsSubsectionHeader title={configuredLabel} />
+          <div className="flex items-center gap-3 rounded-md border border-border/50 bg-background/50 px-3 py-2">
+            {configuredCatalogEntry ? (
+              <div className="flex size-7 shrink-0 items-center justify-center rounded-md border border-border/50 bg-background/50">
+                <AgentIcon agent={configuredCatalogEntry.id} size={16} />
+              </div>
+            ) : null}
+            <span className="text-sm font-medium">{configuredLabel}</span>
+            {configuredAgentId ? (
+              <SettingsBadge tone={configuredDetected ? 'accent' : 'muted'}>
+                {configuredDetected
+                  ? translate('settings.agents.detected', 'Detected')
+                  : translate('settings.agents.notDetected', 'Not detected')}
+              </SettingsBadge>
+            ) : null}
+          </div>
+        </section>
+      )}
       {permissionSettings ? (
         <AllAgentsPermissionSetting
           chatOwnSupported={chatOwnSupported}
@@ -284,22 +320,24 @@ export function AgentLaunchSettingsCatalog({
             onChangeNonAuto: (mode) => save({ type: 'permissions', mode, exceptAuto: true }),
             autoSupported
           })}
-      <AgentDetectionCatalog
-        detectedAgents={detectedAgents}
-        undetectedAgents={undetectedAgents}
-        detectionPending={detectedIds === null}
-        detectionFailed={detectionFailed}
-        isRefreshing={isRefreshing}
-        activeServerEnvironmentId={
-          detectionTarget.kind === 'runtime' ? detectionTarget.environmentId : null
-        }
-        activeServerName={hostName}
-        onRefresh={() => {
-          void refresh()
-          refreshSettings?.()
-        }}
-        getRowProps={rowProps}
-      />
+      {agentPickerEnabled ? (
+        <AgentDetectionCatalog
+          detectedAgents={detectedAgents}
+          undetectedAgents={undetectedAgents}
+          detectionPending={detectedIds === null}
+          detectionFailed={detectionFailed}
+          isRefreshing={isRefreshing}
+          activeServerEnvironmentId={
+            detectionTarget.kind === 'runtime' ? detectionTarget.environmentId : null
+          }
+          activeServerName={hostName}
+          onRefresh={() => {
+            void refresh()
+            refreshSettings?.()
+          }}
+          getRowProps={rowProps}
+        />
+      ) : null}
     </>
   )
 }

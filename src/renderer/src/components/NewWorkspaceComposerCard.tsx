@@ -23,6 +23,7 @@ import {
 } from '../../../shared/tui-agent-selection'
 import type { RuntimeStatus } from '../../../shared/runtime-types'
 import type { TuiAgent } from '../../../shared/tui-agent'
+import { editionSupports } from '../../../shared/edition'
 import { NewWorkspaceComposerAdvancedSection } from './new-workspace/NewWorkspaceComposerAdvancedSection'
 import { NewWorkspaceComposerAgentSection } from './new-workspace/NewWorkspaceComposerAgentSection'
 import { NewWorkspaceComposerFooter } from './new-workspace/NewWorkspaceComposerFooter'
@@ -354,14 +355,16 @@ export default function NewWorkspaceComposerCard(
           selectedProjectName={selectedProjectName}
         />
         <NewWorkspaceComposerNameSection {...props} onNamePlainEnter={handleNamePlainEnter} />
-        <NewWorkspaceComposerAgentSection
-          {...props}
-          createDisabled={props.createDisabled || sparseEditing}
-          advancedLocked={sparseEditing}
-          visibleQuickAgents={visibleQuickAgents}
-          defaultTuiAgent={defaultTuiAgent}
-          handleSetDefaultAgent={handleSetDefaultAgent}
-        />
+        {editionSupports('agentPicker') && (
+          <NewWorkspaceComposerAgentSection
+            {...props}
+            createDisabled={props.createDisabled || sparseEditing}
+            advancedLocked={sparseEditing}
+            visibleQuickAgents={visibleQuickAgents}
+            defaultTuiAgent={defaultTuiAgent}
+            handleSetDefaultAgent={handleSetDefaultAgent}
+          />
+        )}
         <NewWorkspaceComposerAdvancedSection
           {...props}
           onSparseEditingChange={setSparseEditing}

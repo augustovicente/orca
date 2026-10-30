@@ -36,6 +36,15 @@ import { matchesSettingsSearch } from './settings-search'
 import { TooltipProvider } from '../ui/tooltip'
 import { resolveSettingsHostScope } from './settings-host-scope'
 
+const editionSupportsMock = vi.hoisted(() => ({ value: true }))
+
+vi.mock('../../../../shared/edition', () => ({
+  editionSupports: (capability: string) =>
+    capability === 'agentPicker' ? editionSupportsMock.value : true,
+  isTopLevelViewAvailable: () => true,
+  resolveTopLevelView: (view: unknown) => view
+}))
+
 const detectedAgentsMock = vi.hoisted(() => ({
   detectedIds: ['claude'] as TuiAgent[] | null,
   isLoading: false,
@@ -787,5 +796,43 @@ describe('empty agent detection must not cost the saved default (#15256)', () =>
     const markup = withEmptyDetection(() => renderPane(getDefaultSettings('/tmp')))
     expect(markup).toContain('No agents detected')
     expect(markup).toContain('Refresh')
+  })
+})
+
+describe('AgentsPane single-agent gating', () => {
+  beforeEach(() => {
+    editionSupportsMock.value = true
+    detectedAgentsMock.detectedIds = ['claude']
+    detectedAgentsMock.isLoading = false
+    detectedAgentsMock.detectionFailed = false
+    useAppStore.setState({
+      settingsSearchQuery: '',
+      detectedAgentIds: ['claude'],
+      isDetectingAgents: false,
+      isRefreshingAgents: false,
+      runtimeEnvironments: []
+    } as never)
+  })
+
+  it('skips the agent catalog when agentPicker is false', () => {
+    editionSupportsMock.value = false
+    const markup = renderPane(getDefaultSettings('/tmp'))
+    expect(markup).not.toContain('Installed')
+    expect(markup).not.toContain('Available to install')
+    expect(markup).toContain('OpenCode')
+    expect(markup).toContain('Not detected')
+  })
+
+  it('shows the agent catalog when agentPicker is true', () => {
+    editionSupportsMock.value = true
+    const markup = renderPane(getDefaultSettings('/tmp'))
+    expect(markup).toContain('Installed')
+  })
+
+  it('respects a blank default agent when agentPicker is false', () => {
+    editionSupportsMock.value = false
+    const markup = renderPane({ ...getDefaultSettings('/tmp'), defaultTuiAgent: 'blank' })
+    expect(markup).not.toContain('Installed')
+    expect(markup).toContain('Blank Terminal')
   })
 })

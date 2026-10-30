@@ -25,6 +25,8 @@ import { shouldAllowComposerEnterSubmitTarget } from '@/lib/new-workspace-enter-
 import { isScreenSubmitShortcut } from '@/lib/screen-submit-shortcut'
 import type { GitHubWorkItem } from '../../../shared/github/work-item-types'
 import type { TuiAgent } from '../../../shared/tui-agent'
+import { editionSupports } from '../../../shared/edition'
+import { resolveEditionDefaultAgent } from '@/lib/edition-default-agent'
 import type { WorkspaceSource as WorkspaceCreateTelemetrySource } from '../../../shared/workspace-source'
 import type { WorkspaceStatus } from '../../../shared/worktree/types'
 import type { TaskSourceContext } from '../../../shared/task-source-context'
@@ -167,13 +169,18 @@ function QuickTabBody({
   const choicePending = (agent: TuiAgent): boolean =>
     agentChoicePending(useAppStore.getState(), agent, launchWorkspace, detected)
   // Pending discovery preserves the existing catalog fallback; current facts settle the default.
-  const preferredQuickAgent = pickQuickWorkspaceAgent(
-    settings?.defaultTuiAgent,
-    cardProps.detectedAgentIds,
-    settings?.disabledTuiAgents,
-    offeredAgentIds,
-    choicePending
-  )
+  const preferredQuickAgent = editionSupports('agentPicker')
+    ? pickQuickWorkspaceAgent(
+        settings?.defaultTuiAgent,
+        cardProps.detectedAgentIds,
+        settings?.disabledTuiAgents,
+        offeredAgentIds,
+        choicePending
+      )
+    : (() => {
+        const resolved = resolveEditionDefaultAgent(settings?.defaultTuiAgent)
+        return resolved === 'blank' ? null : resolved
+      })()
   // An explicit pick stays valid where it opens as a chat without its CLI.
   const resolvedQuickAgentSelection = resolveQuickWorkspaceAgentSelection({
     quickAgentOverride,
