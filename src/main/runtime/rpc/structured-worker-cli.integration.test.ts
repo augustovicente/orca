@@ -488,6 +488,15 @@ it.each(['worker-stop', 'worker-release'] as const)(
   }
 )
 
+type ParkedMailRegistry = ReadonlyMap<unknown, unknown>
+
+function observeParkedMail(value: unknown): ParkedMailRegistry {
+  if (!isRecord(value) || !(value.parkedUntilJournalEdge instanceof Map)) {
+    throw new Error('expected actual parked mail registry')
+  }
+  return value.parkedUntilJournalEdge
+}
+
 it('worker-abandon settles and fences consumption, releases the existing binding and retains the child', async () => {
   await launch()
   const observe = host.observeJournalPublications.bind(host)
@@ -526,10 +535,7 @@ it('worker-abandon settles and fences consumption, releases the existing binding
     body: 'Do not lose this message'
   })
   const delivery = runtime.pointerDelivery()
-  const parked: unknown = Reflect.get(delivery, 'parkedUntilJournalEdge')
-  if (!(parked instanceof Map)) {
-    throw new Error('expected actual parked mail registry')
-  }
+  const parked = observeParkedMail(delivery)
   runtime.deliverPendingMessagesForHandle(mailbox)
   expect(parked.has(mailbox)).toBe(true)
   const originalForget = delivery.forgetSession.bind(delivery)
