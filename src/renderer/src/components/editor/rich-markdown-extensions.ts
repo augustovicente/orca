@@ -11,11 +11,12 @@ import { RichMarkdownLink } from './rich-markdown-link-mark'
 import { Code } from '@tiptap/extension-code'
 import Image from '@tiptap/extension-image'
 import Placeholder from '@tiptap/extension-placeholder'
-import { TaskItem } from '@tiptap/extension-list'
+import { RichMarkdownTaskItem } from './rich-markdown-task-item'
 import { RichMarkdownTable } from './rich-markdown-table'
 import { TableCell, TableHeader, TableRow } from '@tiptap/extension-table'
 import { BlockMath, InlineMath } from '@tiptap/extension-mathematics'
 import { createRichMarkdownExtension } from './rich-markdown-extension'
+import { RichMarkdownClipboardLinkOrigin } from './rich-markdown-clipboard-link-origin'
 import { createLowlight, common } from 'lowlight'
 import {
   acquireLocalImageSrcLease,
@@ -102,6 +103,7 @@ export function createRichMarkdownExtensions({
       autolink: true,
       linkOnPaste: true
     }),
+    RichMarkdownClipboardLinkOrigin,
     // Load local images through IPC/blob URLs so dev-server cross-origin restrictions cannot block file URLs.
     Image.extend({
       addStorage() {
@@ -245,7 +247,7 @@ export function createRichMarkdownExtensions({
     }),
     RichMarkdownOrderedList,
     RichMarkdownTaskList,
-    TaskItem.configure({
+    RichMarkdownTaskItem.configure({
       nested: true
     }),
     ...createOrcaDetailsExtensions(),
