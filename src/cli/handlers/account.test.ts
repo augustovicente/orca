@@ -1,4 +1,5 @@
 import type * as NodeCliCommandResolutionModule from '../../shared/node-cli-command-resolution'
+import type * as ProcessHostModule from '@orca/process-host'
 import { EventEmitter } from 'node:events'
 import { existsSync } from 'node:fs'
 import { delimiter } from 'node:path'
@@ -10,6 +11,7 @@ const {
   getVersionManagerBinPathsMock,
   readKeychainMock,
   resolveCliCommandMock,
+  runProcessMock,
   rmSyncMock,
   spawnMock,
   stdioForWindowsInteractiveChildMock,
@@ -19,6 +21,7 @@ const {
   getVersionManagerBinPathsMock: vi.fn(),
   readKeychainMock: vi.fn(),
   resolveCliCommandMock: vi.fn(),
+  runProcessMock: vi.fn(),
   rmSyncMock: vi.fn(),
   spawnMock: vi.fn(),
   stdioForWindowsInteractiveChildMock: vi.fn(),
@@ -36,6 +39,10 @@ vi.mock('node:child_process', () => ({
   execFile: vi.fn(),
   execFileSync: vi.fn(),
   spawn: spawnMock
+}))
+vi.mock('@orca/process-host', async (importOriginal) => ({
+  ...(await importOriginal<typeof ProcessHostModule>()),
+  runProcess: runProcessMock
 }))
 vi.mock('../../main/claude-accounts/keychain', () => ({
   deleteActiveClaudeKeychainCredentialsStrict: deleteKeychainMock,
@@ -62,7 +69,8 @@ import {
 } from '../../shared/windows-batch-spawn'
 import {
   ACCOUNT_IMPORT_RUNTIME_CAPABILITY,
-  CLAUDE_SIGN_IN_RUNTIME_CAPABILITY
+  CLAUDE_SIGN_IN_RUNTIME_CAPABILITY,
+  DATA_ACCOUNT_RUNTIME_CAPABILITY
 } from '../../shared/account-runtime-capabilities'
 
 function successfulChild(): EventEmitter {
@@ -119,6 +127,7 @@ describe('account CLI handlers', () => {
       dispose: vi.fn()
     }))
     resolveCliCommandMock.mockReset().mockImplementation((command: string) => command)
+    runProcessMock.mockReset()
     getVersionManagerBinPathsMock.mockReset().mockReturnValue([])
     readKeychainMock.mockReset().mockResolvedValue(null)
     deleteKeychainMock.mockReset().mockResolvedValue(undefined)
@@ -169,6 +178,77 @@ describe('account CLI handlers', () => {
       delete process.env.WSL_DISTRO_NAME
     } else {
       process.env.WSL_DISTRO_NAME = originalWslDistroName
+    }
+  })
+
+  it.each(['opencode2', 'opencode'])(
+    'adds an OpenCode account using supported %s with isolated probe and login',
+    async (supportedCommand) => {
+      callMock.mockResolvedValue({
+        id: 'test',
+        ok: true,
+        result: { capabilities: [DATA_ACCOUNT_RUNTIME_CAPABILITY] },
+        _meta: { runtimeId: 'test-runtime' }
+      })
+      resolveCliCommandMock.mockImplementation((command: string) => `/tools/${command}`)
+      runProcessMock.mockImplementation(async ({ program }) => {
+        if (program !== `/tools/${supportedCommand}`) {
+          throw new Error('ENOENT')
+        }
+        return {
+          code: 0,
+          timedOut: false,
+          stdout: '--standalone  Run with a private server instead of the background service',
+          stderr: ''
+        }
+      })
+      await ACCOUNT_HANDLERS['account add'](context('opencode', true))
+      expect(runProcessMock.mock.calls.map(([spec]) => spec.program)).toEqual(
+        supportedCommand === 'opencode2'
+          ? ['/tools/opencode2']
+          : ['/tools/opencode2', '/tools/opencode']
+      )
+      const [command, args, options] = spawnMock.mock.calls[0]
+      expect(command).toBe(`/tools/${supportedCommand}`)
+      expect(args).toEqual(['auth', 'login', '--standalone'])
+      expect(runProcessMock).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          args: ['auth', 'login', '--help'],
+          timeoutMs: 10_000,
+          env: options.env
+        })
+      )
+      expect(options.env.OPENCODE_DB).toBe('opencode.db')
+      expect(existsSync(options.env.XDG_DATA_HOME)).toBe(false)
+      expect(callMock).toHaveBeenLastCalledWith('accounts.addDataFromHome', {
+        provider: 'opencode',
+        sourceDataHome: options.env.XDG_DATA_HOME,
+        label: 'opencode'
+      })
+    }
+  )
+
+  it('explains the required OpenCode package before login when only 1.x is installed', async () => {
+    callMock.mockResolvedValue({
+      id: 'test',
+      ok: true,
+      result: { capabilities: [DATA_ACCOUNT_RUNTIME_CAPABILITY] },
+      _meta: { runtimeId: 'test-runtime' }
+    })
+    runProcessMock.mockRejectedValueOnce(new Error('ENOENT')).mockResolvedValueOnce({
+      code: 0,
+      timedOut: false,
+      stdout:
+        'opencode auth login [url]\nlog in to a provider\nOptions:\n  --pure  run without external plugins',
+      stderr: ''
+    })
+    await expect(ACCOUNT_HANDLERS['account add'](context('opencode', true))).rejects.toThrow(
+      'Install @opencode/cli (npm install -g @opencode/cli), then run this command again.'
+    )
+    expect(spawnMock).not.toHaveBeenCalled()
+    expect(callMock).toHaveBeenCalledTimes(1)
+    for (const [spec] of runProcessMock.mock.calls) {
+      expect(existsSync(spec.env.XDG_DATA_HOME)).toBe(false)
     }
   })
 
