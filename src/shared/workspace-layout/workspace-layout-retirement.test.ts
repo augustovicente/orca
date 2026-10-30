@@ -21,6 +21,7 @@ import {
   paneLeaf,
   paneSplit,
   phaseInput,
+  readRetirementProperty,
   terminal,
   tombstone
 } from './workspace-layout-retirement.test-fixture'
@@ -36,6 +37,40 @@ function expectOriginalFailure(action: () => unknown, fault: unknown): void {
   }
   expect(thrown).toBe(fault)
 }
+
+it('keeps instrumentation getter receivers, symbol lookup and original faults transparent', () => {
+  const key = Symbol('inherited observation')
+  const parent = {
+    label: 'parent',
+    get [key]() {
+      return this.label
+    }
+  }
+  const fault = new Error('observation getter')
+  const target = {
+    label: 'target',
+    get name() {
+      return this.label
+    }
+  }
+  Object.setPrototypeOf(target, parent)
+  expect(readRetirementProperty(target, key, { label: 'receiver' })).toBe('receiver')
+  Object.defineProperty(target, 'fault', {
+    get() {
+      throw fault
+    }
+  })
+  expectOriginalFailure(() => readRetirementProperty(target, 'fault', target), fault)
+  const reads: PropertyKey[] = []
+  const observed = new Proxy(target, {
+    get(source, property, receiver) {
+      reads.push(property)
+      return readRetirementProperty(source, property, receiver)
+    }
+  })
+  graph(observed)
+  expect(reads).toEqual(['label', 'name', 'label'])
+})
 
 function comparePhase(input: ReturnType<typeof phaseInput>) {
   const before = graph({ model: input.model, session: input.session })
@@ -422,7 +457,7 @@ it('charges independent retirement populations and original/final legacy work wi
           return new Proxy(value, {
             get: (target, key, receiver) => {
               count.nodeReads++
-              return Reflect.get(target, key, receiver)
+              return readRetirementProperty(target, key, receiver)
             }
           })
         }
@@ -434,7 +469,7 @@ it('charges independent retirement populations and original/final legacy work wi
           return new Proxy(value, {
             get: (target, key, receiver) => {
               count.nodeReads++
-              return Reflect.get(target, key, receiver)
+              return readRetirementProperty(target, key, receiver)
             }
           })
         }
@@ -444,7 +479,7 @@ it('charges independent retirement populations and original/final legacy work wi
               if (typeof key === 'string' && /^\d+$/.test(key)) {
                 count.arrayReads++
               }
-              return Reflect.get(target, key, receiver)
+              return readRetirementProperty(target, key, receiver)
             }
           })
         for (const value of Object.values(data.model.workspaces)) {

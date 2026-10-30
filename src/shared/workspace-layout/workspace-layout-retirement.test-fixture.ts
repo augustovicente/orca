@@ -157,10 +157,42 @@ export function cohortInput(): WorkspaceSessionState {
   return saved
 }
 
+type RetirementObservedObject = Record<string | symbol, unknown>
+
+type RetirementObservedProperty = {
+  value?: unknown
+  get?: (this: unknown) => unknown
+}
+
+function isRetirementObservedObject(value: unknown): value is RetirementObservedObject {
+  return (typeof value === 'object' && value !== null) || typeof value === 'function'
+}
+
+export function readRetirementProperty(
+  target: unknown,
+  key: PropertyKey,
+  receiver: unknown
+): unknown {
+  for (
+    let current = target;
+    isRetirementObservedObject(current);
+    current = Object.getPrototypeOf(current)
+  ) {
+    const property: RetirementObservedProperty | undefined = Object.getOwnPropertyDescriptor(
+      current,
+      key
+    )
+    if (property) {
+      return property.get ? property.get.call(receiver) : property.value
+    }
+  }
+  return undefined
+}
+
 export function graph(value: unknown): unknown {
   const seen = new Map<object, string>()
   const visit = (entry: unknown, path: string): unknown => {
-    if (typeof entry !== 'object' || entry === null) {
+    if (!isRetirementObservedObject(entry) || typeof entry === 'function') {
       return entry
     }
     const prior = seen.get(entry)
@@ -178,10 +210,7 @@ export function graph(value: unknown): unknown {
             : proto === null
               ? 'null'
               : Object.keys(proto),
-      fields: Object.keys(entry).map((key) => [
-        key,
-        visit(Reflect.get(entry, key), `${path}.${key}`)
-      ])
+      fields: Object.keys(entry).map((key) => [key, visit(entry[key], `${path}.${key}`)])
     }
   }
   return visit(value, '$')
