@@ -2,10 +2,10 @@ import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { basename, dirname, join, resolve, sep } from 'node:path'
 import {
+  hashPluginTree,
   validateDeclaredPluginArtifacts,
   validatePluginInstallContent
-} from '../../main/plugins/plugin-artifact-validation'
-import { hashPluginTree } from '../../main/plugins/plugin-content-hash'
+} from '../../main/plugins/plugin-authoring-checks'
 import { PLUGIN_CATALOG_FILENAME } from '../../shared/plugins/catalog/plugin-catalog'
 import {
   pluginApprovalGrants,
