@@ -27,11 +27,13 @@ export async function writeWindowsUserPath(value: string): Promise<void> {
 }
 
 export async function runWindowsPathCommand(args: string[]): Promise<string> {
-  const result = await runProcess({
-    program: 'powershell',
-    args,
-    timeoutMs: WINDOWS_PATH_WRITE_TIMEOUT_MS
-  })
+  const run = () =>
+    runProcess({ program: 'powershell', args, timeoutMs: WINDOWS_PATH_WRITE_TIMEOUT_MS })
+  let result = await run()
+  // Setting PATH to a fixed value is idempotent, so one retry is safe even if the first landed.
+  if (result.timedOut) {
+    result = await run()
+  }
   if (result.timedOut) {
     throw new Error(`Windows PATH command timed out after ${WINDOWS_PATH_WRITE_TIMEOUT_MS}ms.`)
   }
