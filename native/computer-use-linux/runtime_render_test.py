@@ -353,8 +353,13 @@ class RuntimeRenderTest(unittest.TestCase):
             {"name": "delayed AT-SPI focus", "ack": False, "delay": 0.1, "expected": True, "native": False},
             {"name": "ineffective true acknowledgment", "ack": True, "expected": True, "native": True},
             {"name": "ineffective false acknowledgment", "ack": False, "expected": True, "native": True},
+            {"name": "unmanaged helper", "ids": "70\n71\n", "managed": [71], "expected": True, "native": True},
+            {"name": "minimized selected window", "minimized": True, "expected": True, "native": True},
             {"name": "two accessible windows", "windows": 2},
             {"name": "two native windows", "ids": "72\n71\n"},
+            {"name": "missing managed stack", "managed": None},
+            {"name": "failed managed window identity", "managed": [71, None]},
+            {"name": "invalid managed window identity", "managed": [71, 0]},
             {"name": "Wayland", "session": "wayland"},
             {"name": "search timeout", "timeout": "search"},
             {"name": "activation timeout", "timeout": "windowactivate"},
@@ -370,7 +375,10 @@ class RuntimeRenderTest(unittest.TestCase):
                 def state():
                     if fixture.clock >= case.get("delay", float("inf")):
                         active[0] = 71
-                    return FakeStateSet(*([FakeStateType.ACTIVE] if active[0] == 71 else []))
+                    states = [] if case.get("minimized") else [FakeStateType.SHOWING]
+                    if active[0] == 71:
+                        states.append(FakeStateType.ACTIVE)
+                    return FakeStateSet(*states)
 
                 def sleep(seconds):
                     fixture.clock += seconds
@@ -400,6 +408,9 @@ class RuntimeRenderTest(unittest.TestCase):
                      patch.object(runtime.Atspi.Component, "grab_focus", lambda _: case.get("ack", False), create=True), \
                      patch.object(runtime.Atspi, "KeySynthType", types.SimpleNamespace(STRING=1), create=True), \
                      patch.object(runtime.Atspi, "generate_keyboard_event", lambda *_: keys.append(active[0]), create=True), \
+                     patch.object(runtime.Gdk, "Screen", types.SimpleNamespace(get_default=lambda: types.SimpleNamespace(
+                         get_window_stack=lambda: case.get("managed", [71, 72]))), create=True), \
+                     patch.object(runtime, "GdkX11", types.SimpleNamespace(X11Window=types.SimpleNamespace(get_xid=int)), create=True), \
                      patch.object(runtime.shutil, "which", lambda _: "/usr/bin/xdotool"), \
                      patch.object(runtime.subprocess, "run", native), \
                      patch.dict(runtime.os.environ, {"XDG_SESSION_TYPE": case.get("session", "x11")}):

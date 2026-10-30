@@ -40,17 +40,23 @@ def main():
     baseline = load_runtime(sources / "baseline/native/computer-use-linux/runtime.py", "focus_baseline")
     candidate = load_runtime(sources / "candidate/native/computer-use-linux/runtime.py", "focus_candidate")
     with (args.out / "probe.log").open("ab") as log:
-        for sibling in (False, True):
+        for mode in ("one-window", "minimized", "two-windows"):
+            sibling = mode == "two-windows"
             os.environ["BENCH_FOCUS_SIBLING"] = "1" if sibling else "0"
-            trial = bench.Trial(args, args.out / ("two-windows" if sibling else "one-window"), log)
-            row = {"sibling": sibling}
+            trial = bench.Trial(args, args.out / mode, log)
+            row = {"mode": mode, "sibling": sibling}
             evidence["trials"].append(row)
             try:
                 trial.launch()
                 trial.target = trial.state()["nativeWindowId"]
                 if not trial.target or obs.main_display().pid_of(trial.target) != trial.pid:
                     raise AssertionError("primary fixture native identity was not confirmed")
-                trial.prepare("type_submit")
+                def prepare():
+                    trial.prepare("type_submit")
+                    if mode == "minimized":
+                        obs.xdotool("windowminimize", trial.target)
+                        bench.wait_for(lambda: (obs.main_display().prop_longs(trial.target, "WM_STATE") or [0])[0] == 3)
+                prepare()
                 app = bench.wait_for(lambda: baseline.attempt(lambda: baseline.find_app(f"pid:{trial.pid}")))
                 if sibling:
                     bench.wait_for(lambda: len(baseline.windows_for(app)) == 2)
@@ -61,6 +67,8 @@ def main():
                 row.update({"pid": trial.pid, "fixture_window": trial.target, "atspi_index": index,
                             "atspi_windows": [i for i, _ in baseline.windows_for(app)],
                             "native_ids": obs.xdotool("search", "--pid", trial.pid).stdout.split()})
+                row["managed_ids"] = [value for value in row["native_ids"]
+                                      if int(value) in obs.main_display().stacking()]
 
                 def trace():
                     return {"selected_active": baseline.has_state(window, baseline.Atspi.StateType.ACTIVE),
@@ -78,18 +86,18 @@ def main():
                 if not row["after_grab"][-1]["selected_active"]:
                     try:
                         result = obs.xdotool("search", "--pid", trial.pid, "windowactivate", "--sync")
-                        row["legacy_fallback"] = {"status": result.returncode, "stderr": result.stderr}
+                        row["manual_legacy_fallback"] = {"status": result.returncode, "stderr": result.stderr}
                     except Exception as error:
-                        row["legacy_fallback"] = {"error": repr(error)}
+                        row["manual_legacy_fallback"] = {"error": repr(error)}
                     time.sleep(0.5)
                     row["after_legacy"] = trace()
-                trial.prepare("type_submit")
-                ids = row["native_ids"]
+                prepare()
+                ids = row["managed_ids"]
                 if not sibling and len(ids) == 1:
                     result = obs.xdotool("windowactivate", "--sync", ids[0])
                     time.sleep(0.5)
                     row["explicit_fallback"] = {"status": result.returncode, "after": trace()}
-                trial.prepare("type_submit")
+                prepare()
                 row["candidate_before"] = trace()
                 candidate_app = candidate.find_app(f"pid:{trial.pid}")
                 _, candidate_window = candidate.choose_window(candidate_app, window_index=index)

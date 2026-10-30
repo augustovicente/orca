@@ -69,8 +69,10 @@ a violation of the current public typing contract. Click-then-type tasks exercis
 the existing sequence, although this benchmark still bypasses public transports.
 
 The Linux Electron job also records restoration stages in `focus-probe/results.json`.
-It records the AT-SPI focus acknowledgment, selected ACTIVE state, legacy PID fallback,
-explicit singleton activation and the candidate's behavior with two same-PID windows.
+It records the AT-SPI focus acknowledgment, selected ACTIVE state, manual legacy PID
+fallback, managed/native IDs, explicit singleton activation, minimized restoration
+and the candidate's behavior with two same-PID windows. Managed windows include
+minimized windows and exclude unmanaged helper windows.
 The primary fixture publishes its native ID, checked against its PID before the probe.
 Probe success establishes restoration behavior; actual text-and-submit completion
 comes from the separate task results above.

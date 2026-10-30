@@ -35,6 +35,12 @@ except (ImportError, ValueError):
     GdkPixbuf = None
 from gi.repository import Atspi
 
+try:
+    gi.require_version("GdkX11", "3.0")
+    from gi.repository import GdkX11
+except (ImportError, ValueError):
+    GdkX11 = None
+
 MAX_NODES = 1200
 MAX_DEPTH = 64
 TEXT_LIMIT = 500
@@ -203,7 +209,14 @@ def restore_window(app, window=None):
         result = subprocess.run([xdotool, "search", "--pid", str(pid)],
                                 check=False, capture_output=True, text=True, timeout=2)
         ids = result.stdout.split()
-        if result.returncode != 0 or len(ids) != 1 or not ids[0].isdigit() or int(ids[0]) <= 0:
+        if result.returncode != 0 or any(not value.isdigit() or int(value) <= 0 for value in ids):
+            return
+        managed_ids = attempt(lambda: {str(GdkX11.X11Window.get_xid(item))
+                                      for item in Gdk.Screen.get_default().get_window_stack()})
+        if managed_ids is None or any(not value.isdigit() or int(value) <= 0 for value in managed_ids):
+            return
+        ids = [value for value in ids if value in managed_ids]
+        if len(ids) != 1:
             return
         subprocess.run([xdotool, "windowactivate", "--sync", ids[0]], check=False,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2)
