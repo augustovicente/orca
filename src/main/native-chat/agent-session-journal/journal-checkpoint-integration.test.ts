@@ -1,4 +1,5 @@
 import { once } from 'node:events'
+import { statSync } from 'node:fs'
 import { mkdtemp, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -8,6 +9,31 @@ import Database from '../../sqlite/sync-database'
 import { JournalHostDatabase, journalDatabasePath } from './journal-host-database'
 import { journalDatabaseHoldsAgentSessions } from './journal-database'
 import { JOURNAL_DB_SCHEMA_VERSION } from './journal-database-schema'
+import { journalCheckpointWorkerSource } from './journal-checkpoint-worker-source'
+import type * as WorkerSource from './journal-checkpoint-worker-source'
+
+// Read native configuration on the actual evaluated production connection, without a lifecycle ACK.
+vi.mock('./journal-checkpoint-worker-source', async (original) => {
+  const source = await original<typeof WorkerSource>()
+  return {
+    journalCheckpointWorkerSource: `
+const sqlite = require('node:sqlite');
+const nativePrepare = sqlite.DatabaseSync.prototype.prepare;
+let configuration;
+sqlite.DatabaseSync.prototype.prepare = function(sql) {
+  if (sql === 'PRAGMA wal_checkpoint(NOOP)') {
+    configuration = Object.fromEntries(['journal_mode', 'synchronous', 'checkpoint_fullfsync', 'journal_size_limit'].map(
+      (name) => [name, Object.values(nativePrepare.call(this, 'PRAGMA ' + name).get())[0]]
+    ));
+  }
+  return nativePrepare.call(this, sql);
+};
+const port = require('node:worker_threads').parentPort;
+const nativePost = port.postMessage.bind(port);
+port.postMessage = (message) => nativePost({ ...message, configuration });
+${source.journalCheckpointWorkerSource}`
+  }
+})
 
 let root: string
 let host: JournalHostDatabase | undefined
@@ -26,23 +52,32 @@ async function open() {
 
 it('moves checkpoints off the writer, retries a pinned idle tail, reclaims on reuse, and closes last', async () => {
   let checked: { log: number; checkpointed: number } | undefined
-  let observed = false
+  const workers: Worker[] = []
+  let exited = false
+  const pending = new Set<number>()
   const post = Worker.prototype.postMessage
   vi.spyOn(Worker.prototype, 'postMessage').mockImplementation(function (this: Worker, request) {
-    if (!observed && request?.type === 'check') {
-      observed = true
+    if (workers.length === 0 && request?.type === 'check') {
+      workers.push(this)
+      this.on('exit', () => {
+        exited = true
+      })
       this.on('message', (message) => {
         if (message.type === 'checked') {
           checked = message
+          pending.delete(message.id)
         }
       })
+    }
+    if (request?.type === 'check') {
+      pending.add(request.id)
     }
     return post.call(this, request)
   })
   const database = await open()
   const db = database.db
-  expect(db.pragma('wal_autocheckpoint', { simple: true })).toBe(1000)
-  await vi.waitFor(() => expect(db.pragma('wal_autocheckpoint', { simple: true })).toBe(0))
+  expect(db.pragma('wal_autocheckpoint', { simple: true })).toBe(0)
+  await vi.waitFor(() => expect(checked).toBeDefined())
   expect(db.pragma('synchronous', { simple: true })).toBe(2)
   expect(db.pragma('checkpoint_fullfsync', { simple: true })).toBe(1)
   db.exec('CREATE TABLE checkpoint_probe (value BLOB)')
@@ -77,22 +112,58 @@ it('moves checkpoints off the writer, retries a pinned idle tail, reclaims on re
     database.transaction((writer) =>
       writer.exec('INSERT INTO checkpoint_probe VALUES (zeroblob(10))')
     )
-    expect((await stat(`${journalDatabasePath(root)}-wal`)).size).toBeLessThanOrEqual(65536)
+    expect(statSync(`${journalDatabasePath(root)}-wal`).size).toBeLessThanOrEqual(65536)
   } finally {
     reader.close()
   }
+  const [worker] = workers
+  expect(worker).toBeDefined()
+  let terminated = false
+  const terminate = worker!.terminate.bind(worker)
+  vi.spyOn(worker!, 'terminate').mockImplementation(async () => {
+    const code = await terminate()
+    terminated = true
+    return code
+  })
+  const close = db.close.bind(db)
+  vi.spyOn(db, 'close').mockImplementation(() => {
+    expect(exited).toBe(true)
+    expect(terminated).toBe(true)
+    return close()
+  })
+  // Pending production work is retired before writer close; this does not prove an active native call.
+  expect(pending.size).toBe(1)
   await database.close()
   await expect(stat(`${journalDatabasePath(root)}-wal`)).rejects.toMatchObject({ code: 'ENOENT' })
   host = JournalHostDatabase.open(root)
   expect(host.db.prepare('SELECT count(*) AS n FROM checkpoint_probe').get()?.n).toBe(5)
+  expect(
+    host.db
+      .prepare(
+        'SELECT length(value) AS bytes, value = zeroblob(length(value)) AS zeros FROM checkpoint_probe ORDER BY rowid'
+      )
+      .all()
+  ).toEqual([100, 200000, 200000, 200000, 10].map((bytes) => ({ bytes, zeros: 1 })))
+  expect(host.db.pragma('quick_check', { simple: true })).toBe('ok')
 })
 
 it.each(['ordinary', 'streamed', 'autocommit'])(
   'does not reject a committed %s write when maintenance fails',
   async (mode) => {
+    let initialSettled = false
+    const send = Worker.prototype.postMessage
+    vi.spyOn(Worker.prototype, 'postMessage').mockImplementation(function (this: Worker, request) {
+      this.on('message', (message) => {
+        if (message.type === 'checked' && message.id === request?.id) {
+          initialSettled = true
+        }
+      })
+      return send.call(this, request)
+    })
     const database = await open()
     const db = database.db
-    await vi.waitFor(() => expect(db.pragma('wal_autocheckpoint', { simple: true })).toBe(0))
+    await vi.waitFor(() => expect(initialSettled).toBe(true))
+    expect(db.pragma('wal_autocheckpoint', { simple: true })).toBe(0)
     db.exec('CREATE TABLE checkpoint_probe (value INTEGER)')
     const post = vi.spyOn(Worker.prototype, 'postMessage').mockImplementation(() => {
       throw new Error('post failed')
@@ -133,24 +204,29 @@ it('never starts maintenance for probes or a newer read-only journal', async () 
 })
 
 it('configures the maintenance connection for full checkpoint flushing without changing journal mode', async () => {
-  const { journalCheckpointWorkerSource } = await import('./journal-checkpoint-worker-source')
   const database = await open()
   const worker = new Worker(journalCheckpointWorkerSource, {
     eval: true,
     workerData: { filename: journalDatabasePath(root), sizeLimit: 65536 }
   })
+  const exited = once(worker, 'exit')
+  worker.unref()
   try {
-    expect((await once(worker, 'message'))[0]).toEqual({
-      type: 'ready',
-      synchronous: 2,
-      checkpoint_fullfsync: 1,
-      journal_size_limit: 65536
+    const checked = once(worker, 'message')
+    worker.postMessage({ type: 'check', id: 1 })
+    expect((await checked)[0]).toMatchObject({
+      type: 'checked',
+      id: 1,
+      configuration: {
+        journal_mode: 'wal',
+        synchronous: 2,
+        checkpoint_fullfsync: 1,
+        journal_size_limit: 65536
+      }
     })
-    const exited = once(worker, 'exit')
-    worker.postMessage('close')
-    await exited
     expect(database.db.pragma('journal_mode', { simple: true })).toBe('wal')
   } finally {
     await worker.terminate()
+    await exited
   }
 })

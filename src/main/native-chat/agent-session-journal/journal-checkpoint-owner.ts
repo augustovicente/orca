@@ -7,17 +7,15 @@ import { JOURNAL_SIZE_LIMIT_BYTES } from './journal-database'
 
 const HEALTH_TIMEOUT_MS = 5000
 
-type CheckpointResponse = { type: 'ready' | 'checked' | 'closed'; id?: number }
+type CheckpointResponse = { type: 'checked'; id?: number }
 
 /** Maintenance never participates in write admission or the durability acknowledgement. */
 export class JournalCheckpointOwner {
   private worker: WorkerRequestTransport | undefined
   private exited: Promise<void> = Promise.resolve()
   private deadline: ReturnType<typeof setTimeout> | undefined
-  private healthy = false
   private stopped = false
   private closing = false
-  private acknowledgedClose = false
   private pending: number | undefined
   private nextRequest = 0
   private dirty = false
@@ -59,7 +57,10 @@ export class JournalCheckpointOwner {
       worker.on('message', (message: CheckpointResponse) => this.receive(message))
       worker.on('error', (error: Error) => this.fallback(error))
       worker.unref()
-      this.armDeadline()
+      this.restoreNeeded = true
+      this.writer.pragma('wal_autocheckpoint = 0')
+      // Cover schema/setup debt even when no future write arrives.
+      this.afterCommit()
     } catch (error) {
       this.fallback(error)
     }
@@ -75,7 +76,7 @@ export class JournalCheckpointOwner {
         return
       }
       this.dirty = true
-      if (!this.healthy || this.pending !== undefined) {
+      if (this.pending !== undefined) {
         return
       }
       this.dirty = false
@@ -100,26 +101,11 @@ export class JournalCheckpointOwner {
   }
 
   private receive(message: CheckpointResponse): void {
-    if (message.type === 'closed') {
-      this.acknowledgedClose = true
-      return
-    }
     if (this.stopped || this.closing) {
       return
     }
     try {
-      if (message.type === 'ready') {
-        this.writer.pragma('wal_autocheckpoint = 0')
-        this.healthy = true
-        this.restoreNeeded = true
-        this.clearDeadline()
-        // Also check schema/setup writes and writes made while the worker was starting.
-        this.afterCommit()
-      } else if (
-        message.type === 'checked' &&
-        message.id === this.pending &&
-        this.pending !== undefined
-      ) {
+      if (message.type === 'checked' && message.id === this.pending && this.pending !== undefined) {
         this.pending = undefined
         this.clearDeadline()
         if (this.dirty) {
@@ -137,7 +123,6 @@ export class JournalCheckpointOwner {
     }
     const first = !this.stopped
     this.stopped = true
-    this.healthy = false
     this.clearDeadline()
     this.restoreNeeded = true
     try {
@@ -203,38 +188,8 @@ export class JournalCheckpointOwner {
   private async finishClose(): Promise<void> {
     const worker = this.worker
     if (worker) {
-      // A close timeout requests termination; only observed exit releases the native connection.
-      let timeout: ReturnType<typeof setTimeout> | undefined
-      const forcedExit = new Promise<void>((resolve, reject) => {
-        timeout = setTimeout(() => {
-          try {
-            void worker
-              .terminate()
-              .then(() => this.exited)
-              .then(resolve, reject)
-          } catch (error) {
-            reject(error)
-          }
-        }, this.options.timeoutMs ?? HEALTH_TIMEOUT_MS)
-      })
-      try {
-        if (!this.stopped) {
-          try {
-            worker.postMessage('close')
-          } catch (error) {
-            this.warn(error)
-            await worker.terminate()
-          }
-        } else {
-          await worker.terminate()
-        }
-        await Promise.race([this.exited, forcedExit])
-        if (!this.acknowledgedClose && !this.stopped) {
-          this.warn(new Error('checkpoint worker retired without a close acknowledgement'))
-        }
-      } finally {
-        clearTimeout(timeout)
-      }
+      await worker.terminate()
+      await this.exited
       this.worker = undefined
     }
     this.restoreNeeded = true

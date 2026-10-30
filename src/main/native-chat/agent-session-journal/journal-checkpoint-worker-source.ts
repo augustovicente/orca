@@ -28,22 +28,7 @@ try {
       idle = setTimeout(() => check(true), 1000);
     }
   };
-  parentPort.on('message', (request) => {
-    if (request === 'close') {
-      clearTimeout(idle);
-      db.close();
-      parentPort.postMessage({ type: 'closed' });
-      parentPort.close();
-    } else {
-      check(false, request.id);
-    }
-  });
-  parentPort.postMessage({
-    type: 'ready',
-    synchronous: db.prepare('PRAGMA synchronous').get().synchronous,
-    checkpoint_fullfsync: db.prepare('PRAGMA checkpoint_fullfsync').get().checkpoint_fullfsync,
-    journal_size_limit: db.prepare('PRAGMA journal_size_limit').get().journal_size_limit
-  });
+  parentPort.on('message', (request) => check(false, request.id));
 } catch (error) {
   db?.close();
   throw error;
