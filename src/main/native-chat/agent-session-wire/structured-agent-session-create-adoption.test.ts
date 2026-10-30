@@ -331,6 +331,7 @@ it('healthy recognized adoption reaches real create, reservation and send settle
   const broken = join(rig.root, 'accounts', 'broken', 'overlays', 'a'.repeat(32))
   await mkdir(join(X, 'sessions'), { recursive: true })
   await mkdir(H)
+  await writeFile(join(H, 'auth.json'), '{}')
   await mkdir(broken, { recursive: true })
   const params = await adoptedParams()
   const transcript = join(X, 'sessions', 'rollout.jsonl')
