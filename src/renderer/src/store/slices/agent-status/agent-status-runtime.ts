@@ -1,5 +1,6 @@
 import { projectAgentPaneConversation } from '../agent-pane-conversation'
 import { createAgentStatusChangePublication } from './agent-status-change-publication'
+import { applyAgentStatusBatchUpdate } from './agent-status-batch-update'
 import type { StateCreator } from 'zustand'
 import type { AppState } from '../../types'
 import type {
@@ -123,28 +124,7 @@ export function createAgentStatusRuntime(
       return false
     }
     const revisionBeforeUpdate = batchedAgentStatusRevision
-    const actions = getActions()
-    if (update.kind === 'providerSession') {
-      actions.recordAgentProviderSession(
-        update.paneKey,
-        update.agent,
-        update.providerSession,
-        update.timing,
-        update.routing,
-        update.metadata
-      )
-    } else if (update.kind === 'programStatus') {
-      actions.setAgentProgramStatus(update.paneKey, update.programStatus)
-    } else {
-      actions.setAgentStatus(
-        update.paneKey,
-        update.payload,
-        update.terminalTitle,
-        update.timing,
-        update.routing,
-        update.metadata
-      )
-    }
+    applyAgentStatusBatchUpdate(getActions(), update)
     return batchedAgentStatusRevision !== revisionBeforeUpdate
   }
 

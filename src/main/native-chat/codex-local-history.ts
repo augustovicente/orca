@@ -76,7 +76,7 @@ export async function readCodexLocalHistory(input: {
     let offset = 0
     let ordinal = segment.start
     let first = true
-    const strictOrdinals = segment.end !== undefined || segment.start > 0
+    const strictOrdinals = segment.end !== undefined
     for await (const raw of lines(segment.path, segment.end)) {
       offset += raw.byteLength
       bytes += raw.byteLength

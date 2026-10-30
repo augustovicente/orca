@@ -88,6 +88,7 @@ export abstract class DaemonPtySpawnResult extends DaemonPtySpawnRequest {
     // Both ids: adoptSpawnResultSession may have rewritten sessionId to the claim owner.
     this.clearSessionAwaitingDaemonRecovery(requestedSessionId)
     this.clearSessionAwaitingDaemonRecovery(sessionId)
+    this.ptyInventory.spawned(sessionId, result.incarnationId)
     const exitedResult = this.resultForExitBeforeSpawnReply(sessionId, result, operation)
     if (exitedResult) {
       operation.switchSettlement?.consume('exited')
@@ -163,6 +164,7 @@ export abstract class DaemonPtySpawnResult extends DaemonPtySpawnRequest {
         effectiveRows = restoreInfo.rows
         result = await createOrAttach(historySeedSegments)
         await adoptSpawnResultSession(result)
+        this.ptyInventory.spawned(sessionId, result.incarnationId)
         const exitedRetryResult = this.resultForExitBeforeSpawnReply(sessionId, result, operation)
         if (exitedRetryResult) {
           operation.switchSettlement?.consume('exited')
@@ -284,15 +286,14 @@ export abstract class DaemonPtySpawnResult extends DaemonPtySpawnRequest {
       }
     }
 
-    const isReattach = !result.isNew
-    if (!isReattach || !result.snapshot) {
+    if (result.isNew || !result.snapshot) {
       return finalizeSpawnResult({
         id: sessionId,
         ...daemonSpawnResultIdentity(result),
         pid,
         ...(providerWslDistro !== undefined ? { wslDistro: providerWslDistro } : {}),
         ...(providerSequence ? { providerSequence } : {}),
-        ...(isReattach ? { isReattach: true } : {})
+        ...(!result.isNew ? { isReattach: true } : {})
       })
     }
 

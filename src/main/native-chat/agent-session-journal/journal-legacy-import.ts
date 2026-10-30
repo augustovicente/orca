@@ -3,7 +3,11 @@ import type {
   LegacyImportResult,
   PreparedLegacyImport
 } from './journal-legacy-import-contract'
-import { LEGACY_IMPORT_BLOCK_LIMITS, legacyItemBody } from './journal-legacy-import-body'
+import {
+  LEGACY_IMPORT_BLOCK_LIMITS,
+  replacementItem,
+  replacementItems
+} from './journal-legacy-import-body'
 import {
   adoptedTranscriptSourceObserver,
   validateAdoptedOpenCodeSource,
@@ -103,6 +107,7 @@ export async function prepareLegacyTranscriptImport(input: {
       codexSessionsDirs: options.source?.conversationStore
         ? [options.source.conversationStore]
         : options.codexSessionsDirs,
+      signal: options.signal,
       decodedMessageIdentities: options.decodedMessageIdentities,
       limits
     })
@@ -130,7 +135,7 @@ async function prepareOpenCodeImport(input: {
       return { ok: false, error: 'The conversation database is unavailable.' }
     }
     try {
-      await validateAdoptedOpenCodeSource(dbPath, input.options.source)
+      await validateAdoptedOpenCodeSource(dbPath, input.options.source, input.options.signal)
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) }
     }
@@ -157,35 +162,6 @@ async function prepareOpenCodeImport(input: {
   }
 }
 
-function replacementItems(
-  messages: readonly NativeChatMessage[],
-  identities: readonly AgentJournalItemIdentity[],
-  limits: JournalPayloadLimits
-): JournalReplacementItem[] {
-  const replacement: JournalReplacementItem[] = []
-  for (const [index, message] of messages.entries()) {
-    const identity = identities[index]
-    if (identity) {
-      replacement.push(replacementItem(message, identity, limits))
-    }
-  }
-  return replacement
-}
-
-function replacementItem(
-  message: NativeChatMessage,
-  identity: AgentJournalItemIdentity,
-  limits: JournalPayloadLimits
-): JournalReplacementItem {
-  return {
-    identity,
-    body: legacyItemBody(message, limits),
-    observedAt: message.timestamp ?? undefined,
-    // Imported history belongs to no active generation, even when saved rows claim to be running.
-    ownerFence: 0
-  }
-}
-
 const TRANSCRIPT_DECODERS = {
   claude: decodeClaudeTranscriptLine,
   codex: (line: string, fallbackId: string) =>
@@ -204,6 +180,7 @@ async function decodeReplacementItems(input: {
   decodedMessageIdentities?: true
   source?: AdoptedTranscriptSource
   codexSessionsDirs?: string[]
+  signal?: AbortSignal
   limits: JournalPayloadLimits
 }): Promise<{
   items: JournalReplacementItem[]
@@ -215,6 +192,7 @@ async function decodeReplacementItems(input: {
         agent: input.agent,
         filePath: input.filePath,
         source: input.source,
+        signal: input.signal,
         maxSourceBytes: MAX_LEGACY_IMPORT_RECORD_BYTES
       })
     : null
@@ -223,7 +201,6 @@ async function decodeReplacementItems(input: {
     agent: input.agent,
     sessionId: input.agent === 'pi' ? input.filePath : input.sessionId
   })
-  const decode = TRANSCRIPT_DECODERS[input.transcriptAgent]
   const toItem = (message: NativeChatMessage, identity: AgentJournalItemIdentity) =>
     replacementItem(message, identity, input.limits)
   const retained = createNewestItemWindow(MAX_LEGACY_IMPORT_RETAINED_BYTES)
@@ -268,7 +245,7 @@ async function decodeReplacementItems(input: {
           pi.record(line, fallbackId, currentLineIndex)
           return null
         }
-        const message = decode(line, fallbackId)
+        const message = TRANSCRIPT_DECODERS[input.transcriptAgent](line, fallbackId)
         if (message) {
           retained.push(
             toItem(

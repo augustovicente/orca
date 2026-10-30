@@ -1,4 +1,5 @@
 import { isSessionTabSelectionRequest } from '../../../../shared/session-tab-placement'
+import { captureMobileTerminalCreatePlacement } from './mobile-terminal-create-anchor'
 import { OrcaRuntimeWithReconcileOwnedMobileTerminal } from './mobile-terminal-create-reconciliation'
 import type {
   RuntimeMobileSessionCreateTerminalResult,
@@ -13,10 +14,7 @@ import {
 } from './mobile-terminal-create'
 import { randomUUID } from 'node:crypto'
 import { deriveRemoteRuntimeTerminalCreateHandle } from '../../remote-runtime-terminal-create-identity'
-import {
-  placeCreatedSessionTab,
-  captureSessionTabPlacement
-} from '../../../../shared/session-tab-placement'
+import { placeCreatedSessionTab } from '../../../../shared/session-tab-placement'
 import type { OrcaRuntimeWithBuildPtyTerminalSummary as PtyTerminalSummaryMethods } from '../query/pty-terminal-summary'
 import {
   buildHeadlessMobileSessionTabGroups,
@@ -41,7 +39,13 @@ export abstract class OrcaRuntimeWithCreateRuntimeOwnedMobileSessionTerminal ext
     opts: OwnedMobileTerminalCreateOptions = {}
   ): Promise<RuntimeMobileSessionCreateTerminalResult> {
     pruneOwnedMobileTerminalDispatchRecipes(this.ownedMobileDispatchRecipes)
-    const workspace = await this.resolveTerminalWorkspaceLaunchScope(`id:${worktreeId}`)
+    const workspace = await this.resolveTerminalWorkspaceLaunchScope(
+      `id:${worktreeId}`,
+      undefined,
+      {
+        wslUserAct: opts.wslUserAct === true
+      }
+    )
     const cwd = this.resolveWorkspaceTerminalStartupCwd(workspace, opts.cwd)
     // Why: an SSH sessionId means reattach; only synthesize local serve ids so SSH fresh terminals still call pty.spawn.
     const stableSessionId =
@@ -114,25 +118,20 @@ export abstract class OrcaRuntimeWithCreateRuntimeOwnedMobileSessionTerminal ext
         ...(opts.resumesSleepingRecord ? { resumesSleepingRecord: true } : {})
       })
     const beforeCreate = this.mobileSessionTabsByWorktree.get(worktreeId)
-    const anchor = beforeCreate?.tabs.find((tab) => tab.id === afterTabId)
-    const anchorParentId =
-      opts.afterDesktopTabId ?? (anchor?.type === 'terminal' ? anchor.parentTabId : anchor?.id)
-    const sourceGroup = beforeCreate?.tabGroups?.find((group) =>
-      group.tabOrder.includes(anchorParentId ?? '')
+    const { sourceGroup, capturedOrder, capturedTabs } = captureMobileTerminalCreatePlacement(
+      beforeCreate,
+      afterTabId,
+      opts.afterDesktopTabId
     )
     let targetGroupId = opts.targetGroupId ?? sourceGroup?.id
-    const capturedOrder = captureSessionTabPlacement(sourceGroup?.tabOrder ?? [], anchorParentId)
-    const capturedTabs = captureSessionTabPlacement(
-      beforeCreate?.tabs.map((tab) => tab.id) ?? [],
-      afterTabId
-    )
     const terminal = opts.createMutation
       ? await this.dedupeTerminalCreate(
           opts.createMutation.clientIdentity,
           `id:${worktreeId}`,
           opts.createMutation.id,
           true,
-          (_selector, handle) => create(handle)
+          (_selector, handle) => create(handle),
+          { wslUserAct: opts.wslUserAct === true }
         )
       : await create()
     if (terminal.ptyId) {

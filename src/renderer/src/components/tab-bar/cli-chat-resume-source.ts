@@ -41,6 +41,8 @@ export function resolveCliChatResumeSource(
   const conversation = args.paneKey
     ? paneConversation(args.paneKey)
     : collectAgentPaneConversations(state, adoptsCliConversations, {
+        runningAgentsOnly: true,
+        includeLastReported: true,
         tab: { worktreeId: args.tab.worktreeId, tabId: args.tab.id }
       }).find((candidate) => candidate.tabId === args.tab.id)
   const offer = conversation

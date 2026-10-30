@@ -323,12 +323,18 @@ function isSameNameCopy(property, name) {
 /** Only the property-name argument of the standard presence read is a read. */
 function isOwnPresenceRead(node) {
   const call = node.parent
-  if (!ts.isCallExpression(call) || call.arguments[1] !== node) {
+  if (
+    !ts.isCallExpression(call) ||
+    call.questionDotToken ||
+    call.arguments.length !== 2 ||
+    call.arguments[1] !== node
+  ) {
     return false
   }
   const callee = call.expression
   return (
     ts.isPropertyAccessExpression(callee) &&
+    !callee.questionDotToken &&
     callee.name.text === 'hasOwn' &&
     ts.isIdentifier(callee.expression) &&
     callee.expression.text === 'Object'

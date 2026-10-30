@@ -56,11 +56,10 @@ export async function spawnNativeDaemonPty(args: {
   primaryArgsRespawnSafe?: boolean
   signal?: AbortSignal
   assertCreateAllowed?: () => void
-  retainCanceledChild?: boolean
   onMacosTccSpawnStrategy?: (strategy: 'wrapped' | 'direct') => void
 }): Promise<SpawnedDaemonPty> {
   let reportsChildExitStatus = true
-  let lastAttempt: Promise<PtyCreationDisposition> | undefined
+  let unpublishedOwner: DaemonPtyPhysicalOwner | undefined
   const spawnOnce = async (
     shellPath: string,
     shellArgs: string[],
@@ -78,7 +77,6 @@ export async function spawnNativeDaemonPty(args: {
     args.signal?.throwIfAborted()
     args.assertCreateAllowed?.()
     const attempt = Promise.withResolvers<PtyCreationDisposition>()
-    lastAttempt = attempt.promise
     args.creationWork?.join(attempt.promise)
     let proc: pty.IPty
     try {
@@ -95,19 +93,15 @@ export async function spawnNativeDaemonPty(args: {
       attempt.resolve({ kind: 'failed', completion: Promise.resolve() })
       throw error
     }
-    let physical: DaemonPtyPhysicalOwner
-    try {
-      physical = createDaemonPtyPhysicalOwner(proc)
-      attempt.resolve({
-        kind: 'physical',
-        completion: physical.completion,
-        exitCode: physical.exitCode,
-        recover: physical.recover
-      })
-    } catch (error) {
-      attempt.resolve({ kind: 'unknown' })
-      throw error
-    }
+    const physical = createDaemonPtyPhysicalOwner(proc)
+    unpublishedOwner = physical
+    attempt.resolve({
+      kind: 'physical',
+      completion: physical.completion,
+      exitCode: physical.exitCode,
+      recover: physical.recover
+    })
+    physical.observeExit()
     reportsChildExitStatus = hostReportsChildExitStatus(tcc.file)
     try {
       args.onMacosTccSpawnStrategy?.(tcc.file === shellPath ? 'direct' : 'wrapped')
@@ -128,7 +122,6 @@ export async function spawnNativeDaemonPty(args: {
     return spawnConptyWithInputReader(() => spawnOnce(shellPath, shellArgs, cwd), {
       label: shellPath,
       respawnSafe,
-      retainCanceledChild: args.retainCanceledChild,
       ...(args.signal ? { signal: args.signal } : {})
     })
   }
@@ -149,11 +142,10 @@ export async function spawnNativeDaemonPty(args: {
       ...(spawned.claimStartupEvents ? { claimStartupEvents: spawned.claimStartupEvents } : {})
     }
   } catch (primaryErr) {
+    // A returned predecessor stays owned until exit, including failed observer/startup setup.
+    await unpublishedOwner?.recover()
     args.signal?.throwIfAborted()
-    if (
-      process.platform !== 'win32' ||
-      (args.retainCanceledChild && ['unknown', 'failed'].includes((await lastAttempt)?.kind ?? ''))
-    ) {
+    if (process.platform !== 'win32') {
       throw primaryErr
     }
     for (const attempt of args.windowsFallbackAttempts.slice(1)) {
@@ -177,14 +169,9 @@ export async function spawnNativeDaemonPty(args: {
           reportsChildExitStatus,
           ...(spawned.claimStartupEvents ? { claimStartupEvents: spawned.claimStartupEvents } : {})
         }
-      } catch (error) {
+      } catch {
+        await unpublishedOwner?.recover()
         args.signal?.throwIfAborted()
-        if (
-          args.retainCanceledChild &&
-          ['unknown', 'failed'].includes((await lastAttempt)?.kind ?? '')
-        ) {
-          throw error
-        }
       }
     }
     throw primaryErr

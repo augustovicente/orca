@@ -1,6 +1,5 @@
 import type { DaemonPtyPhysicalOwner } from './subprocess-handle'
 import type * as pty from 'node-pty'
-import { killConptyNow, terminatePtyJob } from '../../windows/windows-pty-job'
 import { CONPTY_DA1_RESPONSE } from '../../../shared/conpty-device-attributes'
 
 // Bundled ConPTY queries DA1 (or CPR when inheriting the cursor) right after it starts reading
@@ -45,6 +44,7 @@ export function classifyConptyStartupOutput(output: string): ConptyStartupVerdic
 
 export type ConptyStartupEvents = {
   data: string[]
+  exit: { exitCode: number; signal?: number } | null
 }
 
 export type ConptyStartupWatch = {
@@ -60,7 +60,7 @@ export function watchConptyStartup(
   proc: pty.IPty,
   exitSource: Pick<pty.IPty, 'onExit'> = proc
 ): ConptyStartupWatch {
-  const events: ConptyStartupEvents = { data: [] }
+  const events: ConptyStartupEvents = { data: [], exit: null }
   let ended!: () => void
   const exited = new Promise<void>((resolve) => {
     ended = resolve
@@ -92,7 +92,8 @@ export function watchConptyStartup(
       settle(classified)
     }
   })
-  const exitSubscription = exitSource.onExit(() => {
+  const exitSubscription = exitSource.onExit(({ exitCode, signal }) => {
+    events.exit = { exitCode, ...(signal !== undefined ? { signal } : {}) }
     ended()
     decided = true
     settle('exited')
@@ -111,14 +112,13 @@ export function watchConptyStartup(
 async function decideConptyStartup(
   proc: pty.IPty,
   signal: AbortSignal | undefined,
-  retainCanceledChild = false,
-  exitSource: Pick<pty.IPty, 'onExit'> = proc
+  physicalOwner: DaemonPtyPhysicalOwner
 ): Promise<{
   outcome: ConptyStartupOutcome
   claim: () => ConptyStartupEvents
   exited: Promise<void>
 }> {
-  const watch = watchConptyStartup(proc, exitSource)
+  const watch = watchConptyStartup(proc, physicalOwner)
   let limit: ReturnType<typeof setTimeout> | undefined
   let onAbort = (): void => {}
   try {
@@ -132,11 +132,8 @@ async function decideConptyStartup(
     })
     return { outcome, claim: watch.claim, exited: watch.exited }
   } catch (error) {
-    if (retainCanceledChild) {
-      return { outcome: 'undecided', claim: watch.claim, exited: watch.exited }
-    }
     // A canceled spawn must not leave the half-started shell running.
-    discardConpty(proc, watch)
+    discardConpty(physicalOwner, watch)
     throw error
   } finally {
     clearTimeout(limit)
@@ -144,12 +141,12 @@ async function decideConptyStartup(
   }
 }
 
-function discardConpty(proc: pty.IPty, watch: Pick<ConptyStartupWatch, 'claim'>): void {
+function discardConpty(
+  physicalOwner: DaemonPtyPhysicalOwner,
+  watch: Pick<ConptyStartupWatch, 'claim'>
+): void {
   watch.claim()
-  // Handle-based only: a pid may already be recycled if the shell exited during startup.
-  terminatePtyJob(proc)
-  killConptyNow(proc)
-  proc.kill()
+  physicalOwner.forceKill()
 }
 
 // Why process-wide: the announcement is a fact of the bundled ConPTY build. Until one pane shows
@@ -180,7 +177,6 @@ export async function spawnConptyWithInputReader(
     label: string
     signal?: AbortSignal
     // Only Orca's default interactive argv is safe to respawn; custom argv may repeat a command.
-    retainCanceledChild?: boolean
     respawnSafe: boolean
   }
 ): Promise<{
@@ -191,14 +187,9 @@ export async function spawnConptyWithInputReader(
   const firstSpawn = await spawn()
   const { proc: first, physicalOwner: firstOwner } = firstSpawn
   if (announcementUntrusted) {
-    return { ...firstSpawn, claimStartupEvents: () => ({ data: [] }) }
+    return { ...firstSpawn, claimStartupEvents: () => ({ data: [], exit: null }) }
   }
-  const firstStartup = await decideConptyStartup(
-    first,
-    opts.signal,
-    opts.retainCanceledChild,
-    firstOwner
-  )
+  const firstStartup = await decideConptyStartup(first, opts.signal, firstOwner)
   if (firstStartup.outcome === 'input-reader') {
     announcementObserved = true
   }
@@ -214,41 +205,28 @@ export async function spawnConptyWithInputReader(
   console.warn(
     `[daemon/pty] ConPTY for "${opts.label}" started without an input reader; respawning (${respawnCount})`
   )
-  if (opts.retainCanceledChild) {
-    // A retry cannot orphan its predecessor while native exit is still uncertain.
-    let limit: ReturnType<typeof setTimeout> | undefined
-    const stopped = firstStartup.exited.then(() => true)
-    try {
-      terminatePtyJob(first)
-      killConptyNow(first)
-      first.kill()
-      const exited = await Promise.race([
-        stopped,
-        new Promise<false>((resolve) => {
-          limit = setTimeout(() => resolve(false), CONPTY_STARTUP_DECISION_LIMIT_MS)
-          limit.unref?.()
-        })
-      ])
-      if (!exited) {
-        return { ...firstSpawn, claimStartupEvents: withNotice(firstStartup.claim) }
-      }
-      firstStartup.claim()
-    } catch {
+  let limit: ReturnType<typeof setTimeout> | undefined
+  try {
+    firstOwner.forceKill()
+    const exited = await Promise.race([
+      firstOwner.completion.then(() => true),
+      new Promise<false>((resolve) => {
+        limit = setTimeout(() => resolve(false), CONPTY_STARTUP_DECISION_LIMIT_MS)
+        limit.unref?.()
+      })
+    ])
+    if (!exited) {
       return { ...firstSpawn, claimStartupEvents: withNotice(firstStartup.claim) }
-    } finally {
-      clearTimeout(limit)
     }
-  } else {
-    discardConpty(first, firstStartup)
+    firstStartup.claim()
+  } catch {
+    return { ...firstSpawn, claimStartupEvents: withNotice(firstStartup.claim) }
+  } finally {
+    clearTimeout(limit)
   }
   const retrySpawn = await spawn()
   const { proc: retry, physicalOwner: retryOwner } = retrySpawn
-  const retryStartup = await decideConptyStartup(
-    retry,
-    opts.signal,
-    opts.retainCanceledChild,
-    retryOwner
-  )
+  const retryStartup = await decideConptyStartup(retry, opts.signal, retryOwner)
   if (retryStartup.outcome === 'input-reader') {
     announcementObserved = true
   }

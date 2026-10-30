@@ -511,7 +511,7 @@ describe('one pane of a terminal tab', () => {
       false
     )
   })
-  it('presents a switched terminal’s host identity before any prompt, without creating turn status', () => {
+  it('identifies a provider-only Continue source without a live turn or selecting its sibling', () => {
     makeState()
     const [L1, L2] = [
       '11111111-1111-4111-8111-111111111111',
@@ -551,6 +551,41 @@ describe('one pane of a terminal tab', () => {
       })
     ).toMatchObject({ agent: 'codex', providerSessionId: 'thread-c', ptyId: 'pty-1' })
     expect(paneGate(state, `term-1:${L2}`)).toBe(false)
+    useAppStore
+      .getState()
+      .setAgentStatus(
+        pane,
+        { state: 'done', prompt: 'first', agentType: 'codex' },
+        undefined,
+        undefined,
+        { tabId: 'term-1', worktreeId: WORKTREE_ID },
+        { providerSession: { key: 'session_id', id: 'thread-c' } }
+      )
+    useAppStore
+      .getState()
+      .setAgentStatus(pane, { state: 'working', prompt: 'second', agentType: 'codex' })
+    expect(
+      resolveCliChatResumeSource(useAppStore.getState(), {
+        tab: { id: 'term-1', worktreeId: WORKTREE_ID },
+        paneKey: pane
+      })
+    ).toBeNull()
+    expect(paneGate(useAppStore.getState(), pane)).toBe(false)
+    useAppStore
+      .getState()
+      .recordAgentProviderSession(
+        pane,
+        'codex',
+        { key: 'session_id', id: 'thread-next' },
+        undefined,
+        { tabId: 'term-1', worktreeId: WORKTREE_ID }
+      )
+    expect(
+      resolveCliChatResumeSource(useAppStore.getState(), {
+        tab: { id: 'term-1', worktreeId: WORKTREE_ID },
+        paneKey: pane
+      })
+    ).toMatchObject({ providerSessionId: 'thread-next' })
   })
 })
 

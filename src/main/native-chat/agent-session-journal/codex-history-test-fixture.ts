@@ -12,8 +12,7 @@ export async function writeCodexHistoryFixture(
   id: string,
   prompts: string[],
   base?: CodexHistoryPositionFixture,
-  metadataId = id,
-  reasoning = false
+  metadataId = id
 ) {
   const records = [
     {
@@ -44,25 +43,6 @@ export async function writeCodexHistoryFixture(
           item: { type: 'UserMessage', id: `user-${turn}`, content: [{ type: 'text', text }] }
         }
       },
-      ...(reasoning && turn === 0
-        ? [
-            {
-              type: 'response_item',
-              payload: {
-                type: 'reasoning',
-                id: 'reason',
-                summary: [{ type: 'summary_text', text: 'why' }]
-              }
-            },
-            {
-              type: 'event_msg',
-              payload: {
-                type: 'item_completed',
-                item: { type: 'Reasoning', id: 'reason', summary_text: ['why'], raw_content: [] }
-              }
-            }
-          ]
-        : []),
       {
         type: 'response_item',
         payload: {
@@ -105,4 +85,29 @@ export async function writeCodexHistoryFixture(
       end_byte_offset: Buffer.byteLength(serialized)
     }
   }
+}
+
+export function codexLegacyMirrorRecords() {
+  return [
+    {
+      type: 'response_item',
+      payload: {
+        type: 'message',
+        role: 'user',
+        content: [{ type: 'input_text', text: 'Prompt' }]
+      }
+    },
+    { type: 'event_msg', payload: { type: 'user_message', message: 'Prompt' } },
+    { type: 'compacted', payload: { message: 'summary', replacement_history: [] } },
+    { type: 'event_msg', payload: { type: 'context_compacted' } },
+    { type: 'event_msg', payload: { type: 'agent_message', message: 'Response' } },
+    {
+      type: 'response_item',
+      payload: {
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'output_text', text: 'Response' }]
+      }
+    }
+  ]
 }

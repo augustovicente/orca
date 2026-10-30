@@ -22,7 +22,6 @@ export type TerminalHostOptions = {
     terminalWindowsPowerShellImplementation?: 'auto' | 'powershell.exe' | 'pwsh.exe'
     onCreationDisposition?: (disposition: PtyCreationDisposition) => void
     assertCreateAllowed?: () => void
-    retainCanceledChild?: boolean
     isCanceled?: () => boolean
     cancelSignal?: AbortSignal
   }) => SubprocessHandle | Promise<SubprocessHandle>

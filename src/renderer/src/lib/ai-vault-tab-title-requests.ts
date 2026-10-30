@@ -145,6 +145,7 @@ export function collectAgentPaneConversations<Agent extends AgentType>(
     runningAgentsOnly?: boolean
     /** History addresses a conversation in any pane, including an inactive split. */
     allPanes?: boolean
+    includeLastReported?: boolean
     pane?: { worktreeId: string; paneKey: string }
     tab?: { worktreeId: string; tabId: string }
   } = {}
@@ -187,7 +188,7 @@ export function collectAgentPaneConversations<Agent extends AgentType>(
   const retained = options.runningAgentsOnly ? [] : records(state.retainedAgentsByPaneKey)
   const sleeping = options.runningAgentsOnly ? [] : records(state.sleepingAgentSessionsByPaneKey)
 
-  if (!options.runningAgentsOnly) {
+  if (!options.runningAgentsOnly || options.includeLastReported) {
     for (const identity of records(state.agentConversationsByPaneKey)) {
       const candidate = lastReportedCandidate(state, identity, tabsById)
       if (candidate) {
@@ -275,5 +276,11 @@ export function resolvePaneLastAgentConversation<Agent extends AgentType>(
   pane: { worktreeId: string; paneKey: string },
   isAgent: (agent: AgentType | null | undefined) => agent is Agent
 ): AgentPaneConversation<Agent> | null {
-  return collectAgentPaneConversations(state, isAgent, { pane })[0] ?? null
+  return (
+    collectAgentPaneConversations(state, isAgent, {
+      pane,
+      runningAgentsOnly: true,
+      includeLastReported: true
+    })[0] ?? null
+  )
 }

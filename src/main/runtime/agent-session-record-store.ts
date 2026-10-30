@@ -64,6 +64,7 @@ import {
   requireWritableAgentSessionRecord,
   heldAgentSessionIds
 } from './agent-session-store-state'
+import { AgentSessionRecordTabs } from './agent-session/agent-session-tab-table'
 import type { JournalHostDatabase } from '../native-chat/agent-session-journal/journal-host-database'
 import type { JournalOperationReceipt } from '../native-chat/agent-session-journal/journal-row-writer'
 import { agentSessionOperationOutcomeReceipt } from './agent-session-operation-receipt'
@@ -77,13 +78,13 @@ import {
   setAgentSessionRecordConversationName,
   setAgentSessionRecordUserNameThrough
 } from './agent-session-record-conversation-name'
-import { AgentSessionRecordPublication } from './agent-session-record-publication'
+
 /** Single-writer records/operation ledger in the host chat-journal database. */
 
 export const AGENT_SESSION_LEASE_TTL_MS = 30_000,
   AGENT_SESSION_LEASE_RENEW_INTERVAL_MS = 10_000
 
-export class AgentSessionRecordStore extends AgentSessionRecordPublication {
+export class AgentSessionRecordStore extends AgentSessionRecordTabs {
   readonly conversationReceipts: ReturnType<typeof createAgentSessionConversationReceipts>
 
   private constructor(
@@ -99,9 +100,15 @@ export class AgentSessionRecordStore extends AgentSessionRecordPublication {
   static open(args: {
     journalDatabase: JournalHostDatabase
     hostId: string
+    legacySessionTabIds: readonly string[]
   }): AgentSessionRecordStore {
     const rows = loadAgentSessionStoreRows(args.journalDatabase.db)
-    const transactions = new AgentSessionStoreTransactions(args.journalDatabase, rows, args.hostId)
+    const transactions = new AgentSessionStoreTransactions(
+      args.journalDatabase,
+      rows,
+      args.hostId,
+      args.legacySessionTabIds
+    )
     return new AgentSessionRecordStore(transactions, args.hostId)
   }
 
@@ -133,10 +140,6 @@ export class AgentSessionRecordStore extends AgentSessionRecordPublication {
 
   /** Record presence is permanent, including unreadable rows. */
   holdsRecords = (): boolean => this.state.records.size > 0 || this.state.unreadableRecords.size > 0
-
-  /** Persist chat-tab identity separately from rollback-sensitive profile tabs; explicit tabId restores hidden tabs under their old ids. */
-
-  /** Publish the complete tab index in one write; a partial index would drop remaining chats on restart. */
 
   listByScope(location: AgentSessionExecutionLocation): AgentSessionRecord[] {
     const scope = agentSessionScopeKey(location)
@@ -179,7 +182,12 @@ export class AgentSessionRecordStore extends AgentSessionRecordPublication {
   ): Promise<AgentSessionReserveResult> =>
     this.transact((draft) => {
       check?.()
-      return commitAgentSessionReservation(draft, request, AGENT_SESSION_LEASE_TTL_MS)
+      return commitAgentSessionReservation(
+        draft,
+        request,
+        AGENT_SESSION_LEASE_TTL_MS,
+        this.transactions.legacySessionTabIds
+      )
     })
 
   readonly founding: ReturnType<typeof createAgentSessionFoundingStore>

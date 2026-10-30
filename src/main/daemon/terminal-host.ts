@@ -1,11 +1,5 @@
 import { terminalSessionExitCode } from './terminal-host-returned-process'
-import {
-  reconcileUnpublishedTerminalCreation,
-  registerPendingTerminalCreation,
-  recoverUnpublishedTerminalCreation,
-  TerminalCreationWork,
-  type PendingTerminalCreation
-} from './terminal-creation-work'
+import { runTerminalCreation, type PendingTerminalCreation } from './terminal-creation-work'
 import { beginTerminalHostFencedTermination } from './terminal-host-fenced-termination'
 import type { PtyFencedTerminationRequest } from '../../shared/pty-fenced-termination'
 import type { Session } from './session'
@@ -25,7 +19,6 @@ import { TerminalHostTombstones } from './terminal-host-tombstones'
 import { listLiveTerminalHostSessions } from './terminal-host-session-listing'
 import { createOrAttachTerminalSession } from './terminal-host-session-create'
 import { TerminalAttachCanceledError } from './daemon-errors'
-import { waitForTerminalAttachOperation } from './terminal-attach-cancellation'
 import { randomUUID } from 'node:crypto'
 import { TerminalHostInspection } from './terminal-host-inspection'
 export type { CreateOrAttachOptions, CreateOrAttachResult } from './terminal-host-create-contract'
@@ -72,41 +65,14 @@ export class TerminalHost extends TerminalHostInspection {
     session?.noteUse()
   }
 
-  async createOrAttach(opts: InternalCreateOrAttachOptions): Promise<CreateOrAttachResult> {
-    const creation = new TerminalCreationWork()
-    const reportDisposition = opts.onCreationDisposition
-    opts = {
-      ...opts,
-      creationWork: creation,
-      onPhysicalOwner: creation.physicalObserver(opts.onPhysicalOwner)
-    }
-    try {
-      this.assertCreateOrAttachAllowed(opts)
-      for (
-        let inFlight = this.pendingCreations.get(opts.sessionId);
-        inFlight !== undefined;
-        inFlight = this.pendingCreations.get(opts.sessionId)
-      ) {
-        // Let canceled callers leave rather than wait behind a cwd probe stuck on an unreachable share.
-        const pending = inFlight
-        await waitForTerminalAttachOperation(
-          pending.recover().then(() => pending.completion),
-          opts.cancelSignal,
-          opts.sessionId
-        )
-        this.assertCreateOrAttachAllowed(opts)
-      }
-      this.assertCreateOrAttachAllowed(opts)
-
-      this.sessions.get(opts.sessionId)?.noteUse()
-      const finishPending = registerPendingTerminalCreation(
-        this.pendingCreations,
-        opts.sessionId,
-        creation
-      )
-      let published = false
-      try {
-        const result = await createOrAttachClaimedAgentSession({
+  createOrAttach(opts: InternalCreateOrAttachOptions): Promise<CreateOrAttachResult> {
+    return runTerminalCreation(
+      opts,
+      this.sessions,
+      this.pendingCreations,
+      (options) => this.assertCreateOrAttachAllowed(options),
+      (opts, creation) =>
+        createOrAttachClaimedAgentSession({
           options: opts,
           owners: this.agentSessionOwners,
           check: opts.retainCanceledChild
@@ -145,20 +111,7 @@ export class TerminalHost extends TerminalHostInspection {
             })
           }
         })
-        published = true
-        return result
-      } finally {
-        finishPending(published || this.sessions.has(opts.sessionId))
-      }
-    } finally {
-      await creation.finish(reconcileUnpublishedTerminalCreation(this.sessions, opts.sessionId))
-      const disposition = await creation.completion
-      reportDisposition?.(disposition)
-      if (!this.sessions.has(opts.sessionId) && disposition.kind !== 'no-fork') {
-        // Failed unpublished resources keep the same ordinary cleanup owner across Retry/disposal.
-        recoverUnpublishedTerminalCreation(disposition)
-      }
-    }
+    )
   }
 
   private handleSessionExit(sessionId: string, generation: string | undefined): void {
@@ -257,12 +210,6 @@ export class TerminalHost extends TerminalHostInspection {
     this.sessions.delete(sessionId)
     this.onSessionReaped?.(sessionId)
   }
-
-  // Checkpoint reads tolerate sessions that have just exited.
-
-  // Seed scan-authority handoff with the incomplete escape at the current stream position.
-
-  // Let the renderer detect dropped or coerced resizes from the applied dimensions.
 
   isKilled(sessionId: string): boolean {
     return this.killedTombstones.has(sessionId)

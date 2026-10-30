@@ -146,7 +146,3 @@ export async function createOrAttachTerminalSession(
     }
   }
 }
-
-/** Describe restore identity without including environment values that may contain credentials. */
-
-// TCC may reject directory enumeration despite successful access(); only explicit permission denial counts.

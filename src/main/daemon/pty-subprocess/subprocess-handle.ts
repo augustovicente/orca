@@ -18,12 +18,12 @@ import {
 import { getStrictProcessTableSnapshotWithAge } from '../../../shared/process-table-snapshot-reader'
 import { getSpawnedShellName } from '../../providers/local-pty-launch-helpers'
 import type { ConptyStartupEvents } from './conpty-startup-input-reader'
+
 export { createDaemonPtyPhysicalOwner } from './daemon-pty-physical-owner'
+export type DaemonPtyPhysicalOwner = ReturnType<typeof createDaemonPtyPhysicalOwner>
 
 // Normal exit also retires the master first; let the exit report win before calling input closed.
 export const MASTER_CLOSE_EXIT_GRACE_MS = 1_000
-
-export type DaemonPtyPhysicalOwner = ReturnType<typeof createDaemonPtyPhysicalOwner>
 
 export function createDaemonPtySubprocessHandle(args: {
   process: pty.IPty
@@ -45,6 +45,7 @@ export function createDaemonPtySubprocessHandle(args: {
   // node-pty exposes destroy at runtime but omits it from IPty.
   const nativeProc: DisposableNativePty = proc
   const physical = args.physicalOwner ?? createDaemonPtyPhysicalOwner(proc)
+  physical.observeExit()
   const events = new PtyPreListenerEvents()
   let dead = false
   // I/O failure is not exit evidence; keep termination and producer flow control available.

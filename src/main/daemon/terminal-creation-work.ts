@@ -1,3 +1,6 @@
+import type { Session } from './session'
+import type { InternalCreateOrAttachOptions } from './terminal-host-agent-session-claim'
+import { waitForTerminalAttachOperation } from './terminal-attach-cancellation'
 import type { PtyCreationDisposition } from '../../shared/claimed-agent-pty-owner'
 import type { TerminalSpawnGate, TerminalSpawnLease } from './terminal-spawn-gate'
 
@@ -164,5 +167,65 @@ export function settleUnpublishedTerminalSpawnLease(
 export function recoverUnpublishedTerminalCreation(disposition: PtyCreationDisposition): void {
   if (disposition.kind !== 'no-fork') {
     void disposition.recover?.().catch(() => {})
+  }
+}
+
+export async function runTerminalCreation<Result>(
+  opts: InternalCreateOrAttachOptions,
+  sessions: ReadonlyMap<string, Session>,
+  pendingCreations: Map<string, PendingTerminalCreation>,
+  assertCreateAllowed: (options: InternalCreateOrAttachOptions) => void,
+  operation: (
+    options: InternalCreateOrAttachOptions,
+    creation: TerminalCreationWork
+  ) => Promise<Result>
+): Promise<Result> {
+  const creation = new TerminalCreationWork()
+  const requestedOptions = opts
+  opts = {
+    ...opts,
+    creationWork: creation,
+    onPhysicalOwner: creation.physicalObserver(opts.onPhysicalOwner)
+  }
+  try {
+    assertCreateAllowed(opts)
+    for (
+      let inFlight = pendingCreations.get(opts.sessionId);
+      inFlight !== undefined;
+      inFlight = pendingCreations.get(opts.sessionId)
+    ) {
+      // Let canceled callers leave rather than wait behind a cwd probe stuck on an unreachable share.
+      const pending = inFlight
+      await waitForTerminalAttachOperation(
+        pending.recover().then(() => pending.completion),
+        opts.cancelSignal,
+        opts.sessionId
+      )
+      assertCreateAllowed(opts)
+    }
+    assertCreateAllowed(opts)
+
+    sessions.get(opts.sessionId)?.noteUse()
+    const finishPending = registerPendingTerminalCreation(
+      pendingCreations,
+      opts.sessionId,
+      creation
+    )
+    let published = false
+    try {
+      const result = await operation(opts, creation)
+      published = true
+      return result
+    } finally {
+      finishPending(published || sessions.has(opts.sessionId))
+    }
+  } finally {
+    await creation.finish(reconcileUnpublishedTerminalCreation(sessions, opts.sessionId))
+    const disposition = await creation.completion
+    requestedOptions.onCreationDisposition?.(disposition)
+    if (!sessions.has(opts.sessionId) && disposition.kind !== 'no-fork') {
+      // Failed unpublished resources keep the same ordinary cleanup owner across Retry/disposal.
+      recoverUnpublishedTerminalCreation(disposition)
+    }
   }
 }

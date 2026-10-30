@@ -35,24 +35,40 @@ export function observeReturnedTerminalProcess(
         rawTermination.disposeSubprocessHandle()
       }
     })
-  subprocess.onExit((value, cause) => {
-    code = value
-    exitCause = cause
-    rawTermination.markPhysicalExit()
-    spawnGate?.onSessionExit(sessionId)
-    exited.resolve()
-    sessionExit?.(value, cause)
-  })
-  subprocess.onExit = (callback) => {
-    sessionExit = callback
-    if (code !== null) {
-      callback(code, exitCause)
+  let observing = false
+  const observeExit = (): void => {
+    if (observing || code !== null) {
+      return
+    }
+    subprocess.onExit((value, cause) => {
+      if (code !== null) {
+        return
+      }
+      code = value
+      exitCause = cause
+      rawTermination.markPhysicalExit()
+      spawnGate?.onSessionExit(sessionId)
+      exited.resolve()
+      sessionExit?.(value, cause)
+    })
+    observing = true
+    subprocess.onExit = (callback) => {
+      sessionExit = callback
+      if (code !== null) {
+        callback(code, exitCause)
+      }
     }
   }
   return {
+    observeExit,
     completion: exited.promise,
     exitCode: () => code,
     recover: async () => {
+      try {
+        observeExit()
+      } catch {
+        // Recovery still owns signaling when the adapter cannot yet observe exit.
+      }
       await recoverCreated()
     },
     useRecovery: (recover: () => Promise<void>) => {

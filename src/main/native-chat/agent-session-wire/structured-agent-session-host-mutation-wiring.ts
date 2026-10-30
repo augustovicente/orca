@@ -20,6 +20,9 @@ type Inputs = {
   runtimeState: StructuredAgentSessionHostRuntimeState
   attachContext: () => StructuredAgentSessionAttachContext
   serialize: StructuredAgentSessionMutationContext['serialize']
+  trackProviderOperation: NonNullable<
+    StructuredAgentSessionMutationContext['trackProviderOperation']
+  >
   now: () => number
 }
 
@@ -52,6 +55,7 @@ export function createStructuredAgentSessionHostMutationContext(
     startFlights: input.runtimeState.startFlights,
     startupAttempts: input.runtimeState.startupAttempts,
     deliveryOrder: input.runtimeState.deliveryOrder,
+    trackProviderOperation: input.trackProviderOperation,
     joinChildClose: (sessionId) =>
       agentStart.joinClosingStructuredAgentSessionChild(input.attachContext(), sessionId),
     wakeDelivery: (sessionId) => input.conversationDelivery.loop.wake(sessionId),

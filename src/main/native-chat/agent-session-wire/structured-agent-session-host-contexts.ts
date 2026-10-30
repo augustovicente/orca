@@ -84,6 +84,7 @@ export abstract class StructuredAgentSessionHostContexts {
       queued: this.queued,
       runtimeState: this.runtimeState,
       attachContext: () => this.attachContext(),
+      trackProviderOperation: (operation) => this.tasks.trackAttach(operation),
       serialize: (sessionId, task) => this.serialize(sessionId, task),
       now: () => this.now()
     })

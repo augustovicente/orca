@@ -56,7 +56,7 @@ export function decodeCodexTranscriptLine(
     )
   }
   if (record.type === 'event_msg') {
-    return codexEventMessage(payload, baseId, timestamp)
+    return codexEventMessage(payload, baseId, timestamp, options?.historyImport === true)
   }
   return null
 }
@@ -146,7 +146,8 @@ function isSkillContext(block: NativeChatBlock): boolean {
 function codexEventMessage(
   payload: Record<string, unknown>,
   id: string,
-  timestamp: number | null
+  timestamp: number | null,
+  historyImport: boolean
 ): NativeChatMessage | null {
   if (payload.type === CODEX_EVENT_TURN_ABORTED) {
     return {
@@ -162,7 +163,7 @@ function codexEventMessage(
     return codexCompactionMarker(id, timestamp)
   }
   if (payload.type === 'item_completed') {
-    return codexCompletedTurnItem(payload, id, timestamp)
+    return codexCompletedTurnItem(payload, id, timestamp, historyImport)
   }
   if (payload.type === 'user_message') {
     const text = extractString(payload.message)
@@ -182,14 +183,15 @@ function codexEventMessage(
 function codexCompletedTurnItem(
   payload: Record<string, unknown>,
   fallbackId: string,
-  timestamp: number | null
+  timestamp: number | null,
+  historyImport: boolean
 ): NativeChatMessage | null {
   const item = asRecord(payload.item)
   if (!item) {
     return null
   }
   const id = extractString(item.id) ?? fallbackId
-  if (item.type === 'Reasoning') {
+  if (historyImport && item.type === 'Reasoning') {
     return codexResponseItem(
       {
         type: 'reasoning',

@@ -1,10 +1,10 @@
-import type { AgentJournalMessageItem } from '../../../shared/agent-session-journal-types'
+import type { StructuredAgentSessionFirstMessage } from '../../../shared/structured-agent-session-create'
 import type { reserveRequestFor } from './structured-agent-session-attach'
 import type { AgentSessionExecutionOptions } from '../../../shared/agent-session-execution-options'
 
 export type StructuredAgentSessionCreateOptions = {
   check?: () => void
-  firstMessage?: { clientMessageId: string; body: AgentJournalMessageItem }
+  firstMessage?: StructuredAgentSessionFirstMessage
   hostLaunchDirectory?: string
   catalogModels?: Parameters<typeof reserveRequestFor>[0]['models']
   /** Publish after durable creation, before agent delivery starts. */

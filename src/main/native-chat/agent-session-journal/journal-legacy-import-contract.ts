@@ -9,6 +9,7 @@ export type LegacyImportOptions = ResolveSessionFileOptions & {
   source?: AdoptedTranscriptSource
   limits?: JournalPayloadLimits
   decodedMessageIdentities?: true
+  signal?: AbortSignal
 }
 
 export type LegacyImportResult =

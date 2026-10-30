@@ -1,7 +1,7 @@
 import { agentSessionConversationView } from '../../../shared/agent-session-conversation-view'
 import { isFloatingWorkspaceId } from '../../../shared/floating-workspace-worktree'
 import { isAgentSessionCreateAdmissionRefusal } from '../../../shared/agent-session-definitive-refusal'
-import { computeAgentSessionPayloadFingerprint } from '../../../shared/agent-session-mutation-envelope'
+import { agentSessionSendBodyFingerprint } from '../../../shared/structured-agent-session-send-mutation'
 import {
   refuse,
   type AgentSessionAttachResult,
@@ -15,7 +15,7 @@ import { attachStructuredAgentSession } from './structured-agent-session-attach-
 import { reserveRequestFor, type AgentSessionAttachParams } from './structured-agent-session-attach'
 import { openStructuredAgentSessionConversationJournal } from './structured-agent-session-conversation-open'
 import {
-  prepareAdoptedTranscript,
+  prepareCreateTranscript,
   importAdoptedTranscript
 } from './structured-agent-session-adopted-import'
 import {
@@ -151,7 +151,7 @@ async function foundConversation(
   }
   const prepared = replayed
     ? { ok: true as const, items: null }
-    : await prepareAdoptedTranscript(params)
+    : await prepareCreateTranscript(context, params)
   if (!prepared.ok) {
     const { refusal } = prepared
     return {
@@ -207,14 +207,12 @@ async function foundConversation(
           },
           {
             ...first,
-            payloadFingerprint: computeAgentSessionPayloadFingerprint({
-              method: 'agentSession.send',
-              sessionId,
-              fields: { body: first.body }
-            }),
+            payloadFingerprint: agentSessionSendBodyFingerprint(sessionId, first.body),
             origin: 'client',
             source: { kind: 'user' },
-            ...openingMessageOptions(candidate.record.options)
+            ...(first.selection === undefined
+              ? openingMessageOptions(candidate.record.options)
+              : {})
           }
         )
         if (!sent.ok) {

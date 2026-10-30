@@ -29,12 +29,9 @@ export function projectAgentPaneConversation(
   const current = state.agentConversationsByPaneKey
   const previous = current[entry.paneKey]
   const agent = entry.agentType
-  if (!agent || agent === 'unknown') {
-    return current
-  }
   const worktreeId = entry.worktreeId ?? findAgentPaneWorktreeId(state, entry.paneKey)
-  if (!entry.providerSession?.id || !worktreeId) {
-    if (!previous || previous.agent === agent) {
+  if (!agent || agent === 'unknown' || !entry.providerSession?.id || !worktreeId) {
+    if (!previous) {
       return current
     }
     const next = copy(current)

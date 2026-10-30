@@ -47,7 +47,11 @@ export async function prepareStructuredSessionSwitch(
   const sourceEvidence =
     ctx.structuredAgentCliSourceEvidence ??
     (create?.resumeFrom?.cliSource
-      ? captureStructuredAgentCliSource(() => ctx.runtime.getAgentProviderSessionRows())
+      ? captureStructuredAgentCliSource(
+          () => ctx.runtime.getAgentProviderSessionRows(),
+          create.resumeFrom.cliSource,
+          (source) => ctx.runtime.getStructuredAgentCliSourceRoute(source)
+        )
       : undefined)
   const createIdentity = create
     ? await ctx.runtime.resolveStructuredAgentSessionCreateIdentity({

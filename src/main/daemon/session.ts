@@ -50,16 +50,8 @@ export class Session extends SessionProcessInspection {
     this.processNameIsSpawnFile = opts.subprocess.processNameIsSpawnFile === true
     this.shellIsRootChild = opts.subprocess.shellIsRootChild === true
     this.onSessionExit = opts.onExit
-    const pipeline = createSessionOutputPipeline({
-      cols: opts.cols,
-      rows: opts.rows,
-      scrollback: opts.scrollback,
-      wslDistro: opts.wslDistro,
-      historySeedChunks: opts.historySeedChunks,
-      ownerBackend: opts.ownerBackend,
-      subprocess: this.subprocess,
-      isAlive: () => !this._disposed && this._state !== 'exited'
-    })
+    const isAlive = () => !this._disposed && this._state !== 'exited'
+    const pipeline = createSessionOutputPipeline(opts, isAlive)
     this.output = pipeline.output
     this.recoveryBarrier = pipeline.recoveryBarrier
     this.producerPause = new SessionProducerPause(this.subprocess)

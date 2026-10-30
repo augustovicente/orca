@@ -69,7 +69,6 @@ export async function spawnAndPublishSession(
       terminalWindowsPowerShellImplementation: opts.terminalWindowsPowerShellImplementation,
       isCanceled: opts.isCanceled,
       assertCreateAllowed: deps.assertCreateAllowed,
-      retainCanceledChild: opts.retainCanceledChild,
       ...(opts.cancelSignal ? { cancelSignal: opts.cancelSignal } : {})
     })
     // External implementations returning a handle have transferred an actual resource.
@@ -82,6 +81,7 @@ export async function spawnAndPublishSession(
         recover: physical.recover
       })
     }
+    physical.observeExit()
     opts.onPhysicalOwner?.(physical.completion, physical.exitCode)
     onPublished(opts.sessionId, physical.exitCode() === null)
   } catch (error) {
@@ -154,7 +154,7 @@ export async function spawnAndPublishSession(
       deps.onDeadSessionRemoved(opts.sessionId)
       deps.spawnGate?.onSessionExit(opts.sessionId)
     }
-    if (!session.isAlive) {
+    if (!opts.retainCanceledChild || !session.isAlive) {
       throw new TerminalAttachCanceledError(opts.sessionId)
     }
     deps.onSessionCreated(opts.sessionId, opts.agentSessionGeneration, true)

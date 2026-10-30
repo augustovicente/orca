@@ -2,7 +2,7 @@ import type { DisposableNativePty } from './native-pty-spawn'
 import type * as pty from 'node-pty'
 import { forceKillPosixPtyProcessGroups } from '../../pty/posix-pty-process-groups'
 import { PendingPtyGroupSweep } from '../../pty/pending-pty-group-sweep'
-import { terminatePtyJob } from '../../windows/windows-pty-job'
+import { killConptyNow, terminatePtyJob } from '../../windows/windows-pty-job'
 import { SessionTerminationController } from '../session-termination-controller'
 import { shutdownOwnedTerminalProcess } from '../terminal-host-session-shutdown'
 export function createDaemonPtyPhysicalOwner(proc: pty.IPty) {
@@ -35,25 +35,12 @@ export function createDaemonPtyPhysicalOwner(proc: pty.IPty) {
       )
     )
   }
-  // Stays synchronous: dispose() reads nodePtyKillIssued right after to avoid double-closing ConPTY.
-  const forceKillConpty = (): void => {
-    if (exit) {
-      return
-    }
-    // Escalate a ConPTY kill through the job without double-closing node-pty's shell handle.
-    if (nodePtyKillIssued) {
-      terminatePtyJob(proc)
-      return
-    }
-    try {
-      killRoot()
-    } catch (signalError) {
-      fallBackToNodePtyKill(signalError)
-    }
-  }
-
   const kill = (): void => {
-    if (exit) {
+    if (exit || (process.platform === 'win32' && nodePtyKillIssued)) {
+      return
+    }
+    if (process.platform === 'win32' && killConptyNow(proc)) {
+      nodePtyKillIssued = true
       return
     }
     nodePtyKillIssued = true
@@ -64,6 +51,15 @@ export function createDaemonPtyPhysicalOwner(proc: pty.IPty) {
       throw error
     }
   }
+  const forceKillConpty = (): void => {
+    if (exit) {
+      return
+    }
+    // Re-request the owned job even after a native close; neither request proves exit.
+    terminatePtyJob(proc)
+    kill()
+  }
+
   const forceKill = () => (process.platform === 'win32' ? forceKillConpty() : forceKillPosix())
   const dispose = (): void => {
     if (disposed) {
@@ -98,43 +94,49 @@ export function createDaemonPtyPhysicalOwner(proc: pty.IPty) {
     nativeExitSubscription = undefined
     subscription?.dispose()
   }
-  nativeExitSubscription = proc.onExit((event) => {
-    if (exit) {
+  const observeExit = (): void => {
+    if (exit || nativeExitSubscription) {
       return
     }
-    exit = {
-      exitCode: event.exitCode,
-      ...(event.signal !== undefined ? { signal: event.signal } : {})
-    }
-    termination.markPhysicalExit()
-    const errors: unknown[] = []
-    try {
-      retireNativeExitSubscription()
-    } catch (error) {
-      errors.push(error)
-    }
-    try {
-      const listeners = [...exitListeners]
-      for (const listener of listeners) {
-        if (exitListeners.delete(listener)) {
-          try {
-            listener(exit)
-          } catch (error) {
-            errors.push(error)
+    nativeExitSubscription = proc.onExit((event) => {
+      if (exit) {
+        return
+      }
+      exit = {
+        exitCode: event.exitCode,
+        ...(event.signal !== undefined ? { signal: event.signal } : {})
+      }
+      termination.markPhysicalExit()
+      const errors: unknown[] = []
+      try {
+        retireNativeExitSubscription()
+      } catch (error) {
+        errors.push(error)
+      }
+      try {
+        const listeners = [...exitListeners]
+        for (const listener of listeners) {
+          if (exitListeners.delete(listener)) {
+            try {
+              listener(exit)
+            } catch (error) {
+              errors.push(error)
+            }
           }
         }
+      } finally {
+        exitListeners.clear()
       }
-    } finally {
-      exitListeners.clear()
+      if (errors.length > 0) {
+        throw errors[0]
+      }
+    })
+    if (exit) {
+      retireNativeExitSubscription()
     }
-    if (errors.length > 0) {
-      throw errors[0]
-    }
-  })
-  if (exit) {
-    retireNativeExitSubscription()
   }
   return {
+    observeExit,
     completion: termination.physicalCompletion,
     exitCode: () => exit?.exitCode ?? null,
     onExit: (listener: Parameters<pty.IPty['onExit']>[0]): pty.IDisposable => {
@@ -153,8 +155,13 @@ export function createDaemonPtyPhysicalOwner(proc: pty.IPty) {
     kill,
     forceKill,
     dispose,
-    recover: () =>
-      shutdownOwnedTerminalProcess({
+    recover: () => {
+      try {
+        observeExit()
+      } catch {
+        // Observation failure must not revoke the returned process's cleanup authority.
+      }
+      return shutdownOwnedTerminalProcess({
         pid: proc.pid,
         isAlive: () => exit === null,
         terminateOwnedTree: () => terminatePtyJob(proc),
@@ -163,5 +170,6 @@ export function createDaemonPtyPhysicalOwner(proc: pty.IPty) {
           dispose()
         }
       })
+    }
   }
 }

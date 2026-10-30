@@ -1,3 +1,4 @@
+import { LOCAL_EXECUTION_HOST_ID } from '../../../shared/execution-host'
 import type { WorkspaceSessionState } from '../../../shared/workspace-session-state-types'
 import type { OrcaRuntimeWithStoredMobileSnapshotHasStalePreservedTab as BrowserOwnership } from './mobile-session-publication-preservation'
 import type { OrcaRuntimeWithPruneMobileSessionTabGroupLayout as PruneMobileSessionTabGroupLayoutMethods } from '../session-lifecycle/projection/prune-mobile-session-tab-group-layout'
@@ -16,7 +17,6 @@ import { getRuntimeBrowserPageRegistry } from '../runtime-browser-page-registry'
 import { applyBrowserSessionTabSelection } from '../browser-session-tab-selection-snapshot'
 import { getStructuredAgentSessionHost } from '../../native-chat/agent-session-wire/structured-agent-session-registry'
 import type { StructuredAgentSessionCloseCause } from '../../native-chat/agent-session-wire/structured-agent-session-host-lifetime'
-import { retireStructuredAgentSessionTabFrom } from '../agent-session/structured-agent-session-tab-retirement'
 import {
   chatTabId,
   withChatTabChanges,
@@ -25,7 +25,6 @@ import {
 } from '../agent-session/agent-session-tab-layout'
 import { ORCA_LAYOUT_OWNER_IS_MAIN } from '../../../shared/layout-owner-switch'
 import { savedSessionId } from '../saved-structured-agent-session-restoration'
-import { LOCAL_EXECUTION_HOST_ID } from '../../../shared/execution-host'
 import { structuredSessionTabRetired } from '../structured-worker-custody'
 import type { StructuredAgentId } from '../../../shared/agent-session-provider-handle'
 import { OrcaRuntimeWithStructuredSessionSwitchProjection } from './structured-session-switch-projection'
@@ -74,20 +73,6 @@ export abstract class OrcaRuntimeWithCloseStructuredAgentSessionTab extends Orca
     if (typeof host?.close === 'function') {
       await host.close(tab.sessionId, cause)
     }
-  }
-
-  /** Prune runtime snapshots after proven close/release; durable visibility alone leaves dead chat rows. Renderer-free for startup reconciliation and orchestration cleanup. */
-  retireStructuredAgentSessionTabFromSnapshot(sessionId: string): boolean {
-    for (const [worktreeId, snapshot] of this.mobileSessionTabsByWorktree) {
-      const nextSnapshot = retireStructuredAgentSessionTabFrom(snapshot, sessionId)
-      if (!nextSnapshot) {
-        continue
-      }
-      this.storeMobileSessionSnapshot(worktreeId, nextSnapshot)
-      this.emitMobileSessionTabsSnapshot(nextSnapshot)
-      return true
-    }
-    return false
   }
 
   abstract publishStructuredAgentSessionTab(input: {
@@ -276,18 +261,22 @@ export abstract class OrcaRuntimeWithCloseStructuredAgentSessionTab extends Orca
     if (!host || !structuredSessionTabRetired(host, sessionId)) {
       return
     }
+    // Retire old presentation before it could protect itself from passive cleanup.
+    this.retireStructuredAgentSessionTabFromSnapshot(sessionId)
+    const eligible = () => this.passiveStructuredSessionTabChangeEligible({ close: sessionId })
     // Resolve chat workspaces when the close queue runs, including opens queued before it.
     if (ORCA_LAYOUT_OWNER_IS_MAIN) {
       this.queueChatTabChanges(() =>
         this.worktreesShowingSavedChat(sessionId).map((worktreeId) => ({
           worktreeId,
-          change: { close: sessionId }
+          change: { close: sessionId },
+          eligible
         }))
       )
       return
     }
     for (const worktreeId of this.worktreesShowingSavedChat(sessionId)) {
-      this.changeWindowlessChatTabs(worktreeId, [{ close: sessionId }])
+      this.changeWindowlessChatTabs(worktreeId, [{ close: sessionId }], eligible)
     }
   }
 
@@ -299,10 +288,20 @@ export abstract class OrcaRuntimeWithCloseStructuredAgentSessionTab extends Orca
   }
 
   // A window saves its own layout whole, chat tabs included; only a host with none saves them here.
-  protected changeWindowlessChatTabs(worktreeId: string, changes: readonly ChatTabChange[]): void {
+  protected changeWindowlessChatTabs(
+    worktreeId: string,
+    changes: readonly ChatTabChange[],
+    eligible?: (change: ChatTabChange) => boolean
+  ): void {
     // Main-owned layouts place chat tabs with or without a window.
     if (ORCA_LAYOUT_OWNER_IS_MAIN) {
-      this.queueChatTabChanges(() => changes.map((change) => ({ worktreeId, change })))
+      this.queueChatTabChanges(() =>
+        changes.map((change) => ({
+          worktreeId,
+          change,
+          ...(eligible ? { eligible: () => eligible(change) } : {})
+        }))
+      )
       return
     }
     this.commitWindowlessChatSession(worktreeId, (session) =>
@@ -310,7 +309,7 @@ export abstract class OrcaRuntimeWithCloseStructuredAgentSessionTab extends Orca
         this.getWorkspaceSessionHostIdForWorktree(worktreeId),
         session,
         worktreeId,
-        changes
+        eligible ? changes.filter(eligible) : changes
       )
     )
   }

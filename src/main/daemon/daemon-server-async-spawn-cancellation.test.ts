@@ -38,6 +38,7 @@ describe('daemon async spawn cancellation', () => {
   let spawned: number
 
   beforeEach(async () => {
+    spawned = 0
     directory = mkdtempSync(join(tmpdir(), 'daemon-async-spawn-cancel-'))
     let markSpawnStarted: () => void = () => {}
     spawnStarted = new Promise<void>((resolve) => {

@@ -8,6 +8,9 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import type { AiVaultSession } from '../../../../shared/ai-vault-types'
 import type { AiVaultSearchHit } from '../../../../shared/ai-vault-search-types'
 import type { AgentDotState } from '@/components/AgentStateDot'
+import { createEditorStore } from '@/store/slices/editor-slice-test-harness'
+import { openAiVaultSessionLogInOrca } from './ai-vault-session-log-open'
+import { aiVaultSearchHitToSession } from './ai-vault-search-session'
 import { AiVaultVirtualRow } from './AiVaultVirtualRow'
 import { setLocalRuntimeCapabilitiesForTests } from '@/runtime/local-runtime-capabilities'
 import { useAppStore } from '@/store'
@@ -39,6 +42,7 @@ afterEach(() => {
   cleanup()
   setLocalRuntimeCapabilitiesForTests(null)
   vi.restoreAllMocks()
+  Reflect.deleteProperty(window, 'api')
 })
 
 function sessionRowFixture(
@@ -48,7 +52,8 @@ function sessionRowFixture(
   searchHitHostLabels?: ReadonlyMap<string, string>,
   index = 0,
   resumeInChat = false,
-  liveState: AgentDotState | null = null
+  liveState: AgentDotState | null = null,
+  logDetails?: { onOpenLog: (session: AiVaultSession) => Promise<void> }
 ) {
   const buildResumeStartup = vi.fn(() => ({ command: session.resumeCommand }))
   const onCopyResume = vi.fn()
@@ -63,7 +68,7 @@ function sessionRowFixture(
       activeStickyHeaderIndex={null}
       measureElement={vi.fn()}
       collapsedGroups={new Set()}
-      expandedSessionIds={new Set()}
+      expandedSessionIds={new Set(logDetails ? [session.id] : [])}
       vaultScope="all"
       searchHits={searchHit ? new Map([[session.id, searchHit]]) : undefined}
       searchHitHostLabels={searchHitHostLabels}
@@ -97,7 +102,7 @@ function sessionRowFixture(
       onCopyResume={onCopyResume}
       onCopyId={vi.fn()}
       onCopyPath={vi.fn()}
-      onOpenLog={vi.fn()}
+      onOpenLog={logDetails?.onOpenLog ?? vi.fn()}
       onRevealLog={vi.fn()}
       onOpenCwd={vi.fn()}
       onRequestDelete={vi.fn()}
@@ -118,8 +123,12 @@ function renderSession(
   blocked = false,
   searchHit?: AiVaultSearchHit,
   searchHitHostLabels?: ReadonlyMap<string, string>,
+  logDetails?: { onOpenLog: (session: AiVaultSession) => Promise<void> },
   liveState: AgentDotState | null = null
 ) {
+  if (logDetails) {
+    Object.defineProperty(window, 'api', { configurable: true, value: { aiVault: {} } })
+  }
   const fixture = sessionRowFixture(
     session,
     blocked,
@@ -127,14 +136,87 @@ function renderSession(
     searchHitHostLabels,
     0,
     false,
-    liveState
+    liveState,
+    logDetails
   )
   render(<TooltipProvider>{fixture.element}</TooltipProvider>)
   return fixture
 }
 
+describe('AiVaultVirtualRow conversation logs', () => {
+  it('opens a search-derived companion from the expanded View Log button', async () => {
+    const store = createEditorStore()
+    vi.spyOn(useAppStore, 'getState').mockImplementation(store.getState)
+    const hit: AiVaultSearchHit = {
+      agent: 'grok',
+      sessionId: 'grok-1',
+      title: 'Grok result',
+      cwd: '/repo',
+      branch: null,
+      updatedAt: null,
+      messageCount: 1,
+      score: 1,
+      source: { presence: 'present', filePath: '/tmp/grok-1/summary.json' },
+      evidence: null
+    }
+    renderSession(aiVaultSearchHitToSession(hit, 'local'), false, hit, undefined, {
+      onOpenLog: openAiVaultSessionLogInOrca
+    })
+
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'View Log' }))
+
+    expect(store.getState().openFiles).toEqual([
+      expect.objectContaining({
+        filePath: '/tmp/grok-1/chat_history.jsonl',
+        relativePath: '/tmp/grok-1/chat_history.jsonl',
+        readOnly: true,
+        liveTail: true,
+        runtimeEnvironmentId: null
+      })
+    ])
+    await user.click(screen.getByTestId('ai-vault-session-more-actions'))
+    await user.click(await screen.findByRole('menuitem', { name: 'Open Log' }))
+    fireEvent.contextMenu(screen.getByText('Grok result'))
+    await user.click(await screen.findByRole('menuitem', { name: 'Open Log' }))
+    expect(store.getState().openFiles).toHaveLength(1)
+    expect(store.getState().openFiles[0].fileContentReloadNonce).toBe(2)
+  })
+
+  it.each(['overflow', 'context'] as const)(
+    'omits Open Log for a database-backed row in the %s menu',
+    async (menu) => {
+      renderSession(
+        {
+          ...cliSession,
+          agent: 'opencode2',
+          filePath: '/tmp/opencode.db',
+          messageCount: 0,
+          previewMessages: [],
+          queuedMessageCount: 1
+        },
+        false,
+        undefined,
+        undefined,
+        { onOpenLog: openAiVaultSessionLogInOrca }
+      )
+      expect(screen.getByText('Conversation not saved')).toBeTruthy()
+      expect(screen.queryByRole('button', { name: 'View Log' })).toBeNull()
+      expect(screen.queryByText(/Open the log to recover them/)).toBeNull()
+      const user = userEvent.setup()
+      if (menu === 'overflow') {
+        await user.click(screen.getByTestId('ai-vault-session-more-actions'))
+      } else {
+        fireEvent.contextMenu(screen.getByText('CLI session'))
+      }
+      expect(await screen.findByRole('menuitem', { name: 'Copy Session ID' })).toBeTruthy()
+      expect(screen.queryByRole('menuitem', { name: 'Open Log' })).toBeNull()
+    }
+  )
+})
+
 it('passes semantic status through the virtual row to the real glyph', () => {
-  renderSession(cliSession, false, undefined, undefined, 'monitoring')
+  renderSession(cliSession, false, undefined, undefined, undefined, 'monitoring')
   expect(screen.getByLabelText('Monitoring background tasks')).toBeTruthy()
 })
 

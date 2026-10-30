@@ -25,6 +25,7 @@ export type DaemonCreationFailureFixture = {
 export function registerDaemonCreationFailureTests(fixture: DaemonCreationFailureFixture) {
   registerDaemonNativeFailureTests(fixture)
   it.each([
+    ['observer', 'retry'],
     ['constructor', 'retry'],
     ['publication', 'disposal']
   ] as const)(
@@ -54,7 +55,11 @@ export function registerDaemonCreationFailureTests(fixture: DaemonCreationFailur
       const observed = expect(creating).rejects.toThrow('fixture subscription failed')
       await fixture.spawnStarted
       const failed = fixture.subprocess
-      if (failure === 'constructor') {
+      if (failure === 'observer') {
+        failed.onExit = vi.fn(failed.onExit).mockImplementationOnce(() => {
+          throw new Error('fixture subscription failed')
+        })
+      } else if (failure === 'constructor') {
         failed.onData = () => {
           throw new Error('fixture subscription failed')
         }

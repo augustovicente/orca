@@ -8,11 +8,11 @@ import { ORCA_LAYOUT_OWNER_IS_MAIN } from '../../../shared/layout-owner-switch'
 import type { LayoutApplyReply } from '../../../shared/workspace-layout/workspace-layout-command-types'
 
 import type { SessionSwitchProjection } from '../../../shared/agent-session-switch-execution'
-import { OrcaRuntimeWithCloseMobileSessionTab } from '../session-lifecycle/close/close-mobile-session-tab'
+import { OrcaRuntimeWithStructuredSessionTabProjection } from './restored-chat-tab-changes'
 
 import { loadChatTabLayout } from '../agent-session/agent-session-tab-layout'
 
-export abstract class OrcaRuntimeWithStructuredSessionSwitchProjection extends OrcaRuntimeWithCloseMobileSessionTab {
+export abstract class OrcaRuntimeWithStructuredSessionSwitchProjection extends OrcaRuntimeWithStructuredSessionTabProjection {
   protected abstract changeWindowlessChatTabs(
     worktreeId: string,
     changes: readonly ChatTabChange[]

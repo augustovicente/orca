@@ -427,6 +427,7 @@ describe('adopting a provider conversation on create', () => {
       ['prepared before acquiring'],
       parent.position
     )
+    await appendFile(transcriptPath, '{"ordinal":')
     const prepare = vi.spyOn(legacyImport, 'prepareLegacyTranscriptImport')
     const sessionAdapter = adapter()
     const acquire = sessionAdapter.acquire

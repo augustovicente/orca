@@ -6,6 +6,7 @@ import type {
 } from './daemon-pty-operation-state'
 import { DaemonClient } from './client'
 import { DaemonPtyInputClosedIncarnations } from './daemon-pty-input-closed-incarnations'
+import { DaemonPtyInventoryObservation } from './daemon-pty-inventory-observation'
 import { createDaemonAuditEligibilityTracker } from './daemon-audit-eligibility-event'
 import type {
   DaemonAuditContext,
@@ -100,6 +101,10 @@ export abstract class DaemonPtyRuntimeState {
   protected getSizeUnsupported = false
   protected sessionsAwaitingDaemonRecovery = new Set<string>()
   protected sessionIncarnations = new Map<string, string>()
+  protected readonly ptyInventory = new DaemonPtyInventoryObservation(
+    this.activeSessionIds,
+    this.sessionIncarnations
+  )
   protected inputClosedIncarnations = new DaemonPtyInputClosedIncarnations()
   protected pendingSpawnOperationsBySessionId = new Map<string, Set<PendingDaemonSpawnOperation>>()
   protected pendingClaimSpawnOperations = new Set<PendingDaemonSpawnOperation>()
@@ -148,8 +153,7 @@ export abstract class DaemonPtyRuntimeState {
     // Host loss leaves history unended, so the pane can still cold-restore (as after a crash).
     { closeHistory = true }: { closeHistory?: boolean } = {}
   ): void {
-    const currentIncarnationId = this.sessionIncarnations.get(sessionId)
-    if (currentIncarnationId !== undefined && expectedIncarnationId !== currentIncarnationId) {
+    if (!this.ptyInventory.retire(sessionId, expectedIncarnationId)) {
       return
     }
     this.activeSessionIds.delete(sessionId)
@@ -219,6 +223,7 @@ export abstract class DaemonPtyRuntimeState {
     this.supportsStartupIngress = supportsPtyStartupIngress(this.protocolVersion)
     this.disconnectedListenerCleanups.push(
       this.client.onDisconnected(() => {
+        this.ptyInventory.reset()
         if (!this.respawnAdoptionClosed) {
           this.writeRecoveryAttempted = false
           for (const id of this.activeSessionIds) {
