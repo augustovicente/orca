@@ -12545,7 +12545,6 @@
           "previous": "以前のバージョン",
           "updated": "更新日",
           "license": "ライセンス",
-          "homepage": "ホームページ",
           "whatsNew": "新機能",
           "hashCopied": "コンテンツハッシュをコピーしました",
           "hashCopyFailed": "ハッシュをコピーできませんでした。"
@@ -17907,6 +17906,13 @@
           "insecure": "このサイトへの接続はプライベートではありません。",
           "description": "{{origin}} はユーザー名とパスワードを要求しています。",
           "retry": "ユーザー名またはパスワードが正しくありません。"
+        },
+        "javaScriptDialog": {
+          "title": "{{origin}} の内容",
+          "anonymousTitle": "このページの内容",
+          "confirm": "OK",
+          "cancel": "キャンセル",
+          "answer": "回答"
         },
         "sitePermission": {
           "label": {

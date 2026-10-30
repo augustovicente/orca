@@ -13226,7 +13226,6 @@
           "previous": "Previous",
           "updated": "Updated",
           "license": "License",
-          "homepage": "Homepage",
           "whatsNew": "What’s new",
           "hashCopied": "Content hash copied",
           "hashCopyFailed": "Couldn't copy the hash."
@@ -18695,6 +18694,13 @@
           "password": "Password",
           "confirm": "Sign in",
           "cancel": "Cancel"
+        },
+        "javaScriptDialog": {
+          "title": "{{origin}} says",
+          "anonymousTitle": "This page says",
+          "confirm": "OK",
+          "cancel": "Cancel",
+          "answer": "Answer"
         },
         "sitePermission": {
           "label": {

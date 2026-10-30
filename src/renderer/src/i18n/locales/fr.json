@@ -13055,7 +13055,6 @@
           "previous": "Précédente",
           "updated": "Mis à jour",
           "license": "Licence",
-          "homepage": "Page d’accueil",
           "whatsNew": "Nouveautés",
           "hashCopied": "Empreinte du contenu copiée",
           "hashCopyFailed": "Impossible de copier l’empreinte."
@@ -18602,6 +18601,13 @@
           "insecure": "Votre connexion à ce site n'est pas privée.",
           "retry": "Ce nom d'utilisateur ou ce mot de passe n'a pas fonctionné.",
           "description": "{{origin}} demande un nom d'utilisateur et un mot de passe."
+        },
+        "javaScriptDialog": {
+          "title": "{{origin}} indique",
+          "anonymousTitle": "Cette page indique",
+          "confirm": "OK",
+          "cancel": "Annuler",
+          "answer": "Réponse"
         },
         "sitePermission": {
           "label": {

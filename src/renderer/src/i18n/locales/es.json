@@ -12831,7 +12831,6 @@
           "previous": "Anterior",
           "updated": "Actualizado",
           "license": "Licencia",
-          "homepage": "Página web",
           "whatsNew": "Novedades",
           "hashCopied": "Hash de contenido copiado",
           "hashCopyFailed": "No se pudo copiar el hash."
@@ -18378,6 +18377,13 @@
           "retry": "Ese nombre de usuario o contraseña no funcionó.",
           "insecure": "Su conexión a este sitio no es privada.",
           "description": "{{origin}} solicita un nombre de usuario y contraseña."
+        },
+        "javaScriptDialog": {
+          "title": "{{origin}} dice",
+          "anonymousTitle": "Esta página dice",
+          "confirm": "Aceptar",
+          "cancel": "Cancelar",
+          "answer": "Respuesta"
         },
         "sitePermission": {
           "label": {
