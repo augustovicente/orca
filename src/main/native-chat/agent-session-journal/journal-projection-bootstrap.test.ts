@@ -6,6 +6,8 @@ import { codexProviderHandle } from '../../../shared/agent-session-provider-hand
 import { agentJournalItemKey } from '../../../shared/agent-session-journal-item-key'
 import {
   AGENT_JOURNAL_THREAD_SCOPE,
+  type AgentJournalItemBody,
+  type AgentJournalItemIdentity,
   type AgentSessionJournalIdentity
 } from '../../../shared/agent-session-journal-types'
 import {
@@ -81,12 +83,16 @@ const legacyChat = (rows: number) =>
     ...Array.from({ length: rows - 1 }, (_, index) => legacyItem(index + 2))
   ])
 const coverage = () => restoreJournal(database.db, sessionId)?.projectionThrough
-const nextItem = (ordinal: number) =>
-  agentJournalItemKey({ provider: 'codex', threadId: 'thread-1', turnId: 'turn-2', ordinal })
-const reply = (text: string) => ({
-  kind: 'message' as const,
-  role: 'assistant' as const,
-  blocks: [{ type: 'text' as const, text }]
+const nextItem = (ordinal: number): AgentJournalItemIdentity => ({
+  provider: 'codex',
+  threadId: 'thread-1',
+  turnId: 'turn-2',
+  ordinal
+})
+const reply = (text: string): AgentJournalItemBody => ({
+  kind: 'message',
+  role: 'assistant',
+  blocks: [{ type: 'text', text }]
 })
 // Every slice overruns, so a catch-up rests after each page.
 function restAfterEveryPage() {
