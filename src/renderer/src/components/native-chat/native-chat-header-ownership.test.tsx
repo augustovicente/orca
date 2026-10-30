@@ -1,6 +1,7 @@
+import { ConfirmationDialogProvider } from '@/components/confirmation-dialog'
 // @vitest-environment happy-dom
 import { Profiler } from 'react'
-import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { useAppStore } from '@/store'
@@ -129,9 +130,11 @@ function seedChats(size: number) {
 }
 function overlay(active: boolean) {
   return (
-    <TooltipProvider>
-      <StructuredAgentSessionPaneOverlayLayer worktreeId={workspace} isWorktreeActive={active} />
-    </TooltipProvider>
+    <ConfirmationDialogProvider>
+      <TooltipProvider>
+        <StructuredAgentSessionPaneOverlayLayer worktreeId={workspace} isWorktreeActive={active} />
+      </TooltipProvider>
+    </ConfirmationDialogProvider>
   )
 }
 function chat(container: HTMLElement, id: string) {
@@ -202,21 +205,23 @@ function eligibility(
   tabId = 'tab'
 ) {
   return (
-    <TooltipProvider>
-      <Profiler id="eligibility" onRender={() => work.commits++}>
-        {[
-          { key: 'folder', id: folder },
-          { key: 'git', id: git }
-        ].map(({ key, id }) => (
-          <NativeChatResumeInCliButton
-            key={key}
-            tabId={tabId}
-            worktreeId={id}
-            nativeChat={{ sessionId, agent }}
-          />
-        ))}
-      </Profiler>
-    </TooltipProvider>
+    <ConfirmationDialogProvider>
+      <TooltipProvider>
+        <Profiler id="eligibility" onRender={() => work.commits++}>
+          {[
+            { key: 'folder', id: folder },
+            { key: 'git', id: git }
+          ].map(({ key, id }) => (
+            <NativeChatResumeInCliButton
+              key={key}
+              tabId={tabId}
+              worktreeId={id}
+              nativeChat={{ sessionId, agent }}
+            />
+          ))}
+        </Profiler>
+      </TooltipProvider>
+    </ConfirmationDialogProvider>
   )
 }
 
@@ -368,7 +373,7 @@ it('keeps the real Continue pending operation disabled across header hide/reveal
   expect(button().hasAttribute('disabled')).toBe(true)
   expect(button().getAttribute('aria-busy')).toBe('true')
   fireEvent.click(button())
-  expect(mocks.prepare).toHaveBeenCalledTimes(1)
+  await waitFor(() => expect(mocks.prepare).toHaveBeenCalledTimes(1))
   await act(async () =>
     preparation.resolve({
       copied: false,

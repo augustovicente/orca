@@ -1,3 +1,4 @@
+import { noteViewerNavigation } from './viewer-selection-request'
 import { focusTerminalTabSurface } from '@/lib/focus-terminal-tab-surface'
 import { runtimeEnvironmentIdOrLocalUnlessTwin } from '@/lib/worktree-runtime-owner'
 import { activateWebRuntimeSessionTab } from '@/runtime/web-runtime-session-tab-lifecycle'
@@ -104,6 +105,7 @@ export function activateWorkspaceTabPaletteResult(
     return { status: 'failed', reason: initialFailure }
   }
 
+  noteViewerNavigation()
   const executionHostId =
     result.executionHostId ?? initialState.getKnownWorktreeById(result.worktreeId)?.hostId
   const activated = executionHostId

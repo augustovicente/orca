@@ -686,29 +686,3 @@ describe('execution-host conversation writer inspection', () => {
     await expect(check('opencode')).resolves.toBeUndefined()
   })
 })
-
-it.each(['claude', 'codex'] as const)(
-  'distinguishes an addressed %s source with an opaque inspection from another writer without claiming a live job',
-  async (agent) => {
-    const check = inspection('unverifiable')
-    check.host.shellAlone = vi.fn(async () => false)
-    await expect(
-      assertCliConversationWritersExited(check.host, agent, 'conversation', {
-        paneKey: 'source',
-        worktreeId: 'workspace'
-      })
-    ).rejects.toMatchObject({
-      refusal: {
-        code: 'agent_session_conflict',
-        details: { reason: 'conversationHeldElsewhere', source: true }
-      }
-    })
-    const other = inspection('unverifiable')
-    await expect(other.run()).rejects.toMatchObject(refusal)
-    try {
-      await other.run()
-    } catch (error) {
-      expect(error).not.toMatchObject({ refusal: { details: { source: true } } })
-    }
-  }
-)

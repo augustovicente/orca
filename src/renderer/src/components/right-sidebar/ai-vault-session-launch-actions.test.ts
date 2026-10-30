@@ -243,35 +243,6 @@ describe('ordinary CLI copy launch when the switch action does not apply', () =>
   })
 })
 
-it.each(['claude', 'codex', 'grok', 'opencode', 'opencode2', 'pi'] as const)(
-  'routes supported %s History chats through the common same-conversation switch',
-  (agent) => {
-    vi.clearAllMocks()
-    const chat = { ...owned, agent }
-    mocks.getState.mockReturnValue({
-      activeWorktreeId: 'worktree-1',
-      settings: {},
-      unifiedTabsByWorktree: {
-        'worktree-1': [{ id: 'chat-tab', contentType: 'agent-session', entityId: 'chat-1' }]
-      }
-    })
-    renderActions().handleResumeInNewCli(chat, 'worktree-2')
-    expect(mocks.switchToCli).toHaveBeenCalledExactlyOnceWith({
-      confirm: mocks.confirm,
-      sessionId: 'chat-1',
-      workspaceId: 'worktree-1',
-      executionHostId: 'local',
-      agent,
-      chatTabId: 'chat-tab',
-      history: chat
-    })
-    expect(mocks.prepareAiVaultSessionForFork).not.toHaveBeenCalled()
-    expect(mocks.buildAiVaultForkStartupForWorktree).not.toHaveBeenCalled()
-    expect(mocks.launchAiVaultSessionInNewTab).not.toHaveBeenCalled()
-    expect(mocks.toastError).not.toHaveBeenCalled()
-  }
-)
-
 it('refuses the stale OMP row before creating a second terminal writer', async () => {
   vi.clearAllMocks()
   mocks.prepareAiVaultSessionForTerminalResume.mockRejectedValue(

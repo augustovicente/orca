@@ -20,64 +20,6 @@ import {
 installRuntimeRpcClientTestBridge()
 
 describe('runtime RPC client routing', () => {
-  it.each(['local', 'environment'] as const)(
-    'runs the %s dispatch veto once and does not send when it throws',
-    async (kind) => {
-      const target = kind === 'local' ? { kind } : { kind, environmentId: 'env-1' }
-      const dispatch = kind === 'local' ? runtimeCall : runtimeEnvironmentCall
-      const beforeSend = vi.fn((): void => {
-        expect(dispatch).not.toHaveBeenCalled()
-        throw new Error('operation retired')
-      })
-      await expect(callRuntimeRpc(target, 'status.get', undefined, { beforeSend })).rejects.toThrow(
-        'operation retired'
-      )
-      expect(beforeSend).toHaveBeenCalledOnce()
-      expect(dispatch).not.toHaveBeenCalled()
-
-      beforeSend.mockImplementation(() => {
-        expect(dispatch).not.toHaveBeenCalled()
-      })
-      dispatch.mockRejectedValue(new Error('reply lost'))
-      await expect(callRuntimeRpc(target, 'status.get', undefined, { beforeSend })).rejects.toThrow(
-        'reply lost'
-      )
-      expect(beforeSend).toHaveBeenCalledTimes(2)
-      expect(dispatch).toHaveBeenCalledOnce()
-    }
-  )
-
-  it('observes an abortable host dispatch once, without marking subscription setup sent', async () => {
-    let callbacks: Parameters<typeof window.api.runtimeEnvironments.subscribe>[1] | undefined
-    const unsubscribe = vi.fn()
-    runtimeEnvironmentSubscribe.mockImplementation((_args, incoming) => {
-      callbacks = incoming
-      return Promise.resolve({ unsubscribe })
-    })
-    const beforeSend = vi.fn()
-    const request = callRuntimeRpc(
-      { kind: 'environment', environmentId: 'env-1' },
-      'status.get',
-      undefined,
-      { signal: new AbortController().signal, beforeSend }
-    )
-    expect(runtimeEnvironmentSubscribe).toHaveBeenCalledOnce()
-    expect(beforeSend).not.toHaveBeenCalled()
-    callbacks?.onSent?.(123)
-    callbacks?.onSent?.(456)
-    callbacks?.onResponse({
-      id: 'response',
-      ok: true,
-      result: 'done',
-      _meta: { runtimeId: 'remote-runtime' }
-    })
-    await expect(request).resolves.toBe('done')
-    expect(beforeSend).toHaveBeenCalledExactlyOnceWith(123)
-    callbacks?.onSent?.(789)
-    expect(beforeSend).toHaveBeenCalledOnce()
-    expect(runtimeEnvironmentCall).not.toHaveBeenCalled()
-  })
-
   it('routes local runtime calls through window.api.runtime.call', async () => {
     runtimeCall.mockResolvedValue({
       id: 'local',

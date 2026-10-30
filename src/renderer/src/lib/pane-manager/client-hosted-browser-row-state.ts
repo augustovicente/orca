@@ -1,3 +1,4 @@
+import { noteViewerNavigation } from '../viewer-selection-request'
 import { useCallback, useSyncExternalStore } from 'react'
 import type {
   ClientHostedBrowserRow,
@@ -91,6 +92,7 @@ export function useClientHostedBrowserRows(worktreeId: string): readonly ClientH
 }
 
 export function selectClientHostedBrowserRow(next: ClientHostedBrowserRowSelection): void {
+  noteViewerNavigation()
   selection = next
   notifyChange()
 }

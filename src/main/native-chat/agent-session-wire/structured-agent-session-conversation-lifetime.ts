@@ -106,10 +106,9 @@ export function createStructuredAgentSessionConversationLifetime(
     }
     const starts = sleep.workspaceSleepStartAborts(() => host.context().runtimeState, sessionId)
     // Pending creates have no record yet; their queued close waits for founding.
-    if (matches()) {
-      switchCommands.revoke(sessionId)
-    }
-    if (matches() && deps().store.getRecord(sessionId)) {
+    const matched = matches()
+    const revoked = matched && switchCommands.revoke(sessionId)
+    if ((revoked ? matches() : matched) && deps().store.getRecord(sessionId)) {
       const journal = sessions.get(sessionId)?.journal
       if (journal) {
         closeStructuredAgentSessionHandovers(journal)

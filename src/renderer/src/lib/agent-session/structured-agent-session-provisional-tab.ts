@@ -70,6 +70,7 @@ export type ProvisionalLaunchArgs = {
   targetGroupId?: string
   afterTabId?: string
   activate?: boolean
+  viewerSelection?: string
   canActivate?: () => boolean
   /** Identity-only resumes publish on commit; unknown outcomes keep their recovery tab. */
   deferPublication?: true
@@ -208,6 +209,7 @@ function beginLocalProvisionalLaunch(
       ...(args.targetGroupId ? { targetGroupId: args.targetGroupId } : {}),
       ...(args.afterTabId ? { afterTabId: args.afterTabId } : {}),
       ...(args.activate !== undefined ? { activate: args.activate } : {}),
+      viewerSelection: args.viewerSelection,
       canActivate: args.canActivate
     })
     return { ...handle, tab }
@@ -228,7 +230,32 @@ function beginDeferredPublication(
   const releaseHold = holdEmptyWorkspaceDefaultSurfaceForLaunch(worktreeId)
   let handle: StructuredAgentLaunchHandle | null
   try {
-    handle = args.plan.begin(launchHooks(args), args.target)
+    const hooks = launchHooks(args)
+    handle = args.plan.begin(
+      args.viewerSelection
+        ? {
+            ...hooks,
+            onStructuredReady: (sessionId) => {
+              hooks.onStructuredReady?.(sessionId)
+              if (!handle) {
+                return
+              }
+              openStructuredAgentSessionProvisionalTab({
+                worktreeId,
+                executionHostId: handle.executionHostId,
+                sessionId,
+                agent: args.plan.agent,
+                targetGroupId: args.targetGroupId,
+                afterTabId: args.afterTabId,
+                activate: args.activate,
+                viewerSelection: args.viewerSelection,
+                canActivate: args.canActivate
+              })
+            }
+          }
+        : hooks,
+      args.target
+    )
   } catch (error) {
     releaseHold()
     throw error

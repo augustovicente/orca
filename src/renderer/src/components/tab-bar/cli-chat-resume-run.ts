@@ -1,24 +1,18 @@
+import { runOrdinaryCliChatResume } from './cli-chat-resume-ordinary-run'
 import {
   captureTerminalSurfaceIdentity,
   isRetainedTerminalSurfaceIdentity
 } from '../../../../shared/terminal-tab-close'
 import { toast } from 'sonner'
-import {
-  conversationSwitchFailureText,
-  conversationSwitchSourceKept
-} from '@/lib/conversation-switch-feedback'
+import { conversationSwitchFailureText } from '@/lib/conversation-switch-feedback'
 import {
   conversationSwitchChanged,
   isCliChatResumePending,
   pendingCliChatResumes as pending
 } from '@/lib/pending-conversation-surface-switches'
 import { useAppStore } from '@/store'
-import { newAgentLaunchRequestId } from '@/lib/agent-launch-request-id'
-import { adoptAgentSessionLaunchVerdict } from '@/lib/agent-session-launch-plan'
-import { beginStructuredAgentSessionProvisionalLaunch } from '@/lib/agent-session/structured-agent-session-provisional-tab'
 import { structuredAgentSessionTargetForHost } from '@/runtime/structured-agent-session-owner'
 import { resolveCliChatResumeSource, type CliChatResumeSource } from './cli-chat-resume-source'
-import { reportCliChatResumeFailure } from './cli-chat-resume-feedback'
 import { adoptingAgentOnHost } from '../right-sidebar/ai-vault-session-resume-in-chat-launch'
 import { callRuntimeRpc } from '@/runtime/runtime-rpc-client'
 import { captureSourceTerminal } from './cli-chat-resume-terminal-capture'
@@ -28,7 +22,8 @@ import { captureConversationSwitchSelection } from '@/lib/conversation-switch-st
 /** Old peers stop the addressed PTY before ordinary adoption; a kill acknowledgement is never exit proof. */
 export async function runLegacyCliChatResume(
   source: CliChatResumeSource,
-  viewerSelection?: string
+  viewerSelection?: string,
+  reportFailure?: (error: unknown) => void
 ): Promise<void> {
   const key = `${source.executionHostId}\0${source.agent}\0${source.providerSessionId}`
   const target = structuredAgentSessionTargetForHost(source.executionHostId)
@@ -77,15 +72,11 @@ export async function runLegacyCliChatResume(
     if (!captured || !ptyId || !isCurrent()) {
       throw stopUnknown()
     }
-    if (!stillCaptured() || !stillSelected()) {
+    if (!stillCaptured()) {
       return
     }
-    const agent = await adoptingAgentOnHost(
-      source.agent,
-      source.workspaceId,
-      source.executionHostId
-    )
-    if (!isCurrent() || !stillCaptured() || !stillSelected()) {
+    await adoptingAgentOnHost(source.agent, source.workspaceId, source.executionHostId)
+    if (!isCurrent() || !stillCaptured()) {
       return
     }
     const stopped = await callRuntimeRpc<{
@@ -119,51 +110,25 @@ export async function runLegacyCliChatResume(
     if (current && !isCurrent()) {
       return
     }
-    const state = useAppStore.getState()
-    if (!stillCaptured() || !stillSelected()) {
+    if (!stillCaptured()) {
       return
     }
-    const group = state.groupsByWorktree[source.workspaceId]?.find((row) =>
-      row.tabOrder.includes(source.tabId)
-    )
-    const plan = adoptAgentSessionLaunchVerdict({
-      route: 'structured-native-chat',
-      requestId: newAgentLaunchRequestId(),
-      agent,
-      worktreeId: source.workspaceId,
-      executionHostId: source.executionHostId,
-      resumeFrom: { providerSessionId: source.providerSessionId }
+    await runOrdinaryCliChatResume(source, true, {
+      token: viewerSelection,
+      reportFailure,
+      current: stillSelected,
+      sourceCurrent: stillCaptured,
+      afterTabId: source.tabId
     })
-    const launch = beginStructuredAgentSessionProvisionalLaunch({
-      plan,
-      hooks: { beforeCreate: stillCaptured },
-      canActivate: stillSelected,
-      afterTabId: source.tabId,
-      target: group
-        ? {
-            surfaceAddress: {
-              worktreeId: source.workspaceId,
-              targetGroupId: group.id,
-              precedingTabIds: group.tabOrder.slice(0, group.tabOrder.indexOf(source.tabId) + 1)
-            }
-          }
-        : undefined
-    })
-    if (!launch) {
-      return
-    }
-    const result = await launch.settlement
-    if (result.kind === 'structured') {
-      // Old close envelopes cannot condition retirement on this captured incarnation after adoption.
-      toast.info(conversationSwitchSourceKept(source.agent))
-    } else if (result.kind === 'failed' && !result.notified) {
-      await reportCliChatResumeFailure(source, result.error, target, viewerSelection)
-    }
   } catch (error) {
     // A stopped shell can cease being busy or disappear; that never turns proven Stop into a failure.
-    toast.error(
-      conversationSwitchFailureText(error, { agent: source.agent, direction: 'chat', source })
-    )
+    if (reportFailure) {
+      reportFailure(error)
+    } else {
+      toast.error(
+        conversationSwitchFailureText(error, { agent: source.agent, direction: 'chat', source })
+      )
+    }
   } finally {
     pending.delete(controller)
     conversationSwitchChanged()

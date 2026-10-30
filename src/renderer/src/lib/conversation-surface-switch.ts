@@ -25,7 +25,6 @@ import {
   conversationSwitchFailureText,
   conversationSwitchSourceKept
 } from './conversation-switch-feedback'
-import { resolveWorktreeExecutionHostPlatform } from './execution-host-facts'
 import { structuredAgentSessionTargetForHost } from '@/runtime/structured-agent-session-owner'
 import {
   callStructuredAgentSession,
@@ -46,7 +45,7 @@ import {
 import { AgentSessionRefusalError } from '../../../shared/agent-session-wire-refusals'
 import { prepareAiVaultSessionForResume } from './ai-vault-session-resume-preparation'
 import type { CliChatResumeSource } from '@/components/tab-bar/cli-chat-resume-source'
-import { captureConversationSwitchViewerSelection } from './conversation-switch-selection'
+import { beginViewerSelectionRequest } from './viewer-selection-request'
 import { presentConversationSwitchResult } from './conversation-switch-result-selection'
 import { runLegacyConversationSwitch } from './conversation-switch-legacy'
 import {
@@ -54,7 +53,8 @@ import {
   keyFor,
   pendingNow,
   rederiveConversationSwitch,
-  conversationSwitchReplying
+  conversationSwitchReplying,
+  withConversationSwitchPlatform
 } from './conversation-switch-state'
 
 export { conversationSwitchFailureText } from './conversation-switch-feedback'
@@ -77,28 +77,22 @@ export function runNativeChatCliSwitch(
 
 export async function runConversationSwitch(args: ConversationSwitch): Promise<boolean> {
   if (
-    !isNativeChatEnabled(useAppStore.getState().settings) ||
+    (args.direction === 'chat' && !isNativeChatEnabled(useAppStore.getState().settings)) ||
     !inPlaceSwitchEnabled(args.agent) ||
     pendingNow(args)
   ) {
     return false
   }
-  const viewerSelection = captureConversationSwitchViewerSelection()
-  const platform = resolveWorktreeExecutionHostPlatform(
-    useAppStore.getState(),
-    args.workspaceId,
-    undefined
-  )
-  args = {
-    ...args,
-    platform: args.platform ?? (platform.kind === 'known' ? platform.platform : undefined)
-  }
+  args = withConversationSwitchPlatform(args)
   const target = structuredAgentSessionTargetForHost(args.executionHostId)
   const hostId = parseExecutionHostId(args.executionHostId)?.id
   if (!target || !hostId) {
     return false
   }
   const deadline = agentSessionSwitchDeadline(Date.now, AGENT_SESSION_SWITCH_CLIENT_MS)
+  const invocationId = createBrowserUuid()
+  const selection = beginViewerSelectionRequest(invocationId, deadline)
+  const viewerSelection = selection.token
   const key = keyFor(args)
   const feedback =
     args.feedback ?? ((message: string, kind: 'error' | 'info') => toast[kind](message))
@@ -108,11 +102,17 @@ export async function runConversationSwitch(args: ConversationSwitch): Promise<b
     executionHostId: args.executionHostId
   })
   conversationSwitchChanged()
-  const invocationId = createBrowserUuid()
   let consented = false
   let sent = false
   let presentation: SwitchPresentationVisit | undefined
   try {
+    const supported = await deadline.wait(supportsInPlaceSwitch(target, args.agent, true))
+    if (!supported && args.legacyContinue) {
+      selection.accept()
+      consented = true
+      await args.legacyContinue(viewerSelection)
+      return false
+    }
     if (conversationSwitchReplying(args)) {
       const confirmed = await args.confirm?.({
         title: translate(
@@ -129,6 +129,7 @@ export async function runConversationSwitch(args: ConversationSwitch): Promise<b
         return false
       }
     }
+    selection.accept()
     consented = true
     if (args.direction === 'terminal' && args.sessionId && args.chatTabId) {
       captureSwitchProjection(
@@ -144,7 +145,7 @@ export async function runConversationSwitch(args: ConversationSwitch): Promise<b
         () => {}
       )
     }
-    if (!(await deadline.wait(supportsInPlaceSwitch(target, args.agent, true)))) {
+    if (!supported) {
       await runLegacyConversationSwitch(args, target, viewerSelection)
       return false
     }
@@ -246,6 +247,9 @@ export async function runConversationSwitch(args: ConversationSwitch): Promise<b
       presentation = beginSwitchPresentation(target, answer.sessionId)
     }
     if (answer.status !== 'completed') {
+      if (answer.status === 'refused') {
+        selection.discard()
+      }
       if (!presentation || reportSwitchPresentationFailure(presentation, answer.failureItemId)) {
         feedback(
           conversationSwitchFailureText(new AgentSessionRefusalError(answer.refusal), args),
@@ -262,11 +266,17 @@ export async function runConversationSwitch(args: ConversationSwitch): Promise<b
     }
     return true
   } catch (error) {
+    if (!sent) {
+      selection.discard()
+    }
     if (!presentation || reportSwitchPresentationFailure(presentation)) {
       feedback(conversationSwitchFailureText(error, args), 'error')
     }
     return false
   } finally {
+    if (!consented) {
+      selection.discard()
+    }
     if (!sent) {
       releaseUnsentSwitchProjection(invocationId)
     }

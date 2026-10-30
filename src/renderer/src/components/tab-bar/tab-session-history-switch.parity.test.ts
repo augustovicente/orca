@@ -16,12 +16,12 @@ import {
   type TabSessionHistorySubject
 } from './tab-session-history-switch'
 
+const { readLocalCapabilities } = vi.hoisted(() => ({ readLocalCapabilities: vi.fn() }))
+
 // Stage host IPC capabilities only; run the shared panel/tab composition for real.
 vi.mock('@/runtime/local-runtime-capabilities', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
-  readLocalRuntimeCapabilitiesOrUnknown: () => [
-    STRUCTURED_AGENT_SESSION_RESUME_HISTORY_RUNTIME_CAPABILITY
-  ]
+  readLocalRuntimeCapabilitiesOrUnknown: readLocalCapabilities
 }))
 vi.mock('@/lib/agent-session-launch-plan', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
@@ -86,19 +86,25 @@ function panelTargets(state: AppState, session: AiVaultSession) {
       settings: state.settings
     })
   )
-  return resolveAiVaultSessionRowChatActions({
-    session,
-    originalPaneTarget: null,
-    structuredSessionOpen: false,
-    resumeState: result.current.getSessionResumeState(session),
-    resumeInChat: result.current.getSessionResumeInChat(session),
-    searchHit: undefined
-  })
+  return {
+    worktreeInfo: result.current.getSessionWorktreeInfo(session),
+    ...resolveAiVaultSessionRowChatActions({
+      session,
+      originalPaneTarget: null,
+      structuredSessionOpen: false,
+      resumeState: result.current.getSessionResumeState(session),
+      resumeInChat: result.current.getSessionResumeInChat(session),
+      searchHit: undefined
+    })
+  }
 }
 
 const request = { scopePaths: [], executionHostScope: 'local', sessionLimit: 250 } as const
 
 beforeEach(() => {
+  readLocalCapabilities.mockReturnValue([
+    STRUCTURED_AGENT_SESSION_RESUME_HISTORY_RUNTIME_CAPABILITY
+  ])
   makeState()
 })
 
@@ -122,36 +128,22 @@ describe('the tab menu offers exactly what the Session History row offers', () =
     })
   })
 
-  it.each(['local', 'ssh:unavailable'] as const)(
-    'keeps an owned conversation eligible only on its supported switch route (%s)',
-    (executionHostId) => {
-      useAppStore.setState((state) => ({
-        repos: state.repos.map((repo) => ({ ...repo, executionHostId }))
-      }))
-      const state = useAppStore.getState()
-      const owned = row({
-        executionHostId,
-        structuredSession: { sessionId: 'orca-chat-1', workspaceId: WORKTREE_ID }
+  it('nothing for a CLI conversation a native chat already holds', () => {
+    const state = useAppStore.getState()
+    const owned = row({
+      structuredSession: { sessionId: 'orca-chat-1', workspaceId: WORKTREE_ID }
+    })
+    expect(panelTargets(state, owned).resumeInNewChatWorkspaceId).toBeNull()
+    expect(
+      resolveTabSessionSwitch(state, owned, {
+        kind: 'cli',
+        agent: 'claude',
+        providerSessionId: owned.sessionId,
+        workspaceId: WORKTREE_ID,
+        request
       })
-      const panel = panelTargets(state, owned)
-      expect(panel.resumeInNewChatWorkspaceId).toBe(
-        executionHostId === 'local' ? WORKTREE_ID : null
-      )
-      expect(
-        resolveTabSessionSwitch(state, owned, {
-          kind: 'cli',
-          agent: 'claude',
-          providerSessionId: owned.sessionId,
-          workspaceId: WORKTREE_ID,
-          request: { ...request, executionHostScope: executionHostId }
-        })
-      ).toEqual(
-        executionHostId === 'local'
-          ? { action: 'resume-in-new-chat', worktreeId: WORKTREE_ID }
-          : null
-      )
-    }
-  )
+    ).toBeNull()
+  })
 
   it("Switch to Chat in the conversation's own worktree when that differs", () => {
     const state = useAppStore.getState()

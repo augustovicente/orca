@@ -1,3 +1,4 @@
+import { isSessionTabSelectionRequest } from '../../../../shared/session-tab-placement'
 import { conversationSwitchViewerSelectionCurrent } from '@/lib/conversation-switch-selection'
 import { toast } from 'sonner'
 import {
@@ -57,7 +58,9 @@ export async function resumeAiVaultSessionInNewChat(
   worktreeId: string,
   requestId: AgentLaunchRequestId,
   replacing?: AiVaultChatReplacement,
-  viewerSelection?: string
+  viewerSelection?: string,
+  reportFailure: (error: unknown) => void = (error) =>
+    notifyAiVaultSessionResumeInChatFailure(error, rowAgent)
 ): Promise<void> {
   try {
     const recordingHost = parseRoutableExecutionHostId(session.executionHostId)
@@ -88,6 +91,7 @@ export async function resumeAiVaultSessionInNewChat(
     const launch = beginStructuredAgentSessionProvisionalLaunch({
       plan,
       hooks: {},
+      viewerSelection,
       ...(viewerSelection !== undefined
         ? { canActivate: () => conversationSwitchViewerSelectionCurrent(viewerSelection) }
         : {}),
@@ -97,7 +101,10 @@ export async function resumeAiVaultSessionInNewChat(
       beforeOpen: waitForCreate
         ? undefined
         : () => {
-            if (!conversationSwitchViewerSelectionCurrent(viewerSelection)) {
+            if (
+              isSessionTabSelectionRequest(viewerSelection) ||
+              !conversationSwitchViewerSelectionCurrent(viewerSelection)
+            ) {
               return true
             }
             if (
@@ -118,6 +125,7 @@ export async function resumeAiVaultSessionInNewChat(
       const state = useAppStore.getState()
       if (
         conversationSwitchViewerSelectionCurrent(viewerSelection) &&
+        !isSessionTabSelectionRequest(viewerSelection) &&
         waitForCreate &&
         settlement.kind === 'structured' &&
         state.activeWorktreeId !== worktreeId &&
@@ -133,11 +141,11 @@ export async function resumeAiVaultSessionInNewChat(
       }
       const handled = replacing?.onSettled(settlement) === true
       if (settlement.kind === 'failed' && !settlement.notified && !handled) {
-        notifyAiVaultSessionResumeInChatFailure(settlement.error, rowAgent)
+        reportFailure(settlement.error)
       }
     })
   } catch (error) {
-    notifyAiVaultSessionResumeInChatFailure(error, rowAgent)
+    reportFailure(error)
     replacing?.onSettled(null)
   }
 }

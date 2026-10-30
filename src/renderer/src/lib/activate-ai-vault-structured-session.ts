@@ -1,3 +1,5 @@
+import { isSessionTabSelectionRequest } from '../../../shared/session-tab-placement'
+import { viewerSelectionOutcome } from './viewer-selection-request'
 import { conversationSwitchViewerSelectionCurrent } from './conversation-switch-selection'
 import { toast } from 'sonner'
 import type { AiVaultSession } from '../../../shared/ai-vault-types'
@@ -82,11 +84,17 @@ export async function activateAiVaultStructuredSession(
   session: Pick<AiVaultSession, 'structuredSession'>,
   deps: StructuredSessionActivationDeps = defaultDeps,
   target?: RuntimeClientTarget,
-  viewerSelection?: string
+  viewerSelection?: string,
+  onFailure?: () => void
 ): Promise<boolean> {
   return (
-    (await activateAiVaultStructuredSessionVerified(session, deps, target, viewerSelection)) !==
-    'none'
+    (await activateAiVaultStructuredSessionVerified(
+      session,
+      deps,
+      target,
+      viewerSelection,
+      onFailure
+    )) !== 'none'
   )
 }
 
@@ -96,7 +104,8 @@ export async function activateAiVaultStructuredSessionVerified(
   session: Pick<AiVaultSession, 'structuredSession'>,
   deps: StructuredSessionActivationDeps = defaultDeps,
   target?: RuntimeClientTarget,
-  viewerSelection?: string
+  viewerSelection?: string,
+  onFailure?: () => void
 ): Promise<'activated' | 'reported' | 'none'> {
   const structured = session.structuredSession
   if (!structured) {
@@ -114,7 +123,14 @@ export async function activateAiVaultStructuredSessionVerified(
   if (inFlight) {
     return inFlight
   }
-  const activation = activateStructuredSession(structured, deps, target, viewerSelection)
+  const activation = activateStructuredSession(
+    structured,
+    onFailure
+      ? { ...deps, unavailable: onFailure, gone: onFailure, hostCannotOpen: onFailure }
+      : deps,
+    target,
+    viewerSelection
+  )
   activationsInFlight.set(key, activation)
   try {
     return await activation
@@ -136,8 +152,19 @@ async function activateStructuredSession(
     sessionId: structured.sessionId,
     ...(host ? { target: host } : {})
   }
-  const activate = () =>
-    conversationSwitchViewerSelectionCurrent(viewerSelection) && deps.activate(target)
+  const modern = viewerSelection !== undefined && isSessionTabSelectionRequest(viewerSelection)
+  const activate = () => {
+    if (modern && viewerSelectionOutcome(viewerSelection) === 'fulfilled') {
+      return true
+    }
+    return (
+      conversationSwitchViewerSelectionCurrent(viewerSelection) &&
+      deps.activate({
+        ...target,
+        ...(modern ? { viewerSelection, callerOnly: true } : {})
+      })
+    )
+  }
   if (!activate()) {
     // Refresh can avoid reveal, but failure must fall through: host republication is the actual repair.
     const refreshed = await refreshedWithoutThrowing(deps, structured.workspaceId, host)
@@ -166,6 +193,9 @@ async function activateStructuredSession(
         return 'reported'
       }
     }
+  }
+  if (modern) {
+    return viewerSelectionOutcome(viewerSelection) === 'fulfilled' ? 'activated' : 'none'
   }
   // A moved project's chat opens under its retained entry; the catalog does not list it.
   if (

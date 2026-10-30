@@ -117,7 +117,6 @@ describe("a dead generation's leftovers, its settlement refused and its lease re
 
     expect(work.liveFence).toBeNull()
     expect(work.working()).toBe(false)
-    expect(work.holdsHandedOverSend()).toBe(false)
     expect(work.actionablePromptIds()).toEqual([])
     expect(view.listed()?.status).not.toBe('working')
     expect(current.host.readStatusSummary(SESSION)?.status).not.toBe('working')

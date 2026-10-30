@@ -1,3 +1,4 @@
+import { copySleepingAgentLaunchConfig } from '../../runtime-agent-launch-resolution'
 import type { MobileTerminalCreateOptions } from './mobile-terminal-create-options'
 import type { RuntimeMobileSessionTabsResult } from '../../../../shared/runtime-session-contracts'
 import { OrcaRuntimeWithFailedStartPanes } from './failed-start-pane'
@@ -40,6 +41,31 @@ export function pruneOwnedMobileTerminalDispatchRecipes(
       recipes.delete(handle)
     }
   }
+}
+
+export function recordOwnedMobileTerminalDispatchRecipe(
+  recipes: Map<string, OwnedMobileTerminalDispatchRecipe>,
+  handle: string,
+  launch: Pick<
+    OwnedMobileTerminalDispatchRecipe,
+    'tabId' | 'leafId' | 'launchConfig' | 'launchAgent'
+  >,
+  workspace: { connectionId?: string | null }
+): void {
+  if (!recipes.has(handle) && recipes.size >= 4096) {
+    throw new Error('runtime_unavailable')
+  }
+  // Retain original dispatch evidence across an ambiguous response; retry payloads cannot replace it.
+  recipes.set(handle, {
+    tabId: launch.tabId,
+    leafId: launch.leafId,
+    connectionId: workspace.connectionId ?? null,
+    recordedAt: Date.now(),
+    ...(launch.launchConfig
+      ? { launchConfig: copySleepingAgentLaunchConfig(launch.launchConfig) }
+      : {}),
+    ...(launch.launchAgent ? { launchAgent: launch.launchAgent } : {})
+  })
 }
 
 export type { MobileTerminalCreateOptions } from './mobile-terminal-create-options'
@@ -132,6 +158,9 @@ export abstract class OrcaRuntimeWithCreateMobileSessionTerminal extends OrcaRun
   ): Promise<RuntimeMobileSessionCreateTerminalResult> {
     const navigation = opts.navigation ?? 'all'
     const select = opts.select ?? opts.activate !== false
+    if (select && navigationTargetsHost(navigation) && !opts.switchExecution) {
+      this.clientSessionTabSelections.noteHostNavigation()
+    }
     const runOpts = {
       ...opts,
       activate: select && navigationTargetsHost(navigation)

@@ -1,7 +1,10 @@
 import type { RpcContext } from '../core'
 import type { StructuredAgentSessionHost } from '../../../native-chat/agent-session-wire/structured-agent-session-host'
 
-import { agentSessionRefusalError } from '../../../../shared/agent-session-wire-refusals'
+import {
+  agentSessionRefusalError,
+  isAgentSessionRefusalError
+} from '../../../../shared/agent-session-wire-refusals'
 
 import type { AgentSessionAttachParams } from '../../../native-chat/agent-session-wire/structured-agent-session-attach'
 import { listStructuredProviderSessionOwnership } from '../../../native-chat/agent-session-wire/structured-provider-session-ownership'
@@ -57,6 +60,29 @@ export function switchRetainedOwner(
       )
     })?.sessionId ?? null
   )
+}
+
+export function resolveStructuredSwitchRetainedOwner(
+  error: unknown,
+  host: StructuredAgentSessionHost,
+  identity: Parameters<typeof switchRetainedOwner>[1] | undefined,
+  providerSessionId: string | null | undefined
+): string {
+  const owner =
+    isAgentSessionRefusalError(error) &&
+    (error.refusal.code === 'agent_session_conflict' ||
+      error.refusal.code === 'agent_session_ownership_unknown') &&
+    identity &&
+    providerSessionId &&
+    switchRetainedOwner(host, identity, providerSessionId)
+  if (
+    !owner ||
+    !isAgentSessionRefusalError(error) ||
+    error.refusal.details?.owner?.sessionId !== owner
+  ) {
+    throw error
+  }
+  return owner
 }
 
 /** Translate only an unconfirmed exact terminal capture into the existing ownership refusal. */

@@ -1,3 +1,9 @@
+import { isSessionTabSelectionRequest } from '../../../shared/session-tab-placement'
+import { openPlacementSourceCurrent } from '@/runtime/web-session-tabs-sync/open-placement'
+import {
+  bindViewerSelectionDestination,
+  endViewerSelectionForDestination
+} from './viewer-selection-request'
 import { conversationSwitchViewerSelectionCurrent } from '@/lib/conversation-switch-selection'
 import { agentLaunchPaneAttemptCurrent } from './agent-launch-pane-start'
 import { afterLayoutFrame, layoutFramesFlowing } from '@/runtime/layout-frame-position'
@@ -84,6 +90,7 @@ function keepWhenDrawn(request: AgentLaunchTabPublishRequest, present: () => voi
       undrawn.get(tabId)?.pane.operationId === request.operationId &&
       goneFromFrames(worktreeId, tabId)
     ) {
+      endViewerSelectionForDestination(worktreeId, tabId)
       dropUndrawn(tabId)
     }
   }
@@ -116,14 +123,21 @@ export function keepAgentLaunchTabMainWrote(
     throw new Error('agent_launch_superseded')
   }
   const created = request.shownByMain?.created === true
+  const viewerSelection = request.openPlacement?.viewerSelection ?? request.viewerSelection
+  bindViewerSelectionDestination(viewerSelection, { worktreeId, tabId })
   noteMainWritten(tabId)
   if (request.prompt) {
     rememberAgentLaunchPanePrompt(tabId, request.prompt)
   }
-  // Only the launch that made the tab moves anyone, as the window's own publication.
+  // Ordinary retries retain focus; explicit viewer requests use their one-shot owner.
   const present = (): void => {
-    if (created) {
-      presentAgentLaunchTab(viewer, worktreeId, tabId, leafId, request.viewerSelection)
+    if (
+      (created || isSessionTabSelectionRequest(viewerSelection)) &&
+      (!request.openPlacement ||
+        (request.openPlacement.activate &&
+          openPlacementSourceCurrent(useAppStore.getState(), worktreeId, request.openPlacement)))
+    ) {
+      presentAgentLaunchTab(viewer, worktreeId, tabId, leafId, viewerSelection)
     }
   }
   const tab = drawnTab(worktreeId, tabId)
@@ -133,11 +147,11 @@ export function keepAgentLaunchTabMainWrote(
   } else if (
     created &&
     viewer === 'focus-window' &&
-    conversationSwitchViewerSelectionCurrent(request.viewerSelection)
+    conversationSwitchViewerSelectionCurrent(viewerSelection)
   ) {
     // Reveal the workspace while awaiting its tab frame, unless main already closed the tab.
     if (keepWhenDrawn(request, present)) {
-      if (request.viewerSelection === undefined) {
+      if (viewerSelection === undefined) {
         revealWorkspaceSurface(useAppStore.getState(), worktreeId, [tabId])
       }
     }
@@ -162,10 +176,14 @@ export function applyVerdictToUndrawnLaunchTab(event: AgentLaunchPaneVerdictEven
     return false
   }
   const { verdict } = event
+  if (verdict.kind === 'not-started') {
+    endViewerSelectionForDestination(event.worktreeId, event.tabId)
+  }
   if (verdict.kind === 'not-started' || verdict.kind === 'unconfirmed') {
     entry.pane = { ...entry.pane, outcome: verdict }
     return true
   }
+  endViewerSelectionForDestination(event.worktreeId, event.tabId)
   dropUndrawn(event.tabId)
   return true
 }

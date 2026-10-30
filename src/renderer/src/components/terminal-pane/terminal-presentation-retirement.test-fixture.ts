@@ -1,4 +1,4 @@
-import { vi, type Mock } from 'vitest'
+import { vi } from 'vitest'
 import { renderHook } from '@testing-library/react'
 import { Terminal } from '@xterm/xterm'
 import { SearchAddon } from '@xterm/addon-search'
@@ -23,7 +23,6 @@ import type { PtyTransport } from './pty-transport-types'
 import { useAppStore } from '@/store'
 
 export const LEAF = '11111111-1111-4111-8111-111111111111'
-export const SIBLING = '22222222-2222-4222-8222-222222222222'
 
 function disposable<T extends { dispose(): void }>(value: T): T {
   return Object.assign(value, { dispose: vi.fn<() => void>() })
@@ -72,25 +71,14 @@ function pane(id: number, leafId: string): ManagedPaneInternal {
 
 type MountedOwner = {
   source: ManagedPaneInternal
-  other: ManagedPaneInternal
-  panes: Map<number, ManagedPaneInternal>
   sourceTransport: PtyTransport
   transports: Map<number, PtyTransport>
-  binding: { dispose: Mock }
-  bindings: Map<number, { dispose: Mock }>
-  link: { dispose: Mock }
-  onLayoutChanged: Mock
   manager: PaneManager
-  empty: Mock<() => void>
-  cancelResize: Mock
-  expandedElement: HTMLDivElement
-  setPaneCount: UseTerminalPaneLifecycleDeps['setPaneCount']
   unregister: () => void
 }
 
 /** Uses the production tree teardown, real pane disposer and real mount closure callback. */
 export function mountedOwner(
-  split: boolean,
   address = {
     tabId: 'terminal',
     worktreeId: 'wt-1',
@@ -99,8 +87,7 @@ export function mountedOwner(
   }
 ): MountedOwner {
   const source = pane(1, address.leafId)
-  const other = pane(2, SIBLING)
-  const panes = new Map([[1, source], ...(split ? [[2, other] as const] : [])])
+  const panes = new Map([[1, source]])
   const sourceTransport: PtyTransport = {
     getPtyId: () => address.ptyId,
     detach: vi.fn(),
@@ -197,7 +184,7 @@ export function mountedOwner(
   const onLayoutChanged = vi.fn()
   manager = new PaneManager(document.createElement('div'), { linkOpenHint: () => '' })
   vi.spyOn(manager, 'getPanes').mockImplementation(() => [...panes.values()])
-  vi.spyOn(manager, 'getActivePane').mockImplementation(() => panes.get(2) ?? panes.get(1) ?? null)
+  vi.spyOn(manager, 'getActivePane').mockImplementation(() => panes.get(1) ?? null)
   vi.spyOn(manager, 'retirePanePreservingPty').mockImplementation((id, permanent, failures) =>
     retireManagedPanePreservingPty(
       {
@@ -260,19 +247,9 @@ export function mountedOwner(
   managerRef.current = null
   return {
     source,
-    other,
-    panes,
     sourceTransport,
     transports,
-    binding,
-    bindings,
-    link,
-    onLayoutChanged,
     manager,
-    empty,
-    cancelResize,
-    expandedElement,
-    setPaneCount: deps.setPaneCount,
     unregister: () => {
       removeMountEvents()
       registration.unregisterRuntimeTab()

@@ -1,3 +1,4 @@
+import { isSessionTabSelectionRequest } from '../../../../shared/session-tab-placement'
 import { OrcaRuntimeWithReconcileOwnedMobileTerminal } from './mobile-terminal-create-reconciliation'
 import type {
   RuntimeMobileSessionCreateTerminalResult,
@@ -6,11 +7,11 @@ import type {
 } from '../../../../shared/runtime-types'
 import {
   pruneOwnedMobileTerminalDispatchRecipes,
+  recordOwnedMobileTerminalDispatchRecipe,
   type OwnedMobileTerminalCreateOptions,
   type OwnedMobileTerminalDispatchRecipe
 } from './mobile-terminal-create'
 import { randomUUID } from 'node:crypto'
-import { copySleepingAgentLaunchConfig } from '../../runtime-agent-launch-resolution'
 import { deriveRemoteRuntimeTerminalCreateHandle } from '../../remote-runtime-terminal-create-identity'
 import {
   placeCreatedSessionTab,
@@ -56,30 +57,23 @@ export abstract class OrcaRuntimeWithCreateRuntimeOwnedMobileSessionTerminal ext
     const create = (preAllocatedHandle?: string) =>
       this.createTerminal(`id:${worktreeId}`, {
         focus: false,
-        ...(opts.presentation ? { presentation: opts.presentation } : {}),
+        ...(opts.switchExecution
+          ? { presentation: 'background' as const, agentLaunchViewer: () => 'none' as const }
+          : opts.presentation
+            ? { presentation: opts.presentation }
+            : {}),
         ...(opts.afterDesktopTabId ? { afterTabId: opts.afterDesktopTabId } : {}),
         beforePtySpawn: opts.beforePtySpawn,
         switchExecution: opts.switchExecution,
         ...(opts.keepPaneOnStartFailure ? { keepPaneOnStartFailure: true as const } : {}),
         onPtySpawnDispatched: (launch) => {
           if (mutationHandle && launch) {
-            if (
-              !this.ownedMobileDispatchRecipes.has(mutationHandle) &&
-              this.ownedMobileDispatchRecipes.size >= 4096
-            ) {
-              throw new Error('runtime_unavailable')
-            }
-            // Retain original dispatch evidence across an ambiguous response; retry payloads cannot replace it.
-            this.ownedMobileDispatchRecipes.set(mutationHandle, {
-              tabId: launch.tabId,
-              leafId: launch.leafId,
-              connectionId: workspace.connectionId ?? null,
-              recordedAt: Date.now(),
-              ...(launch.launchConfig
-                ? { launchConfig: copySleepingAgentLaunchConfig(launch.launchConfig) }
-                : {}),
-              ...(launch.launchAgent ? { launchAgent: launch.launchAgent } : {})
-            })
+            recordOwnedMobileTerminalDispatchRecipe(
+              this.ownedMobileDispatchRecipes,
+              mutationHandle,
+              launch,
+              workspace
+            )
           }
           // Why after the recipe: its refusal above is still before dispatch.
           opts.onPtySpawnDispatched?.()
@@ -192,18 +186,27 @@ export abstract class OrcaRuntimeWithCreateRuntimeOwnedMobileSessionTerminal ext
       existingSurface?.customTitle !== undefined
         ? existingSurface.customTitle
         : this.getPtyManualTitle(livePty.pty, false) || undefined
-    activate = activate && (opts.switchExecution?.selectionCurrent?.() ?? true)
+    const viewerRequest = isSessionTabSelectionRequest(opts.switchExecution?.viewerSelection)
+    const publishActivate = opts.switchExecution?.openPlacement?.activate ?? activate
+    activate = activate && !viewerRequest && (opts.switchExecution?.selectionCurrent?.() ?? true)
     const tab: RuntimeMobileSessionTerminalTab = {
       type: 'terminal',
       ...(existingSurface?.openPlacement
         ? {
             openPlacement: {
               ...existingSurface.openPlacement,
-              activate: existingSurface.openPlacement.activate && activate
+              activate:
+                existingSurface.openPlacement.activate &&
+                (viewerRequest ? publishActivate : activate)
             }
           }
         : opts.switchExecution?.openPlacement
-          ? { openPlacement: { ...opts.switchExecution.openPlacement, activate } }
+          ? {
+              openPlacement: {
+                ...opts.switchExecution.openPlacement,
+                activate: viewerRequest ? publishActivate : activate
+              }
+            }
           : {}),
       id: `${parentTabId}::${leafId}`,
       parentTabId,
@@ -268,6 +271,10 @@ export abstract class OrcaRuntimeWithCreateRuntimeOwnedMobileSessionTerminal ext
       tabs
     }
     // Store adds retirement proofs; emit that snapshot because version-deduping subscribers would miss proofs from a pre-store frame.
+    if (activate) {
+      opts.switchExecution?.check()
+      opts.switchExecution?.selectionCurrent?.(true)
+    }
     const stored = this.storeMobileSessionSnapshot(worktreeId, next)
     if (opts.switchExecution?.openPlacement) {
       this.markPaneLiveTitlesDirty()

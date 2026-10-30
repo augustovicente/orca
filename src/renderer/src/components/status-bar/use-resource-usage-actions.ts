@@ -1,3 +1,4 @@
+import { noteViewerNavigation } from '@/lib/viewer-selection-request'
 import {
   useCallback,
   useState,
@@ -103,6 +104,7 @@ export function useResourceUsageActions({
     }
     // Folder activation owns host/path gating; git-worktree target resolution cannot handle folder keys.
     if (parseWorkspaceKey(worktreeId)?.type === 'folder') {
+      noteViewerNavigation()
       activateAndRevealWorkspace(worktreeId)
       return
     }
@@ -113,6 +115,7 @@ export function useResourceUsageActions({
     if (!target) {
       return
     }
+    noteViewerNavigation()
     activateAndRevealWorktree(worktreeId, { executionHostId: target.hostId })
   }, [])
 

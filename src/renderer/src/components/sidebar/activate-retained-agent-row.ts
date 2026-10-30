@@ -1,3 +1,4 @@
+import { noteViewerNavigation } from '@/lib/viewer-selection-request'
 import { useAppStore } from '@/store'
 import { activateAndRevealWorkspace } from '@/lib/worktree-activation'
 import { activateTabAndFocusPane } from '@/lib/activate-tab-and-focus-pane'
@@ -34,6 +35,7 @@ export function activateRetainedAgentRow(worktreeId: string, tabId: string, pane
   if ((nativeTab ? !target : !hasLiveTerminal) || owner === 'foreign') {
     return
   }
+  noteViewerNavigation()
   // Verify an existing destination before workspace activation can resume sleeping panes.
   if (
     activateAndRevealWorkspace(worktreeId, owner ? { executionHostId: owner } : undefined) === false

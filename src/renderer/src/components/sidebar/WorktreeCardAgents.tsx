@@ -1,3 +1,4 @@
+import { noteViewerNavigation } from '@/lib/viewer-selection-request'
 import React, { useCallback, useLayoutEffect, useMemo, useRef } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '@/store'
@@ -179,6 +180,7 @@ const WorktreeCardAgentsBody = React.memo(function WorktreeCardAgentsBody({
         dismissStaleAgentRowByKey(paneKey)
         return
       }
+      noteViewerNavigation()
       // Use shared activation for cross-repo reveal and navigation history.
       activateAndRevealWorktree(worktreeId)
       const tabs = useAppStore.getState().tabsByWorktree[worktreeId] ?? []

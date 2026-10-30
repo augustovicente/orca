@@ -1,3 +1,4 @@
+import { noteViewerNavigation } from '@/lib/viewer-selection-request'
 // Main frames/reconnect snapshots draw moves and select them unless selection changed; divider ratios persist on release.
 
 import { useAppStore } from '@/store'
@@ -26,6 +27,9 @@ export function dropTabThroughLayoutOwner(worktreeId: string, drop: TabDrop): bo
   const command = commandFor(worktreeId, drop)
   if (!command) {
     return false
+  }
+  if (drop.kind !== 'reorder') {
+    noteViewerNavigation()
   }
   const forget = expectSelectionAfterMove(worktreeId, drop)
   const sent = sendLayoutCommandToOwner(worktreeId, command, {

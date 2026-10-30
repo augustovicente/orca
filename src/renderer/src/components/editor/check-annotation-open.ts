@@ -1,3 +1,4 @@
+import { noteViewerNavigation } from '@/lib/viewer-selection-request'
 import { detectLanguage } from '@/lib/language-detect'
 import { activateAndRevealWorktree } from '@/lib/worktree-activation'
 import { useAppStore } from '@/store'
@@ -29,6 +30,7 @@ export function openAnnotationLocation(params: {
   const { absolutePath, relativePath } = resolvedPath
   const language = detectLanguage(relativePath)
 
+  noteViewerNavigation()
   // Use shared activation so annotation jumps join sidebar, palette and terminal-link navigation history.
   activateAndRevealWorktree(worktreeId, { providesInitialSurface: true, executionHostId })
 

@@ -1,3 +1,4 @@
+import { noteViewerNavigation } from '@/lib/viewer-selection-request'
 import { downloadAndOpenRemoteTerminalFile } from './terminal-remote-file-download-open'
 import { findWorkspaceFileRoute } from '@/lib/runtime-workspace-file-route'
 import { isPathInsideWorktree, toWorktreeRelativePath } from '../../../../shared/terminal-links'
@@ -83,6 +84,7 @@ export function openDetectedFilePath(
   column: number | null,
   deps: TerminalFileOpenDeps
 ): void {
+  noteViewerNavigation()
   const { openWithSystemDefault = false, runtimeEnvironmentId } = deps
   let { worktreeId, worktreePath } = deps
   let mappedFilePath = mapTerminalFilePath(

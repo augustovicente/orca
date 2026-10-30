@@ -22,6 +22,28 @@ export class ClientSessionTabSelectionStore {
   private statesByClient = new Map<string, Map<string, StoredClientSessionTabSelection>>()
   private persistListener: ((state: PersistedMobileClientTabSelections) => void) | null = null
 
+  private hostNavigationRevision = 0
+  private hostSelectionRequest = 0
+
+  /** Only explicit host-target navigation supersedes the host's delayed selection. */
+  noteHostNavigation(): void {
+    this.hostNavigationRevision++
+  }
+
+  captureHostSelection(): (consume?: boolean) => boolean {
+    const revision = this.hostNavigationRevision
+    const request = ++this.hostSelectionRequest
+    let pending = true
+    return (consume = false) => {
+      const current =
+        pending && revision === this.hostNavigationRevision && request === this.hostSelectionRequest
+      if (current && consume) {
+        pending = false
+      }
+      return current
+    }
+  }
+
   // Persist across host restart so phones do not snap back to the first tab.
   hydrate(persisted: PersistedMobileClientTabSelections): void {
     for (const [clientNavigationId, selectionsByWorktree] of Object.entries(

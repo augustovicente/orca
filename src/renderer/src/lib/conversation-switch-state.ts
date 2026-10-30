@@ -1,3 +1,4 @@
+import { resolveWorktreeExecutionHostPlatform } from './execution-host-facts'
 import { translate } from '@/i18n/i18n'
 import { useSyncExternalStore } from 'react'
 import { useAppStore } from '@/store'
@@ -21,6 +22,7 @@ import type { AiVaultSession, AiVaultAgent } from '../../../shared/ai-vault-type
 import type { CliChatResumeSource } from '@/components/tab-bar/cli-chat-resume-source'
 
 export type ConversationSwitch = {
+  legacyContinue?: (viewerSelection: string) => Promise<void>
   confirm?: ConfirmationDialogContextValue
   direction: 'chat' | 'terminal'
   executionHostId: string
@@ -32,6 +34,18 @@ export type ConversationSwitch = {
   history?: AiVaultSession
   platform?: string
   feedback?: (message: string, kind: 'error' | 'info') => void
+}
+
+export function withConversationSwitchPlatform(args: ConversationSwitch): ConversationSwitch {
+  const platform = resolveWorktreeExecutionHostPlatform(
+    useAppStore.getState(),
+    args.workspaceId,
+    undefined
+  )
+  return {
+    ...args,
+    platform: args.platform ?? (platform.kind === 'known' ? platform.platform : undefined)
+  }
 }
 
 export const keyFor = (args: ConversationSwitch) =>

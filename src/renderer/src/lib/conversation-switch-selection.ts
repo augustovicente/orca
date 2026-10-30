@@ -1,3 +1,5 @@
+import { isSessionTabSelectionRequest } from '../../../shared/session-tab-placement'
+import { viewerSelectionOutcome } from './viewer-selection-request'
 import { structuredAgentSessionDomainFingerprint } from '../../../shared/structured-agent-session-mutation'
 import { useAppStore } from '@/store'
 import { resolveWebSessionVisibleTabId } from '@/runtime/web-session-focus-intent'
@@ -37,5 +39,10 @@ export function conversationSwitchViewerSelectionCurrent(
   selection?: string,
   state?: ViewerState
 ): boolean {
-  return selection === undefined || selection === captureConversationSwitchViewerSelection(state)
+  return (
+    selection === undefined ||
+    (isSessionTabSelectionRequest(selection)
+      ? viewerSelectionOutcome(selection) === 'pending'
+      : selection === captureConversationSwitchViewerSelection(state))
+  )
 }

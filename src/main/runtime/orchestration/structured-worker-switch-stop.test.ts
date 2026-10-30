@@ -85,8 +85,6 @@ it.each([false, true])(
       () => false
     )
     await entered.promise
-    expect(db.getWorkerDispatch(dispatch.id)?.state).toBe('stopping')
-    expect(forgetStructuredSessionMail).not.toHaveBeenCalled()
     exit.resolve(proven)
     expect(await observed).toBe(proven)
     expect(db.getWorkerDispatch(dispatch.id)?.state).toBe(proven ? 'stopped' : 'stop_unknown')

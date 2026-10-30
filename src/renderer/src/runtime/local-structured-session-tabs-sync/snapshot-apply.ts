@@ -7,7 +7,10 @@ import type { WorktreeRuntimeOwnerState } from '../../lib/worktree-runtime-owner
 import { getExecutionHostIdForWorktree } from '../../lib/worktree-runtime-owner'
 import { applyWebSessionTabsSnapshot } from '../web-session-tabs-sync/snapshot-api'
 import { applyWebSessionTabsStorePatch } from '../web-session-tabs-sync/store-patch'
-import type { WebSessionTabsSyncState } from '../web-session-tabs-sync/state'
+import type {
+  SnapshotOpenSelectionOffer,
+  WebSessionTabsSyncState
+} from '../web-session-tabs-sync/state'
 import {
   admitRetiredValueUnderAuthority,
   noteRetiredValue,
@@ -46,6 +49,7 @@ function isWorktreeRetraction(
 }
 
 export type StructuredSessionSnapshotApplyOptions = {
+  offerOpenSelection?: (offer: SnapshotOpenSelectionOffer) => void
   /** Authority census replies answer a just-issued listAll, so exempt them from retired-epoch fencing of delayed dead-generation stream frames. */
   authoritative?: boolean
   /** Re-applies a publication at the version already applied: the window removed a chat early. */
@@ -70,7 +74,7 @@ export function applyStructuredSessionTabSnapshots(
   const acceptedAgentSessions: { worktreeId: string; sessionId: string }[] = []
   const drawnChatLabels: DrawnChatLabel[] = []
   const settleStructuredSessionMirror = applyWebSessionTabsStorePatch(
-    (state, changedAgentPaneKeys) =>
+    (state, changedAgentPaneKeys, offerOpenSelection) =>
       applyLocalStructuredSessionTabSnapshots(
         state,
         snapshots,
@@ -78,6 +82,7 @@ export function applyStructuredSessionTabSnapshots(
         undefined,
         {
           ...options,
+          offerOpenSelection,
           onAcceptedAgentSession: (worktreeId, sessionId) => {
             acceptedAgentSessions.push({ worktreeId, sessionId })
             options.onAcceptedAgentSession?.(worktreeId, sessionId)
@@ -175,6 +180,9 @@ export function applyLocalStructuredSessionTabSnapshots<
       owner,
       now,
       {
+        offerOpenSelection: options.framesDraw?.(snapshot.worktree)
+          ? undefined
+          : options.offerOpenSelection,
         contentScope: 'agent-session',
         preserveLocalLayout: true,
         terminalPtyMode: 'local'

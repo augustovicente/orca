@@ -24,7 +24,7 @@ export async function executeStructuredSessionTerminalSwitch(
   sessionId: string,
   deadline: ReturnType<typeof agentSessionSwitchDeadline>,
   execution: NonNullable<z.infer<typeof SwitchToTerminalParams>['execution']>,
-  selectionCurrent: () => boolean
+  selectionCurrent: (consume?: boolean) => boolean
 ): Promise<AgentSessionSwitchResult> {
   const agent = record.provider
   if (!isTuiAgent(agent)) {

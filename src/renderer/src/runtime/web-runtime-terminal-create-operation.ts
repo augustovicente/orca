@@ -1,3 +1,4 @@
+import { presentAgentLaunchTab } from '@/lib/agent-launch-tab-presentation'
 import { createWebRuntimeAgentTerminalHostAuthority } from './web-runtime-agent-terminal-host-authority'
 import type { RuntimeRpcResponse } from '../../../shared/runtime-rpc-envelope'
 import type { RuntimeMobileSessionCreateTerminalResult } from '../../../shared/runtime-types'
@@ -18,7 +19,7 @@ import {
   recordWebSessionTerminalPlacement,
   webTerminalPlacementParentTabId
 } from './web-session-terminal-placement'
-import { toHostSessionTabId } from '../../../shared/terminal-surface-id'
+import { toHostSessionTabId, toWebTerminalSurfaceTabId } from '../../../shared/terminal-surface-id'
 import {
   captureRuntimeEnvironmentCall,
   captureWebSessionIntentOwner,
@@ -46,7 +47,8 @@ import { buildPlainCreateTerminalParams } from './web-runtime-plain-terminal-cre
 
 export async function createWebRuntimeSessionTerminalResult(
   args: CreateWebRuntimeSessionTerminalArgs,
-  canActivate?: () => boolean
+  canActivate?: () => boolean,
+  viewerSelection?: string
 ): Promise<CreatedWebRuntimeSessionTerminal> {
   const environmentId = resolveWebRuntimeSessionEnvironmentId(
     args.environmentId,
@@ -185,6 +187,7 @@ export async function createWebRuntimeSessionTerminalResult(
       })
     }
     if (
+      viewerSelection === undefined &&
       args.activate !== false &&
       canActivate?.() !== false &&
       createdTabId &&
@@ -220,9 +223,23 @@ export async function createWebRuntimeSessionTerminalResult(
           groupId: placementGroupId,
           afterTabId: args.afterTabId,
           captured,
-          activate: args.activate !== false,
+          activate: args.activate !== false && viewerSelection === undefined,
           canActivate
         }
+      )
+    }
+    if (
+      viewerSelection &&
+      createdTabId &&
+      args.activate !== false &&
+      matchesWebSessionIntentOwner(intentOwner)
+    ) {
+      presentAgentLaunchTab(
+        'focus-window',
+        args.worktreeId,
+        toWebTerminalSurfaceTabId(webTerminalPlacementParentTabId(createdTabId)),
+        createdLeafId,
+        viewerSelection
       )
     }
     return {

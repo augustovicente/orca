@@ -94,7 +94,7 @@ export type AgentSessionSwitchAuthority = {
   invocationId: string
   openPlacement?: SessionTabOpenPlacement
   /** View freshness is independent of process authority. */
-  selectionCurrent?: () => boolean
+  selectionCurrent?: (consume?: boolean) => boolean
   check: () => void
   remaining: () => number
   signal: AbortSignal

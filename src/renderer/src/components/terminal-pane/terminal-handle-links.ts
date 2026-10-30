@@ -1,3 +1,4 @@
+import { noteViewerNavigation } from '@/lib/viewer-selection-request'
 import type { ILink, ILinkProvider, Terminal } from '@xterm/xterm'
 import type { AppState } from '@/store'
 import { useAppStore } from '@/store'
@@ -145,6 +146,7 @@ export function focusRendererTerminalHandle(
     return false
   }
 
+  noteViewerNavigation()
   revealWorkspaceSurface(store, target.worktreeId)
   store.setActiveTabType('terminal', target.worktreeId)
   if (target.leafId) {

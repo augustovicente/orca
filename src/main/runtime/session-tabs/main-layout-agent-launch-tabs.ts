@@ -1,3 +1,4 @@
+import { isSessionTabSelectionRequest } from '../../../shared/session-tab-placement'
 import { launchTabWithdrawalIdentity } from '../../../shared/agent-launch-tab-publication'
 import { OrcaRuntimeWithCloseStructuredAgentSessionTab } from './structured-session-tab-close'
 import type {
@@ -64,7 +65,7 @@ export abstract class OrcaRuntimeWithMainLayoutAgentLaunchTabs extends OrcaRunti
   publishAgentLaunchTabInMainLayout(
     request: Omit<AgentLaunchTabPublishRequest, 'requestId'>,
     check?: () => void,
-    selectionCurrent?: () => boolean
+    selectionCurrent?: (consume?: boolean) => boolean
   ): Promise<AgentLaunchTabPublished> | null {
     const { worktreeId, tabId, leafId, placement } = request
     if (!this.ownsLaunchTab(worktreeId, tabId)) {
@@ -111,7 +112,10 @@ export abstract class OrcaRuntimeWithMainLayoutAgentLaunchTabs extends OrcaRunti
                         ...tab,
                         openPlacement: {
                           ...openPlacement,
-                          activate: openPlacement.activate && (selectionCurrent?.() ?? true)
+                          activate:
+                            openPlacement.activate &&
+                            (isSessionTabSelectionRequest(openPlacement.viewerSelection) ||
+                              (selectionCurrent?.() ?? true))
                         }
                       }
                     : tab
@@ -131,7 +135,13 @@ export abstract class OrcaRuntimeWithMainLayoutAgentLaunchTabs extends OrcaRunti
         throw new Error('agent_launch_tab_unplaced')
       }
       this.showLaunchTabInWindow(
-        { ...request, viewer: (selectionCurrent?.() ?? true) ? request.viewer : 'none' },
+        {
+          ...request,
+          viewer:
+            isSessionTabSelectionRequest(request.viewerSelection) || (selectionCurrent?.() ?? true)
+              ? request.viewer
+              : 'none'
+        },
         { frameSeq: reply.frameSeq, created: !existed }
       )
       // A retry naming the same tab finds it: the launch made no tab, so it takes none back.

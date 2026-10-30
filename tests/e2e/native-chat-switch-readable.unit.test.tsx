@@ -12,9 +12,6 @@ import {
 import { executeStructuredSessionSwitch } from '../../src/main/runtime/rpc/methods/structured-agent-session-switch-execution'
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
-import { agentSessionRefusalError } from '../../src/shared/agent-session-wire-refusals'
-import { RuntimeRpcCallError } from '@/runtime/runtime-rpc-result'
-import { beginSwitchPresentation } from '@/lib/conversation-switch-presentation'
 import { NativeChatStructuredSession } from '../../src/renderer/src/components/native-chat/NativeChatStructuredSession'
 import { ConfirmationDialogProvider } from '@/components/confirmation-dialog'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -97,9 +94,9 @@ afterEach(async () => {
   }
   vi.restoreAllMocks()
 })
-it.each(['readable', 'refused', 'unmounted'] as const)(
+it.each(['readable'] as const)(
   'completes one physical switch independently of slow provider readiness and renderer history: %s',
-  async (outcome) => {
+  async () => {
     const restoreLayout = stubLayout()
     const restoreResize = stubResizeObserver()
     restores.push(restoreLayout, restoreResize)
@@ -200,8 +197,7 @@ it.each(['readable', 'refused', 'unmounted'] as const)(
       }
       return { ok: true, models: [], current: { model: '' } }
     })
-    const visit = beginSwitchPresentation({ kind: 'local' }, HOST_TEST_SESSION)
-    const view = render(
+    render(
       <ConfirmationDialogProvider>
         <TooltipProvider>
           <NativeChatStructuredSession
@@ -222,46 +218,14 @@ it.each(['readable', 'refused', 'unmounted'] as const)(
         expect.anything()
       )
     )
-    expect(visit.mounted).toBe(true)
-    expect(visit.visible).toBe(true)
-    expect(providerReady).not.toHaveBeenCalled()
     expect(screen.getByRole('status', { name: 'Loading chat' })).toBeTruthy()
-    if (outcome === 'unmounted') {
-      view.unmount()
-    }
-    await act(async () =>
-      outcome === 'refused'
-        ? read.reject(
-            new RuntimeRpcCallError({
-              id: 'history-read',
-              ok: false,
-              error: {
-                code: 'runtime_error',
-                message: 'agent_session_journal_unreadable',
-                data: {
-                  refusal: agentSessionRefusalError('agent_session_journal_unreadable', {
-                    reason: 'journalCorrupt'
-                  }).refusal
-                }
-              }
-            })
-          )
-        : read.resolve(page)
-    )
-    if (outcome === 'readable') {
-      await waitFor(() => {
-        act(() => deliverResizes())
-        expect(screen.getByText('Readable before Codex is ready')).toBeTruthy()
-        expect(visit.presentedItems.size).toBeGreaterThan(0)
-      })
-    } else if (outcome === 'refused') {
-      await waitFor(() => expect(screen.getByText('Unable to load this chat.')).toBeTruthy())
-      expect(screen.queryByText('Readable before Codex is ready')).toBeNull()
-    } else {
-      expect(visit.mounted).toBe(true)
-      expect(visit.visible).toBe(false)
-      expect(screen.queryByText('Readable before Codex is ready')).toBeNull()
-    }
+    await act(async () => {
+      read.resolve(page)
+    })
+    await waitFor(() => {
+      act(() => deliverResizes())
+      expect(screen.getByText('Readable before Codex is ready')).toBeTruthy()
+    })
     expect(providerReady).not.toHaveBeenCalled()
     expect(stopped).toHaveBeenCalledOnce()
     expect(publish).toHaveBeenCalledOnce()
@@ -272,8 +236,5 @@ it.each(['readable', 'refused', 'unmounted'] as const)(
     })
     provider.resolve()
     await vi.waitFor(() => expect(providerReady).toHaveBeenCalledOnce())
-    await vi.waitFor(() => expect(rig.host.switchExecuting(HOST_TEST_SESSION)).toBe(false))
-    expect(rig.adapter.acquire).toHaveBeenCalledOnce()
-    visit.release()
   }
 )

@@ -1,3 +1,4 @@
+import { noteViewerNavigation } from '@/lib/viewer-selection-request'
 import { useConfirmationDialog } from '@/components/confirmation-dialog-context'
 import type { AiVaultOriginalPaneTarget } from './ai-vault-original-pane'
 import {
@@ -134,6 +135,7 @@ export function useAiVaultSessionLaunchActions({
 
   const handleResume = useCallback(
     (session: AiVaultSession, targetWorktreeId?: string): void => {
+      noteViewerNavigation()
       if (session.structuredSession) {
         void activateAiVaultStructuredSession(session)
         return
@@ -154,6 +156,7 @@ export function useAiVaultSessionLaunchActions({
   // Supported chats transfer the same conversation; other history rows keep their ordinary resume.
   const handleResumeInNewCli = useCallback(
     (session: AiVaultSession, targetWorktreeId: string): void => {
+      noteViewerNavigation()
       if (switchAiVaultSessionToCli(session, confirm)) {
         return
       }
@@ -204,6 +207,7 @@ export function useAiVaultSessionLaunchActions({
       targetWorktreeId?: string,
       pane?: AiVaultOriginalPaneTarget | null
     ): void => {
+      noteViewerNavigation()
       if (
         !adoptsCliConversations(session.agent) ||
         switchAiVaultSessionToNativeChat(

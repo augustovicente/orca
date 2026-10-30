@@ -1,3 +1,5 @@
+import { endViewerSelectionForDestination } from './viewer-selection-request'
+import { applyOrdinaryAgentLaunchPaneVerdict } from './agent-launch-pane-ordinary-verdict'
 import { launchTabWithdrawalIdentity } from '../../../shared/agent-launch-tab-publication'
 import type { AgentLaunchPaneVerdictEvent } from '../../../shared/agent-launch-pane-verdict'
 import { createKeptWorktreeSurfacePruners } from '@/store/slices/tabs/kept-worktree-surface-pruning'
@@ -19,6 +21,13 @@ export function applyAgentLaunchPaneVerdict(event: AgentLaunchPaneVerdictEvent):
   if (event.accepted) {
     confirmAgentLaunchPaneAttempt(event.tabId, event.leafId, event.operationId)
     return true
+  }
+  if (event.withdrawalRoot === undefined) {
+    const applied = applyOrdinaryAgentLaunchPaneVerdict(event)
+    if (applied && (event.verdict.kind === 'withdrawn' || event.verdict.kind === 'not-started')) {
+      endViewerSelectionForDestination(event.worktreeId, event.tabId)
+    }
+    return applied
   }
   const { worktreeId, tabId, leafId, verdict } = event
   // Commit the state verdict first; never call ordinary Close on a launch's provisional pane.
@@ -65,6 +74,7 @@ export function applyAgentLaunchPaneVerdict(event: AgentLaunchPaneVerdictEvent):
         browserTabIds: new Set()
       })
       accepted = withdrawn = true
+      endViewerSelectionForDestination(worktreeId, tabId)
       const layouts = { ...state.terminalLayoutsByTabId }
       delete layouts[tabId]
       return {

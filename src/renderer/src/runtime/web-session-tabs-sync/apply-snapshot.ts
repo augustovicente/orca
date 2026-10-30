@@ -79,9 +79,21 @@ export function applyWebSessionTabsSnapshotWithContext(
   const browserRecords = applyBrowserRecordUpdates(terminalRecords)
   const worktreeRecords = applyWorktreeRecordUpdates(browserRecords)
   const activeState = applyActiveStateUpdates(worktreeRecords)
+  const patch = buildWebSessionTabsFinalPatch(activeState)
+  options?.offerOpenSelection?.((current, membership) =>
+    applySnapshotOpenSelection(
+      current,
+      membership,
+      worktreeId,
+      environmentId,
+      base.openPlacements,
+      unified.hostToLocalTabId,
+      true
+    )
+  )
   return applySnapshotOpenSelection(
     state,
-    buildWebSessionTabsFinalPatch(activeState),
+    patch,
     worktreeId,
     environmentId,
     base.openPlacements,

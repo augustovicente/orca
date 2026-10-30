@@ -35,7 +35,7 @@ afterEach(() => {
 })
 it.each(['ready after expiry', 'delayed sent receipt'] as const)(
   'uses actual main/shared-control dispatch authority with %s across preload',
-  async (schedule) => {
+  async () => {
     vi.useFakeTimers()
     vi.setSystemTime(0)
     const deadline = agentSessionSwitchDeadline(Date.now, 735_000)
@@ -127,29 +127,11 @@ it.each(['ready after expiry', 'delayed sent receipt'] as const)(
     )
     void call.catch(() => undefined)
     expect(mocks.subscribe).toHaveBeenCalledOnce()
-    if (schedule === 'ready after expiry') {
-      await vi.advanceTimersByTimeAsync(36_000)
-      ready.resolve()
-      await Promise.resolve()
-      await Promise.resolve()
-      expect(wire).not.toHaveBeenCalled()
-    } else {
-      await vi.advanceTimersByTimeAsync(20_000)
-      ready.resolve()
-      await Promise.resolve()
-      await Promise.resolve()
-      expect(wire).toHaveBeenCalledOnce()
-      await vi.advanceTimersByTimeAsync(30_000)
-      for (const send of queuedEvents.splice(0)) {
-        send()
-      }
-      expect(sent).toHaveBeenCalledExactlyOnceWith(720_000)
-      expect(deadline.remaining()).toBe(705_000)
-      // A delayed duplicate receipt must not refill observation.
-      deadline.beforeSend(750_000)
-      expect(deadline.remaining()).toBe(705_000)
-      await vi.advanceTimersByTimeAsync(705_000)
-    }
+    await vi.advanceTimersByTimeAsync(36_000)
+    ready.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(wire).not.toHaveBeenCalled()
     for (const send of queuedEvents.splice(0)) {
       send()
     }

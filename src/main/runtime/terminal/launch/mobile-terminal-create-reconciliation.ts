@@ -12,7 +12,7 @@ import {
   type PtySurfaceTopology
 } from '../../pty-recorded-surface-topology'
 import { ORCA_LAYOUT_OWNER_IS_MAIN } from '../../../../shared/layout-owner-switch'
-import { persistFreshPaneBindingIfSupported } from '../../../ipc/pty/spawn-commit-binding'
+import { persistFreshPaneBinding } from '../../../ipc/pty/spawn-commit-binding'
 
 export abstract class OrcaRuntimeWithReconcileOwnedMobileTerminal extends OrcaRuntimeWithResolveMobileSessionTerminalCommand {
   protected abstract ptySurfaceTopology(): PtySurfaceTopology
@@ -127,7 +127,7 @@ export abstract class OrcaRuntimeWithReconcileOwnedMobileTerminal extends OrcaRu
       }
       return { tabId: candidate.tabId, leafId: candidate.leafId }
     }
-    const pendingBinding = persistFreshPaneBindingIfSupported(
+    const pendingBinding = persistFreshPaneBinding(
       this.store,
       () => ({
         ...resolve(),

@@ -60,22 +60,26 @@ export abstract class OrcaRuntimeWithGetStructuredAgentSessionCreateSupport exte
   async resolveStructuredAgentSessionCreateIntent(
     input: StructuredAgentSessionCreateIntentInput
   ): Promise<AgentSessionAttachParams & { hostLaunchDirectory?: string }> {
-    const resolved = await this.resolveStructuredAgentSessionCreateIdentity(input, 'launch')
-    const replay = resolveCommittedStructuredAgentSessionAdoptionIntent({
-      host: getStructuredAgentSessionHost(),
-      ...input,
-      location: resolved.location
-    })
-    if (input.resumeFrom && !replay) {
-      requireUnownedStructuredAgentSessionAdoption({
-        host: getStructuredAgentSessionHost(),
-        agent: input.agent,
-        providerSessionId: input.resumeFrom.providerSessionId,
-        selfSessionId: input.envelope.sessionId,
-        identity: resolved
-      })
+    if (input.resumeFrom) {
+      const { providerSessionId, cliSource } = input.resumeFrom
+      try {
+        requireUnownedStructuredAgentSessionAdoption({
+          host: getStructuredAgentSessionHost(),
+          agent: input.agent,
+          providerSessionId,
+          selfSessionId: input.envelope.sessionId
+        })
+      } catch (ownerConflict) {
+        // Refuse transfer from a live terminal or the chat's first send starts a second writer.
+        await this.assertStructuredAdoptionTerminalWritersExited(
+          input.agent,
+          providerSessionId,
+          cliSource
+        )
+        throw ownerConflict
+      }
     }
-    return resolved
+    return this.resolveStructuredAgentSessionCreateIdentity(input, 'launch')
   }
 
   /** Resolve registered account/transcript identity without acquiring or admitting a writer. */

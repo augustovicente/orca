@@ -1,3 +1,4 @@
+import { noteViewerNavigation } from '@/lib/viewer-selection-request'
 import { useCallback } from 'react'
 import type { Tab } from '../../../../shared/tab-types'
 import { useAppStore } from '../../store'
@@ -36,6 +37,7 @@ export function useTabGroupActivationCommands({
       if (!item) {
         return
       }
+      noteViewerNavigation()
       focusGroup(worktreeId, groupId)
       activateTab(item.id)
       const runtimeEnvironmentId = runtimeEnvironmentIdOrLocalUnlessTwin(
@@ -94,6 +96,7 @@ export function useTabGroupActivationCommands({
       if (!item) {
         return
       }
+      noteViewerNavigation()
       focusGroup(worktreeId, groupId)
       activateTab(item.id)
       if (item.contentType === 'simulator') {
@@ -115,6 +118,7 @@ export function useTabGroupActivationCommands({
       if (!item) {
         return
       }
+      noteViewerNavigation()
       focusGroup(worktreeId, groupId)
       activateTab(item.id)
       const runtimeEnvironmentId = runtimeEnvironmentIdOrLocalUnlessTwin(
@@ -139,6 +143,7 @@ export function useTabGroupActivationCommands({
 
   const activateAgentSession = useCallback(
     (tabId: string) => {
+      noteViewerNavigation()
       activateStructuredAgentSessionTab({ worktreeId, tabId })
     },
     [worktreeId]

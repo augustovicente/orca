@@ -1,5 +1,11 @@
+import {
+  beginViewerSelectionRequest,
+  disposeViewerSelection,
+  viewerSelectionOutcome
+} from './viewer-selection-request'
+import { agentSessionSwitchDeadline } from '../../../shared/agent-session-switch-execution'
+import { noteUserWorkspaceSwitch } from './workspace-switch-user-act'
 import { _resetLayoutFramePositionForTests } from '@/runtime/layout-frame-position'
-import { captureConversationSwitchViewerSelection } from './conversation-switch-selection'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type * as AgentStatusModule from '@/lib/agent-status'
 import type { AgentLaunchTabPublishRequest } from '../../../shared/agent-launch-tab-publication'
@@ -98,6 +104,7 @@ beforeEach(() => {
   store.getState().setActiveWorktree(WT)
 })
 afterEach(() => {
+  disposeViewerSelection()
   _resetUndrawnLaunchTabsForTests()
   frames.flowing = false
   frames.holdsTab = true
@@ -182,7 +189,7 @@ describe("a launch tab main wrote, in a layout-owner build's window", () => {
     expect(agentLaunchPanePrompt(TAB_ID)).toBeNull()
   })
 
-  it('withdraws an unused main-written projection and drops what it kept', () => {
+  it('leaves the close of a withdrawn tab to main, and drops what it kept', () => {
     drawMainTab()
     keepAgentLaunchTabMainWrote(request({ prompt: 'fix the build' }))
 
@@ -194,7 +201,7 @@ describe("a launch tab main wrote, in a layout-owner build's window", () => {
       verdict: { kind: 'withdrawn' }
     })
 
-    expect(store.getState().tabsByWorktree[WT]?.map((tab) => tab.id)).toEqual([])
+    expect(store.getState().tabsByWorktree[WT]?.map((tab) => tab.id)).toEqual([TAB_ID])
     expect(launchPane()).toBeUndefined()
     expect(agentLaunchPanePrompt(TAB_ID)).toBeNull()
   })
@@ -222,20 +229,58 @@ describe("a launch tab main wrote, in a layout-owner build's window", () => {
   })
 })
 
-it.each(['unchanged', 'navigate'] as const)(
-  'checks original viewer when main-written publication finally draws: %s',
-  (action) => {
-    const source = store.getState().createTab(WT)
+it.each([false, true])(
+  'the actual undrawn callback fulfils once, preserving a newer user choice=%s',
+  (navigate) => {
     const other = store.getState().createTab(WT)
-    store.getState().setActiveTab(source.id)
-    const viewerSelection = captureConversationSwitchViewerSelection()
-    keepAgentLaunchTabMainWrote(request({ viewer: 'focus-in-workspace', viewerSelection }))
-    if (action === 'navigate') {
-      store.getState().setActiveTab(other.id)
+    const deadline = agentSessionSwitchDeadline(Date.now)
+    try {
+      const older = beginViewerSelectionRequest('older-dialog', deadline)
+      const selection = beginViewerSelectionRequest('accepted-action', deadline)
+      selection.accept()
+      older.accept()
+      expect(viewerSelectionOutcome(selection.token)).toBe('pending')
+      keepAgentLaunchTabMainWrote(
+        request({
+          viewer: 'focus-window',
+          openPlacement: {
+            invocationId: 'accepted-action',
+            generation: 'op-1',
+            placement: {},
+            activate: true,
+            viewerSelection: selection.token
+          }
+        })
+      )
+      expect(viewerSelectionOutcome(selection.token)).toBe('pending')
+      expect(revealWorkspaceSurface).not.toHaveBeenCalled()
+      if (navigate) {
+        noteUserWorkspaceSwitch(WT)
+        store
+          .getState()
+          .activateTab(
+            store.getState().unifiedTabsByWorktree[WT].find((tab) => tab.entityId === other.id)!.id
+          )
+      }
+      drawMainTab()
+      expect(viewerSelectionOutcome(selection.token)).toBe(navigate ? 'superseded' : 'fulfilled')
+      expect(store.getState().getActiveTab(WT)?.entityId).toBe(navigate ? other.id : TAB_ID)
+      const focusCount = focusTerminalInitiatedTab.mock.calls.length
+      keepAgentLaunchTabMainWrote(
+        request({
+          viewer: 'focus-window',
+          openPlacement: {
+            invocationId: 'accepted-action',
+            generation: 'op-1',
+            placement: {},
+            activate: true,
+            viewerSelection: selection.token
+          }
+        })
+      )
+      expect(focusTerminalInitiatedTab).toHaveBeenCalledTimes(focusCount)
+    } finally {
+      deadline.dispose()
     }
-    drawMainTab()
-    expect(launchPane()).toEqual({ leafId: LEAF_ID, operationId: 'op-1' })
-    expect(store.getState().getActiveTab(WT)?.id).toBe(action === 'unchanged' ? TAB_ID : other.id)
-    expect(focusTerminalInitiatedTab).toHaveBeenCalledTimes(action === 'unchanged' ? 1 : 0)
   }
 )

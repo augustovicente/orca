@@ -1,3 +1,5 @@
+import { conversationSwitchViewerSelectionCurrent } from './conversation-switch-selection'
+import { presentAgentLaunchTab } from './agent-launch-tab-presentation'
 import { useAppStore } from '@/store'
 import { persistAgentLaunchTabOrder } from '@/lib/launch-agent-tab-order'
 import { insertUnifiedTabAfterAnchor } from '@/lib/unified-tab-anchor-insertion'
@@ -32,9 +34,16 @@ export function launchAiVaultSessionInNewTab(args: {
   afterTabId?: string
   /** A chat's switch, whose ordinary spawn admits the resume; set only for a capable host. */
   resumeOrigin?: 'switch'
+  viewerSelection?: string
   canActivate?: () => boolean
 }): LaunchAiVaultSessionInNewTabResult {
   const store = useAppStore.getState()
+  const canActivate =
+    args.viewerSelection === undefined
+      ? args.canActivate
+      : () =>
+          conversationSwitchViewerSelectionCurrent(args.viewerSelection) &&
+          args.canActivate?.() !== false
   const slot = args.afterTabId
     ? store.unifiedTabsByWorktree[args.worktreeId]?.find((tab) => tab.id === args.afterTabId)
     : undefined
@@ -70,11 +79,15 @@ export function launchAiVaultSessionInNewTab(args: {
         ...(args.launchConfig ? { agentArgs: args.launchConfig.agentArgs } : {}),
         activate: true
       },
-      { notifyFailure: false, canActivate: args.canActivate }
+      {
+        notifyFailure: false,
+        ...(canActivate ? { canActivate } : {}),
+        ...(args.viewerSelection ? { viewerSelection: args.viewerSelection } : {})
+      }
     )
     const observedRuntimeLaunch = runtimeLaunch.then((outcome) => {
       if (outcome.status === 'created') {
-        if (args.canActivate?.() !== false) {
+        if (canActivate?.() !== false && args.viewerSelection === undefined) {
           useAppStore.getState().setActiveTabType('terminal', args.worktreeId)
         }
       } else if (splitGroupId) {
@@ -86,7 +99,7 @@ export function launchAiVaultSessionInNewTab(args: {
     return { tabId: null, runtimeLaunch: observedRuntimeLaunch }
   }
 
-  const activate = args.canActivate?.() !== false
+  const activate = canActivate?.() !== false && args.viewerSelection === undefined
   const tab = store.createTab(args.worktreeId, sourceGroupId, undefined, {
     ...(split ? { split } : {}),
     ...(activate ? {} : { activate: false, recordInteraction: false }),
@@ -114,5 +127,8 @@ export function launchAiVaultSessionInNewTab(args: {
     insertUnifiedTabAfterAnchor(args.worktreeId, tab.id, slot.id)
   }
 
+  if (args.viewerSelection) {
+    presentAgentLaunchTab('focus-window', args.worktreeId, tab.id, undefined, args.viewerSelection)
+  }
   return { tabId: tab.id }
 }

@@ -12,6 +12,11 @@ export type SessionTabOpenPlacement = {
   source?: TerminalSurfaceCloseIdentity
 }
 
+/** Recognizes viewer-owned requests; only the initiating viewer can admit or consume one. */
+export function isSessionTabSelectionRequest(token: string | undefined): boolean {
+  return token?.startsWith('selection-v1:') === true && token.length > 'selection-v1:'.length
+}
+
 /** Call-local neighbors survive an anchor retiring while creation is awaited. */
 export type CapturedSessionTabPlacement = { preceding: string[]; following: string[] }
 

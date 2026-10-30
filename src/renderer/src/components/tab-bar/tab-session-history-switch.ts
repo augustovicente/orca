@@ -83,7 +83,26 @@ export function resolvePaneResumeInNewChatOffer(
   state: AppState,
   pane: { worktreeId: string; paneKey: string }
 ): PaneResumeInNewChatOffer {
-  const conversation = resolvePaneLastAgentConversation(state, pane, adoptsCliConversations)
+  return conversationResumeOffer(
+    state,
+    resolvePaneAgentConversation(state, pane, adoptsCliConversations)
+  )
+}
+
+export function resolvePaneSwitchToChatOffer(
+  state: AppState,
+  pane: { worktreeId: string; paneKey: string }
+): PaneResumeInNewChatOffer {
+  return conversationResumeOffer(
+    state,
+    resolvePaneLastAgentConversation(state, pane, adoptsCliConversations)
+  )
+}
+
+function conversationResumeOffer(
+  state: AppState,
+  conversation: ReturnType<typeof resolvePaneLastAgentConversation>
+): PaneResumeInNewChatOffer {
   if (!conversation) {
     return null
   }

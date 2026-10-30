@@ -110,8 +110,8 @@ describe('floating launch directory reservation', () => {
 
 describe('adopted conversation ownership', () => {
   it('refuses when another record already holds the same conversation root', () => {
-    // Compare conversation roots, not exact leaves, within the same account.
-    const holder = { ...agentSessionRecordFixture(), accountHome: reserveRequest().accountHome }
+    // Compare conversation roots, not exact leaves, or branches could admit two writers onto one conversation.
+    const holder = agentSessionRecordFixture()
 
     expect(() =>
       applyAgentSessionReservation(
@@ -122,20 +122,8 @@ describe('adopted conversation ownership', () => {
     ).toThrow('agent_session_conflict')
   })
 
-  it('admits the same conversation root in a distinct account', () => {
-    const holder = agentSessionRecordFixture()
-    expect(holder.accountHome).not.toEqual(reserveRequest().accountHome)
-    expect(() =>
-      applyAgentSessionReservation(
-        storeState([holder]),
-        reserveRequest({ adoptedHandleLink: adoptedLink() }),
-        LEASE_TTL_MS
-      )
-    ).not.toThrow()
-  })
-
   it('admits an adoption of a conversation no record holds', () => {
-    const holder = { ...agentSessionRecordFixture(), accountHome: reserveRequest().accountHome }
+    const holder = agentSessionRecordFixture()
 
     expect(() =>
       applyAgentSessionReservation(
@@ -154,7 +142,6 @@ describe('adopted conversation ownership', () => {
     const fixture = agentSessionRecordFixture()
     const holder: AgentSessionRecord = {
       ...fixture,
-      accountHome: reserveRequest().accountHome,
       providerHandleChain: [
         ...fixture.providerHandleChain,
         adoptedLink({

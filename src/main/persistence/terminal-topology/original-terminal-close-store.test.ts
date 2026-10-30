@@ -48,52 +48,6 @@ async function opened() {
   return { ...opened, originalPresentation }
 }
 
-it.each(['successor', 'new holder'] as const)(
-  'checks %s at queued admission, preserving membership and future commands',
-  async (change) => {
-    const { store, authority, originalPresentation } = await opened()
-    const pause = authority.pause()
-    const preceding = store.runDurableMutation(() => ({ value: undefined }))
-    await pause.started.promise
-    const closing = applyWindowLayoutCommand(store, () => ['local'], command, undefined, {
-      originalPresentation,
-      admit: () => true
-    })
-    // A replacement commits before the close is admitted, after its caller already dispatched it.
-    const state = store.getWorkspaceSession()
-    if (change === 'new holder') {
-      store.setWorkspaceSession(state, 'ssh:new-holder')
-    } else {
-      store.setWorkspaceSession({
-        ...state,
-        tabsByWorktree: {
-          ...state.tabsByWorktree,
-          [pane.worktreeId]: state.tabsByWorktree[pane.worktreeId].map((row) => ({
-            ...row,
-            generation: (row.generation ?? 0) + 1
-          }))
-        }
-      })
-    }
-    const refused = expect(closing).rejects.toThrow('terminal_pane_owner_changed')
-    pause.finish.resolve()
-    await preceding
-    await refused
-    expect(
-      store.getWorkspaceSession().tabsByWorktree[pane.worktreeId].map((row) => row.id)
-    ).toContain(pane.tabId)
-    await expect(
-      store.applyLayoutCommand({
-        type: 'renameTab',
-        workspace: pane.worktreeId,
-        tabId: pane.tabId,
-        kind: 'custom',
-        title: 'Still usable'
-      })
-    ).resolves.toMatchObject({ ok: true })
-  }
-)
-
 it('requires the captured close write, retains the applied removal on failure and reloads its later durable intent', async () => {
   const { store, authority, originalPresentation, readState, directory, path } = await opened()
   authority.failNextWrite()

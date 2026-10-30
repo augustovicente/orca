@@ -7,6 +7,7 @@ import {
   agentSessionLeaseFixture
 } from '../../../src/shared/agent-session-record.test-fixture'
 import type { AgentSessionRecord } from '../../../src/shared/agent-session-record'
+import { agentSessionRefusalError } from '../../../src/shared/agent-session-wire-refusals'
 import type { AiVaultChatForkSource } from '../../../src/shared/ai-vault-resume-preparation'
 import type { StructuredAgentSessionAdapter } from '../../../src/main/native-chat/agent-session-wire/structured-agent-session-adapter'
 import { startsWhenPublished } from '../../../src/main/native-chat/agent-session-wire/structured-agent-session-instant-start.test-support'
@@ -144,6 +145,19 @@ export function installableHost(
       modelCatalog: { read: hostCalls.modelCatalog, demand: vi.fn(async () => {}) },
       store: {
         getRecord: hostCalls.getRecord,
+        selectWritableRecord: (sessionId: string) => {
+          const record: AgentSessionRecord | null = hostCalls.getRecord(sessionId)
+          return record ? { kind: 'writable' as const, record } : { kind: 'missing' as const }
+        },
+        requireWritableRecord: (sessionId: string) => {
+          const record: AgentSessionRecord | null = hostCalls.getRecord(sessionId)
+          if (!record) {
+            throw agentSessionRefusalError('agent_session_identity_required', {
+              reason: 'recordMissing'
+            })
+          }
+          return record
+        },
         getConversation: () => null,
         getOperationRow: () => null
       }

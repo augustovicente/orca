@@ -13,7 +13,9 @@ export function frameOpenSelectionPatch(
   patch: Partial<AppState>,
   cache: WorkspaceLayoutCache,
   keys: readonly string[],
-  target: RuntimeClientTarget
+  target: RuntimeClientTarget,
+  consume = false,
+  onSelection?: (patch: Partial<AppState>) => void
 ): Partial<AppState> {
   const owner =
     target.kind === 'environment' ? target.environmentId : LOCAL_STRUCTURED_SESSION_OWNER
@@ -30,7 +32,9 @@ export function frameOpenSelectionPatch(
       key,
       owner,
       placements,
-      new Map(layout.tabs.map((tab) => [tab.id, tab.id]))
+      new Map(layout.tabs.map((tab) => [tab.id, tab.id])),
+      consume,
+      onSelection
     )
   }
   return next

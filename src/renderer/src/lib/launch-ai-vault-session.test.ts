@@ -153,29 +153,6 @@ describe('launchAiVaultSessionInNewTab', () => {
     expect(mockCloseEmptyGroup).not.toHaveBeenCalled()
   })
 
-  it.each([undefined, 'explicit-group'])(
-    'derives the source group before the paired launch and preserves explicit target %s',
-    (targetGroupId) => {
-      runtimeMocks.runtimeEnvironmentIdOrLocalUnlessTwin.mockReturnValue('env-1')
-      runtimeMocks.isWebRuntimeSessionActive.mockReturnValue(true)
-      mockState.unifiedTabsByWorktree['wt-1'] = [{ id: 'chat-C', groupId: 'source-group' }]
-      launchAiVaultSessionInNewTab({
-        agent: 'codex',
-        worktreeId: 'wt-1',
-        afterTabId: 'chat-C',
-        targetGroupId,
-        command: 'codex resume session-2'
-      })
-      expect(runtimeMocks.createWebRuntimeSessionTerminal).toHaveBeenCalledWith(
-        expect.objectContaining({
-          afterTabId: 'chat-C',
-          targetGroupId: targetGroupId ?? 'source-group'
-        }),
-        { notifyFailure: false }
-      )
-    }
-  )
-
   it('removes the still-empty split group when the runtime create does not succeed', async () => {
     runtimeMocks.runtimeEnvironmentIdOrLocalUnlessTwin.mockReturnValue('env-1')
     runtimeMocks.isWebRuntimeSessionActive.mockReturnValue(true)

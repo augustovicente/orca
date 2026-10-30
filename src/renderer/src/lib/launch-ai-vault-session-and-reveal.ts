@@ -8,7 +8,8 @@ import { agentLabel } from '@/components/right-sidebar/ai-vault-session-filters'
 
 export async function launchAiVaultSessionAndReveal(
   args: Parameters<typeof launchAiVaultSessionInNewTab>[0],
-  describeFailure: (message: string) => string = (message) => message
+  describeFailure: (message: string) => string = (message) => message,
+  queuedMessage?: string
 ): Promise<void> {
   const launch = launchAiVaultSessionInNewTab(args)
   if (launch.tabId === null) {
@@ -25,8 +26,15 @@ export async function launchAiVaultSessionAndReveal(
       return
     }
   }
-  if (useAppStore.getState().activeWorktreeId !== args.worktreeId) {
+  if (
+    args.viewerSelection === undefined &&
+    useAppStore.getState().activeWorktreeId !== args.worktreeId
+  ) {
     activateAiVaultResumeWorkspace(args.worktreeId)
   }
-  notifyAiVaultSessionQueued(args.agent)
+  if (queuedMessage === undefined) {
+    notifyAiVaultSessionQueued(args.agent)
+  } else {
+    notifyAiVaultSessionQueued(args.agent, queuedMessage)
+  }
 }

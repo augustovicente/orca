@@ -11,10 +11,7 @@ import {
 } from './structured-agent-session-gate'
 import { SwitchToChatParams } from './structured-agent-session-schemas'
 
-// `agentSession.switchToChat` — a terminal's conversation moving into the chat that already holds
-// it. The host resolves the record and starts its agent through the ordinary operation start, so the
-// provider open imports the terminal's turns; success is that agent ready. A refusal leaves the
-// terminal to the client. Gated per agent by `agent-session.structured.switch.v1:<agent>`.
+// Optional execution uses the complete switch contract; strict legacy calls keep their envelope.
 
 export const STRUCTURED_AGENT_SESSION_SWITCH_TO_CHAT_METHODS = [
   defineMethod({

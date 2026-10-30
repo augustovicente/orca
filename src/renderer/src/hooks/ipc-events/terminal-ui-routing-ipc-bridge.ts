@@ -1,3 +1,6 @@
+import { noteViewerNavigation } from '@/lib/viewer-selection-request'
+import { isSessionTabSelectionRequest } from '../../../../shared/session-tab-placement'
+import { selectSessionTabForViewer } from '@/runtime/web-session-tabs-sync/store-patch'
 import { conversationSwitchViewerSelectionCurrent } from '@/lib/conversation-switch-selection'
 import type { SplitTerminalPaneDetail } from '@/constants/terminal'
 import { requestBackgroundTerminalWorktreeMount } from '@/components/terminal/background-terminal-worktree-mount'
@@ -132,10 +135,15 @@ export function registerTerminalUiRoutingIpcBridge(unsubs: (() => void)[]): void
         flashFocusedPane,
         scrollToBottomIfOutputSinceLastView
       }) => {
+        const notificationFocus =
+          ackPaneKeyOnSuccess || flashFocusedPane || scrollToBottomIfOutputSinceLastView
+        if (notificationFocus) {
+          noteViewerNavigation()
+        }
         const store = useAppStore.getState()
         revealWorkspaceSurface(store, worktreeId)
         store.setActiveTab(tabId)
-        if (ackPaneKeyOnSuccess || flashFocusedPane || scrollToBottomIfOutputSinceLastView) {
+        if (notificationFocus) {
           activateTabAndFocusPane(tabId, leafId ?? null, {
             ...(ackPaneKeyOnSuccess ? { ackPaneKeyOnSuccess } : {}),
             ...(flashFocusedPane ? { flashFocusedPane: true } : {}),
@@ -152,6 +160,9 @@ export function registerTerminalUiRoutingIpcBridge(unsubs: (() => void)[]): void
 
   unsubs.push(
     window.api.ui.onFocusEditorTab(({ tabId, worktreeId, userInitiated, viewerSelection }) => {
+      if (userInitiated && viewerSelection === undefined) {
+        noteViewerNavigation()
+      }
       if (!conversationSwitchViewerSelectionCurrent(viewerSelection)) {
         return
       }
@@ -177,6 +188,10 @@ export function registerTerminalUiRoutingIpcBridge(unsubs: (() => void)[]): void
           store.setActiveBrowserTab(browserTarget.workspaceId)
           store.setActiveTabType('browser', worktreeId)
         }
+        return
+      }
+      if (viewerSelection && isSessionTabSelectionRequest(viewerSelection)) {
+        selectSessionTabForViewer(worktreeId, tab.id, viewerSelection)
         return
       }
       revealWorkspaceSurface(store, worktreeId)

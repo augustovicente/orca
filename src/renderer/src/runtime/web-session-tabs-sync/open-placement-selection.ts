@@ -1,3 +1,5 @@
+import { isSessionTabSelectionRequest } from '../../../../shared/session-tab-placement'
+import { commitViewerSelection } from '@/lib/viewer-selection-request'
 import { isFloatingWorkspaceId } from '../../../../shared/floating-workspace-worktree'
 import { isWorkspaceKey, worktreeWorkspaceKey } from '../../../../shared/workspace-scope'
 import { appendHistoryEntry } from '../../store/slices/worktree-nav-history'
@@ -15,15 +17,49 @@ export function applySnapshotOpenSelection(
   worktreeId: string,
   environmentId: string,
   placements: readonly SnapshotOpenPlacement[],
-  hostToLocalTabId: ReadonlyMap<string, string>
+  hostToLocalTabId: ReadonlyMap<string, string>,
+  consume = false,
+  onSelection?: (patch: Partial<WebSessionTabsSyncState>) => void
 ): WebSessionTabsSyncState | Partial<WebSessionTabsSyncState> {
-  const requested = placements.find((entry) => entry.activate)
+  const requested =
+    placements.find(
+      (entry) => entry.activate && isSessionTabSelectionRequest(entry.intent.viewerSelection)
+    ) ?? placements.find((entry) => entry.activate)
   if (!requested) {
     return patch
   }
+  const localId = hostToLocalTabId.get(requested.hostTabId)
+  return localId
+    ? applyOpenDestinationSelection(
+        state,
+        patch,
+        worktreeId,
+        environmentId,
+        localId,
+        requested.intent.viewerSelection,
+        consume,
+        onSelection
+      )
+    : patch
+}
+
+export function applyOpenDestinationSelection(
+  state: WebSessionTabsSyncState,
+  patch: Partial<WebSessionTabsSyncState>,
+  worktreeId: string,
+  environmentId: string,
+  tabId: string,
+  token: string | undefined,
+  consume: boolean,
+  onSelection?: (patch: Partial<WebSessionTabsSyncState>) => void
+): Partial<WebSessionTabsSyncState> {
+  if (token && isSessionTabSelectionRequest(token) && !consume) {
+    return patch
+  }
   const next = { ...state, ...patch }
-  const localId = requested && hostToLocalTabId.get(requested.hostTabId)
-  const tab = localId && next.unifiedTabsByWorktree[worktreeId]?.find((row) => row.id === localId)
+  const tab = next.unifiedTabsByWorktree[worktreeId]?.find(
+    (row) => row.id === tabId || row.entityId === tabId
+  )
   if (
     !tab ||
     !next.groupsByWorktree[worktreeId]?.some((group) => group.tabOrder.includes(tab.id))
@@ -35,8 +71,7 @@ export function applySnapshotOpenSelection(
   const surface = deriveActiveSurfaceForWorktree(activated, worktreeId, tab.groupId, {
     preferredTabId: tab.id
   })
-  return {
-    ...patch,
+  const selectionPatch = {
     ...activation,
     ...snapshotOpenSelectionRecords(next, worktreeId, surface),
     ...(isFloatingWorkspaceId(worktreeId)
@@ -63,4 +98,11 @@ export function applySnapshotOpenSelection(
           activeView: 'terminal' as const
         })
   }
+  if (token && isSessionTabSelectionRequest(token)) {
+    return consume && commitViewerSelection(token, { worktreeId, tabId: tab.id }, () => true)
+      ? (onSelection?.(selectionPatch), { ...patch, ...selectionPatch })
+      : patch
+  }
+  onSelection?.(selectionPatch)
+  return { ...patch, ...selectionPatch }
 }

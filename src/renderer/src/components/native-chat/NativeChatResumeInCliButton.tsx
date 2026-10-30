@@ -1,3 +1,10 @@
+import { inPlaceSwitchEnabled } from '../../../../shared/structured-agent-cli-conversation-adoption'
+import { useConfirmationDialog } from '@/components/confirmation-dialog-context'
+import {
+  conversationSwitchFailureText,
+  runNativeChatCliSwitch,
+  useConversationSwitchPending
+} from '@/lib/conversation-surface-switch'
 import { useMemo } from 'react'
 import { SquareTerminal } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -7,6 +14,7 @@ import { isNativeChatEnabled } from '../../../../shared/structured-native-chat-l
 import type { AppState } from '@/store/types'
 import { selectFolderWorkspaces, selectWorktreesByRepo } from '@/store/workspace-record-selectors'
 import { translate } from '@/i18n/i18n'
+import { agentLabel } from '../../../../shared/ai-vault-session-filters'
 import { AI_VAULT_AGENTS } from '../../../../shared/ai-vault-types'
 import {
   runNativeChatCliFork,
@@ -72,6 +80,20 @@ export function NativeChatResumeInCliButton({
   const pending = useNativeChatCliForkPending(
     executionHostScope ? { executionHostScope, sessionId: nativeChat.sessionId } : null
   )
+  const switchAgent = AI_VAULT_AGENTS.find((candidate) => candidate === nativeAgent)
+  const switchPending = useConversationSwitchPending(
+    executionHostScope && switchAgent
+      ? {
+          direction: 'terminal',
+          sessionId,
+          workspaceId: worktreeId,
+          executionHostId: executionHostScope,
+          agent: switchAgent,
+          chatTabId: tabId
+        }
+      : null
+  )
+  const confirm = useConfirmationDialog()
   const commandOverrides = useAppStore((state) => state.settings?.agentCmdOverrides)
   const agent = AI_VAULT_AGENTS.find((candidate) => candidate === nativeChat.agent)
   const enabled = useAppStore((state) => isNativeChatEnabled(state.settings))
@@ -90,8 +112,8 @@ export function NativeChatResumeInCliButton({
           variant="pane-title"
           size="icon-xs"
           aria-label={label}
-          disabled={pending}
-          aria-busy={pending || undefined}
+          disabled={pending || switchPending}
+          aria-busy={pending || switchPending || undefined}
           onClick={(event) => {
             event.stopPropagation()
             const subject = resolveTabSessionHistorySubject(useAppStore.getState(), {
@@ -99,7 +121,41 @@ export function NativeChatResumeInCliButton({
               nativeChat
             })
             if (subject?.kind === 'chat') {
-              void runNativeChatCliFork({ subject, tab, agent, commandOverrides })
+              const legacyContinue = (viewerSelection?: string) =>
+                runNativeChatCliFork({
+                  subject,
+                  tab,
+                  agent,
+                  commandOverrides,
+                  ...(viewerSelection
+                    ? {
+                        viewerSelection,
+                        describeFailure: (message: string) =>
+                          conversationSwitchFailureText(new Error(message), {
+                            agent,
+                            direction: 'terminal'
+                          })
+                      }
+                    : {}),
+                  queuedMessage: translate(
+                    'components.tab.bar.switch.legacyCopy',
+                    'A copy of this {{agent}} conversation opens in a new terminal. The original chat stays open.',
+                    { agent: agentLabel(agent) }
+                  )
+                })
+              if (!inPlaceSwitchEnabled(agent)) {
+                void legacyContinue()
+                return
+              }
+              void runNativeChatCliSwitch({
+                confirm,
+                sessionId,
+                workspaceId: worktreeId,
+                executionHostId: executionHostScope,
+                agent,
+                chatTabId: tabId,
+                legacyContinue
+              })
             }
           }}
         >

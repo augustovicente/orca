@@ -1,3 +1,4 @@
+import { selectSessionTabForViewer } from '@/runtime/web-session-tabs-sync/store-patch'
 import {
   findIndexedProjectGroupOwner,
   findIndexedRepoOwner,
@@ -154,15 +155,20 @@ export function openStructuredAgentSessionProvisionalTab(args: {
   /** The tab the chat opens right after, in that tab's group. */
   afterTabId?: string
   activate?: boolean
+  viewerSelection?: string
   canActivate?: () => boolean
 }): OpenedAgentSessionTab {
   const state = useAppStore.getState()
   const existing = findStructuredLaunchTab(args)
   if (existing) {
     if (args.activate !== false && args.canActivate?.() !== false) {
-      state.focusGroup(args.worktreeId, existing.groupId)
-      state.activateTab(existing.id, { worktreeId: args.worktreeId })
-      state.setActiveTabType('agent-session', args.worktreeId)
+      if (args.viewerSelection) {
+        selectSessionTabForViewer(args.worktreeId, existing.id, args.viewerSelection)
+      } else {
+        state.focusGroup(args.worktreeId, existing.groupId)
+        state.activateTab(existing.id, { worktreeId: args.worktreeId })
+        state.setActiveTabType('agent-session', args.worktreeId)
+      }
     }
     return existing
   }
@@ -186,11 +192,13 @@ export function openStructuredAgentSessionProvisionalTab(args: {
       label: defaultAgentChatLabel(args.agent),
       targetGroupId,
       ...(args.afterTabId ? { afterTabId: args.afterTabId } : {}),
-      activate
+      activate: activate && args.viewerSelection === undefined
     })
     const target = structuredAgentSessionTargetForHost(args.executionHostId)
     holdFrameDrawnProvisionalChatTab(target, args.worktreeId, tab.id)
-    if (activate) {
+    if (activate && args.viewerSelection) {
+      selectSessionTabForViewer(args.worktreeId, tab.id, args.viewerSelection)
+    } else if (activate) {
       state.setActiveTabType('agent-session', args.worktreeId)
     }
     return tab
@@ -208,6 +216,7 @@ export function openStructuredAgentSessionProvisionalTab(args: {
           ? { afterTabId: args.afterTabId }
           : slotAnchor(address, args.worktreeId)),
         activate: args.activate !== false,
+        viewerSelection: args.viewerSelection,
         canActivate: args.canActivate,
         drawHere
       })

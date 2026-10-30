@@ -11,6 +11,7 @@ import {
   getTerminalPasteIngestMs
 } from '../../shared/agent-prompt-injection'
 import { getDefaultWorkspaceSession } from '../../shared/constants'
+import type { ExecutionHostId } from '../../shared/execution-host'
 import { makePaneKey } from '../../shared/stable-pane-id'
 import type { LayoutCommand } from '../../shared/workspace-layout/workspace-layout-command-types'
 import { applyCommandToSession } from '../persistence/terminal-topology/terminal-pane-admission'
@@ -571,7 +572,7 @@ function makeHeadlessTerminalLayout(
 function makeRuntimeStoreWithWorkspaceSession(
   initialSession: WorkspaceSessionState,
   // Session fixtures must answer only their host partition so hardcoded host ids fail.
-  ownerHostId = 'local'
+  ownerHostId: ExecutionHostId = 'local'
 ): {
   runtimeStore: typeof store & {
     admitTerminalPane: ReturnType<typeof withRuntimePaneAdmission>['admitTerminalPane']

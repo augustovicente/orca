@@ -108,12 +108,14 @@ export function createStructuredAgentSessionSwitchCommands(
         await command?.physical
       }
     },
-    revoke: (id: string) => {
+    revoke: (id: string): boolean => {
       const command = commands.get(id)
-      if (command) {
-        command.retentionAllowed = false
-        command.deadline.revoke()
+      if (!command) {
+        return false
       }
+      command.retentionAllowed = false
+      command.deadline.revoke()
+      return true
     },
     dispose: () => {
       unsubscribe()

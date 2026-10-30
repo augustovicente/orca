@@ -1,10 +1,9 @@
 // @vitest-environment happy-dom
+import { noteUserWorkspaceSwitch } from '@/lib/workspace-switch-user-act'
 import { getDefaultSettings } from '../../../../shared/constants'
 import type * as CliChatResumeSourceModule from '@/components/tab-bar/cli-chat-resume-source'
 import type * as CliChatResumeTerminalCapture from '@/components/tab-bar/cli-chat-resume-terminal-capture'
 import type { CliChatResumeSource } from '@/components/tab-bar/cli-chat-resume-source'
-import { runLegacyCliChatResume } from '@/components/tab-bar/cli-chat-resume-run'
-import { captureConversationSwitchViewerSelection } from '../conversation-switch-selection'
 import { runConversationSwitch } from '../conversation-surface-switch'
 import { setLocalRuntimeCapabilitiesForTests } from '@/runtime/local-runtime-capabilities'
 import type * as SessionClient from '@/runtime/structured-agent-session-client'
@@ -537,9 +536,9 @@ it.each(['expiry', 'purge'])('created pane publication: %s', async (order) => {
   }
 })
 
-it.each(['unchanged', 'navigate', 'strict-old-runtime', 'stale-v2-runtime'] as const)(
-  'strict legacy Stop through real host admission and provisional/layout writers: %s',
-  async (action) => {
+it.each([false, true])(
+  'strict legacy Stop through real host admission and provisional/layout writers, newer navigation=%s',
+  async (navigate) => {
     const source = useAppStore
       .getState()
       .createUnifiedTab('wt-1', 'terminal', { id: 'source-terminal', entityId: 'source-terminal' })
@@ -601,10 +600,7 @@ it.each(['unchanged', 'navigate', 'strict-old-runtime', 'stale-v2-runtime'] as c
         }
       }
     )
-    const fromCommon = action === 'strict-old-runtime' || action === 'stale-v2-runtime'
-    setLocalRuntimeCapabilitiesForTests(
-      action === 'stale-v2-runtime' ? ['agent-session.structured.switch.v2:codex'] : []
-    )
+    setLocalRuntimeCapabilitiesForTests([])
     useAppStore.setState((state) => ({
       settings: {
         ...getDefaultSettings('/home/test'),
@@ -612,13 +608,11 @@ it.each(['unchanged', 'navigate', 'strict-old-runtime', 'stale-v2-runtime'] as c
         experimentalNativeChat: true
       }
     }))
-    const running = fromCommon
-      ? runConversationSwitch({
-          direction: 'chat',
-          ...mocks.source.current,
-          source: mocks.source.current
-        })
-      : runLegacyCliChatResume(mocks.source.current, captureConversationSwitchViewerSelection())
+    const running = runConversationSwitch({
+      direction: 'chat',
+      ...mocks.source.current,
+      source: mocks.source.current
+    })
     await vi.waitFor(() => expect(mocks.support).toHaveBeenCalledOnce())
     expect(mocks.stopped).toHaveBeenCalledExactlyOnceWith({
       worktree: 'id:wt-1',
@@ -627,10 +621,11 @@ it.each(['unchanged', 'navigate', 'strict-old-runtime', 'stale-v2-runtime'] as c
       keepHistory: true
     })
     expect(mocks.create).not.toHaveBeenCalled()
-    if (action === 'navigate') {
+    await main.settle()
+    if (navigate) {
+      noteUserWorkspaceSwitch('wt-1')
       useAppStore.getState().activateTab(other.id)
     }
-    await main.settle()
     admission.resolve({ supported: true })
     await running
     await main.settle()
@@ -641,9 +636,7 @@ it.each(['unchanged', 'navigate', 'strict-old-runtime', 'stale-v2-runtime'] as c
       )
     expect(mocks.create).toHaveBeenCalledOnce()
     expect(chats).toHaveLength(1)
-    expect(useAppStore.getState().getActiveTab('wt-1')?.id).toBe(
-      action === 'navigate' ? other.id : chats[0].id
-    )
+    expect(useAppStore.getState().getActiveTab('wt-1')?.id).toBe(navigate ? other.id : chats[0].id)
     expect(mocks.create.mock.calls[0][0].resumeFrom.providerSessionId).toBe('saved-provider')
     expect(mocks.create.mock.calls[0][0].envelope.sessionId).toBe(chats[0].entityId)
   }

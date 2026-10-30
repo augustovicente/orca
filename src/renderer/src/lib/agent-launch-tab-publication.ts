@@ -1,3 +1,4 @@
+import { isSessionTabSelectionRequest } from '../../../shared/session-tab-placement'
 import { conversationSwitchViewerSelectionCurrent } from '@/lib/conversation-switch-selection'
 import { applyAgentLaunchPaneVerdict } from './agent-launch-pane-verdict-application'
 import { launchTabWithdrawalIdentity } from '../../../shared/agent-launch-tab-publication'
@@ -91,6 +92,21 @@ export function publishAgentLaunchTab(
       store.setTabAgentLaunchPane(tabId, launchPaneFor(request), {
         remount: kept?.leafId === leafId && kept.outcome !== undefined
       })
+    }
+    const retrySelection = request.openPlacement?.viewerSelection ?? request.viewerSelection
+    if (
+      isSessionTabSelectionRequest(retrySelection) &&
+      (!request.openPlacement ||
+        (request.openPlacement.activate &&
+          openPlacementSourceCurrent(store, worktreeId, request.openPlacement)))
+    ) {
+      presentAgentLaunchTab(
+        request.viewer,
+        worktreeId,
+        tabId,
+        leafId,
+        request.openPlacement?.viewerSelection ?? request.viewerSelection
+      )
     }
     return { tabId, created: false, placement: { groupId } }
   }

@@ -13,15 +13,11 @@ import {
 import { conversationSwitchFailureText } from '@/lib/conversation-switch-feedback'
 import { toast } from 'sonner'
 import { useAppStore } from '@/store'
-import { buildAiVaultResumeStartupForWorktree } from '@/lib/ai-vault-resume-command'
-import { launchAiVaultSessionInNewTab } from '@/lib/launch-ai-vault-session'
 import { callStructuredAgentSession } from '@/runtime/structured-agent-session-client'
 import { structuredAgentSessionTargetForHost } from '@/runtime/structured-agent-session-owner'
-import { AiVaultChatForkSourceSchema } from '../../../../shared/ai-vault-chat-fork-contract'
 import type { AiVaultAgent } from '../../../../shared/ai-vault-types'
 import { getExecutionHostIdForWorktree } from '@/lib/worktree-runtime-owner'
 import { parseExecutionHostId } from '../../../../shared/execution-host'
-import { captureConversationSwitchSelection } from '@/lib/conversation-switch-state'
 
 const changed = conversationSwitchChanged
 /** Moves a chat's conversation into a terminal on the same id: the host proves the chat stopped, the
@@ -34,31 +30,13 @@ export async function runLegacyNativeChatCliSwitch(args: {
   chatTabId: string | null
   onComplete?: () => void
   viewerSelection?: string
+  reportFailure?: (error: unknown) => void
 }): Promise<void> {
   const key = `${args.executionHostId}\0${args.sessionId}\0legacy`
   const target = structuredAgentSessionTargetForHost(args.executionHostId)
   const hostId = parseExecutionHostId(args.executionHostId)?.id
   if (pending.has(key) || !target || !hostId) {
     return
-  }
-  const stillSelected = captureConversationSwitchSelection(args.viewerSelection)
-  const sourceTab = useAppStore
-    .getState()
-    .unifiedTabsByWorktree?.[args.workspaceId]?.find((tab) => tab.id === args.chatTabId)
-  const stillCaptured = () => {
-    const state = useAppStore.getState()
-    const current = state.unifiedTabsByWorktree?.[args.workspaceId]?.find(
-      (tab) => tab.id === args.chatTabId
-    )
-    return (
-      getExecutionHostIdForWorktree(state, args.workspaceId) === args.executionHostId &&
-      (!sourceTab ||
-        Boolean(
-          current &&
-          current.entityId === sourceTab.entityId &&
-          current.groupId === sourceTab.groupId
-        ))
-    )
   }
   pending.set(key, args)
   try {
@@ -103,53 +81,23 @@ export async function runLegacyNativeChatCliSwitch(args: {
         }
       }
     }
-    if (!(await supports(`agent-session.structured.switch.v1:${args.agent}`))) {
-      // Ordinary old Close can hide before proving exit; reveal readable recovery and never infer proof from its ACK.
-      try {
-        await callStructuredAgentSession(target, 'agentSession.close', {
-          sessionId: args.sessionId
-        })
-      } catch {
-        // The original Close has no positive exit receipt on this peer.
-      } finally {
-        await callStructuredAgentSession(target, 'agentSession.reveal', {
-          sessionId: args.sessionId
-        }).catch(() => {})
-      }
-      throw agentSessionRefusalError('agent_session_ownership_unknown', { reason: 'ownerUnproven' })
+    // Ordinary old Close has no positive exit receipt; keep readable recovery without launching.
+    try {
+      await callStructuredAgentSession(target, 'agentSession.close', { sessionId: args.sessionId })
+    } finally {
+      await callStructuredAgentSession(target, 'agentSession.reveal', {
+        sessionId: args.sessionId
+      }).catch(() => {})
     }
-    const answered = await callStructuredAgentSession<{ source: unknown }>(
-      target,
-      'agentSession.switchToTerminal',
-      { sessionId: args.sessionId }
-    )
-    const source = AiVaultChatForkSourceSchema.parse(answered.source)
-    if (!stillSelected() || !stillCaptured()) {
-      return
-    }
-    const state = useAppStore.getState()
-    const startup = buildAiVaultResumeStartupForWorktree({
-      state,
-      worktreeId: args.workspaceId,
-      session: { ...source, executionHostId: hostId },
-      commandOverride: state.settings?.agentCmdOverrides?.[source.agent]
-    })
-    const launch = launchAiVaultSessionInNewTab({
-      agent: source.agent,
-      worktreeId: args.workspaceId,
-      ...startup,
-      ...(args.chatTabId ? { afterTabId: args.chatTabId } : {}),
-      resumeOrigin: 'switch',
-      canActivate: stillSelected
-    })
-    const outcome = launch.tabId === null ? await launch.runtimeLaunch : null
-    if (outcome && outcome.status !== 'created') {
-      throw new Error(outcome.status === 'failed' ? outcome.message : undefined)
-    }
-    // The execution host retires only the source presentation after its explicit admitted result.
-    // A tab allocation or generic create receipt says nothing about admission.
+    throw agentSessionRefusalError('agent_session_ownership_unknown', { reason: 'ownerUnproven' })
   } catch (error) {
-    toast.error(conversationSwitchFailureText(error, { agent: args.agent, direction: 'terminal' }))
+    if (args.reportFailure) {
+      args.reportFailure(error)
+    } else {
+      toast.error(
+        conversationSwitchFailureText(error, { agent: args.agent, direction: 'terminal' })
+      )
+    }
   } finally {
     pending.delete(key)
     try {

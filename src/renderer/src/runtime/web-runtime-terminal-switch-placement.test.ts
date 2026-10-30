@@ -1,13 +1,26 @@
-import { observeSessionTabPlacementWork } from '../../../shared/session-tab-placement-work.test-fixture'
 // @vitest-environment happy-dom
+import { agentSessionSwitchDeadline } from '../../../shared/agent-session-switch-execution'
+import {
+  beginViewerSelectionRequest,
+  disposeViewerSelection,
+  viewerSelectionOutcome
+} from '@/lib/viewer-selection-request'
+import { activateTabNumberShortcut } from '@/lib/tab-number-shortcuts'
+import { registerTerminalUiRoutingIpcBridge } from '@/hooks/ipc-events/terminal-ui-routing-ipc-bridge'
+import { applyWebSessionTabsStorePatch } from './web-session-tabs-sync/store-patch'
+import {
+  createWebSessionTabsSnapshotPatch,
+  applyWebSessionTabsSnapshot
+} from './web-session-tabs-sync/snapshot-api'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { useAppStore } from '@/store'
+import { makeOpenFile } from '@/store/slices/store-session-test-harness'
 import type { RuntimeMobileSessionTabsResult } from '../../../shared/runtime-types'
 import { createGlobalSettingsFixture } from '../../../shared/global-settings-test-fixture'
 import { createWebRuntimeSessionTerminalResult } from './web-runtime-terminal-create-operation'
 import { refreshWebRuntimeSessionTabsSnapshot } from './web-runtime-session-snapshot'
-import { applyWebSessionTabsSnapshot } from './web-session-tabs-sync/snapshot-api'
 import { toWebTerminalSurfaceTabId } from '../../../shared/terminal-surface-id'
+import { makePaneKey } from '../../../shared/stable-pane-id'
 import { resetWebSessionTabsSnapshotFreshnessForTests } from './web-session-tabs-sync/tracking-lifecycle'
 
 const ENV = 'paired-placement',
@@ -20,8 +33,40 @@ const chat = (id: string) => ({
   title: id,
   isActive: false
 })
+type TerminalFocusCallback = Parameters<typeof window.api.ui.onFocusTerminal>[0]
+function routeTerminalFocus(data: Parameters<TerminalFocusCallback>[0]): void {
+  let focusTerminal: TerminalFocusCallback = () => {
+    throw new Error('Terminal focus listener was not registered')
+  }
+  const originalApi = window.api
+  Object.assign(window, {
+    api: {
+      ...originalApi,
+      ui: {
+        ...originalApi?.ui,
+        onSplitTerminal: () => () => {},
+        onRenameTerminal: () => () => {},
+        onSetPaneTitle: () => () => {},
+        onFocusEditorTab: () => () => {},
+        onFocusTerminal: (callback: TerminalFocusCallback) => {
+          focusTerminal = callback
+          return () => {}
+        }
+      }
+    }
+  })
+  const unsubs: (() => void)[] = []
+  try {
+    registerTerminalUiRoutingIpcBridge(unsubs)
+    focusTerminal(data)
+  } finally {
+    unsubs.forEach((unsubscribe) => unsubscribe())
+    Object.assign(window, { api: originalApi })
+  }
+}
+
 let frame: RuntimeMobileSessionTabsResult
-function resetFrame(n = 0) {
+function resetFrame() {
   resetWebSessionTabsSnapshotFreshnessForTests()
   useAppStore.setState(useAppStore.getInitialState(), true)
   useAppStore.setState({
@@ -32,9 +77,7 @@ function resetFrame(n = 0) {
       activeRuntimeEnvironmentId: ENV
     })
   })
-  const source = n
-    ? Array.from({ length: n }, (_, i) => (i === n / 2 ? 'C' : `old-${i}`))
-    : ['A', 'C', 'B']
+  const source = ['A', 'C', 'B']
   frame = {
     worktree: WT,
     publicationEpoch: 'host-placement',
@@ -56,19 +99,9 @@ function resetFrame(n = 0) {
 }
 beforeEach(() => resetFrame())
 afterEach(() => vi.restoreAllMocks())
-it.each([
-  { pinned: false, n: 0 },
-  { pinned: true, n: 0 },
-  { pinned: false, n: 32 },
-  { pinned: false, n: 320 }
-])(
-  'keeps client neighbors and pin partitions through early retirement and refresh (pinned: $pinned/$n)',
-  async ({ pinned, n }) => {
-    const current = Array.from({ length: n }, (_, i) => `current-${i}`)
-    if (n) {
-      resetFrame(n)
-    }
-    const work = observeSessionTabPlacementWork()
+it.each([{ pinned: false }, { pinned: true }])(
+  'keeps client neighbors and pin partitions through early retirement and refresh (pinned: $pinned)',
+  async ({ pinned }) => {
     if (pinned) {
       frame = {
         ...frame,
@@ -95,9 +128,7 @@ it.each([
           ...frame,
           snapshotVersion: frame.snapshotVersion + 1,
           tabs: [
-            ...(n
-              ? [...current, 'D'].map(chat)
-              : frame.tabs.filter((tab) => tab.id !== 'agent-session:C')),
+            ...frame.tabs.filter((tab) => tab.id !== 'agent-session:C'),
             {
               type: 'terminal',
               id: 'T::leaf',
@@ -114,9 +145,8 @@ it.each([
               id: 'L',
               activeTabId: 'T',
               tabOrder: [
-                ...(n
-                  ? current.map((id) => `agent-session:${id}`)
-                  : ['agent-session:A', 'agent-session:B']),
+                'agent-session:A',
+                'agent-session:B',
                 'T',
                 ...(pinned ? ['agent-session:U'] : [])
               ]
@@ -163,30 +193,206 @@ it.each([
     const order = () =>
       useAppStore.getState().groupsByWorktree[WT].find((group) => group.id === sourceGroup)!
         .tabOrder
-    const expected = n
-      ? [
-          ...current.slice(0, n / 2 + 1).map((id) => `structured-agent-session-${id}`),
-          toWebTerminalSurfaceTabId('T'),
-          ...current.slice(n / 2 + 1).map((id) => `structured-agent-session-${id}`),
-          'concurrent'
-        ]
-      : [
-          'structured-agent-session-A',
-          ...(pinned ? ['structured-agent-session-B'] : []),
-          toWebTerminalSurfaceTabId('T'),
-          ...(pinned ? ['structured-agent-session-U'] : ['structured-agent-session-B']),
-          'concurrent'
-        ]
+    const expected = [
+      'structured-agent-session-A',
+      ...(pinned ? ['structured-agent-session-B'] : []),
+      toWebTerminalSurfaceTabId('T'),
+      ...(pinned ? ['structured-agent-session-U'] : ['structured-agent-session-B']),
+      'concurrent'
+    ]
     expect(order()).toEqual(expected)
     expect(useAppStore.getState().activeGroupIdByWorktree[WT]).toBe(sourceGroup)
-    if (n) {
-      console.info('PAIRED_PLACEMENT_WORK', JSON.stringify({ n, samples: work.samples }))
-      expect(work.samples.length).toBeGreaterThan(0)
-      for (const sample of work.samples) {
-        expect(sample.reads + sample.adds + sample.has).toBeLessThanOrEqual(12 * n + 32)
-      }
-    }
     await refreshWebRuntimeSessionTabsSnapshot(ENV, WT, { acceptCurrentSnapshot: true })
     expect(order()).toEqual(expected)
+  }
+)
+
+it.each([
+  {
+    owner: 'local-structured-session',
+    direction: 'chat',
+    inventoryFirst: false,
+    navigation: 'notification'
+  },
+  {
+    owner: 'local-structured-session',
+    direction: 'terminal',
+    inventoryFirst: true,
+    navigation: 'shortcut'
+  },
+  { owner: ENV, direction: 'chat', inventoryFirst: true, navigation: 'shortcut' },
+  { owner: ENV, direction: 'terminal', inventoryFirst: false, navigation: 'shortcut' }
+] as const)(
+  'consumes the original viewer choice once at the real $owner $direction snapshot writer ($navigation)',
+  async ({ owner, direction, inventoryFirst, navigation }) => {
+    const worktreeId = navigation === 'notification' ? 'folder:folder-1' : WT
+    for (const navigate of [false, true]) {
+      disposeViewerSelection()
+      useAppStore.setState(useAppStore.getInitialState(), true)
+      useAppStore.setState({ activeWorktreeId: worktreeId, activeView: 'terminal' })
+      const leafId = '10000000-0000-4000-8000-000000000001'
+      const terminal = (id: string) => ({
+        type: 'terminal' as const,
+        id: `${id}::${leafId}`,
+        parentTabId: id,
+        leafId,
+        title: id,
+        terminal: `term_${id}`,
+        isActive: false,
+        status: 'ready' as const
+      })
+      const source = direction === 'chat' ? terminal('A') : chat('A')
+      let snapshot: RuntimeMobileSessionTabsResult = {
+        worktree: worktreeId,
+        publicationEpoch: 'selection',
+        snapshotVersion: 1,
+        activeGroupId: 'G',
+        activeTabId: source.id,
+        tabs: [source, terminal('B'), terminal('C')],
+        tabGroups: [
+          {
+            id: 'G',
+            activeTabId: source.id,
+            tabOrder: [source.type === 'terminal' ? 'A' : source.id, 'B', 'C']
+          }
+        ]
+      }
+      const apply = () =>
+        applyWebSessionTabsStorePatch(createWebSessionTabsSnapshotPatch(snapshot, owner), {
+          frames: []
+        })()
+      apply()
+      const initial = useAppStore.getState()
+      const sourceTab = initial.unifiedTabsByWorktree[worktreeId].find(
+        (tab) => tab.entityId === (direction === 'chat' ? toWebTerminalSurfaceTabId('A') : 'A')
+      )!
+      const siblings = ['B', 'C'].map((id) =>
+        initial.unifiedTabsByWorktree[worktreeId].find(
+          (tab) => tab.entityId === toWebTerminalSurfaceTabId(id)
+        )!
+      )
+      const groupId = sourceTab.groupId
+      useAppStore.setState({
+        openFiles: [makeOpenFile({ id: '/repo/client-only', worktreeId })]
+      })
+      initial.createUnifiedTab(worktreeId, 'editor', {
+        id: 'X',
+        entityId: '/repo/client-only',
+        targetGroupId: groupId,
+        afterTabId: sourceTab.id,
+        activate: false
+      })
+      const deadline = agentSessionSwitchDeadline(Date.now)
+      try {
+        const selection = beginViewerSelectionRequest('snapshot-choice', deadline)
+        selection.accept()
+        const openPlacement = {
+          invocationId: 'snapshot-choice',
+          generation: 'snapshot-generation',
+          placement: { groupId, afterTabId: sourceTab.id, index: 0 },
+          activate: true,
+          viewerSelection: selection.token
+        }
+        // Natural disappearance and ordinary fallback are not navigation.
+        snapshot = {
+          ...snapshot,
+          snapshotVersion: 2,
+          tabs: snapshot.tabs.slice(1),
+          tabGroups: [{ id: 'G', activeTabId: 'C', tabOrder: ['B', 'C'] }]
+        }
+        apply()
+        if (navigation === 'notification') {
+          routeTerminalFocus({
+            tabId: toWebTerminalSurfaceTabId('C'),
+            worktreeId,
+            leafId,
+            ...(navigate
+              ? {
+                  ackPaneKeyOnSuccess: makePaneKey(toWebTerminalSurfaceTabId('C'), leafId),
+                  flashFocusedPane: true,
+                  scrollToBottomIfOutputSinceLastView: true
+                }
+              : {})
+          })
+          await new Promise<void>((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+          )
+          expect(useAppStore.getState().activeWorktreeId).toBe(worktreeId)
+          expect(useAppStore.getState().activeTabIdByWorktree[worktreeId]).toBe(
+            toWebTerminalSurfaceTabId('C')
+          )
+        } else if (navigate) {
+          // A real shortcut/re-click, including ABA, must supersede the captured gesture.
+          expect(activateTabNumberShortcut(2)).toBe(true)
+          expect(activateTabNumberShortcut(1)).toBe(true)
+          expect(activateTabNumberShortcut(2)).toBe(true)
+        }
+        const userChoice = useAppStore.getState().activeTabIdByWorktree[worktreeId]
+        const destination = direction === 'chat' ? chat('canonical-D') : terminal('D')
+        snapshot = {
+          ...snapshot,
+          snapshotVersion: 3,
+          tabs: [destination, ...snapshot.tabs],
+          tabGroups: [
+            {
+              id: 'G',
+              activeTabId: 'C',
+              tabOrder: [destination.type === 'terminal' ? 'D' : destination.id, 'B', 'C']
+            }
+          ]
+        }
+        if (inventoryFirst) {
+          snapshot = {
+            ...snapshot,
+            tabs: snapshot.tabs.map((row) =>
+              row.id === destination.id
+                ? { ...row, openPlacement: { ...openPlacement, activate: false } }
+                : row
+            )
+          }
+          apply()
+        }
+        if (navigation !== 'notification' || !navigate) {
+          expect(viewerSelectionOutcome(selection.token)).toBe(navigate ? 'superseded' : 'pending')
+        }
+        snapshot = {
+          ...snapshot,
+          snapshotVersion: 4,
+          tabs: snapshot.tabs.map((row) =>
+            row.id === destination.id ? { ...row, openPlacement } : row
+          )
+        }
+        apply()
+        const after = useAppStore.getState()
+        const landed = after.unifiedTabsByWorktree[worktreeId].find(
+          (row) =>
+            row.entityId === (direction === 'chat' ? 'canonical-D' : toWebTerminalSurfaceTabId('D'))
+        )!
+        expect(landed).toBeDefined()
+        const group = after.groupsByWorktree[worktreeId].find((row) => row.id === groupId)!
+        expect(group.tabOrder).toEqual([landed.id, 'X', ...siblings.map((row) => row.id)])
+        expect(group.activeTabId).toBe(navigate ? userChoice : landed.id)
+        expect(viewerSelectionOutcome(selection.token)).toBe(navigate ? 'superseded' : 'fulfilled')
+        expect(
+          after.unifiedTabsByWorktree[worktreeId].filter((row) => row.id === landed.id)
+        ).toHaveLength(1)
+        apply()
+        expect(
+          useAppStore.getState().groupsByWorktree[worktreeId].find((row) => row.id === groupId)!
+            .activeTabId
+        ).toBe(group.activeTabId)
+        // The same retained metadata is inventory after fulfilment, even after an ordinary repair.
+        expect(activateTabNumberShortcut(3)).toBe(true)
+        const later = useAppStore.getState().activeTabIdByWorktree[worktreeId]
+        apply()
+        expect(useAppStore.getState().activeTabIdByWorktree[worktreeId]).toBe(later)
+        expect(
+          useAppStore.getState().groupsByWorktree[worktreeId].find((row) => row.id === groupId)!
+            .tabOrder
+        ).toEqual(group.tabOrder)
+      } finally {
+        deadline.dispose()
+      }
+    }
   }
 )

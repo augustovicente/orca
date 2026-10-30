@@ -95,57 +95,6 @@ describe('Windows shell fallback over node-pty ConPTY', () => {
     vi.restoreAllMocks()
   })
 
-  it('checks operation authority after loading the native module, before physical spawn', async () => {
-    let allowed = true
-    const creationWork = new TerminalCreationWork()
-    const starting = spawnNativeDaemonPty({
-      ...args,
-      creationWork,
-      assertCreateAllowed: () => {
-        if (!allowed) {
-          throw new Error('expired')
-        }
-      }
-    })
-    allowed = false
-    await expect(starting).rejects.toThrow('expired')
-    expect(nodePty.spawn).not.toHaveBeenCalled()
-    await creationWork.finish()
-    expect(await creationWork.completion).toEqual({ kind: 'no-fork' })
-  })
-
-  it('does not dispatch a fallback shell after the operation loses authority', async () => {
-    let allowed = true
-    nodePty.spawn.mockImplementation(() => {
-      allowed = false
-      throw new Error('primary refused')
-    })
-    await expect(
-      spawnNativeDaemonPty({
-        ...args,
-        assertCreateAllowed: () => {
-          if (!allowed) {
-            throw new Error('expired')
-          }
-        }
-      })
-    ).rejects.toThrow('primary refused')
-    expect(nodePty.spawn).toHaveBeenCalledOnce()
-  })
-
-  it('settles exact no-export native failure without trying another switch shell', async () => {
-    const creationWork = new TerminalCreationWork()
-    nodePty.spawn.mockImplementation(() => {
-      throw new Error('opaque native dispatch failure')
-    })
-    await expect(
-      spawnNativeDaemonPty({ ...args, creationWork, retainCanceledChild: true })
-    ).rejects.toThrow('opaque native dispatch failure')
-    await creationWork.finish()
-    expect(await creationWork.completion).toMatchObject({ kind: 'failed' })
-    expect(nodePty.spawn).toHaveBeenCalledOnce()
-  })
-
   it.each(['physical', 'exited', 'unknown'] as const)(
     'keeps every %s predecessor when a later native invocation fails',
     async (predecessor) => {

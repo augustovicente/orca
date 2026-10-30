@@ -1,3 +1,4 @@
+import { collectAgentPaneConversations } from '@/lib/ai-vault-tab-title-requests'
 import type { ConfirmationDialogContextValue } from '@/components/confirmation-dialog-context'
 import type { AiVaultOriginalPaneTarget } from './ai-vault-original-pane'
 import {
@@ -91,12 +92,20 @@ export function historyConversationSwitch(
 }
 
 function historyPaneSource(session: AiVaultSession, pane?: AiVaultOriginalPaneTarget | null) {
-  if (!pane) {
+  const location =
+    pane ??
+    collectAgentPaneConversations(useAppStore.getState(), adoptsCliConversations).find(
+      (candidate) =>
+        candidate.executionHostId === session.executionHostId &&
+        candidate.providerSession.id === session.sessionId &&
+        cliConversationRowsShareAgent(candidate.agent, session.agent)
+    )
+  if (!location) {
     return null
   }
   const source = resolveCliChatResumeSource(useAppStore.getState(), {
-    tab: { id: pane.tabId, worktreeId: pane.worktreeId },
-    paneKey: pane.paneKey
+    tab: { id: location.tabId, worktreeId: location.worktreeId },
+    paneKey: location.paneKey
   })
   return source &&
     adoptsCliConversations(session.agent) &&

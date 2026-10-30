@@ -1,3 +1,4 @@
+import { noteViewerNavigation } from '@/lib/viewer-selection-request'
 import type { EditorGet, EditorSet } from '../types/editor-set-get'
 import type { EditorSlice } from '../types/editor-slice'
 import { createUntitledMarkdownFileWithTemplateSelection } from '@/lib/create-untitled-markdown'
@@ -45,6 +46,7 @@ export function createMarkdownPreviewActions(
 > {
   return {
     openNewMarkdownInActiveWorkspace: async (groupId) => {
+      noteViewerNavigation()
       const created = await createUntitledFileInActiveWorkspace(
         get,
         groupId,

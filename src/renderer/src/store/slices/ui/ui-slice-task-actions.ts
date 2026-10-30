@@ -1,3 +1,4 @@
+import { noteViewerNavigation } from '@/lib/viewer-selection-request'
 import type { UISlice, UISliceGet, UISliceSet } from './ui-slice-contract'
 import { findPrevLiveNonTaskStackHistoryIndex } from '../worktree-nav-history'
 import { hasFeatureInteraction } from '../../../../../shared/feature-interactions'
@@ -32,6 +33,7 @@ export function createUiTaskActions(set: UISliceSet, get: UISliceGet): Partial<U
     githubTaskDrawerWorkItem: null,
     newWorkspaceDraft: null,
     openTaskPage: (data = {}, options = {}) => {
+      noteViewerNavigation()
       if (options.recordTasksInteraction !== false) {
         const wasTasksPreviouslyInteracted = hasFeatureInteraction(
           get().featureInteractions,

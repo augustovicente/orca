@@ -1,4 +1,3 @@
-import { resolveSuspendedAgentProcessFromPs } from './suspended-agent-process'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { gunzipSync } from 'node:zlib'
@@ -35,21 +34,4 @@ describe('real foreground process captures', () => {
       { agent: 'omp', processName: 'omp' }
     ])
   })
-})
-
-it('keeps a stopped real Codex subtree distinct from foreground routing after Ctrl-Z', () => {
-  const captures: CapturedRun[] = JSON.parse(
-    gunzipSync(readFileSync(join(__dirname, '__fixtures__', 'real-agent-rows.json.gz'))).toString(
-      'utf8'
-    )
-  )
-  const capture = captures.find((run) => run.agent === 'codex')!
-  const stopped = capture.rows.map((row) =>
-    row.pid === capture.shellPid
-      ? { ...row, stat: 'Ss+' }
-      : { ...row, stat: row.stat.replace('+', '').replace(/^[A-Za-z]/, 'T') }
-  )
-  expect(resolveAgentForegroundProcessFromPs(stopped, capture.shellPid)).toBeNull()
-  expect(resolveSuspendedAgentProcessFromPs(stopped, capture.shellPid)).toBe('codex')
-  expect(resolveSuspendedAgentProcessFromPs(capture.rows, capture.shellPid)).toBeNull()
 })

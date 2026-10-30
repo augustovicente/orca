@@ -1,3 +1,4 @@
+import { inPlaceSwitchSupportedNow } from '@/lib/in-place-switch-support'
 import { resolveHostCapabilities, workspaceKindForWorktreeId } from '@/lib/agent-launch-route-input'
 import {
   structuredAgentSessionLaunchFeasible,
@@ -51,7 +52,7 @@ export function resolveAiVaultSessionResumeInChatForWorkspace(args: {
     inPlaceSwitchAvailable:
       targetOwner !== null &&
       targetOwner === normalizeExecutionHostId(args.session.executionHostId) &&
-      inPlaceSwitchEnabled(args.session.agent),
+      inPlaceSwitchSupportedNow(targetOwner, args.session.agent),
     structuredRouteAvailable:
       Boolean(args.session.structuredSession && inPlaceSwitchEnabled(args.session.agent)) ||
       (adoptsCliConversations(args.session.agent) &&

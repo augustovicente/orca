@@ -89,7 +89,8 @@ export function showFramePatch(
     getState: () => AppState
     setState: (patch: Partial<AppState> | ((state: AppState) => Partial<AppState>)) => void
   },
-  patch: Partial<AppState> | ((current: AppState) => Partial<AppState>)
+  patch: Partial<AppState> | ((current: AppState) => Partial<AppState>),
+  select?: (current: AppState, accepted: Partial<AppState>) => Partial<AppState>
 ): MovedTabSelection[] {
   if (typeof patch !== 'function' && Object.keys(patch).length === 0) {
     return []
@@ -101,7 +102,8 @@ export function showFramePatch(
       typeof patch === 'function' ? patch(current) : patch
     )
     taken = shown.taken
-    const next = protectSwitchProjections(current, shown.patch)
+    const protectedPatch = protectSwitchProjections(current, shown.patch)
+    const next = select ? select(current, protectedPatch) : protectedPatch
     return Object.keys(next).length === 0 ? current : next
   })
   return taken

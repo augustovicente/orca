@@ -5,7 +5,7 @@ import {
   isRetainedTerminalSurfaceIdentity
 } from '../../../../shared/terminal-tab-close'
 import { toWebTerminalSurfaceTabId } from '../../../../shared/terminal-surface-id'
-import { captureConversationSwitchViewerSelection } from '../../lib/conversation-switch-selection'
+import { conversationSwitchViewerSelectionCurrent } from '../../lib/conversation-switch-selection'
 import { isWebSessionCloseIntentPending } from '../web-session-close-intent'
 import { LOCAL_STRUCTURED_SESSION_OWNER } from '../local-structured-session-owner'
 import { getRemoteRuntimePtyOwner } from '../runtime-terminal-stream'
@@ -69,18 +69,12 @@ export function createOpenPlacementRead(
       (tabIds.has(hostId) ? hostId : tabIds.has(mirroredId) ? mirroredId : hostId)
     )
   }
-  let viewerSelection: string | undefined
   return {
     localTabId,
     hasTab: (id: string) => tabIds.has(id),
     hasEntity: (kind: string, id: string) => entityIds.get(kind)?.has(id) === true,
-    viewerSelectionCurrent: (original?: string): boolean => {
-      if (original === undefined) {
-        return true
-      }
-      viewerSelection ??= captureConversationSwitchViewerSelection(state)
-      return original === viewerSelection
-    },
+    viewerSelectionCurrent: (original?: string): boolean =>
+      conversationSwitchViewerSelectionCurrent(original, state),
     sourceCurrent: (intent: SessionTabOpenPlacement): boolean => {
       const source = intent.source
       if (!source) {

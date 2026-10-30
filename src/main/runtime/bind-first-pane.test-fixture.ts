@@ -1,4 +1,5 @@
 // L80: emulate the PTY host's binding commit before registration in layout-owner builds; switch-off writes nothing.
+import type { ExecutionHostId } from '../../shared/execution-host'
 import { ORCA_LAYOUT_OWNER_IS_MAIN } from '../../shared/layout-owner-switch'
 import type { RuntimePtyController } from './runtime-pty-controller-contract'
 import type { WorkspaceSessionState } from '../../shared/workspace-session-state-types'
@@ -87,7 +88,7 @@ export function withBoundPane(
 export function bindPaneFirst(
   runtime: OrcaRuntimeService,
   pane: BoundPane,
-  hostId = 'local'
+  hostId: ExecutionHostId = 'local'
 ): void {
   if (!ORCA_LAYOUT_OWNER_IS_MAIN) {
     return
@@ -105,7 +106,7 @@ export function movePaneFirst(
   runtime: OrcaRuntimeService,
   fromTabId: string,
   pane: BoundPane,
-  hostId = 'local'
+  hostId: ExecutionHostId = 'local'
 ): void {
   if (!ORCA_LAYOUT_OWNER_IS_MAIN) {
     return
@@ -169,7 +170,7 @@ export function committingSpawn<
 >(
   runtime: OrcaRuntimeService,
   spawn: (args: Args) => Promise<Result>,
-  hostId = 'local'
+  hostId: ExecutionHostId = 'local'
 ): (args: Args) => Promise<Result> {
   return async (args) => {
     const commit = captureFakeSpawnBinding(runtime, args, hostId)

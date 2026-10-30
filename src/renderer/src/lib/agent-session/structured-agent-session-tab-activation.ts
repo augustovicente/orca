@@ -1,3 +1,5 @@
+import { isSessionTabSelectionRequest } from '../../../../shared/session-tab-placement'
+import { selectSessionTabForViewer } from '@/runtime/web-session-tabs-sync/store-patch'
 import { runtimeEnvironmentIdOrLocalUnlessTwin } from '../worktree-runtime-owner'
 import { requestNativeChatComposerFocus } from '@/components/native-chat/use-native-chat-composer-reveal-focus'
 import { useAppStore } from '@/store/index'
@@ -33,6 +35,7 @@ export function activateStructuredAgentSessionTab(args: {
   tabId: string
   target?: RuntimeClientTarget
   callerOnly?: boolean
+  viewerSelection?: string
 }): boolean {
   const state = useAppStore.getState()
   const tab = (state.unifiedTabsByWorktree[args.worktreeId] ?? []).find(
@@ -46,9 +49,22 @@ export function activateStructuredAgentSessionTab(args: {
   if (!tab) {
     return false
   }
-  state.focusGroup(args.worktreeId, tab.groupId)
-  state.activateTab(tab.id, { worktreeId: args.worktreeId })
-  state.setActiveTabType('agent-session', args.worktreeId)
+  if (args.viewerSelection && isSessionTabSelectionRequest(args.viewerSelection)) {
+    if (
+      !selectSessionTabForViewer(
+        args.worktreeId,
+        tab.id,
+        args.viewerSelection,
+        args.target?.kind === 'environment' ? args.target.environmentId : undefined
+      )
+    ) {
+      return false
+    }
+  } else {
+    state.focusGroup(args.worktreeId, tab.groupId)
+    state.activateTab(tab.id, { worktreeId: args.worktreeId })
+    state.setActiveTabType('agent-session', args.worktreeId)
+  }
   requestNativeChatComposerFocus(tab.id)
   activateStructuredAgentSessionTabOnOwner(args.worktreeId, tab.entityId, args.target, {
     callerOnly: args.callerOnly
@@ -81,6 +97,7 @@ export function activateStructuredAgentSessionById(args: {
   sessionId: string
   target?: RuntimeClientTarget
   callerOnly?: boolean
+  viewerSelection?: string
 }): boolean {
   const tab = findStructuredAgentSessionTab(useAppStore.getState().unifiedTabsByWorktree, {
     workspaceId: args.worktreeId,
@@ -92,7 +109,8 @@ export function activateStructuredAgentSessionById(args: {
         worktreeId: args.worktreeId,
         tabId: tab.id,
         target: args.target,
-        callerOnly: args.callerOnly
+        callerOnly: args.callerOnly,
+        viewerSelection: args.viewerSelection
       })
     : false
 }

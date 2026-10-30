@@ -1,3 +1,4 @@
+import { noteViewerNavigation } from '@/lib/viewer-selection-request'
 import { useCallback } from 'react'
 import { useAppStore } from '../store'
 import { TOGGLE_TERMINAL_PANE_EXPAND_EVENT } from '@/constants/terminal'
@@ -11,6 +12,7 @@ export function useTerminalActivationActions(controller: TerminalBulkCloseContro
   const { activeWorktreeId, setActiveBrowserTab, setActiveTab, setActiveTabType } = controller
   const handleActivateTab = useCallback(
     (tabId: string) => {
+      noteViewerNavigation()
       const runtimeEnvironmentId = getActiveWorktreeRuntimeEnvironmentId(activeWorktreeId)
       if (activeWorktreeId && isWebRuntimeSessionActive(runtimeEnvironmentId)) {
         void activateWebRuntimeSessionTab({
@@ -27,6 +29,7 @@ export function useTerminalActivationActions(controller: TerminalBulkCloseContro
 
   const handleTogglePaneExpand = useCallback(
     (tabId: string) => {
+      noteViewerNavigation()
       setActiveTab(tabId)
       requestAnimationFrame(() => {
         window.dispatchEvent(
@@ -39,6 +42,7 @@ export function useTerminalActivationActions(controller: TerminalBulkCloseContro
 
   const handleActivateBrowserTab = useCallback(
     (tabId: string) => {
+      noteViewerNavigation()
       const state = useAppStore.getState()
       const runtimeEnvironmentId = getActiveWorktreeRuntimeEnvironmentId(activeWorktreeId)
       if (

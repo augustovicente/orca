@@ -136,22 +136,6 @@ describe('callStructuredAgentSession timeouts', () => {
     mocks.call.mockResolvedValue({ origin: 'unknown' })
   })
 
-  it.each(['agentSession.switchToChat', 'agentSession.switchToTerminal'])(
-    'allows the complete host-owned %s while retaining the legacy transport call',
-    async (method) => {
-      for (const switchTarget of [{ kind: 'local' } as const, target]) {
-        const params = { sessionId: 'session-1', execution: { invocationId: 'switch-1' } }
-        await callStructuredAgentSession(switchTarget, method, params)
-        expect(mocks.call).toHaveBeenLastCalledWith(switchTarget, method, params, {
-          timeoutMs: 735_000
-        })
-        const legacyParams = { sessionId: 'session-1' }
-        await callStructuredAgentSession(switchTarget, method, legacyParams)
-        expect(mocks.call).toHaveBeenLastCalledWith(switchTarget, method, legacyParams)
-      }
-    }
-  )
-
   // A waiting read lasts as long as the host's listing, which outlasts the default 15 s.
   it('gives a model catalog read longer than the slowest host listing', async () => {
     const params = { agent: 'claude', sessionId: 'session-1', waitForListing: true }

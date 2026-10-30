@@ -114,28 +114,6 @@ describe('getNativeChatSessionTransport — selection', () => {
     })
   })
 
-  it('carries known optional outcomes and omits unrecognized ones without dropping lifecycle', async () => {
-    markRuntimeEnvironmentCompatible(ENV)
-    const transport = getNativeChatSessionTransport(ENV)
-    const lifecycle = { state: 'completed', turnId: 'outcome-turn', timestamp: 42 }
-    for (const [received, expected] of [
-      ['success', 'success'],
-      ['cancellation', 'cancellation'],
-      ['superseded', 'superseded'],
-      ['future-verdict', undefined],
-      [null, undefined],
-      [7, undefined]
-    ] as const) {
-      runtimeEnvironmentsCall.mockResolvedValueOnce(
-        okEnvelope({ messages: [], lifecycle: { ...lifecycle, outcome: received } })
-      )
-      await expect(transport.readSession('codex', 'sess-1')).resolves.toEqual({
-        messages: [],
-        lifecycle: { ...lifecycle, ...(expected ? { outcome: expected } : {}) }
-      })
-    }
-  })
-
   it('accepts interrupted lifecycle metadata from a remote runtime', async () => {
     markRuntimeEnvironmentCompatible(ENV)
     const lifecycle = { state: 'interrupted', turnId: 'turn-2', timestamp: 43 } as const

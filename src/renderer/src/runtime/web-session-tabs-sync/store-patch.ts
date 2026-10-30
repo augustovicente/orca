@@ -1,3 +1,6 @@
+import { applyOpenDestinationSelection } from './open-placement-selection'
+import { runtimeEnvironmentIdOrLocalUnlessTwin } from '@/lib/worktree-runtime-owner'
+import { LOCAL_STRUCTURED_SESSION_OWNER } from '../local-structured-session-owner'
 import {
   observeSwitchProjections,
   protectSwitchProjections
@@ -24,6 +27,7 @@ import { agentStatusEntryEqual } from './state-equality-core'
 import {
   HOST_WORKING_CLIENT_BOUNDARY_LIMIT,
   hostWorkingClientBoundaryByPaneKey,
+  type SnapshotOpenSelectionOffer,
   type WebSessionTabsSyncState
 } from './state'
 import { reportVisibleTabPickToHost } from '../web-session-visible-tab-pick-report'
@@ -47,11 +51,44 @@ export function snapshotOpenSelectionRecords(
   }
 }
 
+/** The ordinary snapshot selection writer also handles an addressed publication/focus offer. */
+export function selectSessionTabForViewer(
+  worktreeId: string,
+  tabId: string,
+  viewerSelection: string,
+  environmentId = runtimeEnvironmentIdOrLocalUnlessTwin(useAppStore.getState(), worktreeId) ??
+    LOCAL_STRUCTURED_SESSION_OWNER
+): boolean {
+  let selected = false
+  applyWebSessionTabsStorePatch(
+    (_state, _keys, offer) => {
+      offer((state, patch) =>
+        applyOpenDestinationSelection(
+          state,
+          patch,
+          worktreeId,
+          environmentId,
+          tabId,
+          viewerSelection,
+          true,
+          () => {
+            selected = true
+          }
+        )
+      )
+      return {}
+    },
+    { frames: [] }
+  )()
+  return selected
+}
+
 /** Commit a reconciliation patch and return a receipt for its host evidence. */
 export function applyWebSessionTabsStorePatch(
   buildPatch: (
     state: AppState,
-    changedAgentPaneKeys: Set<string>
+    changedAgentPaneKeys: Set<string>,
+    offerOpenSelection: (offer: SnapshotOpenSelectionOffer) => void
   ) => WebSessionTabsSyncState | Partial<WebSessionTabsSyncState>,
   hostMirrorVerdict: HostSessionMirrorPatchVerdict,
   agentStatusSnapshots?: RuntimeMobileSessionTabsResult | readonly RuntimeMobileSessionTabsResult[],
@@ -83,7 +120,11 @@ export function applyWebSessionTabsStorePatch(
       : []) {
       observeSwitchProjections(state, snapshot, () => {})
     }
-    const patch = protectSwitchProjections(state, buildPatch(state, changedAgentPaneKeys))
+    const offers: SnapshotOpenSelectionOffer[] = []
+    let patch = protectSwitchProjections(
+      state,
+      buildPatch(state, changedAgentPaneKeys, (offer) => offers.push(offer))
+    )
     mirroredAgentStatusChanged = patch !== state && Object.hasOwn(patch, 'agentStatusByPaneKey')
     if (agentStatusSnapshots) {
       const nextAgentStatuses = patch.agentStatusByPaneKey ?? state.agentStatusByPaneKey
@@ -205,6 +246,9 @@ export function applyWebSessionTabsStorePatch(
           })
         }
       }
+    }
+    for (const offer of offers) {
+      patch = offer(state, patch)
     }
     patchCommitted = true
     return patch

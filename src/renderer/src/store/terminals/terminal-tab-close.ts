@@ -1,3 +1,4 @@
+import { endViewerSelectionForDestination } from '@/lib/viewer-selection-request'
 import type { TerminalTab } from '../../../../shared/terminal-tab-types'
 import { sweepRetiredTerminalTabState } from '../slices/retired-terminal-tab-state-sweep'
 import {
@@ -72,6 +73,7 @@ export function createTerminalTabCloseActions(
             const closing = before.find((t) => t.id === tabId)
             if (closing) {
               closingWorktreeId = wId
+              endViewerSelectionForDestination(wId, tabId)
               // User close cancels pending agent launch; every close settles its startup wait to prevent delivery into a vanished tab.
               if (closing.agentLaunchPane && !closing.agentLaunchPane.outcome) {
                 if (closeReason === 'user') {

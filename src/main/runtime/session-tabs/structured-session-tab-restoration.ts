@@ -7,7 +7,10 @@ import { seedStructuredAgentSessionTabIndex } from '../agent-session/structured-
 import { restoredChatTabChanges } from './restored-chat-tab-changes'
 import { ORCA_LAYOUT_OWNER_IS_MAIN } from '../../../shared/layout-owner-switch'
 import type { StructuredAgentId } from '../../../shared/agent-session-provider-handle'
-import type { SessionTabOpenPlacement } from '../../../shared/session-tab-placement'
+import {
+  isSessionTabSelectionRequest,
+  type SessionTabOpenPlacement
+} from '../../../shared/session-tab-placement'
 import { projectStructuredSessionTab } from './structured-session-tab-projection'
 import { OrcaRuntimeWithStructuredSessionLaunchRuntime } from './structured-session-launch-runtime'
 
@@ -73,37 +76,14 @@ export abstract class OrcaRuntimeWithRestoreStructuredAgentSessionTabsOnce exten
     }
   }
 
-  captureSessionSwitchSelection(worktreeId?: string): () => boolean {
-    const worktrees = worktreeId
-      ? [worktreeId]
-      : [
-          ...new Set([
-            ...this.getKnownWorkspaceSessionWorktreeIds(),
-            ...this.mobileSessionTabsByWorktree.keys()
-          ])
-        ].sort()
-    for (const id of worktrees) {
-      this.hydrateHeadlessMobileSessionTabsFromWorkspaceSession(id)
-    }
-    const read = () => {
-      return JSON.stringify(
-        worktrees.map((id) => {
-          const snapshot = this.mobileSessionTabsByWorktree.get(id)
-          const session = this.getWorkspaceSessionForWorktree(id)
-          return [
-            snapshot?.activeTabId,
-            snapshot?.activeGroupId,
-            session?.activeTabIdByWorktree?.[id],
-            session?.activeGroupIdByWorktree?.[id],
-            session?.tabGroups?.[id]
-              ?.filter((group) => group.activeTabId != null)
-              .map((group) => [group.id, group.activeTabId]) ?? []
-          ]
-        })
-      )
-    }
-    const captured = read()
-    return () => captured === read()
+  captureSessionSwitchSelection(
+    _worktreeId?: string,
+    viewerSelection?: string
+  ): (consume?: boolean) => boolean {
+    // A window request is transported to its viewer; it grants no host-view authority.
+    return viewerSelection !== undefined
+      ? () => false
+      : this.clientSessionTabSelections.captureHostSelection()
   }
 
   async publishStructuredAgentSessionTab(input: {
@@ -112,7 +92,7 @@ export abstract class OrcaRuntimeWithRestoreStructuredAgentSessionTabsOnce exten
     agent: StructuredAgentId
     activate: boolean
     check?: () => void
-    selectionCurrent?: () => boolean
+    selectionCurrent?: (consume?: boolean) => boolean
     viewerSelection?: string
     focusWindow?: boolean
     notify?: boolean
@@ -168,11 +148,23 @@ export abstract class OrcaRuntimeWithRestoreStructuredAgentSessionTabsOnce exten
       this.saveWindowlessAgentSessionTab(input.workspaceId, input)
     }
     input.check?.()
-    const activate = input.activate && (input.selectionCurrent?.() ?? true)
+    const viewerRequest = isSessionTabSelectionRequest(input.viewerSelection)
+    const activate = input.activate && !viewerRequest && (input.selectionCurrent?.() ?? true)
+    if (activate) {
+      input.check?.()
+      input.selectionCurrent?.(true)
+    }
     this.projectStructuredAgentSessionTab({
       ...input,
       activate,
-      ...(input.openPlacement ? { openPlacement: { ...input.openPlacement, activate } } : {})
+      ...(input.openPlacement
+        ? {
+            openPlacement: {
+              ...input.openPlacement,
+              activate: viewerRequest ? input.openPlacement.activate : activate
+            }
+          }
+        : {})
     })
     if (activate) {
       input.check?.()
@@ -184,15 +176,14 @@ export abstract class OrcaRuntimeWithRestoreStructuredAgentSessionTabsOnce exten
           input.sessionId
         )
       )
-      if (input.focusWindow !== false) {
-        this.notifier?.focusEditorTab?.(
-          input.tabId ??
-            host?.getSessionTabId(input.sessionId) ??
-            `agent-session:${input.sessionId}`,
-          input.workspaceId,
-          input.viewerSelection
-        )
-      }
+    }
+    if ((activate || (viewerRequest && input.activate)) && input.focusWindow !== false) {
+      input.check?.()
+      this.notifier?.focusEditorTab?.(
+        input.tabId ?? host?.getSessionTabId(input.sessionId) ?? `agent-session:${input.sessionId}`,
+        input.workspaceId,
+        input.viewerSelection
+      )
     }
   }
 

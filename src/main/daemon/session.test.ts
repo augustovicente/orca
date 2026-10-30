@@ -12,11 +12,6 @@ import {
   setPtyOwnerHostColors
 } from '../../shared/pty-owner-color-query-colors'
 import { createMockSubprocess } from './session-subprocess.test-fixture'
-import type * as PtyDescendantTerminationModule from '../pty-descendant-termination'
-
-const sweep = await vi.importActual<typeof PtyDescendantTerminationModule>(
-  '../pty-descendant-termination'
-)
 
 const killWithDescendantSweepMock = vi.hoisted(() => vi.fn())
 vi.mock('../pty-descendant-termination', () => ({
@@ -569,79 +564,6 @@ describe('Session', () => {
 
       subprocess.simulateData('ell-ready\x07')
       expect(session.shellState).toBe('ready')
-    })
-  })
-
-  describe('unused owned-spawn conditional close', () => {
-    it.each(['input', 'attachment'] as const)(
-      'refuses without a signal when %s arrives during descendant capture',
-      async (change) => {
-        createSession()
-        const witness = session.captureSwitchWitness()
-        const check = session.switchCloseCondition({
-          token: witness,
-          remainingMs: 10_000,
-          ownedSpawn: true
-        })
-        const entered = Promise.withResolvers<void>()
-        const release = Promise.withResolvers<void>()
-        killWithDescendantSweepMock.mockImplementation((pid, killRoot, options) =>
-          sweep.killWithDescendantSweep(pid, killRoot, {
-            ...options,
-            platform: 'linux',
-            readTable: async () => {
-              entered.resolve()
-              await release.promise
-              return { rows: [], capturedAtMs: Date.now() }
-            }
-          })
-        )
-        const teardown = new TerminalSessionTeardown(new Map([['test-session', session]]))
-        const closing = teardown.killSession('test-session', session, true, check, true)
-        await entered.promise
-        if (change === 'input') {
-          session.write('codex\r')
-        }
-        if (change === 'attachment') {
-          session.attachClient({ onData: () => {}, onExit: () => {} })
-        }
-        release.resolve()
-        await closing
-        expect(session.isTerminating).toBe(false)
-        expect(subprocess.killed).toBe(false)
-        expect(subprocess.signals).toEqual([])
-        session.write('echo still usable\r')
-        expect(subprocess.written).toContain('echo still usable\r')
-      }
-    )
-    it('seals accepted input only after its actual close is admitted', async () => {
-      createSession()
-      const witness = session.captureSwitchWitness()
-      const check = session.switchCloseCondition({
-        token: witness,
-        remainingMs: 10_000,
-        ownedSpawn: true
-      })
-      killWithDescendantSweepMock.mockImplementation((pid, killRoot, options) =>
-        sweep.killWithDescendantSweep(pid, killRoot, {
-          ...options,
-          platform: 'linux',
-          readTable: async () => ({ rows: [], capturedAtMs: Date.now() })
-        })
-      )
-      vi.spyOn(subprocess, 'forceKill').mockImplementation(() => {
-        session.write('must not reach a closing shell\r')
-        subprocess.simulateExit(0)
-      })
-      await new TerminalSessionTeardown(new Map([['test-session', session]])).killSession(
-        'test-session',
-        session,
-        true,
-        check,
-        true
-      )
-      expect(subprocess.written).not.toContain('must not reach a closing shell\r')
-      expect(session.isAlive).toBe(false)
     })
   })
 

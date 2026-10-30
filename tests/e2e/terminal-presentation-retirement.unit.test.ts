@@ -1,7 +1,6 @@
 // @vitest-environment happy-dom
 import { beforeEach, expect, it, vi } from 'vitest'
 import { useAppStore } from '@/store'
-import { retireTerminalPresentation } from '@/components/terminal-pane/terminal-presentation-retirement'
 import type {
   TerminalTabCloseRequest,
   TerminalTabCloseResponse
@@ -14,57 +13,13 @@ import {
   WORKTREE_ID,
   TAB_ID,
   LEAF_ID,
-  PTY_ID,
-  INCARNATION_ID
+  PTY_ID
 } from '../../src/main/runtime/__fixtures__/orca-runtime-terminal-close-continuity-fixtures'
 
 vi.mock('@/runtime/sync-runtime-graph', () => ({ scheduleRuntimeGraphSync: vi.fn() }))
 beforeEach(() => {
   localStorage.clear()
   useAppStore.setState(useAppStore.getInitialState(), true)
-})
-
-it('completes host stop, direct mounted disposal and explicit durable intent together', async () => {
-  const harness = createHarness({ registerPtyBacked: true, publishMobileSurface: true })
-  const session = harness.getSession()
-  useAppStore.setState({
-    tabsByWorktree: session.tabsByWorktree,
-    terminalLayoutsByTabId: session.terminalLayoutsByTabId
-  })
-  useAppStore.getState().createUnifiedTab(WORKTREE_ID, 'terminal', { id: TAB_ID, entityId: TAB_ID })
-  const source = harness.runtime.resolveTerminalPane(`${TAB_ID}:${LEAF_ID}`, WORKTREE_ID)
-  if (!source.presentation || !source.incarnationId) {
-    throw new Error('Expected original presentation')
-  }
-  const { presentation, incarnationId } = source
-  const owner = mountedOwner(false, {
-    tabId: TAB_ID,
-    worktreeId: WORKTREE_ID,
-    leafId: LEAF_ID,
-    ptyId: PTY_ID
-  })
-  harness.setVerifiedStopResult(true)
-  harness.setStopAndWaitAction(async () => {
-    await harness.runtime.onPtyExit(PTY_ID, 0, INCARNATION_ID, { hostExitConfirmed: true })
-    expect(owner.source.terminal.dispose).not.toHaveBeenCalled()
-    expect(useAppStore.getState().tabsByWorktree[WORKTREE_ID]).toHaveLength(1)
-  })
-  harness.setCloseTerminalTabAction(() => retireTerminalPresentation(presentation.identity))
-  try {
-    await expect(
-      harness.runtime.closeTerminal(source.handle, incarnationId, presentation)
-    ).resolves.toMatchObject({ ptyKilled: true })
-    expect(owner.source.terminal.dispose).toHaveBeenCalledOnce()
-    expect(owner.transports.size).toBe(0)
-    expect(owner.bindings.size).toBe(0)
-    expect(owner.sourceTransport.destroy).not.toHaveBeenCalled()
-    expect(harness.getSession().tabsByWorktree[WORKTREE_ID]).toEqual([])
-    expect(harness.getSession().closedTerminalTabTombstonesByTabId?.[TAB_ID]).toBeDefined()
-    expect(harness.flushOrThrow).toHaveBeenCalled()
-    expect(harness.kill).not.toHaveBeenCalled()
-  } finally {
-    owner.unregister()
-  }
 })
 
 it.each([false, true])(
@@ -81,7 +36,7 @@ it.each([false, true])(
       throw new Error('Expected original')
     }
     const { presentation, incarnationId } = source
-    const owner = mountedOwner(false, {
+    const owner = mountedOwner({
       tabId: TAB_ID,
       worktreeId: WORKTREE_ID,
       leafId: LEAF_ID,

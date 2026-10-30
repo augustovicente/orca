@@ -1,3 +1,11 @@
+// @vitest-environment happy-dom
+import { agentSessionSwitchDeadline } from '../../../shared/agent-session-switch-execution'
+import {
+  beginViewerSelectionRequest,
+  disposeViewerSelection,
+  viewerSelectionOutcome
+} from './viewer-selection-request'
+import { activateTabNumberShortcut } from './tab-number-shortcuts'
 import { expect, it, vi } from 'vitest'
 import type { Tab } from '../../../shared/tab-types'
 import { createTestStore } from '@/store/slices/store-test-helpers'
@@ -85,3 +93,40 @@ it('keeps the pinned partition and neighbor order after a local switch retires i
     false
   )
 })
+
+it.each([false, true])(
+  'old Continue ordinary create consumes the original selection, newer reclick=%s',
+  (navigate) => {
+    const store = createTestStore()
+    mocks.store = store
+    const worktreeId = 'repo1::/work/app'
+    store.setState({ activeWorktreeId: worktreeId, activeView: 'terminal' })
+    const source = store.getState().createTab(worktreeId)
+    const deadline = agentSessionSwitchDeadline(Date.now)
+    try {
+      const selection = beginViewerSelectionRequest('old-continue', deadline)
+      selection.accept()
+      if (navigate) {
+        expect(activateTabNumberShortcut(0)).toBe(true)
+      }
+      const result = launchAiVaultSessionInNewTab({
+        agent: 'codex',
+        worktreeId,
+        command: 'codex resume copied-conversation',
+        viewerSelection: selection.token
+      })
+      expect(result.tabId).not.toBeNull()
+      expect(store.getState().tabsByWorktree[worktreeId]).toHaveLength(2)
+      expect(store.getState().getActiveTab(worktreeId)?.entityId).toBe(
+        navigate ? source.id : result.tabId
+      )
+      expect(viewerSelectionOutcome(selection.token)).toBe(navigate ? 'superseded' : 'fulfilled')
+      expect(store.getState().pendingStartupByTabId[result.tabId ?? '']?.command).toBe(
+        'codex resume copied-conversation'
+      )
+    } finally {
+      deadline.dispose()
+      disposeViewerSelection()
+    }
+  }
+)

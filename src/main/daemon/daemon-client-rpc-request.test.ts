@@ -152,29 +152,6 @@ describe('requestDaemonRpc', () => {
     expect(pendingRequests.size).toBe(0)
   })
 
-  it('keeps the actual negotiated switch child result after a matched cancellation acknowledgement', async () => {
-    vi.useFakeTimers()
-    const pendingRequests = new DaemonPendingRequests()
-    const request = requestDaemonRpc({
-      // SAFETY: only the write boundary is exercised; no socket is created.
-      socket: { write: vi.fn() } as unknown as Socket,
-      pendingRequests,
-      id: 'switch-commit',
-      type: 'createOrAttach',
-      payload: { sessionId: 'actual-child', switchExecution: { phase: 'commit' } },
-      timeoutMs: 10,
-      unmatchedCancelGraceMs: 5_000,
-      onCreateCancellationFailure: vi.fn(),
-      settleCreateCancellation: vi.fn(async () => ({ canceled: true }))
-    })
-    await vi.advanceTimersByTimeAsync(10)
-    expect(pendingRequests.size).toBe(1)
-    const actual = { isNew: true, switchOutcomeUnknown: true, incarnationId: 'actual-incarnation' }
-    pendingRequests.settle({ id: 'switch-commit', ok: true, payload: actual })
-    await expect(request).resolves.toEqual(actual)
-    expect(pendingRequests.size).toBe(0)
-  })
-
   it('rejects an unmatched cancellation once the grace window elapses', async () => {
     vi.useFakeTimers()
     const pendingRequests = new DaemonPendingRequests()

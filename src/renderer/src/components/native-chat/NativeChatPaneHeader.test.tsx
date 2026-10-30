@@ -1,11 +1,28 @@
+import { ConfirmationDialogProvider } from '@/components/confirmation-dialog'
 // @vitest-environment happy-dom
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render as renderWithConfirmation,
+  screen,
+  waitFor
+} from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { useAppStore } from '@/store'
 import { createTabsSliceMockApi } from '@/store/slices/tabs-slice-test-harness'
 import { makeFolderWorkspace } from '@/store/slices/worktrees-slice-test-fixtures'
 import * as historyRequest from '../right-sidebar/ai-vault-panel-session-list-request'
+
+function render(ui: React.ReactNode) {
+  return renderWithConfirmation(ui, { wrapper: ConfirmationDialogProvider })
+}
+
+vi.mock('@/runtime/structured-agent-session-client', async (original) => ({
+  ...(await original<object>()),
+  supportsInPlaceSwitch: async () => false
+}))
 
 const mocks = vi.hoisted(() => ({ launch: vi.fn(), resume: vi.fn(), close: vi.fn() }))
 vi.mock('@/store', async () => {
@@ -74,7 +91,7 @@ it('puts Hand Off first like the terminal header, only on the focused pane, and 
   expect(screen.queryByRole('button', { name: 'Hand Off to Another Agent' })).toBeNull()
 })
 
-it('offers the terminal header action order and targets Resume and Close at the displayed chat', () => {
+it('offers the terminal header action order and targets Resume and Close at the displayed chat', async () => {
   const source = renderHeader()
   expect(screen.getAllByRole('button').map((button) => button.getAttribute('aria-label'))).toEqual([
     'Continue with Terminal Agent',
@@ -88,15 +105,19 @@ it('offers the terminal header action order and targets Resume and Close at the 
   expect(fullRequest).not.toHaveBeenCalled()
   fireEvent.click(screen.getByRole('button', { name: 'Continue with Terminal Agent' }))
   expect(fullRequest).toHaveBeenCalledTimes(1)
-  expect(mocks.resume).toHaveBeenCalledExactlyOnceWith(
-    expect.objectContaining({
-      subject: expect.objectContaining({
-        sessionId: source.entityId,
-        request: { scopePaths: ['/repo'], executionHostScope: 'local', sessionLimit: 250 }
-      }),
-      tab: { id: source.id, worktreeId: source.worktreeId },
-      agent: 'codex'
-    })
+  await waitFor(() =>
+    expect(mocks.resume).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        subject: expect.objectContaining({
+          sessionId: source.entityId,
+          request: { scopePaths: ['/repo'], executionHostScope: 'local', sessionLimit: 250 }
+        }),
+        tab: { id: source.id, worktreeId: source.worktreeId },
+        agent: 'codex',
+        queuedMessage:
+          'A copy of this Codex conversation opens in a new terminal. The original chat stays open.'
+      })
+    )
   )
   fireEvent.click(screen.getByRole('button', { name: 'Close tab' }))
   expect(mocks.close).toHaveBeenCalledExactlyOnceWith({

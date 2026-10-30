@@ -1,3 +1,4 @@
+import { noteViewerNavigation } from '@/lib/viewer-selection-request'
 import { useCallback } from 'react'
 import { toast } from 'sonner'
 import { useAppStore } from '../store'
@@ -29,6 +30,7 @@ export function useTerminalCreateActions(controller: TerminalColdActivationContr
   } = controller
   const handleNewTab = useCallback(
     (shellOverride?: string) => {
+      noteViewerNavigation()
       if (!activeWorktreeId) {
         return
       }
@@ -63,6 +65,7 @@ export function useTerminalCreateActions(controller: TerminalColdActivationContr
   )
 
   const handleNewSimulatorTab = useCallback(() => {
+    noteViewerNavigation()
     if (!activeWorktreeId) {
       return
     }
@@ -76,6 +79,7 @@ export function useTerminalCreateActions(controller: TerminalColdActivationContr
   }, [activeWorktreeId])
 
   const handleNewBrowserTab = useCallback(() => {
+    noteViewerNavigation()
     if (!activeWorktreeId) {
       return
     }

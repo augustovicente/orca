@@ -105,39 +105,38 @@ export async function savePtySpawnPaneBinding(
   }
 }
 
-/** Optional runtime stores delegate the same binding write without introducing an await when absent. */
-export function persistFreshPaneBindingIfSupported(
-  store: Partial<Pick<Store, 'persistPtyBinding' | 'getWorkspaceSession'>> | null | undefined,
-  input: PersistPtyBindingArgs | (() => PersistPtyBindingArgs),
-  connectionId?: string | null
-): Promise<boolean> | undefined {
-  if (!store?.persistPtyBinding || !store.getWorkspaceSession) {
-    return undefined
-  }
-  return persistFreshPaneBinding(
-    {
-      persistPtyBinding: store.persistPtyBinding.bind(store),
-      getWorkspaceSession: store.getWorkspaceSession.bind(store)
-    },
-    input,
-    connectionId
-  )
-}
+type PaneBindingStore = Pick<Store, 'persistPtyBinding' | 'getWorkspaceSession'>
 
 /** Runs inside the existing durable mutation, after source/topology checks and before any bind. */
-export async function persistFreshPaneBinding(
-  store: Pick<Store, 'persistPtyBinding' | 'getWorkspaceSession'>,
+export function persistFreshPaneBinding(
+  store: PaneBindingStore,
   input: PersistPtyBindingArgs | (() => PersistPtyBindingArgs),
   connectionId?: string | null,
   absentOwner?: AbsentPaneBinding,
   observeAuthority?: () => void
-): Promise<boolean> {
+): Promise<boolean>
+export function persistFreshPaneBinding(
+  store: Partial<PaneBindingStore> | null | undefined,
+  input: PersistPtyBindingArgs | (() => PersistPtyBindingArgs),
+  connectionId?: string | null
+): Promise<boolean> | undefined
+export function persistFreshPaneBinding(
+  store: Partial<PaneBindingStore> | null | undefined,
+  input: PersistPtyBindingArgs | (() => PersistPtyBindingArgs),
+  connectionId?: string | null,
+  absentOwner?: AbsentPaneBinding,
+  observeAuthority?: () => void
+): Promise<boolean> | undefined {
+  if (!store?.getWorkspaceSession) {
+    return undefined
+  }
+  const getWorkspaceSession = store.getWorkspaceSession.bind(store)
   let targetChanged = false
   const hostId = connectionId ? toSshExecutionHostId(connectionId) : undefined
-  const persisted = await store.persistPtyBinding(() => {
+  const pending = store.persistPtyBinding?.(() => {
     observeAuthority?.()
     const binding = typeof input === 'function' ? input() : input
-    const session = store.getWorkspaceSession(hostId)
+    const session = getWorkspaceSession(hostId)
     const paneKey = makePaneKey(binding.tabId, binding.leafId)
     if (ptyBindingIsRefused(binding, session, binding.worktreeId, paneKey, [])) {
       return binding
@@ -154,10 +153,14 @@ export async function persistFreshPaneBinding(
     }
     return binding
   }, hostId)
-  if (targetChanged) {
-    throw new PaneOwnerContentionError()
-  }
-  return persisted
+  return pending === undefined
+    ? undefined
+    : Promise.resolve(pending).then((persisted) => {
+        if (targetChanged) {
+          throw new PaneOwnerContentionError()
+        }
+        return persisted
+      })
 }
 
 /** Only the original unused physical witness can authorize cleanup after a dispatched result. */

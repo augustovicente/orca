@@ -13,8 +13,7 @@ import {
 } from '../../../../shared/agent-session-switch-execution'
 import {
   AgentSessionRefusalError,
-  agentSessionRefusalError,
-  isAgentSessionRefusalError
+  agentSessionRefusalError
 } from '../../../../shared/agent-session-wire-refusals'
 import {
   nativeConversationContent,
@@ -29,7 +28,7 @@ import {
 import {
   captureStructuredSwitchTerminalSource,
   recordWorkspace,
-  switchRetainedOwner
+  resolveStructuredSwitchRetainedOwner
 } from './structured-agent-session-switch-source'
 import { executeStructuredSessionTerminalSwitch } from './structured-agent-session-switch-terminal-execution'
 import { agentLaunchMovesHostWindow } from './agent-launch-tab-publication'
@@ -43,7 +42,10 @@ export async function executeStructuredSessionSwitch(
 ): Promise<AgentSessionSwitchResult> {
   const deadline = agentSessionSwitchDeadline()
   let sessionId = params.sessionId
-  const selectionCurrent = ctx.runtime.captureSessionSwitchSelection()
+  const selectionCurrent = ctx.runtime.captureSessionSwitchSelection(
+    undefined,
+    params.execution?.viewerSelection
+  )
   let commandOwned = false
   const operation = (async (): Promise<AgentSessionSwitchResult> => {
     const prepared = await prepareStructuredSessionSwitch(params, ctx, sessionId, deadline)
@@ -172,21 +174,12 @@ export async function executeStructuredSessionSwitch(
             }
             sessionId = created.value.sessionId
           } catch (error) {
-            const owner =
-              isAgentSessionRefusalError(error) &&
-              (error.refusal.code === 'agent_session_conflict' ||
-                error.refusal.code === 'agent_session_ownership_unknown') &&
-              createIdentity &&
-              providerSessionId &&
-              switchRetainedOwner(host, createIdentity, providerSessionId)
-            if (
-              !owner ||
-              !isAgentSessionRefusalError(error) ||
-              error.refusal.details?.owner?.sessionId !== owner
-            ) {
-              throw error
-            }
-            sessionId = owner
+            sessionId = resolveStructuredSwitchRetainedOwner(
+              error,
+              host,
+              createIdentity,
+              providerSessionId
+            )
           }
           await host.adoptSwitch(conversation?.commandKey ?? params.sessionId, sessionId)
         }

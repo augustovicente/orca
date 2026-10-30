@@ -1,3 +1,4 @@
+import { isSessionTabSelectionRequest } from '../../../../shared/session-tab-placement'
 import type { OrcaRuntimeWithMobileTerminalCreateOwner } from './mobile-terminal-create-owner'
 import type { MobileTerminalCreateOptions } from './mobile-terminal-create-options'
 import { trackRunningAgentLaunchPane } from '../../../agent-launch/agent-launch-pane-attachment'
@@ -88,6 +89,7 @@ export async function createPublishedSwitchTerminal(args: {
       launchAgent: startupCommand.launchAgent ?? 'codex',
       viewMode: 'terminal' as const,
       viewer:
+        isSessionTabSelectionRequest(opts.switchExecution!.viewerSelection) ||
         (opts.switchExecution!.selectionCurrent?.() ?? true)
           ? opts.switchExecution!.viewer
           : ('none' as const),

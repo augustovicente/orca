@@ -41,7 +41,8 @@ export async function switchIntoOwnerLegacy(
   source: Pick<AiVaultSession, 'agent'> & Pick<CliChatResumeSource, 'tabId' | 'workspaceId'>,
   structuredSession: NonNullable<AiVaultSession['structuredSession']>,
   target: RuntimeClientTarget,
-  viewerSelection?: string
+  viewerSelection?: string,
+  reportFailure?: (error: unknown) => void
 ): Promise<boolean> {
   // A host without the switch keeps the earlier behaviour: the chat is shown, the terminal stays.
   if (!(await supportsInPlaceSwitch(target, source.agent))) {
@@ -49,18 +50,20 @@ export async function switchIntoOwnerLegacy(
       { structuredSession },
       undefined,
       target,
-      viewerSelection
+      viewerSelection,
+      ...(reportFailure ? ([() => reportFailure(undefined)] as const) : ([] as const))
     )
     return false
   }
-  if (!(await startCliChatReturn(source, structuredSession.sessionId, target))) {
+  if (!(await startCliChatReturn(source, structuredSession.sessionId, target, reportFailure))) {
     return false
   }
   const shown = await activateAiVaultStructuredSessionVerified(
     { structuredSession },
     undefined,
     target,
-    viewerSelection
+    viewerSelection,
+    ...(reportFailure ? ([() => reportFailure(undefined)] as const) : ([] as const))
   )
   if (shown !== 'activated') {
     return false
@@ -118,12 +121,17 @@ export async function switchIntoOwnerLegacy(
 export async function startCliChatReturn(
   source: Pick<AiVaultSession, 'agent'>,
   sessionId: string,
-  target: RuntimeClientTarget
+  target: RuntimeClientTarget,
+  reportFailure?: (error: unknown) => void
 ): Promise<boolean> {
   const switched = await callStructuredAgentSession<
     { ok: true } | { ok: false; refusal: AgentSessionWireRefusal }
   >(target, 'agentSession.switchToChat', { sessionId }).catch(() => null)
   if (!switched?.ok) {
+    if (reportFailure) {
+      reportFailure(switched ? Object.assign(new Error('Chat switch refused'), switched) : null)
+      return false
+    }
     toast.error(
       conversationSwitchFailureText(
         switched ? Object.assign(new Error('Chat switch refused'), switched) : null,

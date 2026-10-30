@@ -1,3 +1,4 @@
+import { disposeViewerSelection } from '@/lib/viewer-selection-request'
 import {
   disposeSwitchProjections,
   captureSwitchProjection,
@@ -27,7 +28,7 @@ import { resolveBrowserSessionTabTarget } from './browser-session-tab-target'
 import { resolveWindowTabIdForHostTab } from './host-session-tab-target'
 
 export function registerSessionTabIpcBridge(unsubs: (() => void)[]): void {
-  unsubs.push(disposeSwitchProjections)
+  unsubs.push(disposeSwitchProjections, disposeViewerSelection)
   unsubs.push(
     window.api.ui.onCloseSessionTab(({ tabId, worktreeId }) => {
       if (isLocalSessionTabCloseOwned(worktreeId, tabId)) {

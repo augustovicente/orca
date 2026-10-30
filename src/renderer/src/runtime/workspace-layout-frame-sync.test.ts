@@ -1,4 +1,15 @@
-import { captureConversationSwitchViewerSelection } from '@/lib/conversation-switch-selection'
+import {
+  beginViewerSelectionRequest,
+  disposeViewerSelection,
+  viewerSelectionOutcome
+} from '@/lib/viewer-selection-request'
+import { agentSessionSwitchDeadline } from '../../../shared/agent-session-switch-execution'
+import {
+  captureSwitchProjection,
+  retireSwitchProjection,
+  disposeSwitchProjections
+} from '@/lib/conversation-switch-projection'
+import { noteUserWorkspaceSwitch } from '@/lib/workspace-switch-user-act'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type * as AgentStatusModule from '@/lib/agent-status'
 import type { ExecutionHostId } from '../../../shared/execution-host'
@@ -11,6 +22,8 @@ import {
 } from '../../../shared/workspace-layout/workspace-layout-profile.test-fixture'
 import type { WorkspaceLayoutChangeFrame } from '../../../shared/workspace-layout/workspace-layout-stream-frames'
 import {
+  addWorkspace,
+  leaf,
   emptySession,
   GIT_KEY
 } from '../../../shared/workspace-layout/workspace-layout-session.test-fixture'
@@ -120,6 +133,8 @@ beforeEach(() => {
   check = installLayoutFrameApplyCheck()
 })
 afterEach(() => {
+  disposeViewerSelection()
+  disposeSwitchProjections()
   endLayoutFramePositions()
   check.uninstall()
   expect(check.failures).toEqual([])
@@ -140,168 +155,6 @@ describe('the window drawn from layout frames', () => {
     const after = store.getState()
     expect(SLICES.filter((slice) => after[slice] !== before[slice])).toEqual([])
     sync.close()
-  })
-
-  it.each(['unchanged', 'navigate', 'unheld'] as const)(
-    'selects explicit native opens only after ordinary frame membership: %s',
-    async (action) => {
-      const { store, sync, layouts, frames } = await bootWithFrames('local', localDesktopSession())
-      sync.start()
-      await flushMicrotasks()
-      const before = store.getState()
-      const viewerSelection = captureConversationSwitchViewerSelection(before)
-      const destination = structuredClone(layouts[GIT_KEY]!)
-      const destinationKey = action === 'unheld' ? 'repo::history-other-workspace' : GIT_KEY
-      destination.worktreeId = destinationKey
-      if (action === 'unheld') {
-        destination.tabs = []
-        destination.groups = [{ id: 'history-destination-root', tabIds: [] }]
-        destination.groupLayout = { type: 'leaf', groupId: 'history-destination-root' }
-        destination.editorFiles = []
-        destination.browserTabs = []
-      }
-      const group = destination.groups[0]!
-      const tabId = 'native-frame-destination'
-      destination.tabs.push({
-        id: tabId,
-        kind: 'agent-session',
-        entityId: 'canonical-native-frame',
-        executionHostId: 'local',
-        createdAt: 123,
-        customTitle: null,
-        color: null,
-        agentSessionAgent: 'codex',
-        openPlacement: {
-          invocationId: 'frame-open',
-          generation: 'frame-generation',
-          placement: { groupId: group.id, index: 0 },
-          activate: true,
-          viewerSelection
-        }
-      })
-      group.tabIds.unshift(tabId)
-      // Main already placed it; the frame consumer must draw that order without inserting again.
-      if (action === 'navigate') {
-        store.setState({ activeWorktreeId: 'repo::newer-selection' })
-      }
-      stream.onFrame!(frames.records(destinationKey, destination))
-      await flushMicrotasks()
-      expect(
-        store.getState().unifiedTabsByWorktree[destinationKey]?.filter((tab) => tab.id === tabId)
-      ).toHaveLength(1)
-      expect(
-        store.getState().groupsByWorktree[destinationKey]?.find((entry) => entry.id === group.id)
-          ?.tabOrder
-      ).toEqual(group.tabIds)
-      if (action !== 'navigate') {
-        expect(store.getState().activeWorktreeId).toBe(destinationKey)
-        expect(store.getState().getActiveTab(destinationKey)?.id).toBe(tabId)
-        expect(store.getState().activeTabType).toBe('agent-session')
-      } else {
-        expect(store.getState().activeWorktreeId).toBe('repo::newer-selection')
-      }
-      sync.close()
-    }
-  )
-
-  it('bounds retained unheld metadata work during another workspace frame at N/10N', async () => {
-    const measure = async (count: number) => {
-      const { store, sync, layouts, frames } = await bootWithFrames('local', localDesktopSession())
-      sync.start()
-      await flushMicrotasks()
-      store.setState({
-        worktreeNavHistory: Array.from({ length: 50 }, (_, i) => `history-${i}`),
-        worktreeNavHistoryIndex: 49
-      })
-      const viewerSelection = captureConversationSwitchViewerSelection(store.getState())
-      const key = 'retained::unheld-workspace'
-      let carriers = 0
-      let historyReads = 0
-      const tabs: PublishedTab[] = Array.from({ length: count }, (_, i) => {
-        const openPlacement = {
-          invocationId: `retained-${i}`,
-          generation: `generation-${i}`,
-          placement: { groupId: 'retained-group', index: i },
-          activate: true,
-          viewerSelection,
-          source: {
-            worktreeId: key,
-            tabId: `naturally-retired-${i}`,
-            leafId: 'source-leaf',
-            createdAt: 123,
-            generation: 0,
-            hasLeaf: true,
-            ptyId: null,
-            incarnationId: null
-          }
-        }
-        return {
-          id: `retained-${i}`,
-          kind: 'agent-session',
-          entityId: `retained-${i}`,
-          executionHostId: 'local',
-          createdAt: 123,
-          customTitle: null,
-          color: null,
-          agentSessionAgent: i % 2 ? 'claude' : 'codex',
-          get openPlacement() {
-            carriers++
-            return openPlacement
-          }
-        }
-      })
-      // A different viewer already navigated: these host destinations remain readable inventory only.
-      store.setState({ activeWorktreeId: GIT_KEY, activeView: 'tasks' })
-      stream.onFrame!(
-        frames.records(key, {
-          worktreeId: key,
-          tabs,
-          groups: [{ id: 'retained-group', tabIds: tabs.map((tab) => tab.id) }],
-          groupLayout: { type: 'leaf', groupId: 'retained-group' },
-          editorFiles: [],
-          browserTabs: []
-        })
-      )
-      await flushMicrotasks()
-      const before = store.getState()
-      store.setState({
-        worktreeNavHistory: new Proxy(before.worktreeNavHistory, {
-          get: (target, property, receiver) => {
-            if (typeof property === 'string' && /^\d+$/.test(property)) {
-              historyReads++
-            }
-            // oxlint-disable-next-line anti-slop/no-reflect-get -- Proxy `get` trap: only Reflect.get forwards a raw string|symbol key with the proxy receiver.
-            return Reflect.get(target, property, receiver)
-          }
-        })
-      })
-      carriers = 0
-      try {
-        const renamed = structuredClone(layouts[GIT_KEY]!)
-        renamed.tabs.find((tab) => tab.id === 'tab-shell')!.customTitle = 'another-workspace-update'
-        stream.onFrame!(frames.records(GIT_KEY, renamed))
-        await flushMicrotasks()
-        expect(store.getState().unifiedTabsByWorktree[key]).toBeUndefined()
-        expect(store.getState().activeWorktreeId).toBe(GIT_KEY)
-        expect(store.getState().activeView).toBe('tasks')
-        expect(
-          store.getState().tabsByWorktree[GIT_KEY]!.find((tab) => tab.id === 'tab-shell')
-            ?.customTitle
-        ).toBe('another-workspace-update')
-        expect(carriers).toBeGreaterThanOrEqual(count)
-        expect(carriers).toBeLessThanOrEqual(4 * count)
-        expect(historyReads).toBeGreaterThan(0)
-        expect(historyReads).toBeLessThanOrEqual(100)
-        return { count, carriers, historyReads }
-      } finally {
-        sync.close()
-      }
-    }
-    const small = await measure(10)
-    const large = await measure(100)
-    expect(large.carriers).toBeLessThanOrEqual(12 * small.carriers)
-    expect(large.historyReads).toBeLessThanOrEqual(2 * small.historyReads)
-    process.stdout.write(`unrelated frame operation counts ${JSON.stringify({ small, large })}\n`)
   })
 
   it('shows a structure change main publishes, keeping what only the window knows', async () => {
@@ -596,3 +449,89 @@ describe('the window drawn from layout frames', () => {
     sync.close()
   })
 })
+
+it.each([false, true])(
+  'selects once after natural retirement and a real coalesced frame; later re-click=%s',
+  async (navigate) => {
+    const session = addWorkspace(emptySession(), GIT_KEY, [
+      {
+        id: 'G',
+        activeTabId: 'A',
+        recent: ['C'],
+        tabs: [
+          {
+            id: 'A',
+            entityId: 'canonical-A',
+            kind: 'agent-session',
+            entry: { agentSessionAgent: 'codex' }
+          },
+          { id: 'B', leaves: [[leaf(1), 'pty-B']] },
+          { id: 'C', leaves: [[leaf(2), 'pty-C']] }
+        ]
+      }
+    ])
+    const { store, sync, layouts, frames } = await bootWithFrames('local', session)
+    const deadline = agentSessionSwitchDeadline(Date.now)
+    sync.start()
+    await flushMicrotasks()
+    try {
+      const request = beginViewerSelectionRequest('frame-switch', deadline)
+      request.accept()
+      const proposal = {
+        invocationId: 'frame-switch',
+        generation: 'generation',
+        sessionId: 'canonical-A',
+        tabId: 'A',
+        phase: 'prepare' as const
+      }
+      captureSwitchProjection(store.getState(), GIT_KEY, proposal, () => {})
+      const retired = retireSwitchProjection(store.getState(), { ...proposal, phase: 'retire' })
+      expect(retired).not.toBeNull()
+      store.setState(retired!)
+      const siblingTree = store.getState().terminalLayoutsByTabId.B
+      const fallback = store.getState().groupsByWorktree[GIT_KEY][0].activeTabId
+      expect(fallback).toBe('C')
+      if (navigate) {
+        // The ordinary explicit tab ingress counts even a re-click at the automatic fallback.
+        noteUserWorkspaceSwitch(GIT_KEY)
+        store.getState().activateTab('C', { worktreeId: GIT_KEY })
+      }
+      const destination = structuredClone(layouts[GIT_KEY]!)
+      destination.tabs = destination.tabs.filter((tab) => tab.id !== 'A')
+      const published: PublishedTab = {
+        id: 'D',
+        entityId: 'D',
+        kind: 'terminal',
+        createdAt: 123,
+        customTitle: null,
+        color: null,
+        executionHostId: 'local',
+        terminal: {
+          root: { type: 'leaf', leafId: leaf(3) },
+          panes: [{ leafId: leaf(3), ptyId: 'pty-D' }]
+        },
+        openPlacement: {
+          invocationId: 'frame-switch',
+          generation: 'generation',
+          placement: { groupId: 'G', index: 0 },
+          activate: true,
+          viewerSelection: request.token
+        }
+      }
+      destination.tabs.unshift(published)
+      destination.groups[0].tabIds = ['D', 'B', 'C']
+      stream.onFrame!(frames.records(GIT_KEY, destination))
+      await flushMicrotasks()
+      expect(store.getState().groupsByWorktree[GIT_KEY][0].tabOrder).toEqual(['D', 'B', 'C'])
+      expect(store.getState().groupsByWorktree[GIT_KEY][0].activeTabId).toBe(navigate ? 'C' : 'D')
+      expect(store.getState().terminalLayoutsByTabId.B).toEqual(siblingTree)
+      expect(viewerSelectionOutcome(request.token)).toBe(navigate ? 'superseded' : 'fulfilled')
+      stream.onFrame!(frames.snapshot({ [GIT_KEY]: destination }))
+      await flushMicrotasks()
+      expect(store.getState().groupsByWorktree[GIT_KEY][0].activeTabId).toBe(navigate ? 'C' : 'D')
+    } finally {
+      deadline.dispose()
+      sync.close()
+    }
+  }
+)

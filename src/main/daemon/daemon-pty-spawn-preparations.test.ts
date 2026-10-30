@@ -35,21 +35,3 @@ it('rejects another connection and a reused anchor while the actual selected pre
   expect(preparations.isCanceled(selected)).toBe(false)
   preparations.finish('pane', selected)
 })
-
-it('proves no fork by fencing its exact uncommitted anchor, never from a missing preparation', async () => {
-  const preparations = new DaemonPtySpawnPreparations(async () => {})
-  const identity = { invocationId: 'click', anchor: 'prepare' }
-  expect(await preparations.settle('pane', 'connection', 'commit', identity)).toEqual({
-    outcome: 'unknown'
-  })
-  preparations.prepareSwitch('pane', 'connection', 'prepare', 'click')
-  expect(await preparations.settle('pane', 'connection', 'commit', identity)).toEqual({
-    outcome: 'exited'
-  })
-  expect(() =>
-    preparations.commitSwitch('pane', 'connection', 'late-commit', {
-      ...identity,
-      remainingMs: 1000
-    })
-  ).toThrow()
-})

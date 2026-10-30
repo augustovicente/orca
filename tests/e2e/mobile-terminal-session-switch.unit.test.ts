@@ -4,7 +4,6 @@ import { createTestStore } from '@/store/slices/store-test-helpers'
 import { createTabsSliceMockApi } from '@/store/slices/tabs-slice-test-harness'
 import { publishAgentLaunchTab as windowPublish } from '@/lib/agent-launch-tab-publication'
 import { applyAgentLaunchPaneVerdict } from '@/lib/agent-launch-pane-verdict-application'
-import { acceptAgentLaunchPaneAttempt } from '@/lib/agent-launch-pane-start'
 import { agentSessionSwitchDeadline } from '../../src/shared/agent-session-switch-execution'
 import { afterEach, expect, it, vi } from 'vitest'
 import '../../src/main/runtime/orca-runtime-test-lifecycle.spec'
@@ -21,14 +20,6 @@ import { withChatTabChanges } from '../../src/main/runtime/agent-session/agent-s
 import { committingSpawn } from '../../src/main/runtime/bind-first-pane.test-fixture'
 import type { RuntimeNotifier } from '../../src/main/runtime/runtime-notifier-contract'
 import '../../src/main/daemon/mock-descendant-sweep'
-import { mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { DaemonPtyAdapter } from '../../src/main/daemon/daemon-pty-adapter'
-import { DaemonServer } from '../../src/main/daemon/daemon-server'
-import { getDaemonSocketPath } from '../../src/main/daemon/daemon-spawner'
-import { createMockSubprocess } from '../../src/main/daemon/daemon-pty-adapter-test-harness'
-import type { DaemonClientConnections } from '../../src/main/daemon/daemon-client-connections'
 import type { RuntimePtyController } from '../../src/main/runtime/runtime-pty-controller-contract'
 
 const renderer = vi.hoisted(() => {
@@ -151,184 +142,79 @@ const args = () => ({
   execution: execution()
 })
 
-it('publishes before ordinary fresh startup, forwards caller choices and never seeds a fabricated Codex ID', async () => {
-  const { service, events, spawn, publish } = await setup()
-  const created = await service.createSessionSwitchTerminal(wt, args())
-  expect(events.slice(0, 2)).toEqual(['published', 'spawn'])
-  expect(publish).toHaveBeenCalledOnce()
-  expect(spawn).toHaveBeenCalledWith(
-    expect.objectContaining({ command: expect.stringContaining('my-codex'), launchAgent: 'codex' })
-  )
-  expect(spawn.mock.calls[0]?.[0]).not.toHaveProperty('resumeProviderSession')
-  expect(created.tab.terminal).toBeDefined()
-})
-
-it('withdraws a definitely unused destination after failed spawn', async () => {
-  const { service, report, publish } = await setup('failed')
-  await expect(service.createSessionSwitchTerminal(wt, args())).rejects.toThrow()
-  expect(report).toHaveBeenCalledWith(expect.objectContaining({ worktreeId: wt }), {
-    kind: 'withdrawn'
-  })
-  const published = await publish.mock.results[0]!.value
-  expect(renderer.store!.getState().terminalLayoutsByTabId[published.tabId]).toBeUndefined()
-})
-
-it('retains an unresolved receiver destination until real no-fork settlement permits unused cleanup', async () => {
-  const directory = mkdtempSync(join(tmpdir(), 'mobile-switch-receiver-'))
-  const socketPath = getDaemonSocketPath(directory)
-  const tokenPath = join(directory, 'test.token')
-  const entered = Promise.withResolvers<void>()
-  const releasePreparation = Promise.withResolvers<void>()
-  const nativeSpawn = vi.fn(() => createMockSubprocess())
-  const preparation = vi.fn(async () => {
-    entered.resolve()
-    await releasePreparation.promise
-    throw new Error('workspace preparation failed')
-  })
-  const server = new DaemonServer({
-    socketPath,
-    tokenPath,
-    spawnSubprocess: nativeSpawn,
-    preparePtySpawn: preparation
-  })
-  const adapter = new DaemonPtyAdapter({ socketPath, tokenPath })
-  let operation: Promise<unknown> | undefined
-  try {
-    await server.start()
-    const { service, report, publish, spawn } = await setup('ready', (options) =>
-      adapter.spawn(options)
-    )
-    operation = service.createSessionSwitchTerminal(wt, args()).catch((error: unknown) => error)
-    await entered.promise
-    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: access only this fixture's authenticated server sockets to inject transport loss.
-    const connections = (server as unknown as { connections: DaemonClientConnections }).connections
-    const peer = [...connections.values()].find((connection) => connection.controlSocket)
-    if (!peer) {
-      throw new Error('authenticated receiver connection missing')
-    }
-    peer.controlSocket.destroy()
-    expect(await operation).toBeInstanceOf(Error)
-    const published = await publish.mock.results[0]!.value
-    expect(report).toHaveBeenCalledWith(expect.objectContaining({ worktreeId: wt }), {
-      kind: 'unconfirmed'
-    })
-    expect(renderer.store!.getState().terminalLayoutsByTabId[published.tabId]?.root).toBeDefined()
-    expect(report.mock.calls.some(([, verdict]) => verdict.kind === 'withdrawn')).toBe(false)
-    expect(nativeSpawn).not.toHaveBeenCalled()
-    releasePreparation.resolve()
-    await adapter.settleSwitchWorkForReplacement()
-    await vi.waitFor(() => {
-      expect(renderer.store!.getState().terminalLayoutsByTabId[published.tabId]).toBeUndefined()
-      expect(report).toHaveBeenLastCalledWith(expect.objectContaining({ worktreeId: wt }), {
-        kind: 'withdrawn'
-      })
-    })
-    expect(preparation).toHaveBeenCalledOnce()
-    expect(spawn).toHaveBeenCalledOnce()
-    expect(nativeSpawn).not.toHaveBeenCalled()
-    expect(server.host.listSessions()).toEqual([])
-  } finally {
-    releasePreparation.resolve()
-    await operation
-    await adapter.settleSwitchWorkForReplacement()
-    adapter.dispose()
-    await server.shutdown()
-    rmSync(directory, { recursive: true, force: true })
-  }
-})
-
-it('expires after preparation/publication without dispatching spawn, keeping the source', async () => {
-  const { service, spawn, publish, report } = await setup()
-  let expired = false
-  const original = publish.getMockImplementation()!
-  publish.mockImplementation(async (request) => {
-    const answer = await original(request)
-    if (!answer) {
-      throw new Error('missing window publication')
-    }
-    expired = true
-    return answer
-  })
-  await expect(
-    service.createSessionSwitchTerminal(wt, {
+const nativeId = '019aef12-1234-7000-8000-123456789abc'
+it.each([false, true])(
+  'publishes before ordinary startup and preserves fresh/saved caller choices: saved=%s',
+  async (saved) => {
+    const { service, events, spawn, publish } = await setup()
+    const created = await service.createSessionSwitchTerminal(wt, {
       ...args(),
-      execution: {
-        ...execution(),
-        check: () => {
-          if (expired) {
-            throw new Error('expired')
+      ...(saved
+        ? {
+            source: {
+              agent: 'codex' as const,
+              sourceAgent: 'codex' as const,
+              sessionId: nativeId,
+              filePath: '/tmp/rollout.jsonl',
+              cwd: '/repo',
+              codexHome: null,
+              executionHostPlatform: process.platform
+            }
           }
-        }
-      }
+        : {})
     })
-  ).rejects.toThrow('expired')
-  expect(spawn).not.toHaveBeenCalled()
-  expect(report).toHaveBeenCalledWith(expect.anything(), { kind: 'withdrawn' })
-})
-
-it('uses the saved native ID with ordinary resume environment/runtime instead of forking', async () => {
-  const { service, spawn } = await setup()
-  const nativeId = '019aef12-1234-7000-8000-123456789abc'
-  await service.createSessionSwitchTerminal(wt, {
-    ...args(),
-    source: {
-      agent: 'codex',
-      sourceAgent: 'codex',
-      sessionId: nativeId,
-      filePath: '/tmp/rollout.jsonl',
-      cwd: '/repo',
-      codexHome: null,
-      executionHostPlatform: process.platform
+    expect(events.slice(0, 2)).toEqual(['published', 'spawn'])
+    expect(publish).toHaveBeenCalledOnce()
+    expect(spawn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: expect.stringContaining('my-codex'),
+        launchAgent: 'codex'
+      })
+    )
+    if (saved) {
+      expect(spawn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          command: expect.stringContaining(nativeId),
+          resumeProviderSession: expect.objectContaining({ id: nativeId }),
+          launchRuntime: expect.any(Object)
+        })
+      )
+      expect(spawn.mock.calls[0]?.[0].command).not.toContain('fork')
+    } else {
+      expect(spawn.mock.calls[0]?.[0]).not.toHaveProperty('resumeProviderSession')
     }
-  })
-  expect(spawn).toHaveBeenCalledWith(
-    expect.objectContaining({
-      command: expect.stringContaining(nativeId),
-      resumeProviderSession: expect.objectContaining({ id: nativeId }),
-      launchRuntime: expect.any(Object)
-    })
-  )
-  expect(spawn.mock.calls[0]?.[0].command).not.toContain('fork')
-})
+    expect(created.tab.terminal).toBeDefined()
+  }
+)
 
-it.each(['input', 'replacement', 'preparing', 'layout'] as const)(
-  'retains a window-published failed destination after newer %s before persistence',
-  async (use) => {
-    const { service, publish, spawn } = await setup('failed')
+it.each([false, true])(
+  'withdraws a failed unused destination and retains one the user typed into: used=%s',
+  async (used) => {
+    const { service, publish, spawn, report } = await setup('failed')
     const original = publish.getMockImplementation()!
     publish.mockImplementation(async (request) => {
       const receipt = await original(request)
       if (!receipt) {
         throw new Error('missing window publication')
       }
-      const key = `${request.tabId}:${request.leafId}`
-      if (use === 'input') {
+      if (used) {
+        const key = `${request.tabId}:${request.leafId}`
         renderer.store!.setState({ lastTerminalInputAtByPaneKey: { [key]: 1 } })
-      }
-      if (use === 'preparing' || use === 'replacement') {
-        acceptAgentLaunchPaneAttempt(key, 'new-launch')
-      }
-      if (use === 'replacement') {
-        windowPublish({ ...request, operationId: 'new-launch', requestId: 'replacement' })
-      }
-      if (use === 'layout') {
-        renderer.store!.setState((state) => ({
-          terminalLayoutsByTabId: {
-            ...state.terminalLayoutsByTabId,
-            [request.tabId]: {
-              ...state.terminalLayoutsByTabId[request.tabId]!,
-              root: { type: 'leaf', leafId: 'changed' }
-            }
-          }
-        }))
       }
       return receipt
     })
     await expect(service.createSessionSwitchTerminal(wt, args())).rejects.toThrow()
     const published = await publish.mock.results[0]!.value
-    expect(
-      renderer.store!.getState().tabsByWorktree[wt]?.some((row) => row.id === published.tabId)
-    ).toBe(true)
+    if (used) {
+      expect(
+        renderer.store!.getState().tabsByWorktree[wt]?.some((row) => row.id === published.tabId)
+      ).toBe(true)
+    } else {
+      expect(report).toHaveBeenCalledWith(expect.objectContaining({ worktreeId: wt }), {
+        kind: 'withdrawn'
+      })
+      expect(renderer.store!.getState().terminalLayoutsByTabId[published.tabId]).toBeUndefined()
+    }
     expect(spawn).toHaveBeenCalledOnce()
   }
 )

@@ -26,7 +26,8 @@ export async function presentConversationSwitchResult(
       worktreeId: args.workspaceId,
       sessionId: result.sessionId,
       target,
-      callerOnly: true
+      callerOnly: true,
+      viewerSelection
     })
   } else if (result.terminal) {
     presentAgentLaunchTab(

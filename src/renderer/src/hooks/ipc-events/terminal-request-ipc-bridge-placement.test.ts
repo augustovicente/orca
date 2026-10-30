@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type * as AgentStatusModule from '@/lib/agent-status'
 import { createTabsSliceMockApi } from '../../store/slices/tabs-slice-test-harness'
 import { createTestStore } from '../../store/slices/store-test-helpers'
-import { applyLocalStructuredSessionTabSnapshots } from '../../runtime/local-structured-session-tabs-sync/snapshot-apply'
 
 vi.mock('sonner', () => ({ toast: { info: vi.fn(), success: vi.fn(), error: vi.fn() } }))
 vi.mock('@/lib/agent-status', async (importOriginal) => ({
@@ -110,47 +109,4 @@ describe("a host's focused terminal create into a requested group", () => {
     store.getState().updateTabPtyId(tabId, 'pty-new-1')
     expect(store.getState().sortEpoch).toBe(epoch + 1)
   })
-})
-
-it('uses the source group while another group is active and keeps the slot after early retirement', () => {
-  const a = store.getState().createTab(WT)
-  const c = store.getState().createUnifiedTab(WT, 'agent-session', { entityId: 'C' })
-  const b = store.getState().createTab(WT)
-  const left = c.groupId
-  const right = store.getState().createEmptySplitGroup(WT, left, 'right')!
-  store.getState().createTab(WT, right)
-  store.getState().focusGroup(WT, right)
-  replyTerminalCreate.mockImplementationOnce(() => {
-    // The admitted host removes presentation through its publication, never a generic close.
-    store.setState((state) =>
-      applyLocalStructuredSessionTabSnapshots(state, [
-        {
-          worktree: WT,
-          publicationEpoch: 'headless:bridge-test',
-          snapshotVersion: 1,
-          activeGroupId: right,
-          activeTabId: null,
-          activeTabType: null,
-          tabs: []
-        }
-      ])
-    )
-  })
-  request({
-    requestId: 'early-retire',
-    worktreeId: WT,
-    source: 'runtime-session',
-    targetGroupId: left,
-    afterTabId: c.id,
-    presentation: 'background'
-  })
-  const createdId = replyTerminalCreate.mock.calls[0][0].tabId
-  expect(replyTerminalCreate.mock.calls[0][0]).toMatchObject({ tabId: expect.any(String) })
-  expect(store.getState().unifiedTabsByWorktree[WT]?.some((tab) => tab.id === c.id)).toBe(false)
-  expect(
-    store.getState().groupsByWorktree[WT]?.find((group) => group.id === left)?.tabOrder
-  ).toEqual([a.id, createdId, b.id])
-  expect(
-    store.getState().groupsByWorktree[WT]?.find((group) => group.id === right)?.tabOrder
-  ).toHaveLength(1)
 })

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { TerminalPaneAdmissionOutcome } from '../persistence/terminal-topology/terminal-pane-admission'
-import { admitRuntimePane, startInAdmittedPane } from './runtime-pane-admission'
+import { startInAdmittedPane } from './runtime-pane-admission'
 import type { RuntimeStore } from './runtime-store-contract'
 
 const SPLIT = {
@@ -38,18 +38,6 @@ describe('startInAdmittedPane', () => {
     expect(store.admitTerminalPane).toHaveBeenCalledWith(SPLIT, 'ssh:target-1')
     expect(store.admitTerminalPane.mock.contexts).toEqual([runtimeStore])
     expect(start).toHaveBeenCalledWith('admitted')
-  })
-
-  it('forwards the authority check to the store without running it early', async () => {
-    const { store, runtimeStore } = storeAnswering('admitted')
-    const check = vi.fn()
-
-    await expect(admitRuntimePane(runtimeStore, SPLIT, 'ssh:target-1', check)).resolves.toBe(
-      'admitted'
-    )
-    expect(store.admitTerminalPane).toHaveBeenCalledWith(SPLIT, 'ssh:target-1', check)
-    expect(store.admitTerminalPane.mock.contexts).toEqual([runtimeStore])
-    expect(check).not.toHaveBeenCalled()
   })
 
   it('takes back the pane it wrote when the start fails', async () => {

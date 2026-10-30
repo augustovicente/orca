@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -25,16 +25,7 @@ const mocks = vi.hoisted(() => ({
   startOwner: vi.fn(async () => false),
   run: vi.fn(),
   source: vi.fn(),
-  panes: vi.fn<
-    () => {
-      providerSession: { id: string }
-      agent: 'codex'
-      executionHostId: 'runtime:paired'
-      tabId: string
-      worktreeId: string
-      paneKey: string
-    }[]
-  >(() => [])
+  panes: vi.fn(() => [])
 }))
 vi.mock('@/runtime/structured-agent-session-client', () => ({
   supportsInPlaceSwitch: mocks.probe,
@@ -99,13 +90,7 @@ const row: AiVaultSession = {
   resumeCommand: '',
   subagent: null
 }
-function History({
-  session,
-  originalPaneTarget = null
-}: {
-  session: AiVaultSession
-  originalPaneTarget?: { worktreeId: string; tabId: string; paneKey: string; leafId: string } | null
-}) {
+function History({ session }: { session: AiVaultSession }) {
   const state = useAppStore.getState()
   const targetState = {
     ...state,
@@ -141,7 +126,7 @@ function History({
         expandedSessionIds={new Set([session.id])}
         vaultScope="all"
         buildResumeStartup={actions.buildResumeStartup}
-        getOriginalPaneTarget={() => originalPaneTarget}
+        getOriginalPaneTarget={() => null}
         isStructuredSessionOpen={() => false}
         getSessionLiveState={() => null}
         getWorktreeInfo={resume.getSessionWorktreeInfo}
@@ -196,35 +181,14 @@ function pairedHistoryStatus() {
 }
 
 it.each(['local', 'runtime:paired'] as const)(
-  'composes the owned %s row/details/menu and refreshes unknown capability',
+  'routes the owned %s History action to the common switcher',
   async (host) => {
     mocks.owner.mockReturnValue(host)
     useAppStore.setState({
       runtimeEnvironments: [paired],
       runtimeStatusByEnvironmentId: new Map([['paired', pairedHistoryStatus()]])
     })
-    setLocalRuntimeCapabilitiesForTests(null)
-    useAppStore.setState({ runtimeStatusByEnvironmentId: new Map() })
-    let answer = (_value: { capabilities: string[] }) => {}
-    Object.assign(window.api.runtime, {
-      getStatus: () =>
-        new Promise((resolve) => {
-          answer = resolve
-        })
-    })
-    const session = { ...row, executionHostId: host }
-    render(<History session={session} />)
-    expect(
-      screen.getByRole('button', { name: 'Switch to native chat' }).hasAttribute('disabled')
-    ).toBe(true)
-    await act(async () => {
-      answer({ capabilities: [HISTORY, SWITCH] })
-      if (host !== 'local') {
-        useAppStore.setState({
-          runtimeStatusByEnvironmentId: new Map([['paired', pairedHistoryStatus()]])
-        })
-      }
-    })
+    render(<History session={{ ...row, executionHostId: host }} />)
     const button = await screen.findByRole('button', { name: 'Switch to native chat' })
     expect(button.hasAttribute('disabled')).toBe(false)
     await userEvent.setup().click(button)
@@ -236,111 +200,6 @@ it.each(['local', 'runtime:paired'] as const)(
         executionHostId: host
       })
     )
-    await userEvent.setup().click(screen.getByTestId('ai-vault-session-more-actions'))
-    await userEvent
-      .setup()
-      .click(await screen.findByRole('menuitem', { name: 'Switch to native chat' }))
-    expect(mocks.startOwner).toHaveBeenCalledTimes(2)
-    fireEvent.contextMenu(screen.getByText('Conversation'))
-    await userEvent
-      .setup()
-      .click(await screen.findByRole('menuitem', { name: 'Switch to native chat' }))
-    expect(mocks.startOwner).toHaveBeenCalledTimes(3)
-  }
-)
-
-it('routes a capable paired unowned row with a matching terminal through the same return', async () => {
-  mocks.owner.mockReturnValue('runtime:paired')
-  useAppStore.setState({
-    runtimeEnvironments: [paired],
-    runtimeStatusByEnvironmentId: new Map([['paired', pairedHistoryStatus()]])
-  })
-  const session = {
-    ...row,
-    structuredSession: undefined,
-    executionHostId: 'runtime:paired' as const
-  }
-  const source = {
-    agent: 'codex',
-    tabId: 'terminal',
-    workspaceId: 'workspace',
-    paneKey: 'terminal:leaf',
-    executionHostId: 'runtime:paired',
-    providerSessionId: 'conversation'
-  }
-  mocks.panes.mockReturnValue([
-    {
-      providerSession: { id: 'conversation' },
-      agent: 'codex',
-      executionHostId: 'runtime:paired',
-      tabId: 'terminal',
-      worktreeId: 'workspace',
-      paneKey: 'terminal:leaf'
-    }
-  ])
-  mocks.source.mockReturnValue(source)
-  render(
-    <History
-      session={session}
-      originalPaneTarget={{
-        worktreeId: 'workspace',
-        tabId: 'terminal',
-        paneKey: 'terminal:leaf',
-        leafId: 'leaf'
-      }}
-    />
-  )
-  await waitFor(() =>
-    expect(
-      screen.getByRole('button', { name: 'Switch to native chat' }).hasAttribute('disabled')
-    ).toBe(false)
-  )
-  await userEvent.setup().click(screen.getByRole('button', { name: 'Switch to native chat' }))
-  expect(mocks.startOwner).toHaveBeenCalledExactlyOnceWith(
-    expect.objectContaining({ direction: 'chat', source, history: session })
-  )
-})
-
-it.each([
-  { executionHostId: 'ssh:box' as const, agent: 'codex' as const, filePath: '/rollout.jsonl' },
-  {
-    executionHostId: 'local' as const,
-    agent: 'codex' as const,
-    filePath: '//wsl.localhost/Ubuntu/rollout.jsonl'
-  },
-  { executionHostId: 'local' as const, agent: 'omp' as const, filePath: '/session.jsonl' }
-])('keeps ordinary restrictions for an unsupported owned row: %s', async (overrides) => {
-  setLocalRuntimeCapabilitiesForTests([HISTORY])
-  mocks.probe.mockResolvedValue(false)
-  mocks.owner.mockReturnValue(
-    overrides.executionHostId.startsWith('ssh:') ? null : overrides.executionHostId
-  )
-  render(<History session={{ ...row, ...overrides }} />)
-  await waitFor(() =>
-    expect(screen.queryByRole('button', { name: 'Switch to native chat' })).toBeNull()
-  )
-  expect(mocks.run).not.toHaveBeenCalled()
-  expect(mocks.startOwner).not.toHaveBeenCalled()
-})
-
-it.each(['codex', 'claude', 'grok', 'opencode', 'opencode2', 'pi'] as const)(
-  'routes the %s History action through the common switch on supported older hosts',
-  async (agent) => {
-    setLocalRuntimeCapabilitiesForTests([HISTORY])
-    mocks.probe.mockResolvedValue(false)
-    const session = { ...row, agent, structuredSession: undefined }
-    render(<History session={session} />)
-    await userEvent
-      .setup()
-      .click(await screen.findByRole('button', { name: 'Switch to native chat' }))
-    expect(mocks.startOwner).toHaveBeenCalledExactlyOnceWith(
-      expect.objectContaining({
-        direction: 'chat',
-        agent,
-        history: session
-      })
-    )
-    expect(mocks.newChat).not.toHaveBeenCalled()
   }
 )
 

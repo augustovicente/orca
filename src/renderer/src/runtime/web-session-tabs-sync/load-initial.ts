@@ -128,13 +128,14 @@ export function loadInitialWebSessionTabs({
         (latestReceivedSessionTabsInventoryFrameByEnvironment.get(environmentId) ?? 0) <=
           requestReceivedFrame
       settleHydration = applyWebSessionTabsStorePatch(
-        (state, changedAgentPaneKeys) =>
+        (state, changedAgentPaneKeys, offerOpenSelection) =>
           applyWebSessionTabsSnapshots(
             state,
             freshSnapshots,
             environmentId,
             undefined,
-            changedAgentPaneKeys
+            changedAgentPaneKeys,
+            { offerOpenSelection }
           ),
         {
           frames: applicable.map((snapshot, index) => ({

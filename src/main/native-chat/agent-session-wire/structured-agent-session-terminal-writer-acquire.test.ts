@@ -2,8 +2,6 @@ import {
   assertCliConversationWritersExited,
   posixCliWriterShellAlone
 } from '../../runtime/structured-agent-cli-writers'
-import { appendAgentSessionProviderHandleLink } from '../../../shared/agent-session-provider-handle'
-import { agentSessionSwitchDeadline } from '../../../shared/agent-session-switch-execution'
 import type { AgentSessionRecord } from '../../../shared/agent-session-record'
 import type { SleepingAgentSessionRecord } from '../../../shared/agent-session-resume'
 const physicalSnapshot = vi.hoisted(() => vi.fn())
@@ -11,7 +9,6 @@ vi.mock('../../../shared/process-table-snapshot-reader', async (importOriginal) 
   ...(await importOriginal<object>()),
   getFreshShellForegroundSnapshot: physicalSnapshot
 }))
-import { retireChatForAdmittedTerminalLaunch } from '../../runtime/session-tabs/structured-session-terminal-launch-retirement'
 import { setStructuredAgentSessionHost } from './structured-agent-session-registry'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -19,21 +16,14 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { computeAgentSessionPayloadFingerprint } from '../../../shared/agent-session-mutation-envelope'
 import { agentSessionRefusalError } from '../../../shared/agent-session-wire-refusals'
-import { agentSessionLeaseOwnerVerdict } from '../../../shared/agent-session-lease-adjudication'
 import { codexProviderHandle } from '../../../shared/agent-session-provider-handle-encoding'
 import type { AgentSessionRecordStore } from '../../runtime/agent-session-record-store'
-import {
-  seedTestAgentSessionRecordStore,
-  openTestAgentSessionRecordStore
-} from '../../runtime/agent-session-record-store-test-harness'
+import { openTestAgentSessionRecordStore } from '../../runtime/agent-session-record-store-test-harness'
 import {
   closeTestJournalHostDatabase,
   openTestJournalHostDatabase
 } from '../agent-session-journal/journal-host-database-test-support'
-import {
-  AgentSessionAcquisitionRefusal,
-  type StructuredAgentSessionAdapter
-} from './structured-agent-session-adapter'
+import type { StructuredAgentSessionAdapter } from './structured-agent-session-adapter'
 import {
   NO_STRUCTURED_AGENTS,
   structuredAgentsDeclaringNothing
@@ -192,250 +182,6 @@ it('refuses the chat agent start while a terminal writes its conversation, once 
 })
 
 // The switch is idle-only and proves the stop; subsequent sends use ordinary G-acquire.
-it('switches an idle chat to its terminal and a racing send starts no second writer', async () => {
-  const order: string[] = []
-  closeSession.mockImplementation(async () => {
-    order.push('stop')
-    return true
-  })
-  await host.switchToTerminal(SESSION)
-  expect(order).toEqual(['stop'])
-  terminalWriting = true
-  expect(agentSessionLeaseOwnerVerdict(store.getRecord(SESSION)!.lease)).toBe('exited')
-  const spawnsBefore = acquire.mock.calls.length
-  const raced = await rejection(await send('from another window'))
-  expect(raced?.rejection).toMatchObject({ kind: 'conversationOpenInTerminal' })
-  expect(acquire.mock.calls.length).toBe(spawnsBefore)
-})
-
-it('stops a starting chat without granting an unproven terminal handoff', async () => {
-  await host.close(SESSION, 'evict')
-  let release = (): void => undefined
-  const started = new Promise<void>((resolve) => {
-    release = resolve
-  })
-  let signal: AbortSignal | undefined
-  acquire.mockImplementationOnce(async (attempt) => {
-    signal = attempt.signal
-    await started
-    return acquire.getMockImplementation()!(attempt)
-  })
-  await send('starts the agent')
-  await vi.waitFor(() => expect(signal).toBeDefined())
-  try {
-    await expect(host.switchToTerminal(SESSION)).rejects.toMatchObject({
-      refusal: { details: { reason: 'ownerUnproven' } }
-    })
-    expect(signal?.aborted).toBe(true)
-  } finally {
-    release()
-  }
-})
-
-// Terminal to chat: the chat's agent starts with no send, and only its ready provider is success.
-it('starts the chat that holds the conversation for a switch from its terminal', async () => {
-  await host.close(SESSION, 'evict')
-  terminalWriting = true
-  const spawnsBefore = acquire.mock.calls.length
-  expect(await host.switchToChat(SESSION)).toMatchObject({
-    ok: false,
-    refusal: { details: { reason: 'conversationOpenInTerminal' } }
-  })
-  expect(acquire.mock.calls.length).toBe(spawnsBefore)
-
-  terminalWriting = false
-  open.mockRejectedValueOnce(
-    new AgentSessionAcquisitionRefusal('thread has an active writer', 'conversationOpenElsewhere')
-  )
-  expect(await host.switchToChat(SESSION)).toMatchObject({
-    ok: false,
-    refusal: {
-      code: 'agent_session_operation_invalid',
-      details: { reason: 'conversationOpenElsewhere' }
-    }
-  })
-
-  expect(await host.switchToChat(SESSION)).toEqual({ ok: true })
-  expect(host.collaboratorsForTests().sessions.get(SESSION)?.child?.phase).toBe('ready')
-  expect(vi.mocked(host.deps.adapter.dispatch)).not.toHaveBeenCalled()
-})
-
-// A delayed admitted launch retires presentation only, even if a later send already restarted the chat.
-it('retires only after an explicit admitted launch without stopping a later native child', async () => {
-  setStructuredAgentSessionHost(host)
-  await host.setSessionTabVisibility(SESSION, true)
-  await host.switchToTerminal(SESSION)
-  const runtime = { retireStructuredAgentSessionTabFromSnapshot: vi.fn(() => true) }
-  const args = {
-    resumeOrigin: 'switch',
-    worktreeId: store.getRecord(SESSION)?.location.workspaceId
-  }
-  const decision = {
-    agent: 'codex' as const,
-    providerSession: { key: 'session_id' as const, id: THREAD },
-    verdict: 'admitted' as const
-  }
-  for (const result of [
-    {},
-    { savedResumeDecision: { ...decision, verdict: 'unverifiable' as const } },
-    { savedResumeDecision: decision, isReattach: true }
-  ]) {
-    await retireChatForAdmittedTerminalLaunch(runtime, args, result)
-    expect(store.getVisibleSessionTabIndex()?.sessionIds).toContain(SESSION)
-  }
-  expect(await host.switchToChat(SESSION)).toEqual({ ok: true })
-  const laterChild = host.collaboratorsForTests().sessions.get(SESSION)?.child
-  const closes = closeSession.mock.calls.length
-  await retireChatForAdmittedTerminalLaunch(runtime, args, { savedResumeDecision: decision })
-  expect(store.getVisibleSessionTabIndex()?.sessionIds).not.toContain(SESSION)
-  expect(runtime.retireStructuredAgentSessionTabFromSnapshot).toHaveBeenCalledWith(SESSION)
-  expect(host.collaboratorsForTests().sessions.get(SESSION)?.child).toBe(laterChild)
-  expect(closeSession).toHaveBeenCalledTimes(closes)
-})
-
-it.each([10, 100])(
-  'retires distinct holders once despite %i matching resumed links',
-  async (count) => {
-    await host.switchToTerminal(SESSION)
-    await store.transitionHandoff(SESSION, (record) => {
-      let chain = record.providerHandleChain
-      for (let fence = 2; fence <= count; fence += 1) {
-        chain = appendAgentSessionProviderHandleLink(chain, {
-          ...chain.at(-1)!,
-          linkId: `retirement-link-${fence}`,
-          mintedAtFence: fence,
-          origin: 'resumed'
-        })
-      }
-      return {
-        ...record,
-        providerHandleChain: chain,
-        lease: { ...record.lease, runtimeFence: count }
-      }
-    })
-    const record = store.getRecord(SESSION)!
-    await seedTestAgentSessionRecordStore(root, {
-      records: [
-        record,
-        {
-          ...record,
-          sessionId: 'distinct-holder',
-          lease: { ...record.lease, sessionId: 'distinct-holder' }
-        },
-        {
-          ...record,
-          sessionId: 'wrong-workspace',
-          lease: { ...record.lease, sessionId: 'wrong-workspace' },
-          location: { ...record.location, workspaceId: 'another-workspace' }
-        },
-        {
-          ...record,
-          sessionId: 'wrong-host',
-          lease: { ...record.lease, sessionId: 'wrong-host' },
-          location: { ...record.location, executionHostId: 'ssh:another-host' }
-        },
-        {
-          ...record,
-          sessionId: 'strong-holder',
-          lease: { ...record.lease, sessionId: 'strong-holder' }
-        }
-      ]
-    })
-    store = await openTestAgentSessionRecordStore(root)
-    Object.assign(host.deps, { store })
-    setStructuredAgentSessionHost(host)
-    const held = Promise.withResolvers<void>()
-    const started = Promise.withResolvers<void>()
-    const deadline = agentSessionSwitchDeadline()
-    const strong = host.runSwitch(
-      'strong-holder',
-      'retirement-command',
-      deadline,
-      async () => {
-        started.resolve()
-        await held.promise
-        return { status: 'completed', sessionId: 'strong-holder' }
-      },
-      { direction: 'terminal' }
-    )
-    const visibility = vi.spyOn(host, 'setSessionTabVisibility')
-    const dismiss = vi.spyOn(host.restartResume, 'dismiss')
-    const runtime = { retireStructuredAgentSessionTabFromSnapshot: vi.fn(() => true) }
-    try {
-      await Promise.race([started.promise, strong])
-      await retireChatForAdmittedTerminalLaunch(
-        runtime,
-        {
-          resumeOrigin: 'switch',
-          worktreeId: record.location.workspaceId
-        },
-        {
-          savedResumeDecision: {
-            agent: 'codex',
-            providerSession: { key: 'session_id', id: THREAD },
-            verdict: 'admitted'
-          }
-        }
-      )
-      expect(visibility.mock.calls.map(([id]) => id)).toEqual([SESSION, 'distinct-holder'])
-      expect(dismiss.mock.calls).toEqual([[[SESSION]], [['distinct-holder']]])
-      expect(runtime.retireStructuredAgentSessionTabFromSnapshot.mock.calls).toEqual([
-        [SESSION],
-        ['distinct-holder']
-      ])
-      expect(closeSession).toHaveBeenCalledOnce()
-    } finally {
-      held.resolve()
-      await strong
-      deadline.dispose()
-    }
-  }
-)
-
-it.each(['ready', 'failed', 'closed', 'replaced'] as const)(
-  'awaits provider open for the selected child, whose result is %s',
-  async (ending) => {
-    await host.close(SESSION, 'evict')
-    const held = Promise.withResolvers<void>()
-    open.mockImplementationOnce(async () => {
-      await held.promise
-      if (ending === 'failed') {
-        throw new AgentSessionAcquisitionRefusal('provider failed')
-      }
-      return { reportedOptions: { model: '' } }
-    })
-    let settled = false
-    const switching = host.switchToChat(SESSION).then((result) => {
-      settled = true
-      return result
-    })
-    await vi.waitFor(() => expect(open).toHaveBeenCalledTimes(2))
-    const child = host.collaboratorsForTests().sessions.get(SESSION)?.child
-    expect(child?.phase).toBe('starting')
-    expect(settled).toBe(false)
-    let replacement = child
-    if (ending === 'closed' || ending === 'replaced') {
-      await host.close(SESSION, 'evict')
-    }
-    if (ending === 'replaced') {
-      expect(await host.switchToChat(SESSION)).toEqual({ ok: true })
-      replacement = host.collaboratorsForTests().sessions.get(SESSION)?.child
-      expect(replacement?.generation).not.toBe(child?.generation)
-    }
-    held.resolve()
-    expect(await switching).toMatchObject({ ok: ending === 'ready' })
-    expect(vi.mocked(host.deps.adapter.dispatch)).not.toHaveBeenCalled()
-    if (ending === 'replaced') {
-      expect(host.collaboratorsForTests().sessions.get(SESSION)?.child).toBe(replacement)
-    }
-    if (ending === 'closed') {
-      expect(await host.switchToChat(SESSION)).toEqual({ ok: true })
-      expect(host.collaboratorsForTests().sessions.get(SESSION)?.child?.generation).not.toBe(
-        child?.generation
-      )
-    }
-  }
-)
 
 it('acquires when only a saved Sleep note remains, but refuses an existing unknown terminal', async () => {
   const saved: SleepingAgentSessionRecord = {

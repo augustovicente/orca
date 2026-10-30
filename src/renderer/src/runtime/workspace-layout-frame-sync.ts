@@ -2,7 +2,6 @@
 
 import { frameOpenSelectionPatch } from './workspace-layout-frame-open-selection'
 import { showFramePatch, withMovedTabsSelected } from '@/store/slices/tabs/moved-tab-selection'
-import { useAppStore } from '@/store'
 import type { AppState } from '@/store/types'
 import type { TerminalTab } from '../../../shared/terminal-tab-types'
 import { applyLayoutFrame, EMPTY_WORKSPACE_LAYOUT_CACHE } from '@/store/workspace-layout-cache'
@@ -26,15 +25,12 @@ import { heldTabGroupFocus } from './held-tab-group-follow'
 import { shownContentRekeyPatch } from './layout-owner-content-rekeys'
 import { provideLayoutFrameWorkspaces } from './layout-frame-workspaces'
 import {
-  notePendingRecordsFrame,
+  noteReceivedLayoutFrame,
   pendingWorkspaceChanges,
   type PendingWorkspaceChanges
 } from './workspace-layout-frame-pending'
 import { layoutFrameApplyObserver } from './workspace-layout-frame-apply-observer'
-import {
-  provideLayoutFrameTerminalPanes,
-  type LayoutFrameTerminalQueries
-} from './layout-frame-terminal-panes'
+import type { LayoutFrameTerminalQueries } from './layout-frame-terminal-panes'
 import {
   isTabPaneTreeHeld,
   onTabPaneTreeRedraw,
@@ -89,28 +85,10 @@ export function openWorkspaceLayoutFrameSync(
   /** The moved tabs' selections this flush's writes took. */
   let selectionsTaken: MovedTabSelection[] = []
   const show = (
-    patch: LayoutFrameBuildPatch | ((current: AppState) => LayoutFrameBuildPatch)
+    patch: LayoutFrameBuildPatch | ((current: AppState) => LayoutFrameBuildPatch),
+    select?: (current: AppState, accepted: Partial<AppState>) => Partial<AppState>
   ): void => {
-    selectionsTaken.push(...showFramePatch(store, patch))
-  }
-
-  // Each change against the cache's copy it applies to, before the frame replaces it.
-  const noteFrame = (before: WorkspaceLayoutCache, frame: WorkspaceLayoutChangeFrame): void => {
-    switch (frame.type) {
-      case 'snapshot':
-        // A reopened stream's snapshot redraws every workspace: the window drew alone meanwhile.
-        if (snapshotReceived) {
-          shown.clear()
-        }
-        return
-      case 'workspace':
-      case 'removed':
-        // An older host's whole workspace: only a full build shows it.
-        shown.delete(frame.key)
-        return
-      case 'records':
-        notePendingRecordsFrame(pending, shown, before, cache, frame)
-    }
+    selectionsTaken.push(...showFramePatch(store, patch, select))
   }
 
   // Pane trees show at once; only a tab the window's own pane command holds waits.
@@ -159,13 +137,18 @@ export function openWorkspaceLayoutFrameSync(
       ...rekeyed,
       ...layoutFrameFlushPatch(base, cache, { fullBuilt, workspaceBuilt, rebound }, holds)
     }
-    show((current) =>
+    let openSelectionTaken: Partial<AppState> = {}
+    show(membership, (current, accepted) =>
       frameOpenSelectionPatch(
         current,
-        membership,
+        accepted,
         cache,
         [...fullBuilt, ...workspaceBuilt],
-        source.target
+        source.target,
+        true,
+        (selection) => {
+          openSelectionTaken = { ...openSelectionTaken, ...selection }
+        }
       )
     )
     if (titleUpdates.length > 0) {
@@ -201,7 +184,7 @@ export function openWorkspaceLayoutFrameSync(
         const moved = withMovedTabsSelected(built, selectionsTaken)
         return {
           ...moved,
-          ...frameOpenSelectionPatch(state, moved, cache, builtKeys, source.target)
+          ...openSelectionTaken
         }
       }
     })
@@ -229,7 +212,7 @@ export function openWorkspaceLayoutFrameSync(
   const receive = (frame: WorkspaceLayoutChangeFrame): void => {
     const before = cache
     cache = applyLayoutFrame(cache, frame)
-    noteFrame(before, frame)
+    noteReceivedLayoutFrame(pending, shown, before, cache, frame, snapshotReceived)
     if (frame.type === 'snapshot') {
       snapshotReceived = true
       live = started
@@ -313,14 +296,4 @@ const FRAME_BUILD_HOLDS: Omit<LayoutFrameBuildHolds, 'newRowFields'> = {
   held: { isTabHeld: isDrawnTabHeld, isGroupLayoutHeld: isDrawnGroupLayoutHeld }
 }
 
-let startupFrames: WorkspaceLayoutFrameSync | null = null
-
-/** After restore: the window's one layout stream shows the frames' workspaces from now on. */
-export function showStartupLayoutFrames(): void {
-  // Kept for the document's life: a local stream ends only with main, and a re-run boot reuses it.
-  if (!startupFrames) {
-    startupFrames = openWorkspaceLayoutFrameSync(useAppStore)
-    provideLayoutFrameTerminalPanes(startupFrames)
-  }
-  startupFrames.start()
-}
+export { showStartupLayoutFrames } from './workspace-layout-frame-startup'
