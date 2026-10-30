@@ -3,13 +3,18 @@ import { toast } from 'sonner'
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { translate } from '@/i18n/i18n'
+import { editionSupports } from '../../../../shared/edition'
 
 /** Copies the chat's Orca session ID from the host: `orca_session_id:<root>`, which `/clear` keeps. */
 export function NativeChatCopyOrcaSessionIdMenuItem({
   resolveOrcaSessionId
 }: {
   resolveOrcaSessionId: () => Promise<string | null>
-}): React.JSX.Element {
+}): React.JSX.Element | null {
+  // A host session id is developer jargon; the customer edition never shows it.
+  if (!editionSupports('developerTools')) {
+    return null
+  }
   const copyOrcaSessionId = async (): Promise<void> => {
     try {
       const orcaSessionId = await resolveOrcaSessionId()

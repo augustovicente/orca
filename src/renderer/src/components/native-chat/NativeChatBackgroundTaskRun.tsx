@@ -15,6 +15,7 @@ import {
 } from './background-task-roster'
 import { KIND_ICONS } from './NativeChatBackgroundTasksStatus'
 import { formatNativeChatDuration } from './NativeChatWorkingStatus'
+import { editionSupports } from '../../../../shared/edition'
 
 /** Render the host’s durable task state, never infer it from turn state: background work can outlive the turn that launched it. */
 export function NativeChatBackgroundTaskRun({
@@ -38,7 +39,9 @@ export function NativeChatBackgroundTaskRun({
       ? formatNativeChatDuration(Math.max(0, (block.settledAt - block.startedAt) / 1000))
       : null
   const meta = [
-    block.tokens === undefined ? null : formatBackgroundTaskTokens(block.tokens),
+    editionSupports('developerTools') && block.tokens !== undefined
+      ? formatBackgroundTaskTokens(block.tokens)
+      : null,
     duration
   ].filter((part): part is string => part !== null)
   return (
