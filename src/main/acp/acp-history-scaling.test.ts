@@ -306,6 +306,7 @@ async function measureCatchUp(
   return counts
 }
 
+// Instrumented 20/200 journal settlement and disk reopens in both boundary modes need extra CI time.
 it('bounds composed fresh/held content and old dividers at 20 and 200', async () => {
   for (const boundary of [agentSessionHostStatusBody('history-loaded'), null]) {
     const seam = vi.spyOn(historyBoundary, 'acpHistoryBoundary').mockReturnValue(boundary)
