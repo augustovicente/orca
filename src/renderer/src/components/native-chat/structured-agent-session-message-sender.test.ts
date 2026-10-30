@@ -12,8 +12,8 @@ import {
   send,
   sendCalls,
   phases
-} from './structured-agent-session-message-sender.test-harness'
-import type { Deferred } from './structured-agent-session-message-sender.test-harness'
+} from './structured-agent-session-message-sender.test-fixture'
+import type { Deferred } from './structured-agent-session-message-sender.test-fixture'
 import {
   STRUCTURED_AGENT_SESSION_SEND_BUDGET_MS,
   dropStructuredAgentSessionSends,

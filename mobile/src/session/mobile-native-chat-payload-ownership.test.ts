@@ -82,7 +82,7 @@ afterEach(() => {
   renderer = null
 })
 
-it('owns unknown text, images and files across screen teardown, retry and a later accepted origin result', async () => {
+it('returns refused text, images and files to their origin across teardown, retry and later acceptance', async () => {
   const client: RpcClient = {
     sendRequest: vi.fn(),
     subscribe: () => () => {},
@@ -179,7 +179,7 @@ it('owns unknown text, images and files across screen teardown, retry and a late
   })
   act(() => full.drafts.setComposerText('other chat'))
   await act(async () => {
-    answer.resolve('unknown')
+    answer.resolve('rejected')
     await sent
   })
   expect(full.drafts.composerText).toBe('other chat')

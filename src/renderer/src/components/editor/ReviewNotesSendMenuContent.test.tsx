@@ -17,7 +17,7 @@ import {
   collectText,
   render,
   flushMicrotasks
-} from './ReviewNotesSendMenuContent.test-harness'
+} from './ReviewNotesSendMenuContent.test-fixture'
 
 describe('ReviewNotesSendMenuContent', () => {
   beforeEach(() => {

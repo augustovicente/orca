@@ -104,7 +104,7 @@ describe('useMobileSessionImageAttachments', () => {
   }
 
   it.each(['accepted', 'queued', 'unknown', 'rejected'] as const)(
-    'sends structured session images without a terminal lease and clears only accepted chips: %s',
+    'sends structured session images without a terminal lease and clears captured chips unless refused: %s',
     async (outcome) => {
       const args = baseArgs({
         activeHandle: null,
@@ -125,7 +125,7 @@ describe('useMobileSessionImageAttachments', () => {
         'clipboard.startImageUpload',
         'clipboard.saveImageAsTempFile'
       ])
-      expect(hook.nativeChatImages.attachments).toEqual(outcome === 'accepted' ? [] : [image])
+      expect(hook.nativeChatImages.attachments).toEqual(outcome === 'rejected' ? [image] : [])
     }
   )
 
