@@ -289,16 +289,20 @@ describe.each(['session.tabs.subscribe', 'session.tabs.subscribeAll'] as const)(
             options
           )
         }
-        await update([
+        const structured = [
           'agent-session.structured.v1',
           'agent-session.structured.claude.v1',
           SESSION_TABS_TAB_DELTA_RUNTIME_CAPABILITY,
           SESSION_TABS_RETIREMENT_PROOF_DELTA_RUNTIME_CAPABILITY
-        ])
+        ]
+        await update(structured)
         expect(siblingMessages).toHaveLength(1)
         expect(messages).toHaveLength(2)
         const recovered = decode(messages[1]!)
         expect(JSON.stringify(recovered)).toContain('Claude chat')
+        // A capability the projection ignores sends no frame.
+        await update([...structured, 'unrelated.test.v1'])
+        expect(messages).toHaveLength(2)
         const proofState = { retiredTerminalSurfaces: delta ? [] : initial.retiredTerminalSurfaces }
         expect(recovered).toMatchObject(proofState)
         if (!delta) {

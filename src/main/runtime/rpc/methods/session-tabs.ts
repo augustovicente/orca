@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util'
 import { terminalCreateFeatureRequirement } from '../agent-launch-feature-requirement'
 import { terminalImageViewerSupported } from '../../terminal-image-viewer-env'
 import { resolveRuntimeNavigationTarget } from '../../../../shared/runtime-navigation'
@@ -174,16 +175,18 @@ export const SESSION_TAB_METHODS = [
       let currentSnapshot: Awaited<ReturnType<typeof runtime.listMobileSessionTabs>> | undefined
       const withProofDelta = createSessionTabsRetirementProofDelta(clientCapabilities)
       const tabDelta = createSessionTabsTabDeltaEncoder(clientCapabilities)
-      const project = (snapshot: NonNullable<typeof currentSnapshot>) =>
-        projectSessionTabsForClient(
-          snapshot,
-          clientKind,
-          capabilitySource?.current ?? clientCapabilities
-        )
+      const project = (
+        snapshot: NonNullable<typeof currentSnapshot>,
+        capabilities = capabilitySource?.current ?? clientCapabilities
+      ) => projectSessionTabsForClient(snapshot, clientKind, capabilities)
       stopCapabilities =
-        capabilitySource?.observe(() => {
+        capabilitySource?.observe((previous) => {
           if (!released && currentSnapshot) {
-            emit({ type: 'updated', ...tabDelta.update(withProofDelta(project(currentSnapshot))) })
+            const projected = project(currentSnapshot)
+            // The last frame was projected with the previous set; a change it ignores sends nothing.
+            if (!isDeepStrictEqual(projected, project(currentSnapshot, previous))) {
+              emit({ type: 'updated', ...tabDelta.update(withProofDelta(projected)) })
+            }
           }
         }) ?? (() => {})
       signal?.addEventListener('abort', release, { once: true })
