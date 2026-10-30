@@ -18,14 +18,12 @@ import { ClaudeProvisionalRowCorrections } from './claude-provisional-row-correc
 import { createClaudeStreamedThinking } from './claude-streamed-thinking'
 import { ClaudeSubagentIdentities } from './claude-subagent-identities'
 import { ClaudeJournaledSubagents } from './claude-subagent-journaled-identities'
-import { createClaudeStreamedBlockRegistry } from './claude-streamed-block-identity'
-import { createClaudeStreamedTextCheckpoints } from './claude-streamed-text-checkpoints'
 import {
-  claudeFrameParentRef,
-  claudeStreamTurnStartSource,
-  claudeStreamTurnSource,
-  isRootClaudeFrame
-} from './claude-turn-opening'
+  createClaudeStreamedBlockRegistry,
+  journalClaudeStreamEvent
+} from './claude-streamed-block-identity'
+import { createClaudeStreamedTextCheckpoints } from './claude-streamed-text-checkpoints'
+import { claudeFrameParentRef, isRootClaudeFrame } from './claude-turn-opening'
 import { ClaudeOpenTurn } from './claude-open-turn'
 import { claudeCommandCurrentTurn, observeClaudeCommandFrame } from './claude-command-turn'
 import { ClaudeContextFacts } from './claude-context-facts'
@@ -39,10 +37,7 @@ import { ClaudeUsageLimits } from './claude-usage-limits'
 import { ClaudeThreadGoal } from './claude-thread-goal'
 import { createClaudeFinalOutputCoverage } from './claude-final-output-coverage'
 
-export type {
-  ClaudeJournalTranslator,
-  ClaudeJournalTranslatorDeps
-} from './claude-journal-translator-contract'
+export type { ClaudeJournalTranslator, ClaudeJournalTranslatorDeps }
 
 export function createClaudeJournalTranslator(
   deps: ClaudeJournalTranslatorDeps
@@ -137,18 +132,15 @@ export function createClaudeJournalTranslator(
     }
   }
 
-  const handleStream = (message: Record<string, unknown>, observedAt: number): boolean => {
-    const delta = streamedBlocks.observe(message, observedAt)
-    const thinking = streamedThinking.observe(message, observedAt)
-    // Prefer message_start; use the first content delta for older streams that omit it.
-    const source =
-      delta || thinking ? claudeStreamTurnSource(message) : claudeStreamTurnStartSource(message)
-    turn.ensureOpen(message, source, observedAt)
-    if (delta) {
-      streamedText.append(delta.identity, delta.text, delta.parentToolUseId)
-    }
-    return delta !== null || thinking
-  }
+  const handleStream = (message: Record<string, unknown>, observedAt: number): boolean =>
+    journalClaudeStreamEvent({
+      message,
+      observedAt,
+      streamedBlocks,
+      streamedThinking,
+      streamedText,
+      turn
+    })
 
   const messageContext: ClaudeMessageJournalContext = {
     sink: deps.sink,
@@ -172,6 +164,20 @@ export function createClaudeJournalTranslator(
     prompts,
     context,
     goalBackgroundWork: deps.goalBackgroundWork ?? (() => 'unverifiable')
+  }
+
+  let dispose: (() => void) | undefined = () => {
+    flush()
+    context.dispose()
+    streamedText.dispose()
+    streamedThinking.dispose()
+    tools.clear()
+    prompts.clear()
+    streamedBlocks.clear()
+    corrections.abandon()
+    subagents.dispose()
+    backgroundTasks.dispose()
+    toolOrigins.clear()
   }
 
   return {
@@ -303,17 +309,9 @@ export function createClaudeJournalTranslator(
     modelMayHaveChanged: () => context.modelMayHaveChanged(),
     modelWritten: (model) => context.modelWritten(model),
     dispose: () => {
-      flush()
-      context.dispose()
-      streamedText.dispose()
-      streamedThinking.dispose()
-      tools.clear()
-      prompts.clear()
-      streamedBlocks.clear()
-      corrections.abandon()
-      subagents.dispose()
-      backgroundTasks.dispose()
-      toolOrigins.clear()
+      const retire = dispose
+      dispose = undefined
+      retire?.()
     }
   }
 }

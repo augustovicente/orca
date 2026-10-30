@@ -13,7 +13,8 @@ import {
   AuthenticateResponseSchema,
   SessionModelStateSchema,
   type InitializeResponse,
-  type NewSessionRequest
+  type NewSessionRequest,
+  type SetSessionConfigOptionRequest
 } from './generated/acp-protocol.generated'
 
 const newSessionSchema = NewSessionResponseSchema.extend({
@@ -144,4 +145,26 @@ export function initializeAcpSession(
       }
     }
   )
+}
+
+export function acpSessionConfigRequest(
+  sessionId: string,
+  configId: SetSessionConfigOptionRequest['configId'],
+  value: SetSessionConfigOptionRequest['value'],
+  meta: SetSessionConfigOptionRequest['_meta']
+): SetSessionConfigOptionRequest {
+  return typeof value === 'boolean'
+    ? ({
+        configId,
+        value,
+        sessionId,
+        type: 'boolean',
+        ...(meta ? { _meta: meta } : {})
+      } satisfies SetSessionConfigOptionRequest)
+    : ({
+        configId,
+        value,
+        sessionId,
+        ...(meta ? { _meta: meta } : {})
+      } satisfies SetSessionConfigOptionRequest)
 }

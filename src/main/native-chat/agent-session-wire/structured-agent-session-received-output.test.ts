@@ -32,7 +32,7 @@ it.each([1024, 1025])('saves all %i tool results in one received Claude message'
     workspaceId: 'workspace',
     hostId: 'host',
     agent: 'claude' as const,
-    providerHandle: claudeProviderHandle('claude-session')
+    providerHandle: claudeProviderHandle('claude-session', null)
   }
   let journal = await openAgentSessionJournal({
     identity,
@@ -94,7 +94,7 @@ it.each(['publish', 'cancel', 'exit'] as const)(
   async (outcome) => {
     const rig = await openProviderTimelineRig(
       {},
-      { agent: 'claude', providerHandle: claudeProviderHandle(PROVIDER_SESSION_ID) }
+      { agent: 'claude', providerHandle: claudeProviderHandle(PROVIDER_SESSION_ID, null) }
     )
     const source = fakeClaude()
     const entered = Promise.withResolvers<void>()

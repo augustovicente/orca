@@ -355,6 +355,19 @@ it('keeps an actual processless failure and an absent-session close distinct fro
     .catch((error: unknown) => error)
   expect(failed).toBeInstanceOf(Error)
   expect(fixture.connections[0]!.exitVerdict).toMatchObject({ processless: true })
+  const outcome = await fixture.connections[0]!.closeOutcome()
+  expect(outcome).toMatchObject({
+    accepted: true,
+    physical: { processless: true },
+    receive: { state: 'failed' }
+  })
+  if (outcome.receive.state !== 'failed') {
+    throw new Error('processless SDK failure was hidden')
+  }
+  await expect(fixture.connections[0]!.close()).rejects.toBe(outcome.receive.error)
+  expect(fixture.children[0]!.pid).toBeUndefined()
+  expect(fixture.children[0]!.exitCode).toBeNull()
+  expect(fixture.children[0]!.kill).not.toHaveBeenCalled()
   expect(fixture.record().lease).toMatchObject({
     claimStatus: 'released',
     deathEvidence: { kind: 'pid-absent' }

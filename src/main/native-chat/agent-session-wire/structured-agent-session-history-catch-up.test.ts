@@ -243,6 +243,7 @@ it('orders catch-up after 1024 live obligations, preserves saved identities, and
     const result = runHistoryCatchUp({
       agentName: 'Codex',
       scope: 'test-catch-up',
+      timeoutMs: 5_000,
       sessionId: 'session-timeline',
       sink: source,
       readView: () => 'same-thread',

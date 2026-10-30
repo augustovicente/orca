@@ -1,3 +1,5 @@
+import type { ProviderReceiveDisposition } from '../provider-process/provider-source-completion'
+import type { ProviderProcessCloseResult } from '../provider-process/provider-process-close'
 import type { PipedProcessSpawner } from '@orca/process-host/process-spec'
 import { spawnProcess } from '@orca/process-host'
 import {
@@ -13,6 +15,13 @@ import {
 import { AcpConnectionClosedError, AcpSignInPromptError } from './acp-errors'
 import { resolveAcpPeerOptions, type AcpPeerOptions } from './acp-peer-limits'
 import { AcpSessionRuntime, type AcpSessionRuntimeOptions } from './acp-session-runtime'
+
+export type AcpCloseOutcome = {
+  accepted: boolean
+  physical: ProviderProcessCloseResult
+  receive: ProviderReceiveDisposition
+  cleanupError?: unknown
+}
 
 export type AcpSignInWatch = {
   /** Returns a valid link, null for a malformed sign-in line, or undefined for other output. */
@@ -52,6 +61,8 @@ export class AcpAgentConnection extends AcpSessionRuntime {
   private readonly lifecycle: { closing: boolean; error?: Error }
   private readonly diagnoseLifecycle: (message: string) => void
   private inputDone?: Promise<void>
+  private receiveResult?: Promise<ProviderReceiveDisposition>
+  private closeAttempt?: Promise<AcpCloseOutcome>
   private exitPublication?: Promise<void>
   private readonly onInputComplete: AcpAgentConnectionOptions['onInputComplete']
   readonly spawned: Promise<void>
@@ -251,15 +262,60 @@ export class AcpAgentConnection extends AcpSessionRuntime {
     return this.inputDone
   }
 
-  override close(error?: Error): Promise<boolean> {
+  closeOutcome(error?: Error): Promise<AcpCloseOutcome> {
+    if (this.closeAttempt) {
+      return this.closeAttempt
+    }
     this.lifecycle.closing ||= this.managed.rootVerdict !== 'exited'
     this.drainNotifications(error)
-    return this.managed.close().then(async (result) => {
-      await this.completeInput(error)
-      if (result.root === 'exited') {
-        await this.exitPublication
+    const attempt = this.managed.close().then(async (physical): Promise<AcpCloseOutcome> => {
+      const accepted = physical.root === 'exited' || physical.killDelivered === true
+      let receive: ProviderReceiveDisposition = { state: 'retained' }
+      if (accepted || this.inputEnding) {
+        this.receiveResult ??= this.completeInput(error).then(
+          () => ({ state: 'complete' as const }),
+          (error: unknown) => ({ state: 'failed' as const, error })
+        )
+        receive = await this.receiveResult
       }
-      return result.root === 'exited' || result.killDelivered === true
+      const cleanupError =
+        physical.root === 'exited'
+          ? await this.exitPublication?.then(
+              () => undefined,
+              (error: unknown) => error
+            )
+          : undefined
+      return {
+        accepted,
+        physical,
+        receive,
+        ...(cleanupError === undefined ? {} : { cleanupError })
+      }
     })
+    this.closeAttempt = attempt
+    void attempt.then(
+      (outcome) => {
+        if (!outcome.accepted && this.closeAttempt === attempt) {
+          this.closeAttempt = undefined
+        }
+      },
+      () => {
+        if (this.closeAttempt === attempt) {
+          this.closeAttempt = undefined
+        }
+      }
+    )
+    return attempt
+  }
+
+  override async close(error?: Error): Promise<boolean> {
+    const outcome = await this.closeOutcome(error)
+    if (outcome.receive.state === 'failed') {
+      throw outcome.receive.error
+    }
+    if (outcome.cleanupError !== undefined) {
+      throw outcome.cleanupError
+    }
+    return outcome.accepted
   }
 }

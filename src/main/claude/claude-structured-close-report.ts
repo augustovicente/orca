@@ -1,4 +1,7 @@
-import type { ClaudeStreamJsonConnection } from './claude-stream-json-connection'
+import type {
+  ClaudeStreamJsonConnection,
+  ClaudeCloseOutcome
+} from './claude-stream-json-connection'
 import {
   AgentSessionPreSpawnError,
   AgentSessionAcquisitionRootExitObservedError,
@@ -15,12 +18,12 @@ export function claudeRootExitObserved(
 
 export function claudeAcquisitionCleanupError(
   connection: ClaudeStreamJsonConnection | null | undefined,
-  cause: unknown
+  cause: unknown,
+  verdict = connection?.exitVerdict
 ): Error {
-  const verdict = connection?.exitVerdict
   return verdict?.processless === true
     ? new AgentSessionPreSpawnError(cause)
-    : claudeRootExitObserved(connection) || verdict?.killDelivered
+    : (verdict?.root === 'exited' && verdict.processless !== true) || verdict?.killDelivered
       ? new AgentSessionAcquisitionRootExitObservedError(
           cause,
           verdict?.root === 'exited' ? 'exit-observed' : 'kill-delivered'
@@ -31,12 +34,26 @@ export function claudeAcquisitionCleanupError(
 /** Completion and physical evidence are separate answers on a writer-terminal close. */
 export function claudeCloseReport(
   connection: ClaudeStreamJsonConnection | null | undefined,
-  closed: boolean,
+  outcome: ClaudeCloseOutcome | undefined,
   cause: unknown
 ): Error | undefined {
-  const verdict = connection?.exitVerdict
-  if (closed && !verdict?.processless && (verdict?.root === 'exited' || !verdict?.killDelivered)) {
+  if (!connection || !outcome) {
     return undefined
   }
-  return claudeAcquisitionCleanupError(connection, cause)
+  if (outcome.receive.state === 'failed' && outcome.receive.error !== cause) {
+    cause = new AggregateError(
+      [cause, outcome.receive.error],
+      cause instanceof Error ? cause.message : String(cause)
+    )
+  }
+  const verdict = outcome.physical
+  if (
+    outcome.accepted &&
+    outcome.receive.state === 'complete' &&
+    !verdict?.processless &&
+    (verdict?.root === 'exited' || !verdict?.killDelivered)
+  ) {
+    return undefined
+  }
+  return claudeAcquisitionCleanupError(connection, cause, outcome.physical)
 }

@@ -1,3 +1,4 @@
+import { claudeCloseReport, claudeAcquisitionCleanupError } from './claude-structured-close-report'
 import type {
   StructuredAgentSessionEventSink,
   StructuredAgentSessionSinkAdmission
@@ -62,10 +63,23 @@ export function createClaudeJournalFailureHandler(input: {
     }
     const connection = input.attempt.connection
     if (connection) {
-      void connection
-        .close()
-        .catch(() => false)
-        .finally(() => input.callbacks.handleExit(input.sessionId, input.attempt, error))
+      void connection.closeOutcome().then(
+        (outcome) =>
+          input.callbacks.handleExit(
+            input.sessionId,
+            input.attempt,
+            claudeCloseReport(connection, outcome, error) ?? error
+          ),
+        (cleanupError: unknown) =>
+          input.callbacks.handleExit(
+            input.sessionId,
+            input.attempt,
+            claudeAcquisitionCleanupError(
+              connection,
+              new AggregateError([error, cleanupError], error.message)
+            )
+          )
+      )
     }
   }
 }

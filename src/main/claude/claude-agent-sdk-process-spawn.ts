@@ -25,6 +25,13 @@ export type ClaudeCodeProcessSpawn = {
   readonly inputDone: Promise<void>
 }
 
+function hasChildProperty(
+  child: PipedChildProcess,
+  key: PropertyKey
+): key is keyof PipedChildProcess {
+  return key in child
+}
+
 function definedEnv(env: Record<string, string | undefined>): Record<string, string> {
   const next: Record<string, string> = {}
   for (const [key, value] of Object.entries(env)) {
@@ -95,7 +102,7 @@ export function createClaudeCodeProcessSpawn(
           if (key === 'stdout') {
             return stdout
           }
-          const value = Reflect.get(child, key, child)
+          const value = hasChildProperty(child, key) ? child[key] : undefined
           return typeof value === 'function' ? value.bind(child) : value
         }
       })

@@ -270,7 +270,7 @@ export function createIncrementalNdjsonFramer(
         draining = false
       }
     },
-    finish(natural): void {
+    finish(natural): string | undefined {
       this.drain()
       const tail = this.takeTail()
       if (natural && tail.trim()) {

@@ -49,6 +49,15 @@ describe('claude agent SDK process spawn', () => {
     expect(spawn.child).toBe(process.child)
     expect(spawn.pid).toBe(4321)
     expect(spawn.supervised).toBe(false)
+    expect(child.exitCode).toBe(process.child.exitCode)
+    expect(child.signalCode).toBe(process.child.signalCode)
+    expect(child.killed).toBe(process.child.killed)
+    const observed = vi.fn()
+    child.once('exit', observed)
+    process.child.emit('exit', 0, null)
+    expect(observed).toHaveBeenCalledExactlyOnceWith(0, null)
+    child.kill('SIGTERM')
+    expect(process.child.kill).toHaveBeenCalledExactlyOnceWith('SIGTERM')
     expect(process.specs[0]).toEqual({
       program: '/usr/local/bin/claude',
       args: ['--output-format', 'stream-json'],

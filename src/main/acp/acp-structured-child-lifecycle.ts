@@ -1,8 +1,11 @@
 import type { StructuredAgentSessionAdapter } from '../native-chat/agent-session-wire/structured-agent-session-adapter'
-import { AgentSessionAcquisitionRootExitObservedError } from '../native-chat/agent-session-wire/structured-agent-session-adapter'
 import { ProviderAcquisitionStarts } from '../provider-process/provider-acquisition-starts'
 import { isAcpReadySession, type AcpStructuredChild } from './acp-structured-child'
-import type { AcpStructuredConnection } from './acp-structured-connection'
+import {
+  acpCloseReport,
+  closeAcpAcquisition,
+  type AcpStructuredConnection
+} from './acp-structured-connection'
 import { endAcpStructuredSession } from './acp-structured-session'
 import {
   agentSessionFailureFact,
@@ -35,7 +38,7 @@ function acpStartupEndFailure(session: AcpStructuredChild): SubmissionRejectionF
 
 export class AcpStructuredChildren {
   readonly sessions = new Map<string, AcpStructuredChild>()
-  readonly starts = new ProviderAcquisitionStarts<AcpStructuredConnection>()
+  readonly starts = new ProviderAcquisitionStarts<AcpStructuredConnection>(closeAcpAcquisition)
   constructor(private readonly deps: AcpStructuredSessionAdapterDeps) {}
   capturePendingOutput: StructuredAgentSessionAdapter['capturePendingOutput'] = (input) => {
     const session = this.sessions.get(input.sessionId)
@@ -72,19 +75,12 @@ export class AcpStructuredChildren {
     const connection = this.sessions.get(sessionId)?.connection
     const failed = this.starts.failedConnection(sessionId)
     const closed = await this.stop(sessionId, requested)
-    const result = connection?.lastCloseResult ?? failed?.lastCloseResult
-    if (closed && result?.killDelivered && result.root !== 'exited') {
-      throw new AgentSessionAcquisitionRootExitObservedError(
-        new Error('ACP writer killed'),
-        'kill-delivered'
-      )
-    }
-    if (closed && connection?.processTreeUnproven) {
-      throw new AgentSessionAcquisitionRootExitObservedError(
-        new Error(
-          `${this.deps.spec.agent} ACP agent exited, but its process tree was not proven gone`
-        )
-      )
+    const child = connection ?? failed
+    if (closed && child) {
+      const report = acpCloseReport(child, await child.closeOutcome())
+      if (report) {
+        throw report
+      }
     }
     return closed
   }
@@ -129,11 +125,11 @@ export class AcpStructuredChildren {
           }
         }
       }
-      const proven = await session.connection.close()
-      if (proven) {
+      const outcome = await session.connection.closeOutcome()
+      if (outcome.accepted && outcome.receive.state !== 'retained') {
         this.finish(session, session.exitObservedAt ?? this.now())
       }
-      return proven
+      return outcome.accepted
     })().finally(() => {
       session.closing = undefined
     })

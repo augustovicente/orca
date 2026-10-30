@@ -94,7 +94,9 @@ describe('ACP process-owning connection', () => {
 
   it('settles prompts and permission signals on proven exit with stdout still open', async () => {
     const statusDuringExit: unknown[] = []
-    const onExit = vi.fn(() => statusDuringExit.push(connection.exitStatus))
+    const onExit = vi.fn(() => {
+      statusDuringExit.push(connection.exitStatus)
+    })
     const onClose = vi.fn()
     const permission = deferred<AbortSignal>()
     const { connection, child, agent } = fixture({
@@ -135,7 +137,9 @@ describe('ACP process-owning connection', () => {
 
   it('ends a turn signed out at a sign-in prompt line and never retains its URL', async () => {
     const said: string[] = []
-    const onExit = vi.fn((error: Error) => said.push(error.message))
+    const onExit = vi.fn((error: Error) => {
+      said.push(error.message)
+    })
     const { connection, child } = fixture({
       onExit,
       onDiagnostic: (message) => said.push(message),
@@ -236,7 +240,7 @@ describe('ACP process-owning connection', () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 
-  it('ends notification draining at the bounded close result even when exit remains unproven', async () => {
+  it('retains a live source after false close, then retires it at actual EOF', async () => {
     vi.useFakeTimers()
     const onExtensionNotification = vi.fn()
     const { connection, agent } = fixture({ onExtensionNotification }, { exitOnEnd: false })
@@ -249,7 +253,11 @@ describe('ACP process-owning connection', () => {
     expect(await closing).toBe(false)
     expect(connection.rootVerdict).toBe('live')
     agent.notify('_x.ai/session/update', { outcome: 'after-unproven-close' })
-    expect(onExtensionNotification).toHaveBeenCalledOnce()
+    expect(onExtensionNotification).toHaveBeenCalledTimes(2)
+    agent.stdout.end()
+    const terminal = connection.closeOutcome()
+    await vi.advanceTimersByTimeAsync(grace + 1000)
+    expect(await terminal).toMatchObject({ accepted: false, receive: { state: 'complete' } })
     expect(agent.stdout.listenerCount('data')).toBe(0)
   })
 

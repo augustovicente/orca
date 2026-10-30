@@ -1,7 +1,6 @@
 import { createClaudeJournalTranslator } from './claude-structured-journal-translation'
-import { EventEmitter } from 'node:events'
+import { createFakePipedChild } from '../../shared/__fixtures__/fake-spawned-child'
 import { PassThrough } from 'node:stream'
-import type { ChildProcessWithoutNullStreams } from 'node:child_process'
 import { describe, expect, it, vi } from 'vitest'
 import type * as ManagedProviderProcessModule from '../provider-process/managed-provider-process'
 import { query } from '@anthropic-ai/claude-agent-sdk'
@@ -60,19 +59,11 @@ function fakeChild(
     stdout: new PassThrough(),
     stderr: new PassThrough()
   }
-): ChildProcessWithoutNullStreams {
-  const child = new EventEmitter()
-  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: The connection reads only pid, the three pipes and kill, which this fake carries.
-  return Object.assign(child, {
-    pid: 424242,
-    exitCode: null,
-    signalCode: null,
-    killed: false,
-    stdin: new PassThrough(),
+) {
+  return Object.assign(createFakePipedChild(424242), {
     stdout: streams.stdout,
-    stderr: streams.stderr,
-    kill: vi.fn()
-  }) as unknown as ChildProcessWithoutNullStreams
+    stderr: streams.stderr
+  })
 }
 
 describe('Claude stream-json close ordering', () => {
@@ -615,7 +606,11 @@ it('joins a real SDK decoded envelope held at public next beyond the former read
       // Keep the installed parser, queue, generator and cleanup; control its public receipt seam.
       nextSpy = vi.spyOn(actual, 'next').mockImplementation(async (...args) => {
         const result = await next(...args)
-        if (!result.done && 'uuid' in result.value && result.value.uuid === 'slow-result-2') {
+        if (
+          !result.done &&
+          'uuid' in result.value &&
+          result.value.uuid === '00000000-0000-4000-8000-000000000002'
+        ) {
           held.resolve()
           await release.promise
         }
@@ -630,7 +625,7 @@ it('joins a real SDK decoded envelope held at public next beyond the former read
         `${JSON.stringify({
           type: 'user',
           session_id: 'slow-provider',
-          uuid: `slow-result-${index}`,
+          uuid: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
           message: {
             role: 'user',
             content: [
@@ -656,12 +651,16 @@ it('joins a real SDK decoded envelope held at public next beyond the former read
     // Acquisition grace ends, then the former processing deadline passes with real work owned.
     await vi.advanceTimersByTimeAsync(1_000 + CLAUDE_READER_DRAIN_AFTER_EXIT_MS + 1)
     expect(retired).toBe(false)
-    expect(transferred).toEqual(['slow-result-1'])
+    expect(transferred).toEqual(['00000000-0000-4000-8000-000000000001'])
     await expect(connection.send({ type: 'user' })).rejects.toThrow()
     release.resolve()
     await expect(closing).resolves.toBe(true)
     vi.useRealTimers()
-    expect(transferred).toEqual(['slow-result-1', 'slow-result-2', 'slow-result-3'])
+    expect(transferred).toEqual([
+      '00000000-0000-4000-8000-000000000001',
+      '00000000-0000-4000-8000-000000000002',
+      '00000000-0000-4000-8000-000000000003'
+    ])
     expect(child.exitCode).toBeNull()
     expect(exited).not.toHaveBeenCalled()
     const reopened = await rig.reopenJournal()

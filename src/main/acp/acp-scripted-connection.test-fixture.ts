@@ -4,7 +4,7 @@ import {
   withProviderSpawnAbsence,
   type ProviderSpawnAbsence
 } from '../provider-process/provider-executable-missing'
-import type { AcpAgentConnectionOptions } from './acp-agent-connection'
+import type { AcpAgentConnectionOptions, AcpCloseOutcome } from './acp-agent-connection'
 import { AcpConnectionClosedError } from './acp-errors'
 import { AcpSessionRuntime } from './acp-session-runtime'
 import type { AcpStructuredConnection } from './acp-structured-connection'
@@ -24,6 +24,7 @@ export class FakeAcpChild extends AcpSessionRuntime implements AcpStructuredConn
   private lostWith: Error | undefined
   private exitedWith: ProviderProcessExit | null = null
   private inputCompletion?: Promise<void>
+  private closeAttempt?: Promise<AcpCloseOutcome>
   private exitPublication?: Promise<void>
   closes = 0
 
@@ -55,6 +56,9 @@ export class FakeAcpChild extends AcpSessionRuntime implements AcpStructuredConn
   stderrTail(): string {
     return this.stderr
   }
+  get lastCloseResult(): AcpCloseOutcome['physical'] {
+    return { root: this.exited ? 'exited' : 'live', tree: null }
+  }
   get exitStatus(): ProviderProcessExit | null {
     return this.exitedWith
   }
@@ -69,15 +73,39 @@ export class FakeAcpChild extends AcpSessionRuntime implements AcpStructuredConn
     this.exit()
     return true
   }
-  override close(error?: Error): Promise<boolean> {
+  closeOutcome(error?: Error): Promise<AcpCloseOutcome> {
+    if (this.closeAttempt) {
+      return this.closeAttempt
+    }
+    const attempt = this.performClose(error)
+    this.closeAttempt = attempt
+    void attempt.then(
+      (outcome) => {
+        if (!outcome.accepted) {
+          this.closeAttempt = undefined
+        }
+      },
+      () => {
+        this.closeAttempt = undefined
+      }
+    )
+    return attempt
+  }
+  private async performClose(error?: Error): Promise<AcpCloseOutcome> {
     this.closes += 1
     this.closing ||= this.exitedWith === null
     this.drainNotifications(error)
-    return this.proveClose().then(async (proven) => {
-      await this.completeInput(error)
-      await this.exitPublication
-      return proven
-    })
+    const accepted = await this.proveClose()
+    await this.completeInput(error)
+    await this.exitPublication
+    return { accepted, physical: this.lastCloseResult, receive: { state: 'complete' } }
+  }
+  override async close(error?: Error): Promise<boolean> {
+    const outcome = await this.closeOutcome(error)
+    if (outcome.receive.state === 'failed') {
+      throw outcome.receive.error
+    }
+    return outcome.accepted
   }
   exit(status: ProviderProcessExit = FAKE_EXIT): void {
     if (this.exitedWith) {

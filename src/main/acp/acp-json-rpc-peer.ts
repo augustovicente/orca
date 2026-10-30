@@ -1,6 +1,5 @@
 import { createProviderSourceCompletion } from '../provider-process/provider-source-completion'
 import type { Readable, Writable } from 'node:stream'
-import { z } from 'zod'
 import { readAcpResponse } from './acp-response-settlement'
 import type { AcpResponse, AcpRequestOptions, AcpPendingResponse } from './acp-response-settlement'
 import {
@@ -17,6 +16,7 @@ import { detachAcpStreamErrorHandler } from './acp-stdio-error-boundary'
 import {
   acpRpcEnvelopeSchema,
   invalidAcpResponseEnvelope,
+  invalidAcpResponseId,
   settleAcpResponse,
   type AcpJsonRpcMessage
 } from './acp-rpc-envelope'
@@ -43,7 +43,7 @@ export class AcpJsonRpcPeer {
   private readonly limits: Required<AcpPeerOptions>
 
   constructor(
-    private readonly input: Readable,
+    input: Readable,
     private readonly output: Writable,
     private readonly handlers: AcpPeerHandlers = {},
     options: AcpPeerOptions = {}
@@ -185,6 +185,10 @@ export class AcpJsonRpcPeer {
     this.shutdown(error, true)
   }
 
+  get inputEnding(): boolean {
+    return this.source.ending
+  }
+
   finishInput(): Promise<void> {
     return this.source.finish()
   }
@@ -268,11 +272,9 @@ export class AcpJsonRpcPeer {
     const parsed = acpRpcEnvelopeSchema.safeParse(record)
     if (!parsed.success) {
       this.diagnose('Ignored invalid ACP JSON-RPC envelope')
-      const response = z
-        .object({ id: z.number(), method: z.undefined().optional() })
-        .safeParse(record)
-      if (response.success) {
-        this.rejectPending(response.data.id, invalidAcpResponseEnvelope(record))
+      const id = invalidAcpResponseId(record)
+      if (id !== undefined) {
+        this.rejectPending(id, invalidAcpResponseEnvelope(record))
       }
       return
     }

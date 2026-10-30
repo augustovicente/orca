@@ -1,6 +1,11 @@
 import type { Readable } from 'node:stream'
 import { detachProviderStreamErrorHandler } from './provider-stdio-error-boundary'
 
+export type ProviderReceiveDisposition =
+  | { state: 'retained' }
+  | { state: 'complete' }
+  | { state: 'failed'; error: unknown }
+
 export const PROVIDER_INPUT_EXIT_GRACE_MS = 1_000
 
 /** Own input until EOF; process death only bounds acquisition of future bytes. */

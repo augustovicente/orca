@@ -1,10 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { withProviderDiagnostic } from '../../shared/agent-session-failure'
-import type { AgentSessionExecutionLocation } from '../../shared/agent-session-record'
 import {
   AgentSessionAcquisitionExitProvenError,
   AgentSessionAcquisitionExitUnprovenError,
-  AgentSessionAcquisitionRootExitObservedError,
   AgentSessionAcquisitionRefusal,
   AgentSessionPreSpawnError,
   isAgentSessionPreSpawnError,
@@ -57,7 +55,7 @@ export class AcpStructuredSessionAdapter implements SessionAdapter {
   copyConversation: NonNullable<SessionAdapter['copyConversation']> = (input) =>
     this.copies.copy(input)
 
-  supportsLocation = (location: AgentSessionExecutionLocation): boolean => {
+  supportsLocation: NonNullable<SessionAdapter['supportsLocation']> = (location) => {
     const { spec, isWindowsProcessStartTimeAvailable } = this.deps
     return supportsAcpStructuredLocation(spec, location, isWindowsProcessStartTimeAvailable)
   }
@@ -119,13 +117,15 @@ export class AcpStructuredSessionAdapter implements SessionAdapter {
       }
       // Capture spontaneous exit before close can classify it as requested.
       const exitedOnItsOwn = connection?.exited === true && !attempt.signal.aborted
-      if (connection && !(await connection.close().catch(() => false))) {
-        // Retain failed cleanup for retry before another child can spawn.
-        this.children.starts.retainFailed(sessionId, connection)
-        throw new AgentSessionAcquisitionExitUnprovenError(error)
-      }
-      if (connection?.lastCloseResult?.killDelivered && !connection.exited) {
-        throw new AgentSessionAcquisitionRootExitObservedError(error, 'kill-delivered')
+      const outcome = await connection?.closeOutcome()
+      if (connection && outcome) {
+        if (!outcome.accepted) {
+          this.children.starts.retainFailed(sessionId, connection)
+        }
+        const report = acpConnection.acpCloseReport(connection, outcome, error)
+        if (report) {
+          throw report
+        }
       }
       if (attempt.signal.aborted) {
         const closed = new Error(
@@ -134,7 +134,7 @@ export class AcpStructuredSessionAdapter implements SessionAdapter {
         )
         throw connection ? closed : new AgentSessionPreSpawnError(closed)
       }
-      acpConnection.tagAcpSpawnAbsence(error, connection)
+      acpConnection.tagAcpSpawnAbsence(error, connection ?? undefined)
       if (connection && exitedOnItsOwn && !isAgentSessionPreSpawnError(error)) {
         throw new AgentSessionAcquisitionExitProvenError(
           withObservedProviderExit(

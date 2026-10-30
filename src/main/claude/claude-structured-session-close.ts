@@ -47,10 +47,12 @@ export async function resolveClaudeAcquisitionError(input: {
     for (const prompt of input.prompts.clear()) {
       prompt.settle(null)
     }
-    const closed = (await input.attempt.connection?.close()) ?? true
+    const closed = await input.attempt.connection?.closeOutcome()
     // close transfers any resolved SDK read before the translator releases its body state.
-    input.translator?.flush()
-    if (closed) {
+    if (closed?.receive.state !== 'retained') {
+      input.translator?.flush()
+    }
+    if (closed?.receive.state !== 'retained') {
       input.attempt.dispose?.()
     }
     acquisitionError =
@@ -94,14 +96,21 @@ async function finalizeClaudePublishedSession(
   for (const prompt of session.prompts.clear()) {
     prompt.settle(null)
   }
-  const connectionClosed = await session.connection.close()
-  session.unbindReadingControl?.()
+  const connectionClosed = await session.connection.closeOutcome()
+  if (connectionClosed.receive.state !== 'retained') {
+    session.unbindReadingControl?.()
+  }
   const rootExitVerdict = claudeCloseReport(
     session.connection,
     connectionClosed,
-    new Error('provider close unproven')
+    connectionClosed.receive.state === 'failed'
+      ? connectionClosed.receive.error
+      : new Error('provider close unproven')
   )
   if (rootExitVerdict instanceof AgentSessionAcquisitionExitUnprovenError) {
+    if (connectionClosed.receive.state !== 'retained') {
+      session.translator?.dispose()
+    }
     return false
   }
   if (rootExitVerdict) {
@@ -158,7 +167,10 @@ async function finalizeClaudePublishedSession(
   session.closePersistence ??= persistClosedClaudeSession(input, session)
   if (rootExitVerdict) {
     throw callbackThrew
-      ? claudeAcquisitionCleanupError(session.connection, callbackError)
+      ? claudeAcquisitionCleanupError(
+          session.connection,
+          new AggregateError([rootExitVerdict, callbackError], rootExitVerdict.message)
+        )
       : rootExitVerdict
   }
   if (callbackThrew) {
@@ -252,7 +264,9 @@ export async function closeClaudeSession(
   const report = claudeCloseReport(
     attempt?.connection,
     cancelled,
-    new Error('acquisition cancel unproven')
+    cancelled?.receive.state === 'failed'
+      ? cancelled.receive.error
+      : new Error('acquisition cancel unproven')
   )
   if (report instanceof AgentSessionAcquisitionExitUnprovenError) {
     return false
