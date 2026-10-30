@@ -149,7 +149,7 @@ vi.mock('./use-row-opening', async (importOriginal) => {
     useSourceControlRowOpening: (args: Parameters<typeof actual.useSourceControlRowOpening>[0]) => {
       const visibleBranchRowKeys = useMemo(() => {
         const keys = [...args.visibleBranchRowKeys]
-        keys[Symbol.iterator] = function* () {
+        keys[Symbol.iterator] = function* (): Generator<string, undefined, unknown> {
           for (let index = 0; index < keys.length; index++) {
             counters.branchIngestions++
             yield keys[index]
