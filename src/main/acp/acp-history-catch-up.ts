@@ -20,7 +20,6 @@ import type {
   StructuredAgentSessionHistoryJournal
 } from '../native-chat/agent-session-wire/structured-agent-session-event-sink'
 import {
-  continuedOutsideNotice,
   continuedOutsideRecordId,
   createHistoryCatchUpBatch,
   runHistoryCatchUp
@@ -34,6 +33,7 @@ import {
 import { translateHistoryTurn, type AcpHistoryScope } from './acp-history-translation'
 import { matchAcpHistoryTurns, type AcpHistoryCandidate } from './acp-history-turn-matching'
 import { acpAgentName } from './acp-structured-agent-definitions'
+import { acpHistoryBoundary } from './acp-history-boundary'
 
 export type AcpHistoryCatchUpInput = AcpHistoryScope & {
   frames: readonly AcpLoadHistoryFrame[]
@@ -65,7 +65,7 @@ export async function catchUpAcpHistory(input: AcpHistoryCatchUpInput): Promise<
           items: translateHistoryTurn(input, source, check)
         }))
       const baseline = view()
-      const { natives, kind, matched } = matchAcpHistoryTurns(
+      const { kind } = matchAcpHistoryTurns(
         input,
         baseline,
         candidates,
@@ -77,10 +77,36 @@ export async function catchUpAcpHistory(input: AcpHistoryCatchUpInput): Promise<
       // The rows written name the import, so a later open's additions settle under their own id.
       const written: string[] = []
       const read = (key: string) => baseline.items.get(key) ?? null
+      const boundaryBody = acpHistoryBoundary()
       let divided = false
       for (const { source, items } of candidates) {
         check()
         const coverage = kind.get(source.turn)
+        const dividerIdentity = {
+          provider: 'legacy',
+          agent: input.agent,
+          sessionId: input.sessionId,
+          recordId: continuedOutsideRecordId(source.turn)
+        } as const
+        const dividerKey = agentJournalItemKey(dividerIdentity)
+        const savedDivider = read(dividerKey)
+        if (savedDivider) {
+          if (baseline.canonical.get(dividerKey) !== dividerKey) {
+            throw new Error('unowned-history-target')
+          }
+          if (!boundaryBody) {
+            batch.expectItem(dividerKey, {
+              canonicalItemId: dividerKey,
+              revision: savedDivider.revision
+            })
+            batch.push({ kind: 'tombstone', identity: dividerIdentity })
+          } else if (JSON.stringify(savedDivider.body) !== JSON.stringify(boundaryBody)) {
+            batch.revise(
+              journalLifecycleItemMutation(savedDivider, dividerIdentity, boundaryBody),
+              { canonicalItemId: dividerKey, revision: savedDivider.revision }
+            )
+          }
+        }
         if (coverage === 'native' || coverage === 'adopted') {
           continue
         }
@@ -96,21 +122,14 @@ export async function catchUpAcpHistory(input: AcpHistoryCatchUpInput): Promise<
             continue
           }
           if (!held && coverage !== 'imported' && !divided && baseline.retained) {
-            const divider = journalLifecycleItemMutation(
-              { turnScope: AGENT_JOURNAL_THREAD_SCOPE },
-              {
-                provider: 'legacy',
-                agent: input.agent,
-                sessionId: input.sessionId,
-                recordId: continuedOutsideRecordId(source.turn)
-              },
-              continuedOutsideNotice(
-                natives.length > 0 && ![...matched.values()].includes(natives.length - 1)
+            if (boundaryBody && !savedDivider) {
+              batch.push(
+                journalLifecycleItemMutation(
+                  { turnScope: AGENT_JOURNAL_THREAD_SCOPE },
+                  dividerIdentity,
+                  boundaryBody
+                )
               )
-            )
-            const dividerKey = agentJournalItemKey(divider.identity)
-            if (!read(dividerKey)) {
-              batch.push(divider)
               written.push(dividerKey)
             }
             divided = true
@@ -190,11 +209,27 @@ function journalView(
       return turnKeys.has(item.itemId) && turn?.userItemId ? [turn.userItemId] : []
     })
   )
+  const dividerKeys = new Set(
+    candidates.map(({ source }) =>
+      agentJournalItemKey({
+        provider: 'legacy',
+        agent: scope.agent,
+        sessionId: scope.sessionId,
+        recordId: continuedOutsideRecordId(source.turn)
+      })
+    )
+  )
   const items = new Map(
     all
       .filter((item) => {
         const id = parseAgentJournalItemKey(item.itemId)
         return (
+          (dividerKeys.has(item.itemId) &&
+            item.turnScope?.kind === 'thread' &&
+            item.body.kind === 'status' &&
+            (item.body.presentation === 'continued-outside' ||
+              item.body.presentation === 'continued-outside-rewound' ||
+              item.body.presentation === 'history-loaded')) ||
           turnKeys.has(item.itemId) ||
           userKeys.has(item.itemId) ||
           (item.turnScope?.kind === 'turn' && turnKeys.has(item.turnScope.turnItemId)) ||

@@ -309,8 +309,7 @@ it('bounds actual first/reopened search and repeated source activation at 20 and
       ).toEqual(Array.from({ length: n }, (_, i) => [{ type: 'text', text: `outside-${i}` }]))
       expect(
         after.filter(
-          (row) =>
-            row.body.kind === 'status' && row.body.presentation?.startsWith('continued-outside')
+          (row) => row.body.kind === 'status' && row.body.presentation === 'history-loaded'
         )
       ).toHaveLength(k === 0 ? 0 : 1)
       const unchanged = await repeat(rig, frames)
