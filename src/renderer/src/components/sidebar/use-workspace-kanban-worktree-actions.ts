@@ -17,6 +17,7 @@ import type {
 import type { WorktreeMetaBatchUpdate } from '../../store/slices/worktree-helpers'
 import type { WorktreeManualOrderCatalog } from './worktree-manual-order-catalog'
 import { isWorkspaceStatusAllowedOnHost } from '@/store/host-workspace-status-columns'
+import { getWorktreeHostIdentity } from '../../../../shared/worktree/host-qualified-identity'
 
 type LaneView = { items: readonly Worktree[] }
 
@@ -30,6 +31,8 @@ export function useWorkspaceKanbanWorktreeActions(args: {
   updateWorktreesMeta: ReturnType<typeof useAppStore.getState>['updateWorktreesMeta']
   workspaceStatuses: readonly WorkspaceStatusDefinition[]
   worktreeById: ReadonlyMap<string, Worktree>
+  /** Every card by host identity; lanes, drops and manual ranks use these keys. */
+  worktreeByKey: ReadonlyMap<string, Worktree>
   manualOrderCatalog: WorktreeManualOrderCatalog
   worktreesByStatus: ReadonlyMap<string, readonly Worktree[]>
 }) {
@@ -37,18 +40,18 @@ export function useWorkspaceKanbanWorktreeActions(args: {
     useAppStore.getState().recordFeatureInteraction('workspace-board-actions')
   }
   const getSourceStatusKeys = useCallback(
-    (worktreeIds: readonly string[]): WorkspaceStatus[] =>
-      worktreeIds.flatMap((worktreeId) => {
-        const worktree = args.worktreeById.get(worktreeId)
+    (worktreeKeys: readonly string[]): WorkspaceStatus[] =>
+      worktreeKeys.flatMap((key) => {
+        const worktree = args.worktreeByKey.get(key)
         return worktree ? [getWorkspaceStatus(worktree, args.workspaceStatuses)] : []
       }),
-    [args.workspaceStatuses, args.worktreeById]
+    [args.workspaceStatuses, args.worktreeByKey]
   )
   const shouldWriteDropManualOrder = useCallback(
-    (worktreeIds: readonly string[], status: WorkspaceStatus): boolean =>
+    (worktreeKeys: readonly string[], status: WorkspaceStatus): boolean =>
       shouldWriteManualOrderForGroupDrop({
         sortBy: args.sortBy,
-        sourceGroupKeys: getSourceStatusKeys(worktreeIds),
+        sourceGroupKeys: getSourceStatusKeys(worktreeKeys),
         targetGroupKey: status
       }),
     [args.sortBy, getSourceStatusKeys]
@@ -95,67 +98,67 @@ export function useWorkspaceKanbanWorktreeActions(args: {
     [args]
   )
   const dropWorktreesInStatus = useCallback(
-    (requestedDrop: {
-      worktreeIds: readonly string[]
+    (drop: {
+      worktreeKeys: readonly string[]
       status: WorkspaceStatus
       dropIndex: number
       writeManualOrder?: boolean
     }) => {
       // Cards that can't take this status (another paired host's column) aren't re-ranked either.
       const state = useAppStore.getState()
-      const worktreeIds = requestedDrop.worktreeIds.filter((worktreeId) => {
-        const current = args.worktreeById.get(worktreeId)
-        return current && isWorkspaceStatusAllowedOnHost(state, current, requestedDrop.status)
+      const rows = drop.worktreeKeys.flatMap((key) => {
+        const current = args.worktreeByKey.get(key)
+        return current && isWorkspaceStatusAllowedOnHost(state, current, drop.status)
+          ? [current]
+          : []
       })
-      if (worktreeIds.length === 0) {
+      if (rows.length === 0) {
         return
       }
-      const drop = { ...requestedDrop, worktreeIds }
-      const updates: WorktreeMetaBatchUpdate[] = []
+      const worktreeKeys = rows.map(getWorktreeHostIdentity)
       const writeManualOrder =
-        drop.writeManualOrder ?? shouldWriteDropManualOrder(drop.worktreeIds, drop.status)
+        drop.writeManualOrder ?? shouldWriteDropManualOrder(worktreeKeys, drop.status)
       const order = writeManualOrder
         ? buildManualOrderUpdatesForGroupDrop({
             groups: args.boardDragGroups,
             targetGroupKey: drop.status,
-            draggedIds: drop.worktreeIds,
+            draggedIds: worktreeKeys,
             dropIndex: drop.dropIndex,
             now: Date.now(),
-            rankByWorktreeId: args.manualOrderCatalog.rankByWorktreeId,
-            allWorktreeIds: args.manualOrderCatalog.orderedIds
+            rankByWorktreeId: args.manualOrderCatalog.rankByKey,
+            allWorktreeIds: args.manualOrderCatalog.orderedKeys
           })
         : { changed: false, updates: new Map<string, { manualOrder: number }>() }
-      for (const worktreeId of drop.worktreeIds) {
-        const current = args.worktreeById.get(worktreeId)
-        if (!current) {
-          continue
-        }
+      const updatesByKey = new Map<string, WorktreeMetaBatchUpdate>()
+      for (const current of rows) {
         const next: Partial<WorktreeMeta> = {}
         if (getWorkspaceStatus(current, args.workspaceStatuses) !== drop.status) {
           next.workspaceStatus = drop.status
         }
-        updates.push({
-          worktreeId,
+        updatesByKey.set(getWorktreeHostIdentity(current), {
+          worktreeId: current.id,
           updates: next,
           executionHostId: current.hostId ?? 'local'
         })
       }
-      for (const [worktreeId, manualOrder] of order.updates) {
-        const entry = updates.find((candidate) => candidate.worktreeId === worktreeId)
+      for (const [key, manualOrder] of order.updates) {
+        const entry = updatesByKey.get(key)
         if (entry) {
           entry.updates = { ...entry.updates, ...manualOrder }
           continue
         }
-        const current = args.worktreeById.get(worktreeId)
+        const current = args.worktreeByKey.get(key)
         if (current) {
-          updates.push({
-            worktreeId,
+          updatesByKey.set(key, {
+            worktreeId: current.id,
             updates: manualOrder,
             executionHostId: current.hostId ?? 'local'
           })
         }
       }
-      const changed = updates.filter((entry) => Object.keys(entry.updates).length > 0)
+      const changed = [...updatesByKey.values()].filter(
+        (entry) => Object.keys(entry.updates).length > 0
+      )
       if (changed.length === 0) {
         return
       }
@@ -164,17 +167,20 @@ export function useWorkspaceKanbanWorktreeActions(args: {
       }
       recordInteraction()
       void args.updateWorktreesMeta(changed)
-      args.maybeSyncTaskStatuses(drop.worktreeIds, drop.status)
+      args.maybeSyncTaskStatuses(
+        rows.map((row) => row.id),
+        drop.status
+      )
     },
     [args, shouldWriteDropManualOrder]
   )
   const dropPointerDraggedWorktreesInStatus = useCallback(
-    (drop: { worktreeIds: readonly string[]; status: WorkspaceStatus; dropIndex: number }) => {
+    (drop: { worktreeKeys: readonly string[]; status: WorkspaceStatus; dropIndex: number }) => {
       dropWorktreesInStatus({
         ...drop,
         dropIndex: resolveFullLaneDropIndex({
           fullLaneIds: args.laneFullWorktreeIds.get(drop.status) ?? [],
-          renderedIds: (args.laneViews.get(drop.status)?.items ?? []).map((item) => item.id),
+          renderedIds: (args.laneViews.get(drop.status)?.items ?? []).map(getWorktreeHostIdentity),
           filteredDropIndex: drop.dropIndex
         })
       })
@@ -183,14 +189,19 @@ export function useWorkspaceKanbanWorktreeActions(args: {
   )
   const dropWorktreesAtEndOfStatus = useCallback(
     (worktreeIds: readonly string[], status: WorkspaceStatus) => {
+      // These drops carry bare ids, so only an id one host owns can name its card.
+      const worktreeKeys = worktreeIds.flatMap((worktreeId) => {
+        const current = args.worktreeById.get(worktreeId)
+        return current ? [getWorktreeHostIdentity(current)] : []
+      })
       dropWorktreesInStatus({
-        worktreeIds,
+        worktreeKeys,
         status,
         dropIndex: args.worktreesByStatus.get(status)?.length ?? 0,
         writeManualOrder: args.sortBy === 'manual'
       })
     },
-    [args.sortBy, args.worktreesByStatus, dropWorktreesInStatus]
+    [args.sortBy, args.worktreeById, args.worktreesByStatus, dropWorktreesInStatus]
   )
   const pinWorktree = useCallback(
     (worktreeId: string) => {
