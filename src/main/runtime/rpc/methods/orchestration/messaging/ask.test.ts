@@ -423,6 +423,7 @@ describe('orchestration RPC methods', () => {
 
   describe('ask, then end the turn', () => {
     const flush = () => new Promise((resolve) => setImmediate(resolve))
+    const askedQuestion = () => db.getInbox(20).find((message) => message.type === 'question')!
 
     function askingDispatch() {
       const task = db.createTask({ spec: 'question work' })
@@ -431,40 +432,28 @@ describe('orchestration RPC methods', () => {
         .spyOn(runtime, 'deliverPendingMessagesForHandle')
         .mockImplementation(() => {})
       const woke = () => deliver.mock.calls.some(([handle]) => handle === `dispatch:${dispatch.id}`)
-      return { dispatch, deliver, woke }
+      return { dispatch, woke }
     }
 
     it('wakes the worker with an answer that arrives after it stopped waiting', async () => {
       setup()
       const { woke } = askingDispatch()
 
-      const asked = (await call('orchestration.ask', {
-        from: 'term_worker',
-        question: 'Which file?',
-        wait: false,
-        timeoutMs: 1
-      })) as { messageId: string; pending?: boolean; next?: string }
-      expect(asked).toMatchObject({
-        pending: true,
-        next: expect.stringContaining('End your turn')
-      })
-      await call('orchestration.reply', {
-        id: asked.messageId,
-        body: 'main.ts',
-        from: 'term_coord'
-      })
+      await expect(
+        call('orchestration.ask', {
+          from: 'term_worker',
+          question: 'Which file?',
+          wait: false,
+          timeoutMs: 1
+        })
+      ).resolves.toMatchObject({ pending: true, next: expect.stringContaining('End your turn') })
+      const question = askedQuestion()
+      await call('orchestration.reply', { id: question.id, body: 'main.ts', from: 'term_coord' })
       await flush()
 
       expect(woke()).toBe(true)
       await expect(call('orchestration.check', { terminal: 'term_worker' })).resolves.toMatchObject(
-        {
-          messages: [
-            expect.objectContaining({
-              body: 'main.ts',
-              thread_id: asked.messageId
-            })
-          ]
-        }
+        { messages: [expect.objectContaining({ body: 'main.ts', thread_id: question.id })] }
       )
     })
 
@@ -475,7 +464,7 @@ describe('orchestration RPC methods', () => {
         from: 'term_worker',
         question: 'Proceed?',
         timeoutMs: 5_000
-      }) as Promise<{ answer: string }>
+      })
       await flush()
 
       await call('orchestration.send', {
@@ -487,12 +476,7 @@ describe('orchestration RPC methods', () => {
       await flush()
       expect(woke()).toBe(true)
 
-      const question = db.getInbox(20).find((message) => message.type === 'question')!
-      await call('orchestration.reply', {
-        id: question.id,
-        body: 'yes',
-        from: 'term_coord'
-      })
+      await call('orchestration.reply', { id: askedQuestion().id, body: 'yes', from: 'term_coord' })
       await expect(asking).resolves.toMatchObject({ answer: 'yes' })
     })
 
@@ -503,21 +487,17 @@ describe('orchestration RPC methods', () => {
         from: 'term_worker',
         question: 'Proceed?',
         timeoutMs: 5_000
-      }) as Promise<{ answer: string; answerMessageId: string }>
-      await flush()
-
-      const question = db.getInbox(20).find((message) => message.type === 'question')!
-      await call('orchestration.reply', {
-        id: question.id,
-        body: 'yes',
-        from: 'term_coord'
       })
-      const answered = await asking
       await flush()
 
-      expect(answered.answer).toBe('yes')
+      const question = askedQuestion()
+      await call('orchestration.reply', { id: question.id, body: 'yes', from: 'term_coord' })
+      await expect(asking).resolves.toMatchObject({ answer: 'yes' })
+      await flush()
+
       expect(woke()).toBe(false)
-      expect(db.getMessageById(answered.answerMessageId)?.read).toBe(1)
+      const answerId = db.getQuestion(question.id)!.answer_message_id!
+      expect(db.getMessageById(answerId)?.read).toBe(1)
     })
   })
 })

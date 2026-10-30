@@ -179,8 +179,8 @@ export function hasPendingAskedQuestion(this: OrchestrationDb, dispatchId: strin
          SELECT 1 FROM remote_questions WHERE dispatch_id = ? AND status = 'pending'
        ) AS pending`
     )
-    .get(dispatchId, dispatchId) as { pending: number }
-  return row.pending === 1
+    .get(dispatchId, dispatchId)
+  return row?.pending === 1
 }
 
 export function closeQuestionsForDispatch(this: OrchestrationDb, dispatchId: string): string[] {
