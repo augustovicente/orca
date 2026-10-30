@@ -344,8 +344,8 @@ it.each([
     const enteredAuthorization = Promise.withResolvers<void>()
     const queued = vi.fn(
       (message: Record<string, unknown>, beforeDispatch?: () => Promise<void>) => {
-        // SAFETY: the real adapter built this SDK user envelope; this is the production transport's same queue boundary.
         const write = queue.push(
+          // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the real adapter built this SDK user envelope; this is the production transport's same queue boundary.
           message as unknown as SDKUserMessage,
           beforeDispatch
             ? () => {
