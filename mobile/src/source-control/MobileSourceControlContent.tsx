@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { ActivityIndicator, Pressable, Text, View } from 'react-native'
 import { Minus, MoreHorizontal, Plus, Sparkles } from 'lucide-react-native'
 import { colors, spacing } from '../theme/mobile-theme'
@@ -14,6 +14,8 @@ import type { MobileSourceControlState } from './use-mobile-source-control-state
 import type { MobileSourceControlPrimaryAction } from './mobile-source-control-primary-action'
 import { styles } from './mobile-source-control-styles'
 import { hubStyles } from './mobile-source-control-hub-styles'
+
+const INITIAL_COMMIT_BAR_HEIGHT = 180
 
 type Props = {
   state: Omit<MobileSourceControlState, 'primaryActionArgs'>
@@ -64,9 +66,13 @@ export function MobileSourceControlContent({ state, primaryAction }: Props) {
   const generateDisabled = busyAction !== null || generateBlockedByMessage
   const createPrHeroActive =
     createPrAction.visible && !createPrAction.disabled && !createPrAction.pushFirst
+  // Measured, because the commit box grows as the message wraps; the first frame uses a one-line bar.
+  const [commitBarHeight, setCommitBarHeight] = useState(INITIAL_COMMIT_BAR_HEIGHT)
+  const listBottomInset = commitBarHeight + spacing.lg
   const fileList = useMemo(
     () => (
       <MobileSourceControlFileList
+        bottomInset={listBottomInset}
         state={{
           sections,
           openFile,
@@ -86,6 +92,7 @@ export function MobileSourceControlContent({ state, primaryAction }: Props) {
       />
     ),
     [
+      listBottomInset,
       sections,
       openFile,
       resolveConflict,
@@ -198,6 +205,7 @@ export function MobileSourceControlContent({ state, primaryAction }: Props) {
       )}
 
       <View
+        onLayout={(event) => setCommitBarHeight(event.nativeEvent.layout.height)}
         style={[
           styles.commitBar,
           {

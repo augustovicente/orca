@@ -5,9 +5,7 @@ import { COMPOSER_CONTROL_SIZE } from '../components/composer-input/composer-inp
 
 export const listStyles = themedStyleSheet(() => ({
   listContent: {
-    paddingHorizontal: spacing.lg,
-    // Clears the floating commit bar: its message box and action row.
-    paddingBottom: 196
+    paddingHorizontal: spacing.lg
   },
   sectionHeader: {
     flexDirection: 'row',
