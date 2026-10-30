@@ -2,11 +2,12 @@ import {
   RuntimeRpcEnvelopeSchema,
   type RuntimeRpcResponse
 } from '../../src/shared/runtime-rpc-envelope'
-import { vi } from 'vitest'
+import { vi, type Mock } from 'vitest'
 import type { RpcContext } from '../../src/main/runtime/rpc/core'
 import { registerRuntimeHandlers } from '../../src/main/ipc/runtime'
 import { RpcDispatcher } from '../../src/main/runtime/rpc/dispatcher'
 import { runtimeApi } from '../../src/preload/api/runtime-bridge'
+import type { RuntimeEnvironmentSubscriptionHandle } from '../../src/preload/runtime-environment-subscriptions'
 
 type DesktopListener = (_event: unknown, response: RuntimeRpcResponse<unknown>) => void
 type DesktopIpcEvent = {
@@ -81,7 +82,7 @@ export function accountStreamDesktopFixture(
     emit: (frame: unknown) => void
     fail: () => void
     end: () => void
-    unsubscribe: ReturnType<typeof vi.fn>
+    unsubscribe: Mock<RuntimeEnvironmentSubscriptionHandle['unsubscribe']>
     releaseHandle: () => void
     releaseDispatch: () => void
     serverId?: string
