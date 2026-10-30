@@ -37,15 +37,15 @@ export function classifySshWorkspaceBrowserRouteError(
   return 'unknown'
 }
 
-// Main keeps verified partitions until target removal; a remounted gate reuses them instead of destroying their guests.
-const verifiedPartitionByRoute = new Map<string, string>()
+// A remounted gate starts from its last verified partition instead of destroying guests already on it.
+const verifiedRoutes = new Map<string, { targetId: string; partition: string }>()
 
 function verifiedRouteState(
   routeKey: string,
   targetId: string,
   expectedSshTargetGeneration: number | undefined
 ): SshWorkspaceBrowserRouteState | null {
-  const partition = verifiedPartitionByRoute.get(routeKey)
+  const partition = verifiedRoutes.get(routeKey)?.partition
   return partition
     ? {
         kind: 'ready',
@@ -123,18 +123,25 @@ export function useSshWorkspaceBrowserRoute(
 
   useEffect(() => {
     if (!targetId) {
+      // Unrouted mounts create local-egress guests; only a fresh preparing pass may destroy them later.
+      for (const [key, route] of verifiedRoutes) {
+        if (route.targetId === sshTargetId) {
+          verifiedRoutes.delete(key)
+        }
+      }
       setState({ kind: 'unrouted' })
       return
     }
     const verified = verifiedRouteState(routeKey, targetId, expectedSshTargetGeneration)
     if (verified) {
+      // Keep guests mounted while main re-confirms; a retired target or profile still reaches the error card.
       setState(verified)
-      return
-    }
-    setState({ kind: 'preparing' })
-    // Preparing during dial can only fail ssh-unavailable; wait for the connected transition.
-    if (awaitingHost) {
-      return
+    } else {
+      setState({ kind: 'preparing' })
+      // Preparing during dial can only fail ssh-unavailable; wait for the connected transition.
+      if (awaitingHost) {
+        return
+      }
     }
     let cancelled = false
     window.api.browser
@@ -146,7 +153,7 @@ export function useSshWorkspaceBrowserRoute(
       })
       .then((result) => {
         if (!cancelled) {
-          verifiedPartitionByRoute.set(routeKey, result.partition)
+          verifiedRoutes.set(routeKey, { targetId, partition: result.partition })
           setState({
             kind: 'ready',
             partition: result.partition,
@@ -156,7 +163,7 @@ export function useSshWorkspaceBrowserRoute(
         }
       })
       .catch((error: unknown) => {
-        verifiedPartitionByRoute.delete(routeKey)
+        verifiedRoutes.delete(routeKey)
         if (!cancelled) {
           const message = error instanceof Error ? error.message : String(error)
           setState({
@@ -170,6 +177,7 @@ export function useSshWorkspaceBrowserRoute(
       cancelled = true
     }
   }, [
+    sshTargetId,
     targetId,
     expectedSshTargetGeneration,
     browserProfileId,

@@ -81,24 +81,54 @@ describe('SshRoutedBrowserPageGate', () => {
     })
   })
 
-  it('keeps an already-routed page mounted when the gate remounts', async () => {
-    mocks.executionHostId = 'ssh:target-a'
-    const gate = (
+  describe('remounting after the route was verified', () => {
+    const gate = () => (
       <SshRoutedBrowserPageGate worktreeId="wt-1" sessionProfileId={null} pageIds={PAGE_IDS}>
         {(partition) => <div data-testid="page">{String(partition)}</div>}
       </SshRoutedBrowserPageGate>
     )
-    const first = render(gate)
-    await settle()
-    first.unmount()
-    mocks.destroyPersistentWebview.mockClear()
+    beforeEach(async () => {
+      mocks.executionHostId = 'ssh:target-a'
+      render(gate())
+      await settle()
+      cleanup()
+      mocks.destroyPersistentWebview.mockClear()
+    })
 
-    // Worktree switches and paint mounts remount the chrome; a preparing pass would destroy and reload the guest.
-    render(gate)
-    expect(screen.getByTestId('page').textContent).toBe('persist:orca-browser-v1-routed')
-    await settle()
-    expect(mocks.destroyPersistentWebview).not.toHaveBeenCalled()
-    expect(mocks.prepare).toHaveBeenCalledOnce()
+    it('keeps the routed page mounted instead of destroying its guest', async () => {
+      // Worktree switches and paint mounts remount the chrome; a preparing pass would destroy and reload the guest.
+      render(gate())
+      expect(screen.getByTestId('page').textContent).toBe('persist:orca-browser-v1-routed')
+      await settle()
+      expect(screen.getByTestId('page').textContent).toBe('persist:orca-browser-v1-routed')
+      expect(mocks.destroyPersistentWebview).not.toHaveBeenCalled()
+    })
+
+    it('shows the error card when main has retired the route since', async () => {
+      mocks.prepare.mockRejectedValue(new Error('browser_local_route_profile_unavailable'))
+      render(gate())
+      await settle()
+      expect(screen.queryByTestId('page')).toBeNull()
+      expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy()
+    })
+
+    it('destroys guests again once the target has been browsed unrouted', async () => {
+      const priorSettings = useAppStore.getState().settings
+      useAppStore.setState({
+        settings: { ...priorSettings, browserSshWorkspaceRoutingEnabled: false }
+      } as Parameters<typeof useAppStore.setState>[0])
+      render(gate()).unmount()
+      useAppStore.setState({ settings: priorSettings } as Parameters<
+        typeof useAppStore.setState
+      >[0])
+      mocks.prepare.mockImplementation(() => new Promise(() => {}))
+
+      // Pages browsed unrouted are parked on the local partition; they must not survive into routed mode.
+      render(gate())
+      expect(screen.queryByTestId('page')).toBeNull()
+      expect(mocks.destroyPersistentWebview).toHaveBeenCalledWith('page-1')
+      expect(mocks.destroyPersistentWebview).toHaveBeenCalledWith('page-2')
+    })
   })
 
   it('never renders the page on failure and retries on demand', async () => {
