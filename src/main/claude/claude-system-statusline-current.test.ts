@@ -443,6 +443,122 @@ it('protects incompatible owners and claims, recovers exact abandoned lifecycle 
     expect((await install('inactive')).state).toBe('installed')
     expect(await fs.readdir(parent)).toEqual([])
 
+    const changingOwner = await seed(`win32:${process.pid}:1`)
+    await fs.rename(ownerPath, claimed)
+    let ownerToken = token
+    let recoveryToken = claimToken
+    const changedToken = '22222222-2222-4222-8222-222222222222'
+    const changedOwner = '33333333-3333-4333-8333-333333333333'
+    const claimPath = () =>
+      join(parent, `managed-hook-install.claim-${ownerToken}-${recoveryToken}.json`)
+    const witnessPath = () =>
+      join(parent, `managed-hook-install.claimed-${ownerToken}-${recoveryToken}.json`)
+    const putClaim = () =>
+      fs.writeFile(
+        claimPath(),
+        JSON.stringify({
+          ownerToken,
+          claimToken: recoveryToken,
+          pid: process.pid,
+          hostIdentity: 'win32:fixture-host',
+          processIdentity: `win32:${process.pid}:1777777777000`
+        })
+      )
+    await putClaim()
+    let reads = 0
+    let observations = 0
+    const samples: number[] = []
+    const invalidationCancel = new AbortController()
+    seam.cim = async () => {
+      observations++
+      return { stdout: '1777777777000', stderr: '' }
+    }
+    seam.after = async (method, path) => {
+      if (method !== 'readFile' || path !== claimPath() || observations === 0) {
+        return
+      }
+      if (++reads % 2 !== 0) {
+        return
+      }
+      samples.push(observations)
+      const priorClaimPath = claimPath(),
+        priorWitness = witnessPath()
+      if (reads === 2) {
+        recoveryToken = changedToken
+        await putClaim()
+        await fs.rename(priorWitness, witnessPath())
+        await fs.unlink(priorClaimPath)
+      } else if (reads === 4) {
+        ownerToken = changedOwner
+        await putClaim()
+        await fs.writeFile(witnessPath(), JSON.stringify({ ...changingOwner, token: ownerToken }))
+        await fs.unlink(lock)
+        await fs.link(witnessPath(), lock)
+        await fs.unlink(priorClaimPath)
+        await fs.unlink(priorWitness)
+      } else {
+        invalidationCancel.abort()
+      }
+    }
+    try {
+      const status = await service().installSystem({
+        ...current,
+        target: { kind: 'system-default', configDir: dirname(file('invalidation')) },
+        signal: invalidationCancel.signal
+      })
+      expect(status.state).toBe('error')
+      expect(samples).toEqual([2, 3, 5])
+      expect(reads).toBe(6)
+      await expect(fs.readFile(file('invalidation'))).rejects.toMatchObject({ code: 'ENOENT' })
+      expect(JSON.parse(await fs.readFile(lock, 'utf8')).token).toBe(changedOwner)
+      console.log('SL_ROLE_INVALIDATION', JSON.stringify({ reads, samples, observations, status }))
+    } finally {
+      seam.after = null
+      invalidationCancel.abort()
+    }
+    for (const path of [lock, claimPath(), witnessPath()]) {
+      await fs.unlink(path)
+    }
+
+    await seed(`win32:${process.pid}:1`)
+    const sourceBytes = await fs.readFile(lock, 'utf8')
+    const sourceCancel = new AbortController()
+    let sourceSettled = false
+    seam.calls = new Map()
+    const canceledSource = await pausedEdit(
+      (method, path) => method === 'readFile' && path === ownerPath,
+      () =>
+        service()
+          .installSystem({
+            ...current,
+            target: { kind: 'system-default', configDir: dirname(file('canceled-source')) },
+            signal: sourceCancel.signal
+          })
+          .finally(() => {
+            sourceSettled = true
+          }),
+      async () => {
+        sourceCancel.abort()
+        await new Promise((resolve) => setImmediate(resolve))
+        expect(sourceSettled).toBe(false)
+      }
+    )
+    expect(canceledSource.state).toBe('error')
+    expect(sourceSettled).toBe(true)
+    expect(
+      [...seam.calls].filter(([key]) =>
+        key.startsWith(`writeFile:${parent}/managed-hook-install.claim-`)
+      )
+    ).toEqual([])
+    expect(await fs.readFile(lock, 'utf8')).toBe(sourceBytes)
+    await expect(fs.readFile(file('canceled-source'))).rejects.toMatchObject({ code: 'ENOENT' })
+    console.log(
+      'SL_CANCELED_SOURCE_JOIN',
+      JSON.stringify({ canceledSource, sourceSettled, claimWrites: 0 })
+    )
+    seam.calls = null
+    await clean()
+
     const raw = Promise.withResolvers<{ stdout: string; stderr: string }>()
     let admitted = 0
     const rawEntered = Promise.withResolvers<void>()

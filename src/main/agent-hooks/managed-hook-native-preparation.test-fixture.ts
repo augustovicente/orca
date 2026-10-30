@@ -209,7 +209,14 @@ export async function joinNativePreparation(home: string) {
             throw new Error('Birth observer child exited before ready')
           })
         ])
-        const rows = []
+        const rows: {
+          pid: number
+          native: number | null
+          nativeMs: number
+          legacy: string | null | undefined
+          canonicalNative: string | null
+          exact: boolean | null
+        }[] = []
         for (const pid of [process.pid, child.pid!]) {
           const before = performance.now()
           const native = readWindowsProcessCreationTime(pid)

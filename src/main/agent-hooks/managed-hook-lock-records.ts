@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { link, lstat, readdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import type { ManagedHookLockOwner, ManagedHookLockClaim } from './managed-hook-install-lock'
+export type { ManagedHookLockOwner, ManagedHookLockClaim } from './managed-hook-install-lock'
 import {
   readManagedHookProcessIdentity,
   type ManagedHookOwnerPolicy
@@ -26,21 +28,6 @@ const CLAIM_RECORD_PATTERN = new RegExp(
 const activeOwnerTokens = new Set<string>()
 export const activeClaimTokens = new Set<string>()
 
-export type ManagedHookLockOwner = {
-  token: string
-  pid: number
-  hostIdentity: string
-  processIdentity: string
-}
-
-export type ManagedHookLockClaim = {
-  ownerToken: string
-  claimToken: string
-  pid: number
-  hostIdentity: string
-  processIdentity: string
-}
-
 export type ManagedHookLockState =
   | { kind: 'missing' }
   | { kind: 'owned'; owner: ManagedHookLockOwner }
@@ -64,6 +51,19 @@ export function claimedOwnerFileName(ownerToken: string, claimToken: string): st
 
 export function claimRecordFileName(ownerToken: string, claimToken: string): string {
   return `managed-hook-install.claim-${ownerToken}-${claimToken}.json`
+}
+
+export async function findClaimedOwner(
+  lockParent: string,
+  ownerToken: string
+): Promise<{ claimToken: string; path: string } | null | undefined> {
+  const matches = (await readdir(lockParent)).flatMap((entry) => {
+    const match = CLAIMED_OWNER_PATTERN.exec(entry)
+    return match?.[1] === ownerToken && match[2]
+      ? [{ claimToken: match[2], path: join(lockParent, entry) }]
+      : []
+  })
+  return matches.length === 1 ? matches[0] : matches.length === 0 ? null : undefined
 }
 
 export function deactivateManagedHookLockOwner(ownerToken: string): void {

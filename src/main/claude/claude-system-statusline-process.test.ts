@@ -1,4 +1,14 @@
-import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import {
+  link,
+  lstat,
+  mkdtemp,
+  mkdir,
+  readFile,
+  readdir,
+  realpath,
+  rm,
+  writeFile
+} from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { once } from 'node:events'
@@ -9,6 +19,7 @@ import { afterEach, expect, it } from 'vitest'
 import { JSONC_PARSER_ESM_ALIAS } from '../../../config/build-plugins/jsonc-parser-esm'
 import { isPlainObject } from '../agent-hooks/hooks-json-read'
 import { readManagedHookProcessIdentity } from '../agent-hooks/managed-hook-owner-identity'
+import { ownerFileName } from '../agent-hooks/managed-hook-lock-records'
 
 const roots: string[] = []
 const children: { child: ReturnType<typeof spawnProcess>; closed: Promise<unknown> }[] = []
@@ -21,6 +32,7 @@ afterEach(async () => {
   await Promise.all(children.splice(0).map(({ closed }) => closed))
   for (const path of roots.splice(0)) {
     await rm(path, { recursive: true, force: true })
+    console.log('SL_PROCESS_HOME_REMOVED', path)
   }
 })
 
@@ -67,7 +79,7 @@ async function fixture() {
         };
         const start = performance.now();
         const result = operation === 'residues' ? residues() : operation === 'reset' ? service.removeSystem(options) : service.installSystem(options);
-        result.then(status => { process.send?.({ phase: 'done', status, metrics: { ...metrics, ...probeMetrics, ...nativeMetrics, elapsed: performance.now() - start } }); process.disconnect(); });
+        result.then(status => { process.send?.({ phase: 'done', status, metrics: { ...metrics, ...probeMetrics, ...nativeMetrics, elapsed: performance.now() - start } }); if (mode !== 'release-read') process.disconnect(); });
         void barrier; void mode;`
     },
     outfile: entry,
@@ -110,12 +122,18 @@ async function fixture() {
         export * from 'node:child_process';
         import * as cp from 'node:child_process';
         import { promisify } from 'node:util';
-        export const probeMetrics = { probes: 0, outstanding: 0, maxProbes: 0 };
+        export const probeMetrics = { probes: 0, outstanding: 0, maxProbes: 0, cimPids: [] };
         export function execFile(...args) { return cp.execFile(...args); }
         Object.defineProperty(execFile, promisify.custom, { value: async (...args) => {
           probeMetrics.probes++; probeMetrics.maxProbes = Math.max(probeMetrics.maxProbes, ++probeMetrics.outstanding);
           try {
             if (process.env.ORCA_TEST_NATIVE_MODE && String(args[0]).endsWith('reg.exe')) return { stdout: 'MachineGuid    REG_SZ    fixture-host', stderr: '' };
+            if (process.env.ORCA_TEST_NATIVE_MODE === 'conflict-proof' && String(args[0]).endsWith('powershell.exe')) {
+              const pid = Number(String(args[1]).match(/ProcessId = ([0-9]+)/)?.[1]);
+              if (!Number.isSafeInteger(pid) || pid <= 0) throw new Error('Missing actual CIM PID');
+              probeMetrics.cimPids.push(pid);
+              return { stdout: '1777777777000', stderr: '' };
+            }
             return await promisify(cp.execFile)(...args);
           } finally { probeMetrics.outstanding--; }
         }});`
@@ -133,7 +151,7 @@ async function fixture() {
         import * as fs from 'node:fs/promises';
         const [target, , mode] = process.argv.slice(2);
         let armed = true, resume;
-        export const metrics = { lockListings: 0, cleanupNames: 0, rootListings: 0 };
+        export const metrics = { lockListings: 0, cleanupNames: 0, rootListings: 0, ownerReads: 0 };
         export async function readdir(path,...args) {
           const names = await fs.readdir(path,...args);
           if (String(path).endsWith('/claude-statusline/lock')) { metrics.lockListings++; metrics.cleanupNames += names.length; }
@@ -147,11 +165,15 @@ async function fixture() {
         process.on('message', m => { if (m === 'exit') process.exit(0); if (m === 'continue' || m === 'shutdown') { armed = false; resume?.(); } });
         export async function rename(a,b) {
           await fs.rename(a,b);
+          if (mode === 'claiming' && String(b).includes('/managed-hook-install.claimed-')) await barrier('claiming');
           if (String(b) === target + '/settings.json' && mode === 'published' && JSON.parse(await fs.readFile(b,'utf8')).statusLine) await barrier('published');
           if (String(b) === target + '/settings.json' && mode === 'retired' && !JSON.parse(await fs.readFile(b,'utf8')).statusLine) await barrier('retired');
         }
         export async function readFile(path,...args) {
+          const owner = String(path).includes('/managed-hook-install.owner-');
+          if (owner) metrics.ownerReads++;
           const data = await fs.readFile(path,...args);
+          if (owner && mode === 'release-read') await barrier('release-read');
           if (mode === 'snapshot' && String(path) === target + '/settings.json') await barrier('snapshot');
           return data;
         }
@@ -210,6 +232,7 @@ async function fixture() {
       child,
       closed,
       wait: waitForPhase,
+      stderr: () => stderr,
       metrics: async () => (await waitForPhase('done')).metrics,
       done: async () => {
         const result = await waitForPhase('done')
@@ -329,6 +352,150 @@ it.skipIf(process.platform === 'win32')(
     console.log('SL_SCOPED_CLEANUP', JSON.stringify(rows))
   },
   30_000
+)
+
+// Real processes/fs/protocol with Windows evidence boundary fixtures; this is not native Windows proof.
+it.skipIf(process.platform === 'win32')(
+  'reuses unchanged owner and live claimant evidence across actual acquire recovery iterations',
+  async () => {
+    const f = await fixture()
+    const storage = join(f.home, '.orca/agent-hooks/claude-statusline')
+    const lockParent = join(storage, 'lock')
+    await mkdir(lockParent, { recursive: true })
+    const owner = {
+      token: 'f1991990-3119-4199-8199-000000000001',
+      pid: process.pid,
+      hostIdentity: 'win32:fixture-host',
+      processIdentity: `win32:${process.pid}:1`
+    }
+    const lock = join(lockParent, 'managed-hook-install.lock')
+    const ownerPath = join(lockParent, ownerFileName(owner.token))
+    const ownerBytes = JSON.stringify(owner)
+    await writeFile(ownerPath, ownerBytes)
+    await link(ownerPath, lock)
+    const claimant = await f.start('claimant', 'install', 'claiming', 'native')
+    let counts: number[] = []
+    try {
+      await claimant.wait('claiming')
+      const names = await readdir(lockParent)
+      const claimedName = names.find((name) => name.startsWith('managed-hook-install.claimed-'))!
+      const claimName = names.find((name) => name.startsWith('managed-hook-install.claim-'))!
+      const claimedPath = join(lockParent, claimedName)
+      const claimPath = join(lockParent, claimName)
+      const claimBytes = await readFile(claimPath, 'utf8')
+      const claim = JSON.parse(claimBytes)
+      expect(claim.pid).toBe(claimant.child.pid)
+      expect(claim.processIdentity).toBe(`win32:${claimant.child.pid}:1777777777000`)
+      const canonicalStats = await lstat(lock)
+      expect(canonicalStats.nlink).toBe(2)
+      expect((await lstat(claimedPath)).ino).toBe(canonicalStats.ino)
+      expect(await readFile(claimedPath, 'utf8')).toBe(ownerBytes)
+
+      const contender = await f.start('contender', 'install', '', 'conflict-proof')
+      const status = await contender.done()
+      const metrics = await contender.metrics()
+      if (!isPlainObject(metrics) || !Array.isArray(metrics.cimPids)) {
+        throw new Error('Missing actual contender observations')
+      }
+      const cimPids = metrics.cimPids
+      counts = [owner.pid, claim.pid].map(
+        (pid) => cimPids.filter((observed) => observed === pid).length
+      )
+      console.log(
+        'SL_TWO_ROLE_ITERATIONS',
+        JSON.stringify({ owner, claim, status, metrics, counts })
+      )
+      expect(status.state).toBe('error')
+      expect(metrics.ownerReads).toBeGreaterThanOrEqual(2)
+      await expect(readFile(f.settings('contender'))).rejects.toMatchObject({ code: 'ENOENT' })
+      expect(await readFile(lock, 'utf8')).toBe(ownerBytes)
+      expect(await readFile(claimPath, 'utf8')).toBe(claimBytes)
+      expect(await readFile(claimedPath, 'utf8')).toBe(ownerBytes)
+      expect((await lstat(claimedPath)).nlink).toBe(2)
+    } finally {
+      if (claimant.child.connected) {
+        claimant.child.send('continue')
+      }
+      console.log('SL_TWO_ROLE_CLAIMANT_JOIN', JSON.stringify(await claimant.done()))
+    }
+    const next = await f.start('contender', 'install', '', 'native')
+    const nextStatus = await next.done()
+    expect(nextStatus.state).toBe('installed')
+    expect(JSON.parse(await readFile(f.settings('contender'), 'utf8')).statusLine).toBeDefined()
+    const receiptName = (await readdir(storage)).find((name) => name.endsWith('.json'))!
+    const receipt = JSON.parse(await readFile(join(storage, receiptName), 'utf8'))
+    expect(receipt.destinations).toEqual([
+      expect.objectContaining({ path: f.settings('contender'), phase: 'managed' })
+    ])
+    expect(await readdir(lockParent)).toEqual([])
+    console.log('SL_TWO_ROLE_RECOVERY', JSON.stringify({ nextStatus, receipt, protocol: [] }))
+    expect(counts).toEqual([1, 1])
+  }
+)
+
+// Real processes/fs/protocol with Windows evidence boundary fixtures; this is not native Windows proof.
+it.skipIf(process.platform === 'win32')(
+  'finishes ordinary filesystem release after a slow owner read without blocking a later process',
+  async () => {
+    const f = await fixture()
+    const storage = join(f.home, '.orca/agent-hooks/claude-statusline')
+    const lockParent = join(storage, 'lock')
+    const owner = await f.start('X', 'install', 'release-read', 'native')
+    let released = false
+    try {
+      await owner.wait('release-read')
+      const heldAt = performance.now()
+      expect(JSON.parse(await readFile(f.settings('X'), 'utf8')).statusLine).toBeDefined()
+      const receiptName = (await readdir(storage)).find((name) => name.endsWith('.json'))!
+      const receipt = JSON.parse(await readFile(join(storage, receiptName), 'utf8'))
+      expect(receipt.destinations).toEqual([
+        expect.objectContaining({ path: f.settings('X'), phase: 'managed' })
+      ])
+      const blocked = await f.start('other', 'install', '', 'native')
+      const blockedStatus = await blocked.done()
+      const heldMs = performance.now() - heldAt
+      expect(blockedStatus.state).toBe('error')
+      expect(heldMs).toBeGreaterThanOrEqual(250)
+      owner.child.send('continue')
+      const original = await owner.wait('done')
+      expect(original.status).toMatchObject({ state: 'installed' })
+      const protocol = await readdir(lockParent)
+      released = !protocol.includes('managed-hook-install.lock')
+      console.log(
+        'SL_ORDINARY_RELEASE',
+        JSON.stringify({ heldMs, original, blockedStatus, protocol, warning: owner.stderr() })
+      )
+      expect(protocol).toEqual([])
+      const after = await f.start('other', 'install', '', 'native')
+      const afterStatus = await after.done()
+      console.log('SL_RELEASE_LIVE_OWNER_RETRY', JSON.stringify({ afterStatus, released }))
+      expect(afterStatus.state).toBe('installed')
+      expect(JSON.parse(await readFile(f.settings('other'), 'utf8')).statusLine).toBeDefined()
+      expect(await readdir(lockParent)).toEqual([])
+    } finally {
+      if (owner.child.connected) {
+        owner.child.send('continue')
+      }
+      await owner.wait('done')
+      if (owner.child.connected) {
+        owner.child.send('exit')
+      }
+      await owner.closed
+      console.log('SL_RELEASE_OWNER_JOINED', owner.child.pid)
+    }
+    const recovery = await f.start('other', 'install', '', 'native')
+    const status = await recovery.done()
+    expect(status.state).toBe('installed')
+    expect(JSON.parse(await readFile(f.settings('other'), 'utf8')).statusLine).toBeDefined()
+    const receiptName = (await readdir(storage)).find((name) => name.endsWith('.json'))!
+    const receipt = JSON.parse(await readFile(join(storage, receiptName), 'utf8'))
+    expect(receipt.destinations).toContainEqual(
+      expect.objectContaining({ path: f.settings('other'), phase: 'managed' })
+    )
+    expect(await readdir(lockParent)).toEqual([])
+    console.log('SL_RELEASE_EXIT_RECOVERY', JSON.stringify({ status, receipt, protocol: [] }))
+    expect(released).toBe(true)
+  }
 )
 
 // Real processes/fs/protocol with Windows evidence boundary fixtures; this is not native Windows proof.

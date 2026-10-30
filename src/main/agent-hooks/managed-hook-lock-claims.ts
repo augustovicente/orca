@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto'
-import { readdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
+import { readFile, rename, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import {
-  CLAIMED_OWNER_PATTERN,
   activeClaimTokens,
   claimedOwnerFileName,
   claimRecordFileName,
+  findClaimedOwner,
   hasCode,
   inspectManagedHookLock,
   ownerFileName,
@@ -15,44 +15,25 @@ import {
   type ManagedHookLockClaim,
   type ManagedHookLockOwner
 } from './managed-hook-lock-records'
+import type { AcquiredClaim, ClaimResult } from './managed-hook-install-lock'
 import { readWindowsProcessCreationTime } from '../windows/windows-process-table'
 import {
+  canonicalBirth,
   readManagedHookProcessIdentity,
   readProcessPresence,
-  readWindowsProcessIdentity
+  readWindowsProcessIdentity,
+  type ManagedHookLifecycle,
+  type ManagedHookOwnerPolicy,
+  type ManagedHookEvidenceReader
 } from './managed-hook-owner-identity'
 
-export type ManagedHookLifecycle = 'same' | 'ended' | 'unknown'
-export type ManagedHookEvidenceReader = <T>(
-  signal: AbortSignal,
-  read: () => Promise<T>
-) => Promise<T>
-export type ManagedHookOwnerPolicy = {
-  check: () => void
-  observe: (
-    record: { pid: number; processIdentity: string },
-    token: string,
-    active: boolean,
-    conflict?: boolean
-  ) => Promise<ManagedHookLifecycle>
-}
+export type {
+  ManagedHookLifecycle,
+  ManagedHookOwnerPolicy,
+  ManagedHookEvidenceReader
+} from './managed-hook-owner-identity'
 
 export type ManagedHookLockRemoval = 'removed' | 'active' | 'foreign' | 'unverifiable'
-
-type AcquiredClaim = {
-  kind: 'claimed'
-  claim: ManagedHookLockClaim
-  claimRecordPath: string
-  claimedOwnerPath: string
-}
-
-type ClaimResult = AcquiredClaim | { kind: 'active' | 'foreign' | 'unverifiable' | 'contended' }
-
-function canonicalBirth(identity: string, pid: number): number | undefined {
-  const match = /^win32:([1-9]\d*):([1-9]\d*)$/.exec(identity)
-  const birth = Number(match?.[2])
-  return match?.[1] === String(pid) && Number.isSafeInteger(birth) && birth > 0 ? birth : undefined
-}
 
 /** Compare only compatible incarnation facts; opaque identities never prove PID reuse. */
 export function scopedWindowsOwnerPolicy(
@@ -60,12 +41,43 @@ export function scopedWindowsOwnerPolicy(
   signal: AbortSignal,
   readEvidence?: ManagedHookEvidenceReader
 ): ManagedHookOwnerPolicy {
-  let observed: { token: string; result: ManagedHookLifecycle } | undefined
+  type Observation = {
+    token: string
+    pid: number
+    processIdentity: string
+    result?: ManagedHookLifecycle
+  }
+  let ownerObservation: Observation | undefined
+  let claimObservation: Observation | undefined
+  const matches = (
+    observation: Observation | undefined,
+    record: { pid: number; processIdentity: string },
+    token: string
+  ) =>
+    observation?.token === token &&
+    observation.pid === record.pid &&
+    observation.processIdentity === record.processIdentity
   const check = () => signal.throwIfAborted()
   return {
     check,
-    async observe(record, token, active, conflict = false) {
+    async observe(record, token, active, conflict = false, owner) {
       check()
+      const canonical = owner ?? { ...record, token }
+      if (!matches(ownerObservation, canonical, canonical.token)) {
+        ownerObservation = {
+          token: canonical.token,
+          pid: canonical.pid,
+          processIdentity: canonical.processIdentity
+        }
+        claimObservation = undefined
+      }
+      let observed = ownerObservation!
+      if (owner) {
+        if (!matches(claimObservation, record, token)) {
+          claimObservation = { token, pid: record.pid, processIdentity: record.processIdentity }
+        }
+        observed = claimObservation!
+      }
       if (record.pid === process.pid && active) {
         return 'same'
       }
@@ -83,7 +95,7 @@ export function scopedWindowsOwnerPolicy(
       if (saved === undefined || !conflict || !readEvidence) {
         return 'unknown'
       }
-      if (observed?.token === token) {
+      if (observed.result !== undefined) {
         return observed.result
       }
       const identity = await readEvidence(signal, () => readWindowsProcessIdentity(record.pid))
@@ -95,23 +107,10 @@ export function scopedWindowsOwnerPolicy(
       } else if (birth !== undefined) {
         result = birth === saved ? 'same' : 'ended'
       }
-      observed = { token, result }
+      observed.result = result
       return result
     }
   }
-}
-
-async function findClaimedOwner(
-  lockParent: string,
-  ownerToken: string
-): Promise<{ claimToken: string; path: string } | null | undefined> {
-  const matches = (await readdir(lockParent)).flatMap((entry) => {
-    const match = CLAIMED_OWNER_PATTERN.exec(entry)
-    return match?.[1] === ownerToken && match[2]
-      ? [{ claimToken: match[2], path: join(lockParent, entry) }]
-      : []
-  })
-  return matches.length === 1 ? matches[0] : matches.length === 0 ? null : undefined
 }
 
 async function resolveClaimSource(
@@ -167,7 +166,8 @@ async function resolveClaimSource(
       priorClaim,
       priorClaim.claimToken,
       activeClaimTokens.has(priorClaim.claimToken),
-      true
+      true,
+      owner
     )
     if (lifecycle !== 'ended') {
       return { kind: lifecycle === 'same' ? 'active' : 'unverifiable' }
@@ -193,13 +193,14 @@ async function claimManagedHookLock(
   owner: ManagedHookLockOwner,
   hostIdentity: string,
   processIdentity: string,
-  policy?: ManagedHookOwnerPolicy
+  policy?: ManagedHookOwnerPolicy,
+  beforeClaim?: () => void
 ): Promise<ClaimResult> {
   const source = await resolveClaimSource(lockParent, owner, hostIdentity, processIdentity, policy)
   if (source.kind !== 'ready') {
     return source
   }
-  policy?.check()
+  beforeClaim?.()
   const claimToken = randomUUID()
   const claim = {
     ownerToken: owner.token,
@@ -254,14 +255,16 @@ export async function removeManagedHookLock(
   owner: ManagedHookLockOwner,
   hostIdentity: string,
   processIdentity: string,
-  policy?: ManagedHookOwnerPolicy
+  policy?: ManagedHookOwnerPolicy,
+  beforeClaim?: () => void
 ): Promise<ManagedHookLockRemoval> {
   const claimed = await claimManagedHookLock(
     lockParent,
     owner,
     hostIdentity,
     processIdentity,
-    policy
+    policy,
+    beforeClaim
   )
   if (claimed.kind === 'contended') {
     return 'active'

@@ -4,6 +4,7 @@ import { link, lstat, mkdir, readFile, readlink, unlink, writeFile } from 'node:
 import { join, win32 } from 'node:path'
 import { promisify } from 'node:util'
 import { readWindowsProcessCreationTime } from '../windows/windows-process-table'
+import type { ManagedHookLockOwner } from './managed-hook-lock-records'
 
 const runtimeHostIdentity = `runtime:${randomUUID()}`
 const runtimeProcessIdentity = `runtime:${randomUUID()}`
@@ -13,7 +14,27 @@ let selfProcessIdentityPromise: Promise<string | null | undefined> | undefined
 const HOST_TOKEN_PATTERN = /^[\da-f]{8}-[\da-f]{4}-4[\da-f]{3}-[89ab][\da-f]{3}-[\da-f]{12}$/i
 const WINDOWS_PROCESS_IDENTITY_TIMEOUT_MS = 5_000
 
-export type { ManagedHookOwnerPolicy, ManagedHookEvidenceReader } from './managed-hook-lock-claims'
+export type ManagedHookLifecycle = 'same' | 'ended' | 'unknown'
+export type ManagedHookEvidenceReader = <T>(
+  signal: AbortSignal,
+  read: () => Promise<T>
+) => Promise<T>
+export type ManagedHookOwnerPolicy = {
+  check: () => void
+  observe: (
+    record: { pid: number; processIdentity: string },
+    token: string,
+    active: boolean,
+    conflict?: boolean,
+    owner?: ManagedHookLockOwner
+  ) => Promise<ManagedHookLifecycle>
+}
+
+export function canonicalBirth(identity: string, pid: number): number | undefined {
+  const match = /^win32:([1-9]\d*):([1-9]\d*)$/.exec(identity)
+  const birth = Number(match?.[2])
+  return match?.[1] === String(pid) && Number.isSafeInteger(birth) && birth > 0 ? birth : undefined
+}
 
 export function readScopedWindowsSelfIdentity(): string {
   const birth = readWindowsProcessCreationTime(process.pid)

@@ -7,8 +7,7 @@ import {
   deactivateManagedHookLockOwner,
   inspectManagedHookLock,
   isManagedHookLockOwnerActive,
-  tryCreateManagedHookLock,
-  type ManagedHookLockOwner
+  tryCreateManagedHookLock
 } from './managed-hook-lock-records'
 import {
   readManagedHookHostIdentity,
@@ -22,6 +21,29 @@ const LOCK_WAIT_TIMEOUT_MS = 10_000
 const LOCK_RETRY_MS = 20
 const scopedPreparation = new Map<string, Promise<string | null | undefined>>()
 let scopedProcessIdentity: Promise<string | null | undefined> | undefined
+
+export type ManagedHookLockOwner = {
+  token: string
+  pid: number
+  hostIdentity: string
+  processIdentity: string
+}
+
+export type ManagedHookLockClaim = Omit<ManagedHookLockOwner, 'token'> & {
+  ownerToken: string
+  claimToken: string
+}
+
+export type AcquiredClaim = {
+  kind: 'claimed'
+  claim: ManagedHookLockClaim
+  claimRecordPath: string
+  claimedOwnerPath: string
+}
+
+export type ClaimResult =
+  | AcquiredClaim
+  | { kind: 'active' | 'foreign' | 'unverifiable' | 'contended' }
 
 export async function waitForManagedHookPreparation<T>(
   preparation: Promise<T>,
@@ -231,7 +253,15 @@ async function acquireInstallLock(
           state.owner,
           hostIdentity,
           processIdentity,
+          policy,
           policy
+            ? () => {
+                policy.check()
+                if (Date.now() >= deadline) {
+                  throw new Error('Timed out waiting for another managed-hook install to finish')
+                }
+              }
+            : undefined
         )
         if (removal === 'removed') {
           if (Date.now() >= deadline) {
