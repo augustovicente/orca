@@ -1,4 +1,6 @@
 import { expect, it, vi } from 'vitest'
+import { sendMessageToAgent } from './agent-message-send'
+import { SendParams } from '../../../shared/rpc-contract/structured-agent-session-params'
 import type { Tab } from '../../../shared/tab-types'
 import { beginStructuredAgentLaunchSettlement } from './structured-agent-launch-settlement'
 import {
@@ -24,6 +26,8 @@ import {
   mocks,
   deferred,
   createParams,
+  start,
+  submission,
   created,
   draft
 } from './structured-agent-session-launch-create-message.test-harness'
@@ -164,6 +168,87 @@ export function registerCreateCompletionTests(): void {
       view.unmount()
     }
   )
+
+  it('sends notes after an unknown opening ends, while live sends and host refusals still own admission', async () => {
+    const create = deferred<unknown>()
+    const notesReply = deferred<unknown>()
+    mocks.call.mockReturnValue(create.promise)
+    const launch = start()
+    await vi.waitFor(() => expect(mocks.call).toHaveBeenCalledOnce())
+    const original = createParams().firstMessage
+    mocks.tabs = [
+      {
+        id: 'opening-tab',
+        entityId: launch.sessionId,
+        contentType: 'agent-session',
+        executionHostId: 'local',
+        worktreeId: 'workspace-1',
+        groupId: 'group-1',
+        label: 'Codex Chat',
+        customLabel: null,
+        color: null,
+        sortOrder: 0,
+        createdAt: 1
+      }
+    ]
+    const sendNotes = () =>
+      sendMessageToAgent({
+        worktreeId: 'workspace-1',
+        target: { kind: 'structured-session', sessionId: launch.sessionId },
+        prompt: 'review notes with the full requested change'
+      })
+    await expect(sendNotes()).resolves.toMatchObject({ status: 'not-ready' })
+    await vi.advanceTimersByTimeAsync(30_000)
+    await expect(launch.promptDeliveryResult).resolves.toMatchObject({ unconfirmed: true })
+    writeNativeChatDraftCache(structuredAgentSessionDraftScopeKey(launch.sessionId), 'newer draft')
+    mocks.call.mockImplementation((_target, method) =>
+      method === 'agentSession.history'
+        ? Promise.resolve({ ok: true, page: created().value.page })
+        : notesReply.promise
+    )
+    const sendCalls = () =>
+      mocks.call.mock.calls.filter(([, method]) => method === 'agentSession.send')
+    const notes = sendNotes()
+    await vi.waitFor(() => expect(sendCalls()).toHaveLength(1))
+    const sent = SendParams.parse(sendCalls()[0]?.[2])
+    expect(sent.body.blocks).toEqual([
+      { type: 'text', text: 'review notes with the full requested change' }
+    ])
+    expect(sent.envelope.clientOperationId).not.toBe(original?.clientMessageId)
+    await expect(sendNotes()).resolves.toMatchObject({ status: 'not-ready' })
+    notesReply.resolve({
+      ok: false,
+      refusal: {
+        code: 'agent_session_conflict',
+        message: 'The host queue sends first.',
+        details: { reason: 'queuedMessagesAhead' }
+      }
+    })
+    await expect(notes).resolves.toEqual({ status: 'not-writable', code: 'session-send-refused' })
+    mocks.call.mockImplementation(async (_target, method, params) => {
+      expect(method).toBe('agentSession.send')
+      const request = SendParams.parse(params)
+      return {
+        ok: true,
+        replayed: false,
+        fence: 1,
+        cursor: { epoch: 'epoch-1', sequence: 2 },
+        value: {
+          clientMessageId: request.envelope.clientOperationId,
+          submission: submission(request.envelope.clientOperationId)
+        }
+      }
+    })
+    await expect(sendNotes()).resolves.toEqual({ status: 'sent' })
+    expect(readStructuredAgentLaunchRecord(launch.sessionId)?.firstMessage).toEqual(original)
+    expect(getStructuredAgentSessionPendingSends(launch.sessionId)).toMatchObject([
+      { clientMessageId: original?.clientMessageId, body: original?.body, phase: 'unconfirmed' }
+    ])
+    expect(draft(launch.sessionId)).toBe('newer draft')
+    expect(
+      mocks.call.mock.calls.filter(([, method]) => method === 'agentSession.create')
+    ).toHaveLength(1)
+  })
 
   it('settles an exact journal receipt before an unanswered create reply, without waiting on that RPC', async () => {
     const create = deferred<unknown>()
