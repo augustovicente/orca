@@ -372,12 +372,6 @@ describe('MCP tool-call approvals', () => {
   })
 
   it.each([
-    {
-      mode: 'url',
-      requestedSchema: undefined,
-      url: 'https://example.com',
-      elicitationId: 'link-1'
-    },
     { mode: 'future-mode', requestedSchema: undefined },
     { mode: 'openai/form' },
     { requestedSchema: { type: 'object', properties: [] } }
@@ -389,7 +383,7 @@ describe('MCP tool-call approvals', () => {
     ).toBeNull()
   })
 
-  it('leaves elicitations that ask for form input to the safe decline', () => {
+  it('registers general forms independently from empty tool approvals', () => {
     const registry = new CodexPromptRegistry()
 
     expect(
@@ -399,10 +393,10 @@ describe('MCP tool-call approvals', () => {
           requestedSchema: { type: 'object', properties: { name: { type: 'string' } } }
         })
       )
-    ).toBeNull()
+    ).toMatchObject({ questionIds: ['name'], elicitation: { kind: 'form' } })
     expect(
       registry.register(mcpElicitationRequest(10, { ...MCP_TOOL_APPROVAL, _meta: {} }))
-    ).toBeNull()
+    ).toMatchObject({ questionIds: [], elicitation: { kind: 'form' } })
   })
 
   it.each([

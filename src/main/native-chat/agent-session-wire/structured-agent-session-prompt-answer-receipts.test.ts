@@ -25,6 +25,16 @@ import {
   HOST_TEST_SESSION as SESSION,
   HOST_TEST_THREAD as THREAD
 } from './structured-agent-session-host-test-data'
+import {
+  codexApprovalItem,
+  codexPromptIdentity,
+  codexQuestionItems
+} from '../../codex/codex-structured-prompt-items'
+import {
+  CodexPromptRegistry,
+  applyCodexPromptAnswer,
+  prepareCodexPromptAnswer
+} from '../../codex/codex-structured-prompt-replies'
 
 const OLD = NOW - AGENT_SESSION_MAX_NEW_OPERATION_AGE_MS - 60_000
 const FUTURE = NOW + 6 * 60_000
@@ -429,3 +439,72 @@ describe('a prompt answer', () => {
     })
   })
 })
+
+it.each(['form', 'url'] as const)(
+  'lets an older client decline an MCP %s through the host legacy option-id path',
+  async (mode) => {
+    await attach()
+    const request = {
+      id: 20,
+      method: 'mcpServer/elicitation/request',
+      params: {
+        threadId: THREAD,
+        turnId: 'turn-1',
+        mode,
+        url: 'https://example.com/connect',
+        elicitationId: 'connect-1',
+        message: 'Confirm details',
+        requestedSchema: {
+          type: 'object',
+          properties: { confirmed: { type: 'boolean' } },
+          required: ['confirmed']
+        }
+      }
+    }
+    const pending = new CodexPromptRegistry().register(request)
+    if (!pending) {
+      throw new Error('Missing MCP request')
+    }
+    const card =
+      mode === 'url'
+        ? {
+            identity: codexPromptIdentity({ threadId: THREAD, promptKey: pending.promptKey }),
+            body: codexApprovalItem({
+              method: request.method,
+              params: request.params,
+              detail: null
+            })
+          }
+        : codexQuestionItems({
+            threadId: THREAD,
+            promptKey: pending.promptKey,
+            params: request.params,
+            method: request.method
+          })[0]!
+    acquire.mock.calls
+      .at(-1)?.[0]
+      .events?.appendItem(card.identity, card.body, { turnScope: AGENT_JOURNAL_THREAD_SCOPE })
+    await host.flushStreamedEvents(SESSION)
+    const itemId = agentJournalItemKey(card.identity)
+    const optionId = card.body.options.find(
+      (option) => option.id === 'decline' || option.label === 'Decline request'
+    )!.id
+    const fields = { itemId, expectedRevision: journal().item(itemId)!.revision, optionId }
+    expect(
+      await host.respondToPrompt(CALLER, {
+        envelope: envelope(`agentSession.respondTo:${card.body.kind}`, fields),
+        kind: card.body.kind,
+        ...fields
+      })
+    ).toMatchObject({ ok: true })
+    const response = answerPrompt.mock.calls.at(-1)?.[0].response
+    if (!response) {
+      throw new Error('Host did not forward the legacy answer')
+    }
+    expect(applyCodexPromptAnswer(pending, prepareCodexPromptAnswer(pending, response))).toEqual({
+      action: 'decline',
+      content: null,
+      _meta: null
+    })
+  }
+)

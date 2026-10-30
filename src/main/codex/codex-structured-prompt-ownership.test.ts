@@ -4,17 +4,12 @@ import {
   acquired,
   adapterFor,
   fakeCodex,
-  identityFor
+  identityFor,
+  lifecycleRecorder
 } from './codex-structured-session-adapter-fixture'
 import { describe, expect, it, vi } from 'vitest'
-import { agentJournalItemKey } from '../../shared/agent-session-journal-item-key'
 import { AGENT_SESSION_ID_MAX_LENGTH } from '../../shared/agent-session-wire'
-import type {
-  AgentJournalItemBody,
-  AgentJournalItemIdentity
-} from '../../shared/agent-session-journal-types'
 import { readAgentJournalTurn } from '../../shared/agent-session-turn-record'
-import type { StructuredAgentSessionEventSink } from '../native-chat/agent-session-wire/structured-agent-session-event-sink'
 import { CodexAppServerRequestError } from './app-server/codex-app-server-request-error'
 import { CodexPromptRegistry } from './codex-structured-prompt-replies'
 import type { CodexStructuredSessionEvent } from './codex-structured-session-state'
@@ -77,75 +72,6 @@ function completionThreads(events: CodexStructuredSessionEvent[]): string[] {
   return events.flatMap((event) =>
     event.type === 'notification' && event.method === 'turn/completed' ? [event.threadId] : []
   )
-}
-
-function lifecycleRecorder(
-  acceptPromptCancellation = true,
-  acceptTurnCompletion = true
-): {
-  sink: StructuredAgentSessionEventSink
-  bodies: Map<string, AgentJournalItemBody>
-  order: string[]
-} {
-  const bodies = new Map<string, AgentJournalItemBody>()
-  const order: string[] = []
-  const settlements = new Set<string>()
-  const append = (identity: AgentJournalItemIdentity, body: AgentJournalItemBody): void => {
-    bodies.set(agentJournalItemKey(identity), body)
-  }
-  const sink: StructuredAgentSessionEventSink = {
-    appendItem: append,
-    appendTombstone: (identity) => bodies.delete(agentJournalItemKey(identity)),
-    publish: () => {},
-    tryAppendItem: (identity, body, options) => {
-      if (
-        body.kind === 'approval' &&
-        body.resolution.state === 'cancelled' &&
-        options?.lifecycle === true
-      ) {
-        if (!acceptPromptCancellation) {
-          return { accepted: false, reason: 'backpressure' }
-        }
-        order.push('prompt-lifecycle')
-      }
-      append(identity, body)
-      return { accepted: true }
-    },
-    tryAppendLifecycleBatch: (settlementId, mutations) => {
-      const cancelsPrompt = mutations.some(
-        (mutation) =>
-          mutation.kind === 'item' &&
-          (mutation.body.kind === 'approval' || mutation.body.kind === 'question') &&
-          mutation.body.resolution.state === 'cancelled'
-      )
-      if (cancelsPrompt && !acceptPromptCancellation) {
-        return { accepted: false, reason: 'backpressure' }
-      }
-      if (settlementId.startsWith('turn-completed:') && !acceptTurnCompletion) {
-        return { accepted: false, reason: 'backpressure' }
-      }
-      if (settlements.has(settlementId)) {
-        return { accepted: true }
-      }
-      settlements.add(settlementId)
-      for (const mutation of mutations) {
-        if (mutation.kind === 'item') {
-          append(mutation.identity, mutation.body)
-        } else {
-          bodies.delete(agentJournalItemKey(mutation.identity))
-        }
-      }
-      if (cancelsPrompt) {
-        order.push('prompt-lifecycle')
-      }
-      if (settlementId.startsWith('turn-completed:')) {
-        order.push('turn-lifecycle')
-      }
-      return { accepted: true }
-    },
-    tryPublish: () => ({ accepted: true })
-  }
-  return { sink, bodies, order }
 }
 
 describe('Codex live prompt ownership', () => {

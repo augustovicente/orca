@@ -13,6 +13,7 @@ import {
   isPlanApprovalSubject
 } from '../../../../../src/shared/agent-session-approval-subject'
 import type { MobileChatPermission } from './mobile-native-chat-permission'
+import { openExternalLink } from '../../../platform/external-link'
 
 function MobileNativeChatPermissionImpl({
   permission,
@@ -27,6 +28,7 @@ function MobileNativeChatPermissionImpl({
   onCollapse?: () => void
 }): React.JSX.Element {
   useMobileColorScheme()
+  const t = useMobileTranslation()
   const [submitting, setSubmitting] = useState(false)
   const submittingRef = useRef(false)
   // Unknown newer-host subjects allow only cancellation; preserve their detail for the reader.
@@ -64,6 +66,16 @@ function MobileNativeChatPermissionImpl({
       </View>
       <MobileNativeChatPermissionContext permission={permission} newerSubject={newerSubject} />
       <View testID="native-chat-approval-actions" style={styles.options}>
+        {permission.url ? (
+          <Pressable
+            accessibilityRole="button"
+            disabled={submitting}
+            style={[styles.option, styles.optionSecondary]}
+            onPress={() => permission.url && openExternalLink(permission.url)}
+          >
+            <Text style={styles.optionText}>{t('chat.permission.openLink', 'Open link')}</Text>
+          </Pressable>
+        ) : null}
         {permission.options.map((option, index) => {
           const isPrimary = index === 0
           return (

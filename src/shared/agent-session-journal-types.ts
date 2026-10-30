@@ -194,6 +194,7 @@ export type AgentJournalApprovalItem = {
   matchedAskRule?: AgentJournalApprovalMatchedAskRule
   subject?: AgentJournalApprovalSubject
   detail: string | null
+  url?: string
   options: AgentJournalPromptOption[]
   resolution: AgentJournalResolution
 }

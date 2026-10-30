@@ -5,7 +5,10 @@ import {
   codexPromptIdentity,
   codexQuestionItems
 } from './codex-structured-prompt-items'
-import { CODEX_USER_INPUT_METHOD } from './codex-structured-prompt-replies'
+import {
+  CODEX_MCP_ELICITATION_METHOD,
+  CODEX_USER_INPUT_METHOD
+} from './codex-structured-prompt-replies'
 import type {
   CodexJournalTranslationAdmission,
   CodexJournalTranslatorDeps
@@ -44,12 +47,16 @@ export class CodexJournalPrompts {
     promptKey: string
   }): CodexJournalTranslationAdmission {
     const turnId = readCodexTurnId(event.params) ?? this.activeTurn(event.threadId)
-    if (event.method === CODEX_USER_INPUT_METHOD) {
-      const questions = codexQuestionItems({
-        threadId: event.threadId,
-        promptKey: event.promptKey,
-        params: event.params
-      })
+    const questions =
+      event.method === CODEX_USER_INPUT_METHOD || event.method === CODEX_MCP_ELICITATION_METHOD
+        ? codexQuestionItems({
+            threadId: event.threadId,
+            promptKey: event.promptKey,
+            params: event.params,
+            method: event.method
+          })
+        : []
+    if (event.method === CODEX_USER_INPUT_METHOD || questions.length > 0) {
       const promptItems = questions.map(({ identity, body }) => ({ identity, body }))
       const admission = this.admit(event, turnId, promptItems)
       if (!admission.accepted) {
@@ -101,8 +108,19 @@ export class CodexJournalPrompts {
     return CODEX_JOURNAL_ADMITTED
   }
 
-  resolve(journalItemId: string): void {
+  resolve(journalItemId: string, cancelRemaining = false): CodexJournalTranslationAdmission {
+    const selected = this.pending.get(journalItemId)
     this.pending.delete(journalItemId)
+    const sibling =
+      cancelRemaining && selected
+        ? [...this.pending].find(
+            ([, prompt]) =>
+              prompt.threadId === selected.threadId &&
+              prompt.turnId === selected.turnId &&
+              prompt.promptKey === selected.promptKey
+          )
+        : undefined
+    return sibling ? this.cancel(sibling[0]) : CODEX_JOURNAL_ADMITTED
   }
 
   cancel(journalItemId: string): CodexJournalTranslationAdmission {

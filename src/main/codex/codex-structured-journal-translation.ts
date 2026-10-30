@@ -270,7 +270,8 @@ export function createCodexJournalTranslator(
     forgetCommand: (turnId) => commands.forget(turnId),
     commandProviderTurnId: (turnId) => commands.providerTurnId(turnId),
     cancelPrompt: (journalItemId) => prompts.cancel(journalItemId),
-    resolvePrompt: (journalItemId) => prompts.resolve(journalItemId),
+    resolvePrompt: (journalItemId: string, cancelRemaining = false) =>
+      prompts.resolve(journalItemId, cancelRemaining),
     flush: () => {
       items.streams.flush()
       genericFrames.flush()

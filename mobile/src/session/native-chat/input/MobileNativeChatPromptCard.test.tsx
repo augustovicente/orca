@@ -6,6 +6,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { useMobileNativeChatAskDismiss } from './use-mobile-native-chat-ask-dismiss'
 import { nativeChatAskDismissKey } from '../../../../../src/shared/native-chat-ask-dismiss-key'
 import { MobileNativeChatPromptCard } from './MobileNativeChatPromptCard'
+import { openExternalLink } from '../../../platform/external-link'
+vi.mock('../../../platform/external-link', () => ({ openExternalLink: vi.fn() }))
 
 vi.mock('react-native', () => ({
   Pressable: 'Pressable',
@@ -29,6 +31,44 @@ vi.mock('../../../components/MobileMarkdown', () => ({ MobileMarkdown: 'Markdown
 const textInput = (root: ReactTestInstance) =>
   root.find((node) => node.props.placeholder === 'Type your answer')
 const ask = { questions: [{ question: 'Pick?', options: [{ label: 'East' }], multiSelect: false }] }
+
+it('opens a structured sign-in link only on tap and answers separately', async () => {
+  vi.mocked(openExternalLink).mockClear()
+  const onRespondPermission = vi.fn(async () => true)
+  let tree: ReactTestRenderer | undefined
+  await act(async () => {
+    tree = create(
+      createElement(MobileNativeChatPromptCard, {
+        permission: {
+          title: 'Connect service',
+          detail: 'https://example.com/connect',
+          url: 'https://example.com/connect',
+          options: [
+            { label: 'Continue', send: 'accept' },
+            { label: 'Decline', send: 'decline' }
+          ]
+        },
+        onRespondPermission
+      })
+    )
+  })
+  expect(openExternalLink).not.toHaveBeenCalled()
+  const opener = tree!.root
+    .findAllByType(Pressable)
+    .find(
+      (button) =>
+        button.props.accessibilityRole === 'button' &&
+        button.findAll((node) => node.children.includes('Open link')).length > 0
+    )!
+  await act(async () => {
+    opener.props.onPress()
+  })
+  expect(openExternalLink).toHaveBeenCalledWith('https://example.com/connect')
+  expect(onRespondPermission).not.toHaveBeenCalled()
+  await act(async () => {
+    tree?.unmount()
+  })
+})
 
 describe('MobileNativeChatPromptCard collapse', () => {
   it.each([true, false])(

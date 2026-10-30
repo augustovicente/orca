@@ -1,6 +1,7 @@
 import type { AgentSessionPromptResponse } from '../../shared/agent-session-question-answer'
 import type { CodexAppServerConnection } from './app-server/codex-app-server-connection-types'
 import { CODEX_PROMPT_MAX_ANSWER_BYTES } from './codex-prompt-registry-bounds'
+import { prepareCodexMcpFieldAnswer } from './codex-mcp-elicitation'
 import {
   CODEX_MCP_ELICITATION_METHOD,
   CODEX_USER_INPUT_METHOD,
@@ -63,6 +64,28 @@ export function prepareCodexPromptAnswer(
   prompt: CodexPendingPrompt,
   response: AgentSessionPromptResponse
 ): CodexPreparedAnswer {
+  if (prompt.elicitation?.kind === 'form' && prompt.questionIds.length > 0) {
+    const entry =
+      response.kind === 'answers' && response.answers.length === 1 ? response.answers[0] : null
+    const decoded =
+      entry?.optionIds[0] === undefined ? null : decodeCodexQuestionOptionId(entry.optionIds[0])
+    const field =
+      entry &&
+      prompt.elicitation.fields.find(
+        (candidate) => candidate.name === (decoded?.questionId ?? entry.questionId)
+      )
+    if (!field || !entry) {
+      throw new Error('The answer does not name a form field.')
+    }
+    const prepared = prepareCodexMcpFieldAnswer(field, entry)
+    if (
+      prepared.kind === 'answer' &&
+      Buffer.byteLength(prepared.answer, 'utf8') > CODEX_PROMPT_MAX_ANSWER_BYTES
+    ) {
+      throw new Error('Codex form answer exceeds the supported size.')
+    }
+    return prepared
+  }
   if (prompt.method !== CODEX_USER_INPUT_METHOD) {
     if (response.kind !== 'option' || !isCodexApprovalDecision(response.optionId)) {
       throw new Error(`Codex item ${prompt.codexItemId} takes an approval decision`)
@@ -115,6 +138,13 @@ export function applyCodexPromptAnswer(
   prepared: CodexPreparedAnswer
 ): Record<string, unknown> | null {
   if (prepared.kind === 'decision') {
+    if (prompt.elicitation) {
+      return {
+        action: prepared.decision,
+        content: prepared.decision === 'accept' && prompt.elicitation.kind === 'form' ? {} : null,
+        _meta: null
+      }
+    }
     return prompt.method === CODEX_MCP_ELICITATION_METHOD
       ? codexMcpElicitationReply(prepared.decision)
       : { decision: prepared.decision }
@@ -122,6 +152,17 @@ export function applyCodexPromptAnswer(
   prompt.answers.set(prepared.questionId, prepared.answer)
   if (prompt.questionIds.some((id) => !prompt.answers.has(id))) {
     return null
+  }
+  if (prompt.elicitation?.kind === 'form') {
+    const content = Object.fromEntries(
+      [...prompt.answers]
+        .filter(([, value]) => value !== '')
+        .map(([id, value]) => {
+          const parsed: unknown = JSON.parse(value)
+          return [id, parsed]
+        })
+    )
+    return { action: 'accept', content, _meta: null }
   }
   const answers: Record<string, { answers: string[] }> = {}
   for (const id of prompt.questionIds) {

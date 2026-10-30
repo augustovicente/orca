@@ -16,6 +16,7 @@ export type ChatApproval = {
   blockedPath?: string
   subject?: AgentJournalApprovalSubject
   detail?: string
+  url?: string
   options: { label: string; send: string }[]
 }
 
@@ -29,6 +30,7 @@ export function chatApprovalFromJournal(body: AgentJournalApprovalItem): ChatApp
     ...(body.blockedPath ? { blockedPath: body.blockedPath } : {}),
     ...(body.subject ? { subject: body.subject } : {}),
     ...(body.detail ? { detail: body.detail } : {}),
+    ...(body.url ? { url: body.url } : {}),
     options: body.options.map((option) => ({ label: option.label, send: option.id }))
   }
 }

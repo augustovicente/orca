@@ -14,6 +14,7 @@ import { NativeChatCodeBlock } from './NativeChatCodeBlock'
 import type { ChatApproval } from '../../../../shared/native-chat-interactive-prompt'
 import { NativeChatPromptCollapseToggle } from './NativeChatPromptCollapse'
 import { useNativeChatPromptCardFocus } from './use-native-chat-prompt-card-focus'
+import { Button } from '@/components/ui/button'
 
 export type NativeChatApprovalCardProps = {
   approval: ChatApproval
@@ -167,6 +168,16 @@ export function NativeChatApprovalCard({
               </div>
             ) : null}
             <div data-native-chat-approval-actions="true" className="flex shrink-0 flex-wrap gap-2">
+              {approval.url && onLinkClick ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={isSubmitting}
+                  onClick={(event) => onLinkClick(event, approval.url)}
+                >
+                  {translate('components.native-chat.approval.openLink', 'Open link')}
+                </Button>
+              ) : null}
               {approval.options.map((opt, i) => (
                 <button
                   key={`${opt.label}-${i}`}

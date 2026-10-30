@@ -47,7 +47,7 @@ export function disposeCodexServerRequest(
       )
       break
     case CODEX_MCP_ELICITATION_METHOD:
-      // Tool-call approvals become prompts above; Orca renders no other elicitation form.
+      // Unsupported schemas and requests without an owning turn cannot become answerable cards.
       connection.respond(request.id, { action: 'decline', content: null, _meta: null })
       break
     case CODEX_PERMISSIONS_APPROVAL_METHOD:

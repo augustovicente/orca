@@ -192,6 +192,11 @@ export async function answerCodexStructuredPrompt(input: {
   }
   try {
     const prepared = prepareCodexAnswer(claim.prompt, request.response)
+    if (prepared.kind === 'answer' && !session.prompts.reserveAnswer(claim, prepared.answer)) {
+      throw new AgentSessionPromptAnswerRejectedError(
+        'Codex prompt answers exceed the supported size.'
+      )
+    }
     await request.commit()
     if (
       sessions.get(request.sessionId) !== session ||
@@ -202,7 +207,19 @@ export async function answerCodexStructuredPrompt(input: {
     ) {
       throw new AgentSessionPromptUnavailableError(request.itemId)
     }
-    session.translator?.resolvePrompt(request.itemId)
+    const settlement = session.translator?.resolvePrompt(
+      request.itemId,
+      claim.prompt.elicitation?.kind === 'form' && prepared.kind === 'decision'
+    )
+    if (settlement && !settlement.accepted) {
+      const error = new Error(
+        `Codex prompt siblings could not be durably settled (${settlement.reason})`
+      )
+      session.prompts.forget(claim.prompt)
+      session.connection.respondWithError(claim.prompt.requestId, -32001, error.message)
+      void session.forceCloseUnexpected?.(error)
+      throw error
+    }
     answerCodexPrompt(session.prompts, session.connection, claim, prepared)
   } catch (error) {
     session.prompts.releaseClaim(claim)

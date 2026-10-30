@@ -214,6 +214,7 @@ const KnownItemBody = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('diff'), path: z.string(), patch: BoundedPayload }),
   z.object({
     kind: z.literal('approval'),
+    url: z.string().optional(),
     title: z.string(),
     displayName: z.string().optional(),
     description: z.string().optional(),
