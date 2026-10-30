@@ -7,7 +7,7 @@ description: >-
 
 # Program Automation
 
-When a program has no API, use Orca's computer-use skill to:
+When a program has no API, use the computer-use skill of o app to:
 
 - Launch the program.
 - Navigate menus via accessibility tree.

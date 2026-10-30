@@ -2,9 +2,13 @@
   "formatVersion": 1,
   "version": 2,
   "brand": {
-    "productName": "contadorca",
+    "productName": "Contadorca",
     "appId": "com.contadorca.app",
-    "supportEmail": "support@contadorca.com"
+    "mobileName": "Contadorca",
+    "legalName": "Contadorca",
+    "supportEmail": "support@contadorca.com",
+    "website": "https://contadorca.com",
+    "tagline": "Contadorca"
   },
   "locked": {
     "disabledTuiAgents": [

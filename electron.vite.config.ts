@@ -1,6 +1,7 @@
 import { markdownParserAliases } from './config/build-plugins/markdown-parser-exports'
 import { createRequire } from 'node:module'
 import { resolve } from 'node:path'
+import { ORCA_BRAND_LITERAL } from './config/orca-brand-literal.mjs'
 import { defineConfig, type UserConfig } from 'electron-vite'
 import type { Plugin, Rollup } from 'vite'
 import react from '@vitejs/plugin-react'
@@ -248,6 +249,7 @@ export const electronViteConfig: UserConfig = {
       ORCA_DIAGNOSTICS_TOKEN_URL: ORCA_DIAGNOSTICS_TOKEN_URL_LITERAL,
       ORCA_BUILD_COMMIT: ORCA_BUILD_COMMIT_LITERAL,
       ORCA_EDITION: ORCA_EDITION_LITERAL,
+      ORCA_BRAND: ORCA_BRAND_LITERAL,
       ...DARK_BUILD_DEFINES
     },
     // @xterm/headless declares exports:null; point Vite directly at its published CJS main to permit inlining.
@@ -277,6 +279,7 @@ export const electronViteConfig: UserConfig = {
     define: {
       ORCA_BUILD_COMMIT: ORCA_BUILD_COMMIT_LITERAL,
       ORCA_EDITION: ORCA_EDITION_LITERAL,
+      ORCA_BRAND: ORCA_BRAND_LITERAL,
       ...DARK_BUILD_DEFINES
     },
     resolve: {

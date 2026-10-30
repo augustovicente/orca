@@ -23,6 +23,9 @@ import type { PluginLanguagePackRegistration } from '../../../shared/plugins/art
 import { withTimeout } from '../../../shared/promise-timeout-fallback'
 import { supportedIntlLocale } from './intl-locale-support'
 import { createOrcaI18n } from '../../../shared/orca-i18n-instance'
+import { ORCA_EDITION_ID } from '../../../shared/edition'
+import { mergeCopyOverlay } from '../../../shared/edition-copy'
+import copyOverlayPt from '../../../../whitelabel/copy/pt.json'
 
 // Fetch catalogs as data: Chromium caches rejected module imports for the document's lifetime.
 const NON_DEFAULT_LOCALE_URLS: Record<Exclude<SupportedUiLocale, 'en'>, string> = {
@@ -59,11 +62,18 @@ function loadLocaleCatalog(language: string): Promise<Record<string, unknown>> |
   if (pending || !url) {
     return pending
   }
-  const request = fetchLocaleCatalog(url).finally(() => {
-    if (catalogRequests.get(language) === request) {
-      catalogRequests.delete(language)
-    }
-  })
+  const request = fetchLocaleCatalog(url)
+    .then((catalog) => {
+      if (language === 'pt' && ORCA_EDITION_ID === 'contadorca') {
+        return mergeCopyOverlay(catalog, copyOverlayPt as Record<string, unknown>)
+      }
+      return catalog
+    })
+    .finally(() => {
+      if (catalogRequests.get(language) === request) {
+        catalogRequests.delete(language)
+      }
+    })
   catalogRequests.set(language, request)
   return request
 }
