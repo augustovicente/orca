@@ -7,16 +7,37 @@ import {
 } from '../agent-session-resume'
 import { readFirstString } from './interactive-tool'
 import type { HookListenerState } from './listener-state'
+import type { AgentHookEventPayload } from './listener-event'
 import { isGrokSubagentEvent } from './providers/grok-tool-fields'
-import { withHermesPaneSessionId } from './providers/hermes-events'
+import { isHermesRootSessionEvent, withHermesPaneSessionId } from './providers/hermes-events'
 import { readString } from './tool-input-preview'
 
+export function readPaneSessionContext(
+  state: HookListenerState,
+  source: AgentHookSource,
+  envelope: { paneKey: string; hookPayloadRecord: Record<string, unknown> },
+  eventName: unknown
+) {
+  const { paneKey, hookPayloadRecord } = envelope
+  return {
+    providerSession: readPaneProviderSession(state, source, paneKey, hookPayloadRecord, eventName),
+    statusAdmissionSession:
+      source === 'hermes'
+        ? extractAgentProviderSession(
+            source,
+            withHermesPaneSessionId(state, paneKey, hookPayloadRecord)
+          )?.id
+        : undefined
+  }
+}
+
 /** The provider session a hook names for its pane; child agents' hooks never name their own. */
-export function readPaneProviderSession(
+function readPaneProviderSession(
   state: HookListenerState,
   source: AgentHookSource,
   paneKey: string,
-  hookPayload: Record<string, unknown>
+  hookPayload: Record<string, unknown>,
+  eventName: unknown
 ): AgentProviderSessionMetadata | null {
   if (
     source === 'copilot' &&
@@ -32,10 +53,15 @@ export function readPaneProviderSession(
     const previous = state.lastStatusByPaneKey.get(paneKey)
     return previous?.source === 'grok' ? (previous.providerSession ?? null) : null
   }
-  const providerSession = extractAgentProviderSession(
-    source,
-    source === 'hermes' ? withHermesPaneSessionId(state, paneKey, hookPayload) : hookPayload
-  )
+  if (
+    source === 'hermes' &&
+    (!isHermesRootSessionEvent(eventName) ||
+      typeof hookPayload.platform !== 'string' ||
+      !['cli', 'tui', 'desktop', 'acp'].includes(hookPayload.platform))
+  ) {
+    return null
+  }
+  const providerSession = extractAgentProviderSession(source, hookPayload)
   if (!providerSession) {
     return null
   }
@@ -104,4 +130,38 @@ function readClaudeEffort(
       ? readAgentEffortLevel(effort.level)
       : undefined
   return reported ?? continued?.effort
+}
+
+/** A status correlation may reuse an established owner without publishing a new restore locator. */
+function readHookStatusSession(incoming: AgentHookEventPayload): string | undefined {
+  return (
+    incoming.statusAdmissionSession ??
+    incoming.providerSession?.id ??
+    (incoming.agentPresence?.agent === 'hermes' && !incoming.agentPresence.ended
+      ? incoming.agentPresence.session
+      : undefined)
+  )
+}
+
+/** Older normalized relays retain some event kinds even after losing the raw ancestry fields. */
+export function readHookSessionContext<T extends AgentHookEventPayload>(
+  incoming: T,
+  fromHook: boolean
+) {
+  const { statusAdmissionSession: _statusAdmissionSession, ...event } = incoming
+  const rootEvent =
+    fromHook &&
+    ((event.payload.agentType === 'copilot' && event.toolAgentId) ||
+      (event.payload.agentType === 'hermes' &&
+        event.hookEventName !== undefined &&
+        !isHermesRootSessionEvent(event.hookEventName)))
+      ? { ...event, providerSession: undefined }
+      : event
+  return {
+    event: rootEvent,
+    statusAdmissionSession:
+      fromHook && incoming.payload.agentType === 'hermes'
+        ? readHookStatusSession(incoming)
+        : rootEvent.providerSession?.id
+  }
 }

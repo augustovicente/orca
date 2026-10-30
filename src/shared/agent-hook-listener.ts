@@ -28,7 +28,7 @@ import {
 } from './agent-hook-listener/opencode-session-registry'
 import { claudeRowHasUnlistedLiveWork } from './agent-hook-listener/providers/claude-pane-hold-evidence'
 import { readString } from './agent-hook-listener/tool-input-preview'
-import { readPaneProviderSession } from './agent-hook-listener/pane-provider-session'
+import { readPaneSessionContext } from './agent-hook-listener/pane-provider-session'
 /** Canonical transport-agnostic normalization entry shared by main and relay listeners. */
 const CLAUDE_EXIT_SESSION_END_REASONS = new Set([
   'prompt_input_exit',
@@ -59,6 +59,7 @@ export function normalizeHookPayload(
   }
   const {
     record,
+    eventName,
     paneKey: stampedPaneKey,
     hookPayloadRecord,
     tabId: stampedTabId,
@@ -68,13 +69,8 @@ export function normalizeHookPayload(
   if (source === 'claude') {
     state.claudeUnconfirmedRestoredStatusPaneKeys.delete(stampedPaneKey)
   }
-  const eventName =
-    readFirstString(record, ['hook_event_name', 'hookEventName', 'hook_type', 'hookType']) ??
-    hookPayloadRecord.hook_event_name ??
-    hookPayloadRecord.hookEventName ??
-    // Only jcode posts lifecycle under event; other providers may use that field for unrelated data.
-    (source === 'jcode' ? hookPayloadRecord.event : undefined)
-  const providerSession = readPaneProviderSession(state, source, stampedPaneKey, hookPayloadRecord)
+  const sessions = readPaneSessionContext(state, source, envelope, eventName)
+  const { providerSession, statusAdmissionSession } = sessions
   if (source === 'opencode' && record.opencodeTui === 1 && !providerSession) {
     return null
   }
@@ -167,7 +163,7 @@ export function normalizeHookPayload(
       },
       incoming: source,
       incomingProcess: agentProcess,
-      incomingSession: providerSession?.id,
+      incomingSession: statusAdmissionSession ?? providerSession?.id,
       now: Date.now()
     }).inheritedFromActivePane
   ) {
@@ -308,6 +304,7 @@ export function normalizeHookPayload(
         }
       : {}),
     ...(providerSession ? { providerSession } : {}),
+    ...(statusAdmissionSession ? { statusAdmissionSession } : {}),
     ...(providerSessionOnly ? { providerSessionOnly: true } : {}),
     ...dispatched.hostTurnSignals,
     payload: transportPayload

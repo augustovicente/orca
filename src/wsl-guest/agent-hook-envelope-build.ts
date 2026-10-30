@@ -18,7 +18,16 @@ export function buildRelayHookEnvelope(
     ...(event.hostEvidenceObservedAt !== undefined
       ? { evidenceAgeMs: Math.max(0, Date.now() - event.hostEvidenceObservedAt) }
       : {}),
-    agentPresence: event.agentPresence,
+    agentPresence:
+      source === 'hermes' && event.agentPresence
+        ? {
+            ...event.agentPresence,
+            session:
+              event.statusAdmissionSession === event.agentPresence.session
+                ? event.agentPresence.session
+                : undefined
+          }
+        : event.agentPresence,
     paneKey: event.paneKey,
     ...(event.hostTurnRevision ? { hostTurnRevision: event.hostTurnRevision } : {}),
     ...(event.launchToken ? { launchToken: event.launchToken } : {}),

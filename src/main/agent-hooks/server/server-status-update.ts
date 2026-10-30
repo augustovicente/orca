@@ -1,3 +1,4 @@
+import { readHookSessionContext } from '../../../shared/agent-hook-listener/pane-provider-session'
 import { deriveCliWriterTopology } from './cli-writer-observation'
 import { transitionHookPresence } from '../../../shared/agent-hook-presence-transition'
 import {
@@ -52,11 +53,10 @@ export abstract class AgentHookServerStatusUpdate extends AgentHookServerStatusA
     mutationBefore?: EnrichedAgentHookEventPayload,
     newRun = false
   ): EnrichedAgentHookEventPayload | undefined {
-    // Older relays can still forward a child's own session as the pane's resume identity.
-    const rootIdentityIncoming =
-      origin === 'hook' && incoming.payload.agentType === 'copilot' && incoming.toolAgentId
-        ? { ...incoming, providerSession: undefined }
-        : incoming
+    const { event: rootIdentityIncoming, statusAdmissionSession } = readHookSessionContext(
+      incoming,
+      origin === 'hook'
+    )
     const transitioned = transitionHookPresence(
       rootIdentityIncoming,
       this.state.lastStatusByPaneKey.get(incoming.paneKey)
@@ -64,10 +64,7 @@ export abstract class AgentHookServerStatusUpdate extends AgentHookServerStatusA
     if (!transitioned) {
       return undefined
     }
-    const { authorityRestartId, codexRosterAuthority, ...payload } = {
-      ...rootIdentityIncoming,
-      ...transitioned
-    }
+    const { authorityRestartId, codexRosterAuthority, ...payload } = transitioned
     if (!this.canWriteLegacyStatusRow(payload)) {
       return undefined
     }
@@ -129,7 +126,7 @@ export abstract class AgentHookServerStatusUpdate extends AgentHookServerStatusA
       incoming: terminalOwnedPayload.payload.agentType,
       // Relay presence is the execution host's owner verdict, not the sender's identity.
       incomingProcess: payload.connectionId ? undefined : incoming.agentPresence?.process,
-      incomingSession: terminalOwnedPayload.providerSession?.id,
+      incomingSession: statusAdmissionSession,
       now
     })
     if (
@@ -184,7 +181,7 @@ export abstract class AgentHookServerStatusUpdate extends AgentHookServerStatusA
       ((stateReconciledPayload.payload.agentType === 'codex' &&
         stateReconciledPayload.toolAgentId) ||
         (origin === 'hook' &&
-          stateReconciledPayload.payload.agentType === 'copilot' &&
+          ['copilot', 'hermes'].includes(stateReconciledPayload.payload.agentType ?? '') &&
           this.sameTerminalOwner(previous, stateReconciledPayload)))
         ? previous
         : undefined
