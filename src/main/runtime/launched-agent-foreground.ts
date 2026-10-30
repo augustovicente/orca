@@ -1,5 +1,6 @@
 import {
   isExpectedAgentProcess,
+  isNodeInterpreterOfAgent,
   recognizeAgentProcess
 } from '../../shared/agent-process-recognition'
 import { PROCESS_TABLE_SNAPSHOT_MAX_STALENESS_MS } from '../../shared/process-table-snapshot'
@@ -105,11 +106,19 @@ export async function readLaunchedAgentForeground(
     if (!evidence) {
       return 'agent'
     }
-    // Otherwise the name only completes fresh evidence that saw an agent row but could not fence it alone.
-    return fresh &&
-      evidence.verdict === 'unverifiable' &&
-      NAME_COMPLETES_EVIDENCE.has(evidence.reason) &&
-      isLaunchedAgent(foreground, agent)
+    // Otherwise the name only completes evidence that saw an agent row but could not fence it alone, judged by the
+    // host's own capture age, which response latency cannot shrink.
+    if (
+      evidence.verdict !== 'unverifiable' ||
+      evidence.capturedAgeMs > PROCESS_TABLE_SNAPSHOT_MAX_STALENESS_MS ||
+      !NAME_COMPLETES_EVIDENCE.has(evidence.reason)
+    ) {
+      return 'unknown'
+    }
+    // Relays before same-agent dedupe call npm Codex's two rows ambiguous and name its `node` wrapper.
+    return isLaunchedAgent(foreground, agent) ||
+      (evidence.reason === 'ambiguous_foreground_group' &&
+        isNodeInterpreterOfAgent(foreground, agent))
       ? 'agent'
       : 'unknown'
   } catch {

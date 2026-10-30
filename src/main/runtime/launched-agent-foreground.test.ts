@@ -103,7 +103,12 @@ describe('the relay’s foreground group as proof of a launched agent', () => {
     ['tty_boundary', 0, 'sudo', 'claude', 'unknown'],
     ['fence_incomplete', 0, 'claude', 'claude', 'unknown'],
     ['argv_unreadable', 0, 'claude', 'claude', 'unknown'],
-    ['a_reason_this_build_does_not_know', 0, 'claude', 'claude', 'unknown']
+    ['a_reason_this_build_does_not_know', 0, 'claude', 'claude', 'unknown'],
+    // A relay before same-agent dedupe: npm Codex's node wrapper and native binary read ambiguous, named `node`.
+    ['ambiguous_foreground_group', 0, 'node', 'codex', 'agent'],
+    ['multiplexer_boundary', 0, 'node', 'codex', 'unknown'],
+    // goose is a native binary, so `node` is not its interpreter.
+    ['ambiguous_foreground_group', 0, 'node', 'goose', 'unknown']
   ] as const)(
     '%s evidence %ims old with the relay name %s, launching %s: %s',
     async (reason, capturedAgeMs, name, agent, found) => {
@@ -117,6 +122,21 @@ describe('the relay’s foreground group as proof of a launched agent', () => {
       ).resolves.toBe(found)
     }
   )
+
+  it('judges the name against the host’s capture age, which a slow response cannot shrink', async () => {
+    // Captured 400ms before the read was asked for, but 1,500ms old by the time the slow answer lands.
+    const controller = {
+      ...controllerAnswering(async () => {
+        vi.advanceTimersByTime(1_100)
+        return { ...unverifiable('ambiguous_foreground_group'), capturedAgeMs: 1_500 }
+      }),
+      getForegroundProcess: async () => 'claude'
+    }
+
+    await expect(
+      readLaunchedAgentForeground(controller, POSIX_SSH, 'pty-1', 'claude')
+    ).resolves.toBe('unknown')
+  })
 
   it.each([
     [
