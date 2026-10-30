@@ -63,6 +63,7 @@ export class CodexItemStreamCheckpoints {
       const previous = this.deps.acceptedAt.get(key)
       const due = previous === undefined ? undefined : previous + AGENT_SESSION_TEXT_CHECKPOINT_MS
       if (due !== undefined && performance.now() < due) {
+        // Plans need updates during pauses; assistant text and reasoning keep arrival-driven checkpoints.
         if (type === 'plan' && this.deps.pending.has(key)) {
           this.arm(due)
         }
