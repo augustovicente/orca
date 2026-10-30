@@ -145,6 +145,18 @@ describe('orchestration worker automatic release', () => {
     expect(h.runtime.closeTerminal).toHaveBeenCalledTimes(1)
   })
 
+  it('arms a never-viewed terminal reused after a coordinator retained it for the prior Dispatch', async () => {
+    setupWithFakeClock()
+    const retained = await h.startSettledWorker()
+    await h.call('orchestration.workerRetain', { dispatch: retained.dispatchId })
+
+    const reuse = await h.startWorker({ terminal: 'term_worker' })
+    h.settle(reuse.taskId, reuse.dispatchId, 'succeeded')
+    await vi.advanceTimersByTimeAsync(GRACE_MS)
+
+    await vi.waitFor(() => expect(h.runtime.closeTerminal).toHaveBeenCalledTimes(1))
+  })
+
   it('keeps a terminal the user typed into while its output was being captured', async () => {
     setupWithFakeClock()
     const { dispatchId } = await h.startSettledWorker()
