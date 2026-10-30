@@ -92,6 +92,8 @@ describe('the relay’s foreground group as proof of a launched agent', () => {
   it.each([
     ['ambiguous_foreground_group', 0, 'codex', 'codex', 'agent'],
     ['multiplexer_boundary', 0, 'claude', 'claude', 'agent'],
+    // A busy relay's cached snapshot: up to one 500ms TTL old plus its capture.
+    ['multiplexer_boundary', 900, 'claude', 'claude', 'agent'],
     ['candidate_start_time_missing', 0, 'claude', 'claude', 'agent'],
     ['ambiguous_foreground_group', 1_500, 'codex', 'codex', 'unknown'],
     // Another agent's name never completes the launched one's evidence.
@@ -124,7 +126,7 @@ describe('the relay’s foreground group as proof of a launched agent', () => {
   )
 
   it('judges the name against the host’s capture age, which a slow response cannot shrink', async () => {
-    // Captured 400ms before the read was asked for, but 1,500ms old by the time the slow answer lands.
+    // Captured 400ms before the read was asked for, but 1,500ms old (past the 1s bound) by the time it lands.
     const controller = {
       ...controllerAnswering(async () => {
         vi.advanceTimersByTime(1_100)

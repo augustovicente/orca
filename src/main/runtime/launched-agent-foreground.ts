@@ -40,6 +40,10 @@ const NAME_COMPLETES_EVIDENCE: ReadonlySet<string> = new Set([
   'candidate_start_time_missing'
 ])
 
+// A relay's cached snapshot is up to one TTL old plus its capture time, which a busy host keeps under another TTL; the
+// cached-name hazard (the tracker's ~1s display cache) is about as long.
+const NAME_COMPLETION_MAX_AGE_MS = 2 * PROCESS_TABLE_SNAPSHOT_MAX_STALENESS_MS
+
 function isLaunchShell(processName: string): boolean {
   return isShellProcess(processName.replace(/^-/, ''))
 }
@@ -110,7 +114,7 @@ export async function readLaunchedAgentForeground(
     // host's own capture age, which response latency cannot shrink.
     if (
       evidence.verdict !== 'unverifiable' ||
-      evidence.capturedAgeMs > PROCESS_TABLE_SNAPSHOT_MAX_STALENESS_MS ||
+      evidence.capturedAgeMs > NAME_COMPLETION_MAX_AGE_MS ||
       !NAME_COMPLETES_EVIDENCE.has(evidence.reason)
     ) {
       return 'unknown'
