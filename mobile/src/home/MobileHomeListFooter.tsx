@@ -31,7 +31,7 @@ export function MobileHomeListFooter(props: {
   const t = useMobileTranslation()
   useMobileColorScheme()
   const showTasks = mobileEditionSupports('taskProviders')
-  const showAccounts = mobileEditionSupports('developerTools')
+  const showAccounts = mobileEditionSupports('agentPicker')
   const showWorktreeCreation = mobileEditionSupports('gitWorkflows')
   const tasksHostPicker = useConnectedHostPicker(props.connectedHosts)
   const hostProviders = props.connectedHosts.map((host) => ({

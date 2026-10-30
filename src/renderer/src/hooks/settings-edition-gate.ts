@@ -1,9 +1,15 @@
 import type { SettingsNavTarget } from '@/lib/settings-navigation-types'
-import { editionSupports, type EditionCapability } from '../../../shared/edition'
+import {
+  ORCA_EDITION_ID,
+  editionSupports,
+  type EditionCapability,
+  type OrcaEdition
+} from '../../../shared/edition'
 
 const SECTION_CAPABILITY_TUPLES: [SettingsNavTarget, EditionCapability][] = [
   ['git', 'gitWorkflows'],
   ['tasks', 'taskProviders'],
+  ['accounts', 'agentPicker'],
   ['linear', 'taskProviders'],
   ['integrations', 'hostedReview'],
   ['ssh', 'sshHosts'],
@@ -24,7 +30,10 @@ const SECTION_CAPABILITY_TUPLES: [SettingsNavTarget, EditionCapability][] = [
 const SECTION_CAPABILITY = new Map<string, EditionCapability>(SECTION_CAPABILITY_TUPLES)
 
 /** Sections without a capability stay reachable in every edition; repo-* panes always do. */
-export function isSettingsSectionAvailable(sectionId: string): boolean {
+export function isSettingsSectionAvailable(
+  sectionId: string,
+  edition: OrcaEdition = ORCA_EDITION_ID
+): boolean {
   const capability = SECTION_CAPABILITY.get(sectionId)
-  return capability === undefined || editionSupports(capability)
+  return capability === undefined || editionSupports(capability, edition)
 }
