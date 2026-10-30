@@ -3,8 +3,11 @@ import {
   AgentSessionAcquisitionRootExitObservedError,
   AgentSessionAcquisitionExitUnprovenError
 } from '../native-chat/agent-session-wire/structured-agent-session-adapter'
-import type { AcpCloseOutcome } from './acp-agent-connection'
-import type { AcpAgentConnection, AcpAgentConnectionOptions } from './acp-agent-connection'
+import type {
+  AcpCloseOutcome,
+  AcpAgentConnection,
+  AcpAgentConnectionOptions
+} from './acp-agent-connection'
 import type { ProviderProcessLaunch } from '../provider-process/provider-process-launch'
 import { withProviderSpawnAbsence } from '../provider-process/provider-executable-missing'
 

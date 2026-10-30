@@ -10,13 +10,15 @@ import {
 } from '../../claude/claude-structured-session-test-support'
 import { fakeCodexAppServer } from '../../codex/codex-structured-dispatch-test-support'
 import { CodexStructuredSessionAdapter } from '../../codex/codex-structured-session-adapter'
-import { codexProviderHandle } from '../../../shared/agent-session-provider-handle-encoding'
+import {
+  codexProviderHandle,
+  claudeProviderHandle
+} from '../../../shared/agent-session-provider-handle-encoding'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
 import { createClaudeJournalTranslator } from '../../claude/claude-structured-journal-translation'
-import { claudeProviderHandle } from '../../../shared/agent-session-provider-handle-encoding'
 import { openAgentSessionJournal } from '../agent-session-journal/journal-store-factory'
 import {
   closeTestJournalHostDatabase,

@@ -1,7 +1,4 @@
-import type {
-  ClaudeJournalTranslator,
-  ClaudeJournalTranslatorDeps
-} from './claude-journal-translator-contract'
+import type * as Journal from './claude-journal-translator-contract'
 import {
   claudeStreamingMessageBody,
   type ClaudeToolUse
@@ -23,7 +20,11 @@ import {
   journalClaudeStreamEvent
 } from './claude-streamed-block-identity'
 import { createClaudeStreamedTextCheckpoints } from './claude-streamed-text-checkpoints'
-import { claudeFrameParentRef, isRootClaudeFrame } from './claude-turn-opening'
+import {
+  claudeFrameParentRef,
+  claudeStreamTurnSource,
+  isRootClaudeFrame
+} from './claude-turn-opening'
 import { ClaudeOpenTurn } from './claude-open-turn'
 import { claudeCommandCurrentTurn, observeClaudeCommandFrame } from './claude-command-turn'
 import { ClaudeContextFacts } from './claude-context-facts'
@@ -37,7 +38,8 @@ import { ClaudeUsageLimits } from './claude-usage-limits'
 import { ClaudeThreadGoal } from './claude-thread-goal'
 import { createClaudeFinalOutputCoverage } from './claude-final-output-coverage'
 
-export type { ClaudeJournalTranslator, ClaudeJournalTranslatorDeps }
+export type ClaudeJournalTranslator = Journal.ClaudeJournalTranslator
+export type ClaudeJournalTranslatorDeps = Journal.ClaudeJournalTranslatorDeps
 
 export function createClaudeJournalTranslator(
   deps: ClaudeJournalTranslatorDeps

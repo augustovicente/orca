@@ -528,7 +528,7 @@ it.each(['root-exit', 'requested-close', 'source-error'] as const)(
       expect(transferred).toEqual(['result-1'])
       vi.useFakeTimers()
       const closing = ending === 'requested-close' ? connection.close() : undefined
-      child.exitCode = 0
+      Object.assign(child, { exitCode: 0 })
       child.emit('exit', 0, null)
       expect(connection.closed).toBe(true)
       await expect(connection.send({ type: 'user' })).rejects.toThrow()
@@ -729,7 +729,7 @@ it.each(['natural-valid', 'forced-valid', 'natural-invalid'] as const)(
         child.stdout.end()
       }
       vi.useFakeTimers()
-      child.exitCode = 0
+      Object.assign(child, { exitCode: 0 })
       child.emit('exit', 0, null)
       const closing = connection.close()
       await vi.advanceTimersByTimeAsync(1_000)

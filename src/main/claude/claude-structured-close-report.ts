@@ -23,7 +23,7 @@ export function claudeAcquisitionCleanupError(
 ): Error {
   return verdict?.processless === true
     ? new AgentSessionPreSpawnError(cause)
-    : (verdict?.root === 'exited' && verdict.processless !== true) || verdict?.killDelivered
+    : verdict?.root === 'exited' || verdict?.killDelivered
       ? new AgentSessionAcquisitionRootExitObservedError(
           cause,
           verdict?.root === 'exited' ? 'exit-observed' : 'kill-delivered'

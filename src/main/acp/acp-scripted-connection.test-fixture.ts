@@ -56,7 +56,7 @@ export class FakeAcpChild extends AcpSessionRuntime implements AcpStructuredConn
   stderrTail(): string {
     return this.stderr
   }
-  get lastCloseResult(): AcpCloseOutcome['physical'] {
+  get lastCloseResult(): AcpCloseOutcome['physical'] | null {
     return { root: this.exited ? 'exited' : 'live', tree: null }
   }
   get exitStatus(): ProviderProcessExit | null {
@@ -98,7 +98,11 @@ export class FakeAcpChild extends AcpSessionRuntime implements AcpStructuredConn
     const accepted = await this.proveClose()
     await this.completeInput(error)
     await this.exitPublication
-    return { accepted, physical: this.lastCloseResult, receive: { state: 'complete' } }
+    return {
+      accepted,
+      physical: this.lastCloseResult ?? { root: this.exited ? 'exited' : 'live', tree: null },
+      receive: { state: 'complete' }
+    }
   }
   override async close(error?: Error): Promise<boolean> {
     const outcome = await this.closeOutcome(error)
