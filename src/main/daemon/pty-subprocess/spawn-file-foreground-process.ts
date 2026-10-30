@@ -3,7 +3,7 @@ import {
   resolvePtyForegroundMembers
 } from '../../pty/pty-master-foreground-observation'
 import { readPtsName } from '../../pty/node-pty-pts-name'
-import { normalizePtyTty } from '../../pty/terminal-process-rows'
+import { getSnapshotRowsOnTty, normalizePtyTty } from '../../pty/terminal-process-rows'
 import type { IPty } from 'node-pty'
 import { isShellProcess } from '../../../shared/shell-process-detection'
 import {
@@ -71,9 +71,10 @@ export async function resolveMasterGroupForegroundProcess(
     return { available: false, processName: fallbackProcess }
   }
   try {
-    const rows = (
-      options.fresh ? await getFreshProcessTableSnapshot() : await getProcessTableSnapshot()
-    ).filter((row) => row.tty !== undefined && normalizePtyTty(row.tty) === tty)
+    const rows = getSnapshotRowsOnTty(
+      options.fresh ? await getFreshProcessTableSnapshot() : await getProcessTableSnapshot(),
+      tty
+    )
     const sample = resolvePtyForegroundMembers(rows, group)
     // A foreground member whose argv ps withheld could be the agent, so its absence is not proof.
     if (

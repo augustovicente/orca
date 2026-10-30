@@ -89,7 +89,7 @@ export async function inspectTerminalHostProcess(args: {
         ptyIncarnationId: session.incarnationId,
         authorityGeneration: args.authorityGeneration,
         observationEpoch: args.nextObservationEpoch(),
-        capturedAgeMs: Date.now() - requestedAt,
+        capturedAgeMs: Math.max(0, Date.now() - requestedAt),
         ...(current ? sample : { verdict: 'unverifiable' as const, reason: 'session_changed' })
       }
     }

@@ -40,6 +40,38 @@ export function normalizePtyTty(tty: string): string | null {
   return /^[a-zA-Z0-9_/-]+$/.test(value) && !['-', 'console'].includes(value) ? value : null
 }
 
+// Keyed by snapshot array identity, so every new capture regroups even when a TTY name is reused.
+const snapshotRowsByTty = new WeakMap<
+  readonly ProcessTableRow[],
+  ReadonlyMap<string, readonly ProcessTableRow[]>
+>()
+
+/** Group a shared snapshot by normalized TTY once per capture, so each pane's display read is a lookup rather than
+ * a pass over every unrelated row. Rows keep capture order; rows without a valid TTY belong to no pane. */
+export function getSnapshotRowsOnTty(
+  rows: readonly ProcessTableRow[],
+  tty: string
+): readonly ProcessTableRow[] {
+  let byTty = snapshotRowsByTty.get(rows)
+  if (!byTty) {
+    const grouped = new Map<string, ProcessTableRow[]>()
+    for (const row of rows) {
+      const key = normalizePtyTty(row.tty ?? '')
+      if (key) {
+        const bucket = grouped.get(key)
+        if (bucket) {
+          bucket.push(row)
+        } else {
+          grouped.set(key, [row])
+        }
+      }
+    }
+    snapshotRowsByTty.set(rows, grouped)
+    byTty = grouped
+  }
+  return byTty.get(tty) ?? []
+}
+
 export async function readTerminalTty(
   rootPid: number,
   timeoutMs = PS_TIMEOUT_MS

@@ -183,7 +183,7 @@ export class LocalPtyProvider implements IPtyProvider {
           ptyIncarnationId: incarnation,
           authorityGeneration: this.foregroundAuthority,
           observationEpoch: ++this.foregroundEpoch,
-          capturedAgeMs: Date.now() - requestedAt
+          capturedAgeMs: Math.max(0, Date.now() - requestedAt)
         }
       }
     }
