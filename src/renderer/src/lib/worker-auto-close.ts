@@ -5,8 +5,7 @@ import type { RuntimeClientTarget } from '../../../shared/runtime-client-target'
 import {
   formatWorkerAutoCloseCountdown,
   readWorkerAutoCloseReply,
-  WORKER_AUTO_CLOSE_IDLE_POLL_MS,
-  WORKER_AUTO_CLOSE_POLL_MS,
+  pollWorkerAutoClose,
   type WorkerAutoCloseState
 } from '../../../shared/worker-auto-close'
 
@@ -44,35 +43,19 @@ export function useWorkerAutoClose(
   subject: WorkerAutoCloseSubject | null,
   active: boolean
 ): { state: WorkerAutoCloseState | null; nowMs: number; keepOpen: () => void } {
-  const [state, setState] = useState<WorkerAutoCloseState | null>(null)
+  const [read, setRead] = useState<{ key: string; state: WorkerAutoCloseState | null } | null>(null)
   const [nowMs, setNowMs] = useState(() => Date.now())
   const key = target && subject ? JSON.stringify([target, subject]) : null
+  const state = read && read.key === key ? read.state : null
 
   useEffect(() => {
-    setState(null)
     if (!key || !active || !target || !subject) {
       return
     }
-    let cancelled = false
-    let timer: ReturnType<typeof setTimeout> | undefined
-    const poll = (): void => {
-      void readWorkerAutoClose(target, subject).then((next) => {
-        if (cancelled) {
-          return
-        }
-        setState(next)
-        const temporary = next !== null && !next.kept
-        timer = setTimeout(
-          poll,
-          temporary ? WORKER_AUTO_CLOSE_POLL_MS : WORKER_AUTO_CLOSE_IDLE_POLL_MS
-        )
-      })
-    }
-    poll()
-    return () => {
-      cancelled = true
-      clearTimeout(timer)
-    }
+    return pollWorkerAutoClose(
+      () => readWorkerAutoClose(target, subject),
+      (next) => setRead({ key, state: next })
+    )
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- key covers target and subject by value.
   }, [key, active])
 
@@ -87,9 +70,12 @@ export function useWorkerAutoClose(
   }, [ticking])
 
   const keepOpen = useCallback(() => {
-    if (target && subject) {
-      setState({ kept: true })
-      void setWorkerKeptOpen(target, subject, true).then(setState, () => setState(null))
+    if (key && target && subject) {
+      setRead({ key, state: { kept: true } })
+      void setWorkerKeptOpen(target, subject, true).then(
+        (next) => setRead({ key, state: next }),
+        () => setRead(null)
+      )
     }
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- key covers target and subject by value.
   }, [key])

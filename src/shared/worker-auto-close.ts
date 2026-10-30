@@ -23,6 +23,28 @@ export function formatWorkerAutoCloseCountdown(closesAt: string, nowMs: number):
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
 }
 
-// A temporary worker is polled often so the strip follows its finish and follow-up turns; anything else rarely.
-export const WORKER_AUTO_CLOSE_POLL_MS = 3_000
-export const WORKER_AUTO_CLOSE_IDLE_POLL_MS = 15_000
+// A temporary worker is re-read often so the strip follows its finish and follow-up turns; anything else rarely.
+const POLL_MS = 3_000
+const IDLE_POLL_MS = 15_000
+
+/** Reads now and again until the returned stop is called. */
+export function pollWorkerAutoClose(
+  read: () => Promise<WorkerAutoCloseState | null>,
+  onState: (state: WorkerAutoCloseState | null) => void
+): () => void {
+  let stopped = false
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const poll = (): void => {
+    void read().then((state) => {
+      if (!stopped) {
+        onState(state)
+        timer = setTimeout(poll, state !== null && !state.kept ? POLL_MS : IDLE_POLL_MS)
+      }
+    })
+  }
+  poll()
+  return () => {
+    stopped = true
+    clearTimeout(timer)
+  }
+}

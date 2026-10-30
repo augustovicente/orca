@@ -9,8 +9,7 @@ import type { RpcClient } from '../transport/rpc-client'
 import type { ConnectionState } from '../transport/types'
 import {
   readWorkerAutoCloseReply,
-  WORKER_AUTO_CLOSE_IDLE_POLL_MS,
-  WORKER_AUTO_CLOSE_POLL_MS,
+  pollWorkerAutoClose,
   type WorkerAutoCloseState
 } from '../../../src/shared/worker-auto-close'
 import type { MobileSessionTab } from './mobile-session-route-types'
@@ -77,38 +76,20 @@ export function useMobileWorkerAutoClose(
   connState: ConnectionState,
   subject: MobileWorkerSubject | null
 ): { state: WorkerAutoCloseState | null; nowMs: number; keepOpen: () => void } {
-  const [state, setState] = useState<WorkerAutoCloseState | null>(null)
+  const [read, setRead] = useState<{ key: string; state: WorkerAutoCloseState | null } | null>(null)
   const [nowMs, setNowMs] = useState(() => Date.now())
   const key = subject ? JSON.stringify(subject) : null
-  const connected = connState === 'connected'
+  const state = read && read.key === key ? read.state : null
 
   useEffect(() => {
-    setState(null)
-    if (!client || !connected || !subject) {
+    if (!key || !client || connState !== 'connected' || !subject) {
       return
     }
-    let cancelled = false
-    let timer: ReturnType<typeof setTimeout> | undefined
-    const poll = (): void => {
-      void readMobileWorkerAutoClose(client, subject).then((next) => {
-        if (cancelled) {
-          return
-        }
-        setState(next)
-        const temporary = next !== null && !next.kept
-        timer = setTimeout(
-          poll,
-          temporary ? WORKER_AUTO_CLOSE_POLL_MS : WORKER_AUTO_CLOSE_IDLE_POLL_MS
-        )
-      })
-    }
-    poll()
-    return () => {
-      cancelled = true
-      clearTimeout(timer)
-    }
-    // oxlint-disable-next-line react-hooks/exhaustive-deps -- key covers subject by value.
-  }, [client, connected, key])
+    return pollWorkerAutoClose(
+      () => readMobileWorkerAutoClose(client, subject),
+      (next) => setRead({ key, state: next })
+    )
+  }, [client, connState, key])
 
   const ticking = state !== null && !state.kept && state.closesAt !== null
   useEffect(() => {
@@ -121,11 +102,13 @@ export function useMobileWorkerAutoClose(
   }, [ticking])
 
   const keepOpen = useCallback(() => {
-    if (client && subject) {
-      setState({ kept: true })
-      void setMobileWorkerKeptOpen(client, subject, true).then(setState, () => setState(null))
+    if (key && client && subject) {
+      setRead({ key, state: { kept: true } })
+      void setMobileWorkerKeptOpen(client, subject, true).then(
+        (next) => setRead({ key, state: next }),
+        () => setRead(null)
+      )
     }
-    // oxlint-disable-next-line react-hooks/exhaustive-deps -- key covers subject by value.
   }, [client, key])
 
   return { state, nowMs, keepOpen }
@@ -153,7 +136,6 @@ export function useMobileAllowAutoCloseActions(
     return () => {
       cancelled = true
     }
-    // oxlint-disable-next-line react-hooks/exhaustive-deps -- key covers subject by value.
   }, [client, key])
   if (!client || !kept) {
     return []
