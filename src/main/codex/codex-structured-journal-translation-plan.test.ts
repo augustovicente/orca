@@ -438,15 +438,23 @@ it.each([10, 100])(
       }
       return join.call(this, separator)
     })
-    const visiting = vi.spyOn(Set.prototype, Symbol.iterator).mockImplementation(function* (
+    const visiting = vi.spyOn(Set.prototype, Symbol.iterator).mockImplementation(function (
       this: Set<unknown>
     ) {
-      for (const value of iterate.call(this)) {
-        if (typeof value === 'string' && value.includes('meter-plan-')) {
+      const iterator = iterate.call(this)
+      const next = iterator.next.bind(iterator)
+      iterator.next = (...args) => {
+        const result = next(...args)
+        if (
+          !result.done &&
+          typeof result.value === 'string' &&
+          result.value.includes('meter-plan-')
+        ) {
           visits++
         }
-        yield value
+        return result
       }
+      return iterator
     })
     const delta = (index: number, text: string) =>
       translator.handle(
