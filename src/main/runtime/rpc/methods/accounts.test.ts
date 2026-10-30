@@ -273,6 +273,23 @@ describe('account RPC methods', () => {
   })
 
   it('uses a stale-aware refresh when a connection replays the subscription', async () => {
+    type AccountStreamContext = {
+      runtime: Pick<
+        OrcaRuntimeService,
+        | 'getAccountsStreamSnapshot'
+        | 'onAccountsChanged'
+        | 'registerSubscriptionCleanup'
+        | 'refreshAccountsForMobileSubscriber'
+      >
+      connectionId?: string
+    }
+    type AccountStreamHandler = {
+      handler(
+        params: unknown,
+        context: AccountStreamContext,
+        emit: (frame: unknown) => void
+      ): Promise<void>
+    }
     const snapshot = { claude: null, codex: null }
     let cleanup: (() => void) | undefined
     const runtime = {
@@ -283,14 +300,15 @@ describe('account RPC methods', () => {
       }),
       refreshAccountsForMobile: vi.fn().mockResolvedValue(undefined),
       refreshAccountsForMobileSubscriber: vi.fn().mockResolvedValue(undefined)
-    } as unknown as OrcaRuntimeService
+    }
     const subscribe = method('accounts.subscribe')
     if (!isStreamingMethod(subscribe)) {
       throw new Error('accounts.subscribe must be a streaming method')
     }
+    const stream: AccountStreamHandler = subscribe
     const emit = vi.fn()
 
-    const running = subscribe.handler(undefined, { runtime, connectionId: 'connection-1' }, emit)
+    const running = stream.handler(undefined, { runtime, connectionId: 'connection-1' }, emit)
     await vi.waitFor(() => {
       expect(runtime.refreshAccountsForMobileSubscriber).toHaveBeenCalledOnce()
     })
