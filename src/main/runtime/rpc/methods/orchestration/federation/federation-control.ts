@@ -1,6 +1,7 @@
 import { OrchestrationError } from '../../../../orchestration/orchestration-error'
 import type { RemoteDispatchAttachmentRow } from '../../../../orchestration/types'
 import { defineMethod } from '../../../core'
+import { isUserKeptWorkerTerminalOwner } from '../../../../orchestration/db/worker-terminal/worker-terminal-user-keep'
 import { mapWithConcurrency } from '../../../../../../shared/map-with-concurrency'
 import { readExactWorkerOutput } from '../worker/worker-output'
 import { exposeWorkerRetainReceipt } from '../worker/worker-terminal-resource-presentation'
@@ -94,6 +95,7 @@ export const ORCHESTRATION_FEDERATION_CONTROL_METHODS = [
         autoReleaseAt: runtime
           .getOrchestrationDb()
           .getLiveWorkerTerminalAutoReleaseAt(params.dispatchId),
+        keptOpen: isUserKeptWorkerTerminalOwner(runtime.getOrchestrationDb(), params.dispatchId),
         terminal: observation.exact ? observation.terminal : null,
         observation: {
           status: observation.status,

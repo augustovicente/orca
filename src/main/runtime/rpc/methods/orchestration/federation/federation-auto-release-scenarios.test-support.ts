@@ -212,7 +212,7 @@ export function registerFederatedAutoReleaseScenarios(harness: AutoReleaseScenar
 
   it('holds a host close while its agent works again after worker_done', async () => {
     const dispatchId = await settleRemotely()
-    vi.spyOn(harness.workerRuntime(), 'isWorkerAgentWorking').mockReturnValue(true)
+    vi.spyOn(harness.workerRuntime(), 'isWorkerAgentInTurn').mockReturnValue(true)
 
     await releaseDueOnHost()
 
@@ -245,7 +245,7 @@ export function registerFederatedAutoReleaseScenarios(harness: AutoReleaseScenar
   it('lets a home worker-release that joins the timer override a working agent on the host', async () => {
     const dispatchId = await settleRemotely()
     const finishCapture = holdHostCapture()
-    vi.spyOn(harness.workerRuntime(), 'isWorkerAgentWorking').mockReturnValue(true)
+    vi.spyOn(harness.workerRuntime(), 'isWorkerAgentInTurn').mockReturnValue(true)
     vi.setSystemTime(Date.now() + GRACE_MS)
     const timer = getWorkerTerminalAutoReleaseScheduler(harness.workerRuntime()).releaseDue()
     await vi.waitFor(() => expect(harness.workerRuntime().readTerminal).toHaveBeenCalled())
@@ -270,7 +270,7 @@ export function registerFederatedAutoReleaseScenarios(harness: AutoReleaseScenar
 
   it('honours an explicit release recorded after the host committed its archive', async () => {
     const dispatchId = await settleRemotely()
-    vi.spyOn(harness.workerRuntime(), 'isWorkerAgentWorking').mockReturnValue(true)
+    vi.spyOn(harness.workerRuntime(), 'isWorkerAgentInTurn').mockReturnValue(true)
     const db = harness.workerDb()
     const commit = db.commitWorkerTerminalArchiveForRelease.bind(db)
     vi.spyOn(db, 'commitWorkerTerminalArchiveForRelease').mockImplementation((params) => {

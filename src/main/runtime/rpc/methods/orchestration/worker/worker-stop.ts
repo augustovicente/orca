@@ -5,13 +5,13 @@ import { ORCHESTRATION_WORKER_STOP_VERDICT_RUNTIME_CAPABILITY } from '../../../.
 import type { RuntimeStatus } from '../../../../../../shared/runtime-types'
 import type { OrcaRuntimeService } from '../../../../orca-runtime'
 import { inspectWorkerTerminal, resolvePinnedFederatedServer } from './worker-observation'
+import { refuseFederatedStopWhileKeptOpen } from './worker-keep-open'
 import { archiveWorkerOutputBeforeStop } from './worker-stop-archive'
 import {
   resolveStructuredWorkerForDispatch,
   stopStructuredWorker
 } from '../../orchestration-structured-worker-lifecycle'
 import { isStructuredWorkerHandle } from '../../../../../../shared/structured-worker-handle'
-import { isUserKeptWorkerTerminal } from '../../../../orchestration/worker-terminal-ownership'
 import { WorkerDispatchParams } from '../../../../../../shared/rpc-contract/orchestration-worker-stop-params'
 
 export const ORCHESTRATION_WORKER_STOP_METHODS = [
@@ -30,6 +30,7 @@ export const ORCHESTRATION_WORKER_STOP_METHODS = [
               'Remote worker-stop requires a durable retry request.'
             )
           }
+          await refuseFederatedStopWhileKeptOpen(runtime, federated)
           const server = resolvePinnedFederatedServer(runtime, federated)
           const begun = db.beginWorkerStop(params.dispatch, runtime.getRuntimeId())
           if (begun.disposition === 'already_settled') {
@@ -170,15 +171,8 @@ export const ORCHESTRATION_WORKER_STOP_METHODS = [
           )
         }
         const resource = db.getWorkerTerminalResourceByOwner(params.dispatch)
-        if (
-          !resource ||
-          resource.ownership_state !== 'owned' ||
-          isUserKeptWorkerTerminal(resource)
-        ) {
-          const ownership =
-            resource?.ownership_state === 'owned'
-              ? 'kept open by the user'
-              : (resource?.ownership_state ?? 'unproven')
+        if (!resource || resource.ownership_state !== 'owned') {
+          const ownership = resource?.ownership_state ?? 'unproven'
           return unknownReceipt(
             params.dispatch,
             db.markWorkerStopUnknown(

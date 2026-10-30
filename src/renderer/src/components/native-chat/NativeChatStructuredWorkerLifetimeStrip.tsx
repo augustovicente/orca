@@ -6,12 +6,15 @@ import {
 } from '@/lib/worker-auto-close'
 import { NativeChatWorkerLifetimeStrip } from './NativeChatWorkerLifetimeStrip'
 import type { NativeChatStructuredComposerTransport } from './native-chat-composer-types'
+import { structuredAgentSessionPaneKey } from '../../../../shared/structured-agent-session-projection'
 
 /** A temporary orchestration worker chat says when it closes, with Keep open, on its composer. */
 export function NativeChatStructuredWorkerLifetimeStrip({
+  tabId,
   transport: { sessionId, runtimeEnvironmentId },
   isVisible
 }: {
+  tabId: string
   transport: Pick<NativeChatStructuredComposerTransport, 'sessionId' | 'runtimeEnvironmentId'>
   isVisible: boolean
 }): React.JSX.Element | null {
@@ -23,7 +26,12 @@ export function NativeChatStructuredWorkerLifetimeStrip({
     [runtimeEnvironmentId]
   )
   const subject = useMemo(() => ({ sessionId }), [sessionId])
-  const { state, nowMs, keepOpen } = useWorkerAutoClose(target, subject, isVisible)
+  const { state, nowMs, keepOpen } = useWorkerAutoClose(
+    target,
+    subject,
+    structuredAgentSessionPaneKey(tabId, sessionId),
+    isVisible
+  )
   const text = workerAutoCloseStripText(state, nowMs)
   return text ? (
     <NativeChatWorkerLifetimeStrip

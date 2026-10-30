@@ -1,12 +1,18 @@
 import {
+  isUserKeptWorkerTerminal,
   USER_KEPT_WORKER_TERMINAL_SQL,
   WORKER_SETTLED_STATES,
   type WorkerTerminalResourceRow
 } from '../../worker-terminal-ownership'
-import { isEquivalentPaneKey } from '../pane-key-match'
+import {
+  isEquivalentPaneKey,
+  paneKeyMatchSuffix,
+  WORKER_TERMINAL_PANE_KEY_MATCH_SUFFIX_SQL
+} from '../pane-key-match'
 import type { OrchestrationDb } from '../orchestration-db'
 import type { WorkerAutoCloseState } from '../../../../../shared/worker-auto-close'
 import { exposeUtcTimestamp, toSqliteUtcTimestamp } from '../utc-timestamp'
+import { OrchestrationError } from '../../orchestration-error'
 import { retainTerminalResourceInTransaction } from './worker-terminal-archive'
 import {
   OWNER_RELEASABLE_SQL,
@@ -31,9 +37,10 @@ function findResources(db: OrchestrationDb, paneKey: string, matchSql: string): 
   const candidates = db.db
     .prepare(
       `SELECT id, owner_dispatch_id, pane_key FROM worker_terminal_resources
-        WHERE ${matchSql} AND pane_key IS NOT NULL ORDER BY updated_at DESC`
+        WHERE ${matchSql} AND ${WORKER_TERMINAL_PANE_KEY_MATCH_SUFFIX_SQL} = ?
+        ORDER BY updated_at DESC`
     )
-    .all() as PaneResource[]
+    .all(paneKeyMatchSuffix(paneKey)) as PaneResource[]
   return candidates.filter((candidate) => isEquivalentPaneKey(candidate.pane_key, paneKey))
 }
 
@@ -109,6 +116,25 @@ export function allowWorkerTerminalAutoClose(
     this.db.exec('ROLLBACK')
     throw error
   }
+}
+
+/** Called before a stop changes anything: a refused stop must leave the worker and its authority as they were. */
+export function refuseStopWhileKeptOpen(db: OrchestrationDb, dispatchId: string): void {
+  if (isUserKeptWorkerTerminalOwner(db, dispatchId)) {
+    throw keptOpenStopRefusal(dispatchId)
+  }
+}
+
+export function isUserKeptWorkerTerminalOwner(db: OrchestrationDb, dispatchId: string): boolean {
+  const resource = db.getWorkerTerminalResourceByOwner(dispatchId)
+  return resource?.ownership_state === 'owned' && isUserKeptWorkerTerminal(resource)
+}
+
+export function keptOpenStopRefusal(dispatchId: string): OrchestrationError {
+  return new OrchestrationError(
+    'terminal_kept_open',
+    `The user chose Keep open for Dispatch ${dispatchId}, so it was not stopped. Only the user can undo that, with Allow Auto-Close on its tab; then run worker-stop again.`
+  )
 }
 
 export function getWorkerAutoCloseState(

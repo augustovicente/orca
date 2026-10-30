@@ -352,7 +352,7 @@ export function NativeChatStructuredSession(
           />
           {prompt ? null : (
             <NativeChatStructuredComposerTabStrips
-              sessionId={props.sessionId}
+              tabId={props.tabId}
               threadGoal={controller.threadGoal}
               transport={transport}
               isWorking={controller.isWorking}

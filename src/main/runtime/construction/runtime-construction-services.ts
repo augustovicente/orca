@@ -263,7 +263,7 @@ export abstract class RuntimeConstructionServices {
     mailboxHandle: string
   ): StructuredPointerTarget | null
   abstract getTerminalPaneKey(handle: string): string | null
-  abstract isWorkerAgentWorking(
+  abstract isWorkerAgentInTurn(
     resource: Pick<WorkerTerminalResourceRow, 'pane_key' | 'terminal_handle'>
   ): boolean
   protected abstract getWorkspaceSessionForWorktree(

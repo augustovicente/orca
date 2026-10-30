@@ -10,7 +10,7 @@ export function yieldAutoReleaseToWorkingAgent(
   if (
     !resource.auto_release_at ||
     resource.auto_release_dispatch_id !== resource.owner_dispatch_id ||
-    !runtime.isWorkerAgentWorking(resource)
+    !runtime.isWorkerAgentInTurn(resource)
   ) {
     return resource
   }

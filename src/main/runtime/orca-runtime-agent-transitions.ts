@@ -13,6 +13,7 @@ import { subscribeHookStatusTitles } from './terminal/layout/hook-status-title-s
 import { TerminalWorkerTurnStops } from './orchestration/terminal-worker-turn-stops'
 import type { WorkerTerminalResourceRow } from './orchestration/worker-terminal-ownership'
 import { resolveStructuredWorkerIdentity } from './structured-worker-authority'
+import { chatStatusInTurn, terminalPhaseInTurn } from './orchestration/worker-auto-release-activity'
 import { getStructuredAgentSessionHost } from '../native-chat/agent-session-wire/structured-agent-session-registry'
 import {
   TerminalAgentPhonePush,
@@ -84,8 +85,8 @@ export abstract class OrcaRuntimeWithAgentTransitions extends OrcaRuntimeWithMig
     this.agentTransitions.subscribe((change) => this.workerAutoReleaseActivity.observePane(change))
   }
 
-  /** Whether a worker's agent is in a turn now; an automatic close never takes one that is. */
-  isWorkerAgentWorking(
+  /** Whether a worker's agent is in a turn now, working or waiting on the user; an automatic close never takes one. */
+  isWorkerAgentInTurn(
     resource: Pick<WorkerTerminalResourceRow, 'pane_key' | 'terminal_handle'>
   ): boolean {
     const structured = resolveStructuredWorkerIdentity(
@@ -93,13 +94,13 @@ export abstract class OrcaRuntimeWithAgentTransitions extends OrcaRuntimeWithMig
       this._orchestrationDb
     )
     if (structured) {
-      return (
-        getStructuredAgentSessionHost()?.readStatusSummary(structured.sessionId)?.status ===
-        'working'
+      return chatStatusInTurn(
+        getStructuredAgentSessionHost()?.readStatusSummary(structured.sessionId)?.status
       )
     }
     return (
-      resource.pane_key !== null && this.agentTransitions.phaseOf(resource.pane_key) === 'working'
+      resource.pane_key !== null &&
+      terminalPhaseInTurn(this.agentTransitions.phaseOf(resource.pane_key))
     )
   }
 

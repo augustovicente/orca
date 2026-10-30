@@ -32,8 +32,9 @@ export function WorkerAutoCloseBanner({
         : { kind: 'local' as const },
     [environmentId]
   )
-  const subject = useMemo(() => ({ paneKey: makePaneKey(tabId, leafId) }), [tabId, leafId])
-  const { state, nowMs, keepOpen } = useWorkerAutoClose(target, subject, isVisible)
+  const paneKey = makePaneKey(tabId, leafId)
+  const subject = useMemo(() => ({ paneKey }), [paneKey])
+  const { state, nowMs, keepOpen } = useWorkerAutoClose(target, subject, paneKey, isVisible)
   const title = workerAutoCloseStripText(state, nowMs)
   if (!title) {
     return null

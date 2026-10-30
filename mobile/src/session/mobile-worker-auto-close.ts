@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import { z } from 'zod'
 import { Timer } from 'lucide-react-native'
 import type { ActionSheetAction } from '../components/ActionSheetModal'
@@ -7,9 +7,14 @@ import { bindDeferredRpcOperation, defineRpcOperation } from '../transport/rpc-o
 import { rpcResultVariant } from '../transport/rpc-operation-result-reader'
 import type { RpcClient } from '../transport/rpc-client'
 import type { ConnectionState } from '../transport/types'
+import { useOptionalHostProtocolGates } from '../components/host-protocol-gates-context'
+import { ORCHESTRATION_WORKER_KEEP_OPEN_RUNTIME_CAPABILITY } from '../../../src/shared/orchestration-runtime-capabilities'
 import {
-  readWorkerAutoCloseReply,
   pollWorkerAutoClose,
+  publishWorkerAutoClose,
+  readPublishedWorkerAutoClose,
+  readWorkerAutoCloseReply,
+  subscribeWorkerAutoClose,
   type WorkerAutoCloseState
 } from '../../../src/shared/worker-auto-close'
 import type { MobileSessionTab } from './mobile-session-route-types'
@@ -27,7 +32,6 @@ export function workerSubjectOf(tab: MobileSessionTab | undefined): MobileWorker
 
 const autoCloseReplySchema = z.unknown().transform(readWorkerAutoCloseReply)
 
-// An older host has no such method: the reply is null and no strip shows.
 const workerAutoCloseRead = bindDeferredRpcOperation(
   defineRpcOperation({
     name: 'orchestration.worker-auto-close',
@@ -68,28 +72,46 @@ export function setMobileWorkerKeptOpen(
   return workerKeepOpenSet
     .request(client, { ...subject, keep }, REQUEST_OPTIONS)
     .then((reply) => workerKeepOpenSet.interpret(reply) ?? null)
+    .then((state) => {
+      publishWorkerAutoClose(JSON.stringify(subject), state)
+      return state
+    })
 }
 
-/** The open tab's auto-close state from its host while connected, plus the clock its countdown ticks on. */
+// An older host lacks the methods, so it is never asked.
+function useHostKeepsWorkersOpen(): boolean {
+  return (
+    useOptionalHostProtocolGates()?.hostCapabilities.includes(
+      ORCHESTRATION_WORKER_KEEP_OPEN_RUNTIME_CAPABILITY
+    ) === true
+  )
+}
+
+/** The open tab's auto-close state from its host while connected, plus the clock its countdown ticks on.
+ *  Read when the tab opens; re-read only while the worker is temporary. */
 export function useMobileWorkerAutoClose(
   client: RpcClient | null,
   connState: ConnectionState,
   subject: MobileWorkerSubject | null
 ): { state: WorkerAutoCloseState | null; nowMs: number; keepOpen: () => void } {
-  const [read, setRead] = useState<{ key: string; state: WorkerAutoCloseState | null } | null>(null)
-  const [nowMs, setNowMs] = useState(() => Date.now())
+  const supported = useHostKeepsWorkersOpen()
   const key = subject ? JSON.stringify(subject) : null
-  const state = read && read.key === key ? read.state : null
+  const subscribe = useCallback(
+    (listener: () => void) => subscribeWorkerAutoClose(key, listener),
+    [key]
+  )
+  const state = useSyncExternalStore(subscribe, () => readPublishedWorkerAutoClose(key))
+  const [nowMs, setNowMs] = useState(() => Date.now())
 
   useEffect(() => {
-    if (!key || !client || connState !== 'connected' || !subject) {
+    if (!key || !client || connState !== 'connected' || !subject || !supported) {
       return
     }
     return pollWorkerAutoClose(
       () => readMobileWorkerAutoClose(client, subject),
-      (next) => setRead({ key, state: next })
+      (next) => publishWorkerAutoClose(key, next)
     )
-  }, [client, connState, key])
+  }, [client, connState, key, supported])
 
   const ticking = state !== null && !state.kept && state.closesAt !== null
   useEffect(() => {
@@ -103,10 +125,9 @@ export function useMobileWorkerAutoClose(
 
   const keepOpen = useCallback(() => {
     if (key && client && subject) {
-      setRead({ key, state: { kept: true } })
-      void setMobileWorkerKeptOpen(client, subject, true).then(
-        (next) => setRead({ key, state: next }),
-        () => setRead(null)
+      publishWorkerAutoClose(key, { kept: true })
+      void setMobileWorkerKeptOpen(client, subject, true).catch(() =>
+        readMobileWorkerAutoClose(client, subject).then((next) => publishWorkerAutoClose(key, next))
       )
     }
   }, [client, key])
@@ -120,11 +141,12 @@ export function useMobileAllowAutoCloseActions(
   subject: MobileWorkerSubject | null
 ): ActionSheetAction[] {
   const t = useMobileTranslation()
+  const supported = useHostKeepsWorkersOpen()
   const [kept, setKept] = useState<MobileWorkerSubject | null>(null)
   const key = subject ? JSON.stringify(subject) : null
   useEffect(() => {
     setKept(null)
-    if (!client || !subject) {
+    if (!client || !subject || !supported) {
       return
     }
     let cancelled = false
@@ -136,7 +158,7 @@ export function useMobileAllowAutoCloseActions(
     return () => {
       cancelled = true
     }
-  }, [client, key])
+  }, [client, key, supported])
   if (!client || !kept) {
     return []
   }

@@ -184,7 +184,7 @@ describe('orchestration worker automatic release', () => {
 
   it('never closes an agent still working when its deadline comes', async () => {
     setupWithFakeClock()
-    const working = vi.spyOn(h.runtime, 'isWorkerAgentWorking').mockReturnValue(true)
+    const working = vi.spyOn(h.runtime, 'isWorkerAgentInTurn').mockReturnValue(true)
     const { dispatchId } = await h.startSettledWorker()
 
     await vi.advanceTimersByTimeAsync(2 * GRACE_MS)
@@ -383,6 +383,19 @@ describe('orchestration worker automatic release', () => {
       expect(h.db.admitWorkerChatReleaseClose(closing)).toBe(true)
       await keepChat(true)
       expect(h.db.getWorkerTerminalResource(closing)?.release_state).toBe('releasing')
+    })
+
+    it('calls off a claimed chat close when a turn starts before Stop is admitted', () => {
+      setupWithFakeClock()
+      const resourceId = claimAndCommitChatRelease(startSettledChatWorker())
+
+      h.db.suspendWorkerTerminalAutoRelease(chatPaneKey)
+
+      expect(h.db.admitWorkerChatReleaseClose(resourceId)).toBe(false)
+      expect(h.db.getWorkerTerminalResource(resourceId)).toMatchObject({
+        release_state: 'not_requested',
+        auto_release_at: null
+      })
     })
   })
 })

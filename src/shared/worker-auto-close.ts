@@ -23,11 +23,11 @@ export function formatWorkerAutoCloseCountdown(closesAt: string, nowMs: number):
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
 }
 
-// A worker is re-read often so the strip follows its finish, follow-ups and Allow Auto-Close; anything else rarely.
-const POLL_MS = 3_000
-const IDLE_POLL_MS = 15_000
+// Only a temporary worker is re-read, to follow its finish and follow-ups; its countdown ticks locally.
+// Kept and non-worker states wait for the client's next trigger or a Keep open / Allow Auto-Close reply.
+const TEMPORARY_POLL_MS = 15_000
 
-/** Reads now and again until the returned stop is called. */
+/** Reads now, then again while the worker stays temporary, until the returned stop is called. */
 export function pollWorkerAutoClose(
   read: () => Promise<WorkerAutoCloseState | null>,
   onState: (state: WorkerAutoCloseState | null) => void
@@ -38,7 +38,7 @@ export function pollWorkerAutoClose(
     void read().then((state) => {
       if (!stopped) {
         onState(state)
-        timer = setTimeout(poll, state !== null ? POLL_MS : IDLE_POLL_MS)
+        timer = state && !state.kept ? setTimeout(poll, TEMPORARY_POLL_MS) : undefined
       }
     })
   }
@@ -46,5 +46,37 @@ export function pollWorkerAutoClose(
   return () => {
     stopped = true
     clearTimeout(timer)
+  }
+}
+
+// One state per worker for every surface showing it, so a reply from the tab menu reaches the strip.
+const published = new Map<string, WorkerAutoCloseState | null>()
+const listeners = new Map<string, Set<() => void>>()
+
+export function publishWorkerAutoClose(key: string, state: WorkerAutoCloseState | null): void {
+  const subscribed = listeners.get(key)
+  if (subscribed) {
+    published.set(key, state)
+    subscribed.forEach((listener) => listener())
+  }
+}
+
+export function readPublishedWorkerAutoClose(key: string | null): WorkerAutoCloseState | null {
+  return key === null ? null : (published.get(key) ?? null)
+}
+
+export function subscribeWorkerAutoClose(key: string | null, listener: () => void): () => void {
+  if (key === null) {
+    return () => {}
+  }
+  const subscribed = listeners.get(key) ?? new Set()
+  listeners.set(key, subscribed)
+  subscribed.add(listener)
+  return () => {
+    subscribed.delete(listener)
+    if (subscribed.size === 0) {
+      listeners.delete(key)
+      published.delete(key)
+    }
   }
 }

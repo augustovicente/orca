@@ -24,6 +24,10 @@ export const OWNER_RELEASABLE_SQL = `(
   )
 )`
 
+// Claimed by the deadline and not yet admitted; the kept deadline is what marks it automatic.
+const AUTOMATIC_CLOSE_CLAIMED_SQL = `release_state IN ('requested', 'releasing')
+  AND auto_release_at IS NOT NULL AND auto_release_dispatch_id = owner_dispatch_id`
+
 // Armed for its owner and not yet kept, retained or released.
 const ARMED_SQL = `auto_release_dispatch_id = owner_dispatch_id AND ownership_state = 'owned'
   AND release_state = 'not_requested'`
@@ -49,7 +53,7 @@ export function armWorkerTerminalAutoReleaseStatement(
   }
 }
 
-/** The agent works again: its countdown waits until it next rests. */
+/** A new turn: its countdown waits until it next rests, and an automatic close already claimed is called off. */
 export function suspendWorkerTerminalAutoRelease(this: OrchestrationDb, paneKey: string): void {
   const { changes } = this.db
     .prepare(
@@ -57,7 +61,17 @@ export function suspendWorkerTerminalAutoRelease(this: OrchestrationDb, paneKey:
         WHERE pane_key = ? AND ${ARMED_SQL} AND auto_release_at IS NOT NULL`
     )
     .run(paneKey)
-  if (changes > 0) {
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the SELECT names exactly this one column.
+  const claimed = this.db
+    .prepare(
+      `SELECT id FROM worker_terminal_resources
+        WHERE pane_key = ? AND ownership_state = 'owned' AND ${AUTOMATIC_CLOSE_CLAIMED_SQL}`
+    )
+    .all(paneKey) as { id: string }[]
+  for (const { id } of claimed) {
+    this.deferWorkerTerminalAutoRelease(id)
+  }
+  if (changes > 0 || claimed.length > 0) {
     this.workerTerminalAutoReleaseListener?.()
   }
 }
@@ -109,8 +123,7 @@ export function deferWorkerTerminalAutoRelease(this: OrchestrationDb, resourceId
         `UPDATE worker_terminal_resources
             SET release_state = 'not_requested', auto_release_at = NULL, archive_source = NULL,
                 archive_status = NULL, release_requested_at = NULL, updated_at = datetime('now')
-          WHERE id = ? AND ownership_state = 'owned' AND release_state IN ('requested', 'releasing')
-            AND auto_release_at IS NOT NULL AND auto_release_dispatch_id = owner_dispatch_id`
+          WHERE id = ? AND ownership_state = 'owned' AND ${AUTOMATIC_CLOSE_CLAIMED_SQL}`
       )
       .run(resourceId)
     if (changes > 0 && resource) {
@@ -168,6 +181,9 @@ export function endFederatedHomeAutoRelease(this: OrchestrationDb, dispatchId: s
 
 /** Claiming postpones the deadline instead of hiding it, so an attempt cut short by a crash or failure runs again. */
 export function claimDueFederatedHomeAutoReleases(this: OrchestrationDb, nowMs: number): string[] {
+  if (this.workerAutoReleaseEnabled?.() === false) {
+    return []
+  }
   // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the SELECT names exactly this one column.
   const due = this.db
     .prepare(
@@ -201,6 +217,10 @@ export function isFederatedHomeAutoReleaseArmed(
 }
 
 export function nextWorkerTerminalAutoReleaseAtMs(this: OrchestrationDb): number | null {
+  // Off: nothing is due, so no timer runs until the setting turns back on.
+  if (this.workerAutoReleaseEnabled?.() === false) {
+    return null
+  }
   // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: an aggregate SELECT always returns exactly this one-column row.
   const row = this.db
     .prepare(

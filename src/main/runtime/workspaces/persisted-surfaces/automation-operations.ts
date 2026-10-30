@@ -29,6 +29,9 @@ import type { LegacyWorkerTerminalRecoveryResult } from '../../runtime-legacy-wo
 import { makePaneKey } from '../../../../shared/stable-pane-id'
 import { worktreeIdsEqual } from '../../../../shared/worktree/id'
 
+// Keyed by runtime, not a field: the database can open while the runtime is still constructing.
+const runtimesWatchingAutoReleaseSetting = new WeakSet<object>()
+
 export abstract class OrcaRuntimeWithAutomationOperations extends OrcaRuntimeWithPtyForegroundProcessReads {
   abstract notifyAutomationsChanged(payload?: AutomationsChangedPayload): void
   abstract ensureOrchestrationFederationRelay(runId?: string): void
@@ -192,6 +195,15 @@ export abstract class OrcaRuntimeWithAutomationOperations extends OrcaRuntimeWit
     }
     db.workerAutoReleaseEnabled = () =>
       this.store?.getSettings?.()?.orchestrationWorkerAutoReleaseEnabled !== false
+    if (this.store?.onSettingsChanged && !runtimesWatchingAutoReleaseSetting.has(this)) {
+      runtimesWatchingAutoReleaseSetting.add(this)
+      // Turning the setting off drops the timer; turning it on finds the deadlines still due.
+      this.store.onSettingsChanged((updates) => {
+        if ('orchestrationWorkerAutoReleaseEnabled' in updates && this._orchestrationDb) {
+          getWorkerTerminalAutoReleaseScheduler(this).rearm()
+        }
+      })
+    }
   }
 
   private bindMailHandBack(db: OrchestrationDb): void {

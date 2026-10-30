@@ -22,12 +22,12 @@ export async function stopStructuredWorkerForRelease(args: {
     structured,
     dispatchId,
     runtime,
-    resource.auto_release_at ? () => db.admitWorkerChatReleaseClose(resource.id) : undefined
+    resource.auto_release_at ? () => admitAutomaticClose(runtime, db, resource) : undefined
   )
   if (!stop.stopped) {
     const current = db.getWorkerTerminalResource(resource.id)
     if (current && current.release_state !== 'releasing') {
-      // Refused in the session lane: a touch kept the chat, or it fell back to manual release.
+      // Refused in the session lane: Keep open, a new turn, or a fall back to manual release.
       return {
         dispatchId,
         state: 'retained',
@@ -56,4 +56,17 @@ export async function stopStructuredWorkerForRelease(args: {
     processAction: 'closed_agent_terminal',
     archive: archiveSummary(settled)
   }
+}
+
+// In the session lane, so a turn that began while the archive was taken is seen before Stop.
+function admitAutomaticClose(
+  runtime: WorkerTerminalReleaseRuntime,
+  db: OrchestrationDb,
+  resource: WorkerTerminalResourceRow
+): boolean {
+  if (runtime.isWorkerAgentInTurn(resource)) {
+    db.deferWorkerTerminalAutoRelease(resource.id)
+    return false
+  }
+  return db.admitWorkerChatReleaseClose(resource.id)
 }

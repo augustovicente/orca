@@ -1,7 +1,10 @@
 import { expect, it, vi } from 'vitest'
 import { getWorkerTerminalAutoReleaseScheduler } from '../../../../orchestration/worker-terminal-auto-release-scheduler'
 import { getOrchestrationPeerCapabilityCache } from '../../../../orchestration/orchestration-peer-capability-cache'
-import { ORCHESTRATION_WORKER_AUTO_RELEASE_RUNTIME_CAPABILITY } from '../../../../../../shared/protocol-version'
+import {
+  ORCHESTRATION_CONTRACT_VERSION,
+  ORCHESTRATION_WORKER_AUTO_RELEASE_RUNTIME_CAPABILITY
+} from '../../../../../../shared/protocol-version'
 import {
   GRACE_MS,
   type AutoReleaseScenarioHarness
@@ -127,5 +130,27 @@ export function registerHomeAutoReleaseScenarios(args: {
     await releaseDueAtHome()
 
     expect(harness.workerRuntime().closeTerminal).toHaveBeenCalledTimes(1)
+  })
+
+  it('refuses a home worker-stop of a worker kept open on its host before either side stops it', async () => {
+    const dispatchId = await harness.startRemoteWorker()
+    const paneKey = harness.workerDb().getWorkerTerminalResourceByOwner(dispatchId)?.pane_key
+    expect(harness.workerDb().keepWorkerTerminalOpen(paneKey ?? '')).toBe(1)
+
+    await expect(
+      harness.dispatchHome({
+        id: 'rpc_remote_stop',
+        authToken: 'coordinator-token',
+        orchestrationContractVersion: ORCHESTRATION_CONTRACT_VERSION,
+        orchestrationRequestId: 'remote_stop',
+        method: 'orchestration.workerStop',
+        params: { dispatch: dispatchId }
+      })
+    ).resolves.toMatchObject({ ok: false, error: { code: 'terminal_kept_open' } })
+    expect(harness.homeDb().getWorkerDispatch(dispatchId)?.state).toBe('ready')
+    expect(harness.remoteCalls()).not.toContain('orchestration.federationStop')
+    // An older home skips that check; the host still refuses before it stops anything.
+    expect(() => harness.workerDb().beginRemoteAttachmentStop(dispatchId)).toThrow('Keep open')
+    expect(harness.workerDb().getRemoteDispatchAttachment(dispatchId)?.state).toBe('ready')
   })
 }

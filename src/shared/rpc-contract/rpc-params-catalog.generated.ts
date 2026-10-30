@@ -1285,6 +1285,7 @@ export const RPC_PARAMS_BY_METHOD = {
   'orchestration.taskList': TaskListParams,
   'orchestration.workerAbandon': WorkerDispatchParams,
   'orchestration.workerAutoClose': OrchestrationWorkerSubjectParams,
+  'orchestration.workerChatTouch': OrchestrationWorkerSubjectParams,
   'orchestration.workerKeepOpen': OrchestrationWorkerKeepOpenParams,
   'orchestration.workerList': WorkerListParams,
   'orchestration.workerRead': WorkerReadParams,

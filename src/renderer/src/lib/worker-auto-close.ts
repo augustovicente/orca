@@ -1,25 +1,56 @@
-import { useCallback, useEffect, useState } from 'react'
-import { callRuntimeRpc } from '@/runtime/runtime-rpc-client'
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
+import { callRuntimeRpc, runtimeEnvironmentSupportsCapability } from '@/runtime/runtime-rpc-client'
+import {
+  ensureLocalRuntimeCapabilities,
+  readLocalRuntimeCapabilitiesOrUnknown
+} from '@/runtime/local-runtime-capabilities'
+import { selectVisibleAgentOrchestration } from '@/runtime/visible-agent-orchestration'
+import { useAppStore } from '@/store'
+import type { AppState } from '@/store/types'
 import { translate } from '@/i18n/i18n'
 import type { RuntimeClientTarget } from '../../../shared/runtime-client-target'
+import { ORCHESTRATION_WORKER_KEEP_OPEN_RUNTIME_CAPABILITY } from '../../../shared/orchestration-runtime-capabilities'
 import {
   formatWorkerAutoCloseCountdown,
-  readWorkerAutoCloseReply,
   pollWorkerAutoClose,
+  publishWorkerAutoClose,
+  readPublishedWorkerAutoClose,
+  readWorkerAutoCloseReply,
+  subscribeWorkerAutoClose,
   type WorkerAutoCloseState
 } from '../../../shared/worker-auto-close'
 
 /** A terminal pane, or a chat named by session: its owning host resolves the pane credential. */
 export type WorkerAutoCloseSubject = { paneKey: string } | { sessionId: string }
 
-// An older host has no such method; reuse its failure so the strip just stays away.
-const RPC_OPTIONS = { suppressFeatureInteraction: true, reuseRecentCompatibilityFailure: true }
+const RPC_OPTIONS = { suppressFeatureInteraction: true }
+
+// An older host lacks the methods; asking its advertised capabilities first costs it no request.
+async function hostKeepsWorkersOpen(target: RuntimeClientTarget): Promise<boolean> {
+  if (target.kind === 'environment') {
+    return runtimeEnvironmentSupportsCapability(
+      target.environmentId,
+      ORCHESTRATION_WORKER_KEEP_OPEN_RUNTIME_CAPABILITY
+    )
+  }
+  await ensureLocalRuntimeCapabilities()
+  return (
+    readLocalRuntimeCapabilitiesOrUnknown()?.includes(
+      ORCHESTRATION_WORKER_KEEP_OPEN_RUNTIME_CAPABILITY
+    ) === true
+  )
+}
 
 export function readWorkerAutoClose(
   target: RuntimeClientTarget,
   subject: WorkerAutoCloseSubject
 ): Promise<WorkerAutoCloseState | null> {
-  return callRuntimeRpc<unknown>(target, 'orchestration.workerAutoClose', subject, RPC_OPTIONS)
+  return hostKeepsWorkersOpen(target)
+    .then((supported) =>
+      supported
+        ? callRuntimeRpc<unknown>(target, 'orchestration.workerAutoClose', subject, RPC_OPTIONS)
+        : null
+    )
     .then(readWorkerAutoCloseReply)
     .catch(() => null)
 }
@@ -29,37 +60,64 @@ export function setWorkerKeptOpen(
   subject: WorkerAutoCloseSubject,
   keep: boolean
 ): Promise<WorkerAutoCloseState | null> {
+  const key = workerAutoCloseKey(target, subject)
   return callRuntimeRpc<unknown>(
     target,
     'orchestration.workerKeepOpen',
     { ...subject, keep },
     RPC_OPTIONS
-  ).then(readWorkerAutoCloseReply)
+  )
+    .then(readWorkerAutoCloseReply)
+    .then((state) => {
+      publishWorkerAutoClose(key, state)
+      return state
+    })
 }
 
-/** The host's auto-close state for a shown worker, re-read while `active`, plus the clock its countdown ticks on. */
+export function workerAutoCloseKey(
+  target: RuntimeClientTarget,
+  subject: WorkerAutoCloseSubject
+): string {
+  return JSON.stringify([target, subject])
+}
+
+// Changes when the pane's Dispatch or agent moves on, so the host is asked right then; null for non-workers.
+function workerActivity(state: AppState, paneKey: string): string | null {
+  const context = selectVisibleAgentOrchestration(state)[paneKey]
+  return context
+    ? `${context.dispatchId}:${context.dispatchStatus ?? ''}:${state.agentStatusByPaneKey[paneKey]?.state ?? ''}`
+    : null
+}
+
+/** The host's auto-close state for a shown pane this client knows is an orchestration worker, plus the
+ *  clock its countdown ticks on. Read while `active` and the worker changes, and re-read only while temporary. */
 export function useWorkerAutoClose(
-  target: RuntimeClientTarget | null,
-  subject: WorkerAutoCloseSubject | null,
+  target: RuntimeClientTarget,
+  subject: WorkerAutoCloseSubject,
+  paneKey: string,
   active: boolean
 ): { state: WorkerAutoCloseState | null; nowMs: number; keepOpen: () => void } {
-  const [read, setRead] = useState<{ key: string; state: WorkerAutoCloseState | null } | null>(null)
+  const key = workerAutoCloseKey(target, subject)
+  const subscribe = useCallback(
+    (listener: () => void) => subscribeWorkerAutoClose(key, listener),
+    [key]
+  )
+  const state = useSyncExternalStore(subscribe, () => readPublishedWorkerAutoClose(key))
+  const activity = useAppStore((s) => workerActivity(s, paneKey))
   const [nowMs, setNowMs] = useState(() => Date.now())
-  const key = target && subject ? JSON.stringify([target, subject]) : null
-  const state = read && read.key === key ? read.state : null
 
   useEffect(() => {
-    if (!key || !active || !target || !subject) {
+    if (!active || activity === null) {
       return
     }
     return pollWorkerAutoClose(
       () => readWorkerAutoClose(target, subject),
-      (next) => setRead({ key, state: next })
+      (next) => publishWorkerAutoClose(key, next)
     )
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- key covers target and subject by value.
-  }, [key, active])
+  }, [key, active, activity])
 
-  const ticking = state !== null && !state.kept && state.closesAt !== null
+  const ticking = active && state !== null && !state.kept && state.closesAt !== null
   useEffect(() => {
     if (!ticking) {
       return
@@ -70,17 +128,14 @@ export function useWorkerAutoClose(
   }, [ticking])
 
   const keepOpen = useCallback(() => {
-    if (key && target && subject) {
-      setRead({ key, state: { kept: true } })
-      void setWorkerKeptOpen(target, subject, true).then(
-        (next) => setRead({ key, state: next }),
-        () => setRead(null)
-      )
-    }
+    publishWorkerAutoClose(key, { kept: true })
+    void setWorkerKeptOpen(target, subject, true).catch(() =>
+      readWorkerAutoClose(target, subject).then((next) => publishWorkerAutoClose(key, next))
+    )
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- key covers target and subject by value.
   }, [key])
 
-  return { state, nowMs, keepOpen }
+  return { state: activity === null ? null : state, nowMs, keepOpen }
 }
 
 /** The strip's line; null when no strip shows (kept open, or nothing closes the worker). */

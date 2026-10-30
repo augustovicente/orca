@@ -144,41 +144,6 @@ describe('worker-stop against a terminal we lost contact with', () => {
     })
   })
 
-  it('does not close a pane the user kept open', async () => {
-    vi.spyOn(runtime, 'showTerminal').mockResolvedValue({
-      handle: 'term_worker',
-      worktreeId: 'repo::worktree',
-      connected: true,
-      status: 'running'
-    } as never)
-    vi.spyOn(runtime, 'getTerminalLivenessVerdict').mockReturnValue({
-      status: 'live',
-      ptyIds: ['runtime:pty:1']
-    })
-    const closeTerminal = vi.spyOn(runtime, 'closeTerminal').mockResolvedValue({
-      handle: 'term_worker',
-      tabId: 'tab_worker',
-      ptyKilled: true
-    })
-    const dispatch = createWorker()
-
-    await expect(
-      call('orchestration.workerKeepOpen', {
-        paneKey: 'tab_worker:bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
-        keep: true
-      })
-    ).resolves.toEqual({ autoClose: { kept: true } })
-
-    await expect(
-      call('orchestration.workerStop', { dispatch: dispatch.id })
-    ).resolves.toMatchObject({
-      state: 'stop_unknown',
-      processAction: 'none',
-      lastError: 'The worker terminal is kept open by the user; no terminal was closed.'
-    })
-    expect(closeTerminal).not.toHaveBeenCalled()
-  })
-
   it('does not close a legacy worker terminal without an ownership record', async () => {
     vi.spyOn(runtime, 'showTerminal').mockResolvedValue({
       handle: 'term_worker',
