@@ -151,43 +151,37 @@ describe('consuming checks', () => {
     }
   )
 
-  it('reports the Run ack it applied alongside residual mail it takes', async () => {
-    const run = await mailbox('run')
-    insert(run, 'run report')
-    const handled = await check()
-    insert({ address: `dispatch:${dispatch.id}`, runId: dispatch.run_id }, 'residual')
-    const record = vi.fn()
-    state.ctx.recordMutationReceipt = record
+  it.each([
+    { kind: 'run', wait: false },
+    { kind: 'run', wait: true },
+    { kind: 'dispatch', wait: false },
+    { kind: 'dispatch', wait: true }
+  ] as const)(
+    'acknowledges $kind mail with --ack and takes none (wait: $wait)',
+    async ({ kind, wait }) => {
+      const box = await mailbox(kind)
+      insert(box, 'handled')
+      const handled = await check()
+      const report = insert(box, 'stop report')
+      const record = vi.fn()
+      state.ctx.recordMutationReceipt = record
 
-    const result = await h.call(
-      'orchestration.check',
-      { terminal: 'term_lead', ack: handled.deliveryId },
-      state.ctx
-    )
-    expect(result).toMatchObject({
-      acknowledged: handled.deliveryId,
-      messages: [{ subject: 'residual' }]
-    })
-    expect(record).toHaveBeenLastCalledWith(
-      expect.objectContaining({ acknowledged: handled.deliveryId })
-    )
-  })
-
-  it('keeps the receipt of residual mail taken alongside an explicit ack', async () => {
-    const box = { address: `dispatch:${dispatch.id}`, runId: dispatch.run_id }
-    insert(box, 'first')
-    const first = await check()
-    await mailbox('run')
-    insert(box, 'second')
-    const record = vi.fn()
-    state.ctx.recordMutationReceipt = record
-
-    const result = await check({ ack: first.deliveryId })
-    expect(result).toMatchObject({ messages: [{ subject: 'second' }] })
-    expect(record).toHaveBeenLastCalledWith(
-      expect.objectContaining({ deliveryId: result.deliveryId, messages: result.messages })
-    )
-  })
+      const acked = await h.call(
+        'orchestration.check',
+        { terminal: 'term_lead', ack: handled.deliveryId, wait },
+        state.ctx
+      )
+      expect(acked).toMatchObject({
+        acknowledged: handled.deliveryId,
+        deliveryId: null,
+        count: 0,
+        next: expect.stringContaining('--ack is not needed')
+      })
+      expect(record).toHaveBeenLastCalledWith(acked)
+      expect(state.db.getMessageById(report.id)?.read).toBe(0)
+      expect(await check()).toMatchObject({ messages: [{ subject: 'stop report' }] })
+    }
+  )
 
   it('rolls the take back when its receipt cannot be recorded', () => {
     const box = { address: `dispatch:${dispatch.id}`, runId: dispatch.run_id }

@@ -60,7 +60,7 @@ export const ORCHESTRATION_CHECK_METHODS = [
           orchestrationCompatibilityEvidence,
           recordMutationReceipt
         })
-        return consumingCheck ? withRunCheckNext(runtime, result) : result
+        return consumingCheck && !params.ack ? withRunCheckNext(runtime, result) : result
       }
 
       const activeDispatch = db.getActiveDispatchForIdentity(handle, paneKey)

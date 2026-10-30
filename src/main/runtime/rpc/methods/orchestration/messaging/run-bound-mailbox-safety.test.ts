@@ -222,18 +222,6 @@ describe('mail for a lead whose pane coordinates its own Run', () => {
     return call('orchestration.check', { terminal: 'term_lead', ...params })
   }
 
-  function deliveryIdOf(result: unknown): string {
-    if (
-      typeof result === 'object' &&
-      result !== null &&
-      'deliveryId' in result &&
-      typeof result.deliveryId === 'string'
-    ) {
-      return result.deliveryId
-    }
-    throw new Error('check returned no delivery')
-  }
-
   it('routes dispatch:<id> mail to the Run the assignee pane now coordinates', async () => {
     setup()
     const leadRun = bindLeadRun()
@@ -270,7 +258,7 @@ describe('mail for a lead whose pane coordinates its own Run', () => {
     const first = await leadInbox()
     expect(first).toMatchObject({ messages: [{ subject: 'Sent before the lead bound a Run' }] })
 
-    const second = await leadInbox({ ack: deliveryIdOf(first) })
+    const second = await leadInbox()
     expect(second).toMatchObject({ messages: [{ subject: 'Sub-worker report' }] })
   })
 
@@ -361,18 +349,6 @@ describe('mail for a lead whose pane coordinates its own Run', () => {
 const LEAD = 'tab_lead:22222222-2222-4222-9222-222222222222'
 const OTHER = 'tab_other:33333333-3333-4333-8333-333333333333'
 
-function deliveryId(result: unknown): string {
-  if (
-    typeof result === 'object' &&
-    result &&
-    'deliveryId' in result &&
-    typeof result.deliveryId === 'string'
-  ) {
-    return result.deliveryId
-  }
-  throw new Error('Expected a Delivery')
-}
-
 describe('Run-bound lead mailbox boundaries', () => {
   const h = createOrchestrationRpcHarness()
   let state: ReturnType<typeof h.setup>
@@ -440,7 +416,7 @@ describe('Run-bound lead mailbox boundaries', () => {
     runMail()
     const first = await check()
     expect(first).toMatchObject({ runId: dispatch.run_id, messages: [{ id: old.id }] })
-    expect(await check({ ack: deliveryId(first) })).toMatchObject({
+    expect(await check()).toMatchObject({
       runId: leadRun.id,
       messages: [{ subject: 'Run report' }]
     })
@@ -455,9 +431,8 @@ describe('Run-bound lead mailbox boundaries', () => {
     expect(first).toMatchObject({
       messages: [{ subject: 'older status' }, { subject: 'decision needed' }]
     })
-    expect(await check({ ack: deliveryId(first) })).toMatchObject({
+    expect(await check()).toMatchObject({
       runId: leadRun.id,
-      acknowledged: deliveryId(first),
       messages: [{ subject: 'Run report' }]
     })
   })
@@ -517,43 +492,6 @@ describe('Run-bound lead mailbox boundaries', () => {
     await expect(check()).rejects.toMatchObject({ code: 'consumer_fenced' })
     expect(state.db.hasOutstandingMailboxDelivery(`dispatch:${dispatch.id}`)).toBe(false)
     expect(state.db.getMessageById(pending.id)?.read).toBe(0)
-  })
-
-  it('records a residual acknowledgment before a Run handoff interrupts the following wait', async () => {
-    residual('ack me')
-    const first = await check()
-    const record = vi.fn()
-    state.ctx.recordMutationReceipt = record
-    vi.spyOn(state.runtime, 'waitForMessage').mockImplementationOnce(async () => {
-      expect(record).toHaveBeenCalledWith(
-        expect.objectContaining({ acknowledged: deliveryId(first) })
-      )
-      handoff()
-      return 'cancelled'
-    })
-    expect(await check({ ack: deliveryId(first), wait: true })).toMatchObject({
-      acknowledged: deliveryId(first),
-      waitInterrupted: 'consumer_fenced',
-      messages: []
-    })
-    expect(state.db.getUnreadMessages(`dispatch:${dispatch.id}`)).toEqual([])
-  })
-
-  it('retains the acknowledged receipt if the wait transport throws', async () => {
-    residual('ack me')
-    const first = await check()
-    const record = vi.fn()
-    state.ctx.recordMutationReceipt = record
-    vi.spyOn(state.runtime, 'waitForMessage').mockRejectedValueOnce(
-      new Error('connection interrupted')
-    )
-    await expect(check({ ack: deliveryId(first), wait: true })).rejects.toThrow(
-      'connection interrupted'
-    )
-    expect(record).toHaveBeenCalledWith(
-      expect.objectContaining({ acknowledged: deliveryId(first) })
-    )
-    expect(state.db.getUnreadMessages(`dispatch:${dispatch.id}`)).toEqual([])
   })
 
   it('does not give a reused process the previous assignee mail', async () => {

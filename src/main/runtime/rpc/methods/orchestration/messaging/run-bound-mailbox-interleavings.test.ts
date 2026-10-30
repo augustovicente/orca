@@ -78,14 +78,12 @@ describe('Run binding during Dispatch checks', () => {
 
   describe.each(['runCreate', 'runUse'] as const)('%s', (method) => {
     it.each(['parked', 'recovering'] as const)(
-      'cancels a %s Dispatch wait and preserves its ack',
+      'cancels a %s Dispatch wait when its pane binds a Run',
       async (phase) => {
         const old = residual('before bind')
-        const ack = deliveryId(await check())
-        const record = vi.fn()
-        state.ctx.recordMutationReceipt = record
+        await check()
         const wait = vi.spyOn(state.runtime, 'waitForMessage')
-        const waiting = check({ ack, wait: true, timeoutMs: 500 })
+        const waiting = check({ wait: true, timeoutMs: 500 })
         if (phase === 'parked') {
           await vi.waitFor(() =>
             expect(wait).toHaveBeenCalledWith(`dispatch:${dispatch.id}`, expect.anything())
@@ -101,8 +99,7 @@ describe('Run binding during Dispatch checks', () => {
           },
           state.ctx
         )
-        expect(await waiting).toMatchObject({ acknowledged: ack, cancelled: true, timedOut: false })
-        expect(record).toHaveBeenCalledWith(expect.objectContaining({ acknowledged: ack }))
+        expect(await waiting).toMatchObject({ cancelled: true, timedOut: false })
         expect(state.db.getMessageById(old.id)).toMatchObject({ run_id: dispatch.run_id, read: 1 })
         expect(await check()).toMatchObject({
           runId: run.id,
@@ -159,18 +156,16 @@ describe('Run binding during Dispatch checks', () => {
         )
       }
       const tail = { runId: dispatch.run_id, messages: [{ id: last }], count: 1 }
-      if (phase === 'before') {
-        expect(await check({ ack })).toMatchObject({ ...tail, acknowledged: ack })
-      } else {
+      expect(await check({ ack })).toMatchObject({ acknowledged: ack, count: 0 })
+      if (phase === 'during recovery') {
         // A batch left outstanding by another consumer is replayed once, then handled.
-        expect(await check({ ack })).toMatchObject({
+        expect(await check()).toMatchObject({
           runId: run.id,
           deliveryId: runDelivery,
-          acknowledged: ack,
           replayed: true
         })
-        expect(await check()).toMatchObject(tail)
       }
+      expect(await check()).toMatchObject(tail)
       expect(state.db.hasOutstandingMailboxDelivery(`dispatch:${dispatch.id}`)).toBe(false)
       for (const id of ids) {
         expect(state.db.getMessageById(id)).toMatchObject({ read: 1, run_id: dispatch.run_id })

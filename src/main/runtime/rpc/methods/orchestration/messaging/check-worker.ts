@@ -3,10 +3,9 @@ import type { MailboxDeliveryBatch } from '../../../../orchestration/db/messages
 import type { OrcaRuntimeService } from '../../../../orca-runtime'
 import { OrchestrationError } from '../../../../orchestration/orchestration-error'
 import { formatMessageBanner } from '../../../../orchestration/formatter'
-import { deliveryReceipt, exposeMessages } from './mailbox-message-receipt'
+import { acknowledgedOnlyReceipt, deliveryReceipt, exposeMessages } from './mailbox-message-receipt'
 import { routeAllMailboxPages } from '../schemas'
 import { asDispatchFence, callerHoldsDispatchPane, dispatchFenced } from './dispatch-mailbox-fence'
-import { interruptedAcknowledgedCheck } from '../routing'
 import { currentDispatchAssigneeRun } from './recipient-routing'
 import type { CheckParams } from '../schemas'
 import type { z } from 'zod'
@@ -31,8 +30,6 @@ export async function checkWorkerMailbox(args: {
   revalidateConsumer?: () => void
   deferDelivery?: () => boolean
   recordMutationReceipt?: (receipt: unknown) => void
-  /** An ack the enclosing Run check already applied, reported when this check applied none. */
-  runAcknowledged?: string
 }) {
   const {
     params,
@@ -175,24 +172,22 @@ export async function checkWorkerMailbox(args: {
   }
   await revalidateWorkerMailbox()
   args.revalidateConsumer?.()
-  let acknowledged
-  try {
-    acknowledged = params.ack
-      ? db.acknowledgeMailboxDelivery({
-          runId: deliveryRunId,
-          mailboxHandle: address,
-          consumerGeneration: workerMailbox.generation,
-          consumerSource: activeDispatch ? 'dispatch' : 'attachment',
-          deliveryId: params.ack
-        })
-      : undefined
-  } catch (error) {
-    throw asDispatchFence(error)
-  }
-  if (acknowledged) {
-    args.recordMutationReceipt?.(
-      interruptedAcknowledgedCheck(deliveryRunId, acknowledged.delivery.id, 'outcome_unknown')
-    )
+  if (params.ack) {
+    let acknowledged
+    try {
+      acknowledged = db.acknowledgeMailboxDelivery({
+        runId: deliveryRunId,
+        mailboxHandle: address,
+        consumerGeneration: workerMailbox.generation,
+        consumerSource: activeDispatch ? 'dispatch' : 'attachment',
+        deliveryId: params.ack
+      })
+    } catch (error) {
+      throw asDispatchFence(error)
+    }
+    const receipt = acknowledgedOnlyReceipt(mailboxIdentity, acknowledged.delivery.id)
+    args.recordMutationReceipt?.(receipt)
+    return receipt
   }
   const formatted = (messages: MessageRow[]) =>
     params.format || params.inject
@@ -204,7 +199,6 @@ export async function checkWorkerMailbox(args: {
     deliveryReceipt({
       mailbox: mailboxIdentity,
       batch,
-      acknowledged: acknowledged?.delivery.id ?? args.runAcknowledged,
       format: params.format === true || params.inject === true
     })
   // The receipt commits with the take, so --retry-request can always replay a handed-over batch.
@@ -231,7 +225,7 @@ export async function checkWorkerMailbox(args: {
       ...mailboxIdentity,
       messages: exposeMessages(messages),
       count: messages.length,
-      acknowledged: acknowledged?.delivery.id ?? null,
+      acknowledged: null,
       ...formatted(messages)
     }
   }
@@ -242,7 +236,7 @@ export async function checkWorkerMailbox(args: {
         ...mailboxIdentity,
         messages: exposeMessages(messages),
         count: messages.length,
-        acknowledged: acknowledged?.delivery.id ?? null,
+        acknowledged: null,
         ...formatted(messages)
       }
     }
@@ -279,7 +273,7 @@ export async function checkWorkerMailbox(args: {
       ...mailboxIdentity,
       messages: exposeMessages(arrived),
       count: arrived.length,
-      acknowledged: acknowledged?.delivery.id ?? null,
+      acknowledged: null,
       ...formatted(arrived)
     }
   }

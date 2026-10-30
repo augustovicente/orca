@@ -39,6 +39,7 @@ export type OrchestrationCheckOutput = {
   deliveryId?: string | null
   // Older runtimes omit it and replay the batch until an explicit --ack.
   deliveryAcknowledged?: boolean
+  acknowledged?: string | null
   timedOut?: boolean
   cancelled?: boolean
   connectionLost?: boolean
@@ -100,7 +101,8 @@ export function formatOrchestrationCheckText(
         : 'Wait cancelled; no messages were consumed.'
       return `${legacyHeader}${cancelled}${deliveryNotice}`
     }
-    return `${legacyHeader}No messages.${deliveryNotice}`
+    const empty = prepared.acknowledged ? `Acknowledged ${prepared.acknowledged}.` : 'No messages.'
+    return `${legacyHeader}${empty}${deliveryNotice}`
   }
   const rendered = prepared.messages
     .map(

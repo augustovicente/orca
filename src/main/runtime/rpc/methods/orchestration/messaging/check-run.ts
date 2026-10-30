@@ -4,8 +4,7 @@ import type { OrcaRuntimeService } from '../../../../orca-runtime'
 import type { RpcContext } from '../../../core'
 import { OrchestrationError } from '../../../../orchestration/orchestration-error'
 import { formatMessageBanner } from '../../../../orchestration/formatter'
-import { deliveryReceipt, exposeMessages, handsOverBatch } from './mailbox-message-receipt'
-import { interruptedAcknowledgedCheck } from '../routing'
+import { deliveryReceipt, exposeMessages } from './mailbox-message-receipt'
 import { routeAllMailboxPages } from '../schemas'
 import { resolveRunScope } from '../runs/run-scope'
 import type { CheckParams } from '../schemas'
@@ -94,27 +93,15 @@ export async function checkRunMailbox(args: {
   revalidateConsumer()
 
   const pending = await checkRunPendingMail({ ...args, run, revalidateConsumer })
-  if (handsOverBatch(pending.result)) {
-    return pending.result
+  if (pending) {
+    return pending
   }
-  try {
-    revalidateConsumer()
-  } catch (error) {
-    if (pending.acknowledged) {
-      return interruptedAcknowledgedCheck(run.id, pending.acknowledged, 'consumer_fenced')
-    }
-    throw error
-  }
-  if (pending.result) {
-    return pending.result
-  }
-  const acknowledged = pending.acknowledged
   if (params.all || (params.unread === false && !params.peek)) {
     const messages = db.getRunMailboxHistory(run.id, 100, typeFilter)
     const result = {
       messages: exposeMessages(messages),
       count: messages.length,
-      acknowledged: acknowledged ?? null
+      acknowledged: null
     }
     if (params.format || params.inject) {
       return {
@@ -130,7 +117,7 @@ export async function checkRunMailbox(args: {
     runId: run.id,
     messages: exposeMessages(messages),
     count: messages.length,
-    acknowledged: acknowledged ?? null,
+    acknowledged: null,
     ...(params.format || params.inject
       ? { formatted: messages.map(formatMessageBanner).join('\n\n') }
       : {})
@@ -140,7 +127,6 @@ export async function checkRunMailbox(args: {
     deliveryReceipt({
       mailbox: { runId: run.id },
       batch,
-      acknowledged,
       format: params.format === true || params.inject === true
     })
   // The receipt commits with the take, so --retry-request can always replay a handed-over batch.
@@ -168,19 +154,8 @@ export async function checkRunMailbox(args: {
     timeoutMs: params.timeoutMs ?? undefined,
     signal
   })
-  try {
-    revalidateConsumer()
-  } catch (error) {
-    if (!acknowledged) {
-      throw error
-    }
-    return interruptedAcknowledgedCheck(run.id, acknowledged, 'consumer_fenced')
-  }
-  const latestRun = db.getRun(run.id)
-  if (!latestRun || latestRun.consumer_generation !== generation) {
-    if (acknowledged) {
-      return interruptedAcknowledgedCheck(run.id, acknowledged, 'consumer_fenced')
-    }
+  revalidateConsumer()
+  if (db.getRun(run.id)?.consumer_generation !== generation) {
     throw new OrchestrationError(
       'consumer_fenced',
       'This mailbox consumer was replaced while waiting.'

@@ -1,4 +1,3 @@
-import { z } from 'zod'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { RpcContext } from '../../../core'
 import { createOrchestrationRpcHarness } from '../rpc-test-harness'
@@ -237,9 +236,8 @@ describe('orchestration RPC methods', () => {
       const delivered = await check()
       expect(delivered).toMatchObject({ count: 1 })
       expect(delivered).not.toHaveProperty('next')
-      const { deliveryId } = z.object({ deliveryId: z.string() }).parse(delivered)
       // The only worker settled, so nothing is left to wait for.
-      expect(await check({ ack: deliveryId })).not.toHaveProperty('next')
+      expect(await check()).not.toHaveProperty('next')
     })
 
     it('says to check again only when a capped batch leaves mail behind', async () => {
