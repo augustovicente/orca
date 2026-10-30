@@ -53,6 +53,8 @@ type TerminalContextMenuProps = {
   onPaste: () => void
   onSplitRight: () => void
   onSplitDown: () => void
+  /** Terminal splits are a developer surface; the customer shell hides them. */
+  canSplit?: boolean
   keybindings: KeybindingOverrides
   canEqualizePaneSizes: boolean
   onEqualizePaneSizes: () => void
@@ -146,6 +148,7 @@ function TerminalContextMenuItems({
   onPaste,
   onSplitRight,
   onSplitDown,
+  canSplit = true,
   keybindings,
   canEqualizePaneSizes,
   onEqualizePaneSizes,
@@ -248,23 +251,27 @@ function TerminalContextMenuItems({
           ) : null}
         </DropdownMenuItem>
       ) : null}
-      <DropdownMenuSeparator />
-      <DropdownMenuItem className="whitespace-nowrap" onSelect={onSplitRight}>
-        <PanelRightClose />
-        {translate(
-          'auto.components.terminal.pane.TerminalContextMenu.20e565d865',
-          'Split Terminal Right'
-        )}
-        <DropdownMenuShortcut>{shortcuts.splitRight}</DropdownMenuShortcut>
-      </DropdownMenuItem>
-      <DropdownMenuItem className="whitespace-nowrap" onSelect={onSplitDown}>
-        <PanelBottomClose />
-        {translate(
-          'auto.components.terminal.pane.TerminalContextMenu.98bccf4fa2',
-          'Split Terminal Down'
-        )}
-        <DropdownMenuShortcut>{shortcuts.splitDown}</DropdownMenuShortcut>
-      </DropdownMenuItem>
+      {canSplit ? (
+        <>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem className="whitespace-nowrap" onSelect={onSplitRight}>
+            <PanelRightClose />
+            {translate(
+              'auto.components.terminal.pane.TerminalContextMenu.20e565d865',
+              'Split Terminal Right'
+            )}
+            <DropdownMenuShortcut>{shortcuts.splitRight}</DropdownMenuShortcut>
+          </DropdownMenuItem>
+          <DropdownMenuItem className="whitespace-nowrap" onSelect={onSplitDown}>
+            <PanelBottomClose />
+            {translate(
+              'auto.components.terminal.pane.TerminalContextMenu.98bccf4fa2',
+              'Split Terminal Down'
+            )}
+            <DropdownMenuShortcut>{shortcuts.splitDown}</DropdownMenuShortcut>
+          </DropdownMenuItem>
+        </>
+      ) : null}
       {canEqualizePaneSizes && (
         <DropdownMenuItem onSelect={onEqualizePaneSizes}>
           <PanelsTopLeft />

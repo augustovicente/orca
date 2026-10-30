@@ -68,7 +68,7 @@ export function handleTerminalWorkspaceKeyDown(
       keybindings
     })
   }
-  if (!event.repeat && matchShortcut('tab.newTerminal')) {
+  if (!event.repeat && editionSupports('terminalPane') && matchShortcut('tab.newTerminal')) {
     event.preventDefault()
     notifyTerminalCapture('tab.newTerminal')
     if (floatingWorkspaceFocused) {
@@ -173,7 +173,7 @@ export function handleTerminalWorkspaceKeyDown(
   ) {
     return
   }
-  if (!event.repeat && matchShortcut('tab.newMarkdown')) {
+  if (!event.repeat && editionSupports('editorTab') && matchShortcut('tab.newMarkdown')) {
     event.preventDefault()
     notifyTerminalCapture('tab.newMarkdown')
     if (floatingWorkspaceFocused) {
