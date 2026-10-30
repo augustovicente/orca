@@ -1,12 +1,12 @@
 {
   "formatVersion": 1,
-  "version": 1,
+  "version": 2,
   "brand": {
     "productName": "contadorca",
     "appId": "com.contadorca.app",
     "supportEmail": "support@contadorca.com"
   },
-  "settingsOverrides": {
+  "locked": {
     "disabledTuiAgents": [
       "claude",
       "claude-agent-teams",
@@ -55,7 +55,9 @@
     "defaultTuiAgent": "opencode",
     "showTasksButton": false,
     "artifactsEnabled": false,
-    "showArtifactsButton": false,
+    "showArtifactsButton": false
+  },
+  "defaults": {
     "showAutomationsButton": true,
     "showSkillsButton": true,
     "showMobileButton": true,
@@ -65,7 +67,9 @@
     "nativeChatInlineVisuals": true,
     "uiLanguage": "pt",
     "nestWorkspaces": true,
-    "worktreeVisibilityDefaults": { "external": "hide" },
+    "worktreeVisibilityDefaults": {
+      "external": "hide"
+    },
     "showGitIgnoredFiles": true
   }
 }

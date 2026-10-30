@@ -72,7 +72,7 @@ export function prepareLoadedProfileSettings(
   defaults: PersistedState,
   markNeedsSave: () => void
 ): PreparedLoadedProfileSettings {
-  // Whitelabel seed: apply profile overrides once per profile version (no-op when absent).
+  // Whitelabel seed: locked enforced every load; defaults fill absent keys (no-op when absent).
   const resourcesPath =
     // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: Electron injects resourcesPath at runtime.
     (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath ??
