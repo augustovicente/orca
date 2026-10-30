@@ -68,7 +68,7 @@ function fakeCodex(routes: Record<string, Route> = {}): {
   routes: Record<string, Route>
 } {
   const connections: FakeConnection[] = []
-  const openConnection = (async (launch, handlers = {}) => {
+  const openConnection: typeof openCodexAppServerConnection = async (launch, handlers = {}) => {
     const connection: FakeConnection = {
       launch,
       handlers,
@@ -100,7 +100,7 @@ function fakeCodex(routes: Record<string, Route> = {}): {
     }
     connections.push(connection)
     return connection
-  }) as typeof openCodexAppServerConnection
+  }
   routes['thread/start'] ??= () => ({
     thread: { id: THREAD_ID, path: '/rollouts/abc.jsonl' },
     model: 'gpt-live',
