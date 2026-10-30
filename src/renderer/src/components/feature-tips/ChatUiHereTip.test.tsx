@@ -1,16 +1,35 @@
 // @vitest-environment happy-dom
 
-import { act, type ReactNode } from 'react'
+import { act, useRef, useState, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { FEATURE_TIPS, type FeatureTip } from '../../../../shared/feature-tips'
-import type { GlobalSettings } from '../../../../shared/global-settings-types'
 import type { ChatUiLaunchTipVariant } from '../../../../shared/native-chat/chat-ui-launch-tip-audience'
 import { track } from '@/lib/telemetry'
 import { useAppStore } from '@/store'
+import { toast } from 'sonner'
+import { createGlobalSettingsFixture } from '../../../../shared/global-settings-test-fixture'
+import type { RuntimeClientTarget } from '../../../../shared/runtime-client-target'
+import { useSettingsPageEffects } from '../settings/use-settings-page-effects'
+import { resolveSettingsHostScope } from '../settings/settings-host-scope'
+import { AgentLaunchSettingsSection } from '../settings/AgentLaunchSettingsSection'
+import { AGENT_DEFAULT_SURFACE_SECTION_ID } from '../settings/agents-search'
 import { chatDemoRevealTokens, getChatDemoCopy } from './chat-ui-here-feature-tip-demo'
 import { FeatureTipActions } from './FeatureTipActions'
 import FeatureTipsModal from './FeatureTipsModal'
+
+vi.mock('sonner', () => ({ toast: { error: vi.fn(), dismiss: vi.fn() } }))
+vi.mock('../settings/AgentLaunchSettingsCatalog', () => ({
+  AgentLaunchSettingsCatalog: () => null,
+  AgentLaunchSettingsLoading: () => null
+}))
+vi.mock('../settings/HostAgentLaunchSettings', () => ({
+  HostAgentLaunchSettings: () => <p>Paired host agents</p>
+}))
+vi.mock('@/runtime/structured-agent-session-host-capability', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  useChatSettingsOwnPermissions: () => true
+}))
 
 vi.mock('@/lib/telemetry', () => ({ track: vi.fn() }))
 vi.mock('@/components/ui/dialog', () => ({
@@ -33,6 +52,11 @@ beforeEach(() => {
   useAppStore.setState(useAppStore.getInitialState(), true)
   container = document.createElement('div')
   root = createRoot(container)
+  vi.mocked(toast.error).mockClear()
+  Object.defineProperty(window, 'api', {
+    configurable: true,
+    value: { platform: { get: () => ({ platform: 'darwin' }) } }
+  })
   updateSettings.mockReset()
   vi.mocked(track).mockReset()
   updateSettingsOrThrow.mockReset().mockResolvedValue(undefined)
@@ -47,10 +71,11 @@ function openTip(variant: ChatUiLaunchTipVariant): void {
     activeModal: 'feature-tips',
     modalData: { tipId: 'chat-ui-here', source: 'app_open' },
     chatUiLaunchTipVariant: variant,
-    settings: {
+    settings: createGlobalSettingsFixture({
+      activeRuntimeEnvironmentId: 'paired',
       nativeChatProviders: { codex: false },
       aiVaultSearch: { enabled: false, historyDays: null }
-    } as GlobalSettings,
+    }),
     markFeatureTipsSeen: vi.fn(),
     updateSettings,
     updateSettingsOrThrow
@@ -62,7 +87,101 @@ function footerButtons(): HTMLButtonElement[] {
   return Array.from(container.querySelectorAll<HTMLButtonElement>('footer button'))
 }
 
+// Exercise the production target-consumption effect, including a retained host selection.
+function SettingsOwner({ retained }: { retained: boolean }): React.JSX.Element {
+  const settings = useAppStore((state) => state.settings)!
+  const settingsNavigationTarget = useAppStore((state) => state.settingsNavigationTarget)
+  const [choice, setSettingsHostChoice] = useState<RuntimeClientTarget | null>(
+    retained ? { kind: 'environment', environmentId: 'paired' } : null
+  )
+  const pendingScrollTargetRef = useRef<string | null>(null)
+  const scope = resolveSettingsHostScope({
+    choice,
+    defaultEnvironmentId: settings.activeRuntimeEnvironmentId,
+    savedEnvironmentIds: ['paired'],
+    catalogHydrated: true
+  })
+  useSettingsPageEffects(
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: all fields read by page effects are supplied; unrelated model fields are unused.
+    {
+      settings,
+      settingsNavigationTarget,
+      setSettingsHostChoice,
+      clearSettingsTarget: useAppStore.getState().clearSettingsTarget,
+      fetchSettings: vi.fn(),
+      fetchKeybindings: vi.fn(),
+      keybindings: null,
+      activeSectionId: 'agents',
+      showDesktopOnlySettings: false,
+      setVoiceModelStatesLoading: vi.fn(),
+      repoIdToHostSelection: new Map(),
+      repoIdToRepresentative: new Map(),
+      settingsProjectList: [],
+      setHighlightedSettingsTargetId: vi.fn(),
+      setMountedSectionIds: vi.fn(),
+      setPendingNavRequestTick: vi.fn()
+    } as unknown as Parameters<typeof useSettingsPageEffects>[0],
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: refs/callbacks cover every active page effect; no source-control edit or key event is generated.
+    {
+      pendingNavSectionRef: useRef(null),
+      pendingScrollTargetRef,
+      shortcutsEscapeConfirmUntilRef: useRef(0),
+      searchInputRef: useRef(null),
+      hasUnsavedSourceControlAiPromptChangesRef: useRef(false),
+      closeSettingsPageWithPromptGuard: vi.fn(),
+      promptDiscardSourceControlAiPromptChanges: vi.fn()
+    } as unknown as Parameters<typeof useSettingsPageEffects>[1]
+  )
+  return (
+    <>
+      <output>{pendingScrollTargetRef.current}</output>
+      <AgentLaunchSettingsSection
+        settings={settings}
+        hostScope={scope}
+        updateSettings={updateSettings}
+        renderPermissions={() => null}
+      />
+    </>
+  )
+}
+
 describe('Chat UI is here tip', () => {
+  it.each([
+    ['chat-ui-off', false],
+    ['chat-ui-on', true]
+  ] as const)(
+    'opens the local default tiles from %s with a paired Settings host',
+    (variant, retained) => {
+      openTip(variant)
+      const settingsLink = container.querySelector<HTMLButtonElement>('button.inline')
+      expect(settingsLink).toBeDefined()
+      act(() => settingsLink?.click())
+      expect(useAppStore.getState().activeModal).toBe('none')
+      act(() => root.render(<SettingsOwner retained={retained} />))
+      expect(container.querySelectorAll('input[type="radio"]')).toHaveLength(2)
+      expect(container.querySelector('output')?.textContent).toBe(AGENT_DEFAULT_SURFACE_SECTION_ID)
+      expect(container.textContent).not.toContain('Paired host agents')
+      expect(updateSettingsOrThrow).not.toHaveBeenCalled()
+    }
+  )
+
+  it('reports a checked-save rejection once after consuming/closing the tip, without success telemetry', async () => {
+    openTip('chat-ui-off')
+    updateSettingsOrThrow.mockRejectedValueOnce(new Error('disk unavailable'))
+    await act(async () => footerButtons()[1]?.click())
+    expect(useAppStore.getState().activeModal).toBe('none')
+    expect(useAppStore.getState().markFeatureTipsSeen).toHaveBeenCalledExactlyOnceWith([
+      'chat-ui-here'
+    ])
+    expect(toast.error).toHaveBeenCalledExactlyOnceWith(
+      'Could not turn on Chat UI. Choose Chat in Settings → Agents.'
+    )
+    expect(track).not.toHaveBeenCalledWith(
+      'chat_ui_feature_tip_action',
+      expect.objectContaining({ action: 'use_chat_ui' })
+    )
+  })
+
   it('makes Chat the default with Use Chat UI, leaving agents set for themselves alone, and nothing with Stay in terminal', async () => {
     openTip('chat-ui-off')
     expect(footerButtons().map((button) => button.textContent)).toEqual([

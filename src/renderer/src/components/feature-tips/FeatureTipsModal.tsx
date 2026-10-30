@@ -8,6 +8,7 @@ import {
 } from '@/lib/orchestration-setup-state'
 import { useAppStore } from '@/store'
 import { ChatUiHereTipDialog } from './ChatUiHereTipDialog'
+import { AGENT_DEFAULT_SURFACE_SECTION_ID } from '../settings/agents-search'
 import { CliSetupTipDialog } from './CliSetupTipDialog'
 import { CmdJPaletteTipDialog } from './CmdJPaletteTipDialog'
 import { installCliFromFeatureTip } from './feature-tip-cli-install-action'
@@ -126,7 +127,12 @@ export default function FeatureTipsModal(): JSX.Element | null {
     trackChatUiFeatureTipAction(chatUiLaunchTipVariant, 'open_settings')
     markCurrentTipSeen()
     closeModal()
-    openSettingsTarget({ pane: 'agents', repoId: null })
+    openSettingsTarget({
+      pane: 'agents',
+      repoId: null,
+      hostScope: { kind: 'local' },
+      sectionId: AGENT_DEFAULT_SURFACE_SECTION_ID
+    })
     openSettingsPage()
   }
 

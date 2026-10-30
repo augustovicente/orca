@@ -52,6 +52,7 @@ describe('Chat UI launch tip audience', () => {
     writeDataFile({ settings })
     const store = createStore()
     store.flush()
+    expect(store.getChatUiLaunchTipVariant()).toBe(basis)
     const record = { version: 1, membership, basis }
     expect(readDataFile()).toHaveProperty('chatUiLaunchTipAudience', record)
     expect(readDataFile()).not.toHaveProperty('settings.experimentalNativeChat')
@@ -59,6 +60,7 @@ describe('Chat UI launch tip audience', () => {
     // The switch is gone from the saved profile, so later loads must keep the record, not rederive it.
     const reopened = await reopen()
     reopened.flush()
+    expect(reopened.getChatUiLaunchTipVariant()).toBe(basis)
     expect(readDataFile()).toHaveProperty('chatUiLaunchTipAudience', record)
   })
 

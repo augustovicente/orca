@@ -4,6 +4,8 @@ import { toast } from 'sonner'
 import type { GlobalSettings } from '../../../../shared/global-settings-types'
 import type { AgentDefaultSurface } from '../../../../shared/native-chat/native-chat-appearance-settings'
 import { normalizeAgentDefaultSurface } from '../../../../shared/native-chat/native-chat-providers'
+import { LoadingSpinner } from '@/components/LoadingSpinner'
+import { useImmediateMutation } from '@/hooks/useImmediateMutation'
 import { useMountedRef } from '@/hooks/useMountedRef'
 import { motionSafeScrollBehavior } from '@/hooks/usePrefersReducedMotion'
 import { getIntlLocale, translate } from '@/i18n/i18n'
@@ -17,6 +19,12 @@ import {
   followAgentDefaultSurface,
   saveAgentDefaultSurface
 } from './native-chat-provider-choice'
+
+function saveFailed(): void {
+  toast.error(
+    translate('settings.agents.localSaveFailed', 'Agent settings could not be saved. Try again.')
+  )
+}
 
 type Writer = {
   fallbackSettings: GlobalSettings
@@ -73,7 +81,7 @@ function useKeptSurfaceNotice(): (surface: AgentDefaultSurface, writer: Writer) 
             ? translate('settings.agents.defaultSurfaceSetAllChat', 'Set all to Chat')
             : translate('settings.agents.defaultSurfaceSetAllTerminal', 'Set all to Terminal'),
           onClick: () =>
-            void followAgentDefaultSurface({ agents: kept, surface, ...writer }).catch(() => {})
+            void followAgentDefaultSurface({ agents: kept, surface, ...writer }).catch(saveFailed)
         }
       }
     )
@@ -83,6 +91,7 @@ function useKeptSurfaceNotice(): (surface: AgentDefaultSurface, writer: Writer) 
 function SurfaceTile({
   name,
   checked,
+  pending,
   title,
   description,
   preview,
@@ -90,6 +99,7 @@ function SurfaceTile({
 }: {
   name: string
   checked: boolean
+  pending: boolean
   title: string
   description: string
   preview: ReactNode
@@ -99,12 +109,20 @@ function SurfaceTile({
     <label
       className={cn(
         'block min-w-0 cursor-pointer rounded-xl border p-2.5 pb-3.5 transition-[border-color,box-shadow,background-color] duration-150 motion-reduce:transition-none has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-[3px] has-[:focus-visible]:outline-ring',
+        pending && 'cursor-wait opacity-60',
         checked
           ? 'border-foreground bg-card shadow-[0_0_0_1px_var(--foreground),0_4px_14px_rgb(0_0_0/0.08)]'
           : 'group border-foreground/15 bg-card/60 hover:border-foreground/40 hover:bg-card'
       )}
     >
-      <input type="radio" name={name} checked={checked} onChange={onSelect} className="sr-only" />
+      <input
+        type="radio"
+        name={name}
+        checked={checked}
+        disabled={pending}
+        onChange={onSelect}
+        className="sr-only"
+      />
       <div aria-hidden className="h-[292px] rounded-lg bg-muted/70 p-3">
         {preview}
       </div>
@@ -117,7 +135,11 @@ function SurfaceTile({
               : 'border-foreground/30 group-hover:border-foreground'
           )}
         >
-          {checked ? <Check className="size-3" strokeWidth={3} /> : null}
+          {pending ? (
+            <LoadingSpinner className="size-3" />
+          ) : checked ? (
+            <Check className="size-3" strokeWidth={3} />
+          ) : null}
         </span>
         <span className="text-[15px] font-semibold">{title}</span>
       </div>
@@ -130,21 +152,24 @@ function SurfaceTile({
 
 /** This computer's default surface; agents set on their own Installed row keep their choice. */
 export function AgentDefaultSurfaceSection({
-  settings,
-  updateSettings
+  settings
 }: {
   settings: GlobalSettings
-  updateSettings: Writer['updateSettings']
 }): JSX.Element {
   const name = useId()
   const notify = useKeptSurfaceNotice()
+  const updateSettings = useAppStore((s) => s.updateSettingsOrThrow)
+  const mutation = useImmediateMutation()
+  const pending = mutation.isPending('default-surface')
   const surface = normalizeAgentDefaultSurface(settings.agentDefaultSurface)
   const title = translate('settings.agents.defaultSurfaceTitle', 'Open agents as')
   const choose = (next: AgentDefaultSurface): void => {
     const writer = { fallbackSettings: settings, updateSettings }
-    void saveAgentDefaultSurface({ surface: next, ...writer })
-      .then(() => notify(next, writer))
-      .catch(() => {})
+    void mutation.run('default-surface', {
+      mutate: () => saveAgentDefaultSurface({ surface: next, ...writer }),
+      onSuccess: () => notify(next, writer),
+      onError: saveFailed
+    })
   }
   const showInstalledList = (): void => {
     const list = document.getElementById(AGENTS_INSTALLED_SECTION_ID)
@@ -160,9 +185,15 @@ export function AgentDefaultSurfaceSection({
           'The default for agents on this computer.'
         )}
       </p>
-      <div role="radiogroup" aria-label={title} className="mt-3.5 grid gap-3.5 @3xl:grid-cols-2">
+      <div
+        role="radiogroup"
+        aria-label={title}
+        aria-busy={pending}
+        className="mt-3.5 grid gap-3.5 @3xl:grid-cols-2"
+      >
         <SurfaceTile
           name={name}
+          pending={pending}
           checked={surface === 'chat'}
           title={translate('settings.agents.defaultOpensAsChat', 'Chat')}
           description={translate(
@@ -174,6 +205,7 @@ export function AgentDefaultSurfaceSection({
         />
         <SurfaceTile
           name={name}
+          pending={pending}
           checked={surface === 'terminal'}
           title={translate('settings.agents.defaultSurfaceTerminal', 'Terminal')}
           description={translate(

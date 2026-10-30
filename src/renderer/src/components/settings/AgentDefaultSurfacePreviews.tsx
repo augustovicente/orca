@@ -156,13 +156,31 @@ function Mascot(): JSX.Element {
 export function TerminalSurfacePreview({ settings }: { settings: GlobalSettings }): JSX.Element {
   const copy = getChatDemoCopy()
   const systemPrefersDark = useSystemPrefersDark()
+  const customThemes = JSON.stringify(settings.terminalCustomThemes)
+  const pluginPalettes = JSON.stringify(settings.terminalPluginPalettes)
+  const colorOverrides = JSON.stringify(settings.terminalColorOverrides)
   const theme = useMemo(
     () =>
       composeActiveTerminalTheme(
         resolveEffectiveTerminalAppearance(settings, systemPrefersDark).theme,
         settings
       ),
-    [settings, systemPrefersDark]
+    // Settings IPC returns fresh collections even when appearance values are unchanged.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+    [
+      settings.theme,
+      settings.terminalThemeDark,
+      settings.terminalThemeLight,
+      settings.terminalUseSeparateLightTheme,
+      settings.terminalDividerColorDark,
+      settings.terminalDividerColorLight,
+      customThemes,
+      pluginPalettes,
+      colorOverrides,
+      settings.terminalBackgroundOpacity,
+      settings.terminalCursorOpacity,
+      systemPrefersDark
+    ]
   )
   const foreground = theme?.foreground ?? '#e6e6e6'
   const dim = { color: theme?.brightBlack ?? '#8b9099' }

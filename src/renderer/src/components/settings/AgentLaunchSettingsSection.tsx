@@ -49,7 +49,7 @@ export function AgentLaunchSettingsSection({
       {!environmentId ? (
         <>
           {/* The default is this computer's, so a paired host's page doesn't offer it. */}
-          <AgentDefaultSurfaceSection settings={settings} updateSettings={updateSettings} />
+          <AgentDefaultSurfaceSection settings={settings} />
           <LocalAgentLaunchSettings
             settings={settings}
             updateSettings={updateSettings}
