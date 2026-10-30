@@ -1,27 +1,20 @@
 // The SQLite producer test verifies these shared transport frames before client wrappers consume them.
-import { agentJournalItemKey } from './agent-session-journal-item-key'
-import { agentSessionSendBodyFingerprint } from './structured-agent-session-send-mutation'
+import { agentJournalItemKey } from '../../../shared/agent-session-journal-item-key'
+import { agentSessionSendBodyFingerprint } from '../../../shared/structured-agent-session-send-mutation'
 import type {
   AgentJournalMessageItem,
   AgentSessionJournalIdentity
-} from './agent-session-journal-types'
-import type { AgentSessionSubscribeEvent } from './agent-session-wire'
-import { codexProviderHandle } from './agent-session-provider-handle-encoding'
-import {
-  applyJournalRow,
-  createJournalReducerState
-} from '../main/native-chat/agent-session-journal/journal-reducer'
-import { readJournalPublicView } from '../main/native-chat/agent-session-journal/journal-public-read'
-import {
-  parseJournalRow,
-  serializeJournalRow,
-  type JournalRow
-} from '../main/native-chat/agent-session-journal/journal-row-schema'
-import type { AgentSessionHistoryJournal } from '../main/native-chat/agent-session-wire/structured-agent-session-journal-views'
+} from '../../../shared/agent-session-journal-types'
+import type { AgentSessionSubscribeEvent } from '../../../shared/agent-session-wire'
+import { codexProviderHandle } from '../../../shared/agent-session-provider-handle-encoding'
+import { applyJournalRow, createJournalReducerState } from './journal-reducer'
+import { readJournalPublicView } from './journal-public-read'
+import { parseJournalRow, serializeJournalRow, type JournalRow } from './journal-row-schema'
+import type { AgentSessionHistoryJournal } from '../agent-session-wire/structured-agent-session-journal-views'
 import {
   readAgentSessionHistory,
   readAgentSessionHydrationPage
-} from '../main/native-chat/agent-session-wire/agent-session-history-page'
+} from '../agent-session-wire/agent-session-history-page'
 
 export const COMPACTION_IDENTITY: AgentSessionJournalIdentity = {
   sessionId: 'session-1',

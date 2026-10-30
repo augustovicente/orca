@@ -9,7 +9,7 @@ import {
   COMPACTION_RETAINED_SEQUENCES,
   admitCompactionRow,
   compactionTransportCorpus
-} from '../../../shared/journal-compaction-frames.test-fixture'
+} from '../agent-session-journal/journal-compaction-frames.test-fixture'
 import {
   EMPTY_STRUCTURED_AGENT_SESSION,
   reduceStructuredAgentSession

@@ -1,4 +1,5 @@
-// A checkpoint is published whole on the FULL transaction path; rows remain the repair source.
+// A checkpoint is published whole on the FULL transaction path; complete rows repair it before cleanup.
+// After retirement, the saved state is authoritative.
 
 import type Database from '../../sqlite/sync-database'
 import type { JournalHostDatabase } from './journal-host-database'

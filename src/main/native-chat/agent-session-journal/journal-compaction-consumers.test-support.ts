@@ -1,7 +1,4 @@
-import {
-  COMPACTION_IDENTITY,
-  COMPACTION_ROWS
-} from '../../../shared/journal-compaction-frames.test-fixture'
+import { COMPACTION_IDENTITY, COMPACTION_ROWS } from './journal-compaction-frames.test-fixture'
 import type { TrackedJournalOpener } from './journal-host-database-test-support'
 import {
   insertTestJournalRow,
@@ -32,7 +29,7 @@ export async function openCompactionConsumerJournal(journals: TrackedJournalOpen
       const result = await backfillJournalState({
         database: () => database,
         checkpointOpen: async (sessionId) => {
-          if (sessionId !== journal.identity.sessionId) {
+          if (sessionId !== COMPACTION_IDENTITY.sessionId) {
             return false
           }
           await journal.checkpoint()

@@ -1,4 +1,4 @@
-import { compactionTransportCorpus } from '../../../src/shared/journal-compaction-frames.test-fixture'
+import { compactionTransportCorpus } from '../../../src/main/native-chat/agent-session-journal/journal-compaction-frames.test-fixture'
 import { createElement } from 'react'
 import { act, create, type ReactTestRenderer } from 'react-test-renderer'
 import { afterEach, describe, expect, it, vi } from 'vitest'
