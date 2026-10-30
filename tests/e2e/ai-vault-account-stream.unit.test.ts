@@ -48,7 +48,7 @@ function dataSession(id = 'p', profileId = P): AiVaultSession {
 const oneProducer = { lists: 2, reads: 2, parses: 2, claude: 1, codex: 1, frames: 1, listData: 0 }
 
 it.each([2, 20])(
-  'bounds real stream production independently of %i mounted readers',
+  'bounds real stream production and retirement at %i readers/reacquisitions',
   async (count) => {
     const source = (fixture = accountStreamFixture())
     const sessions = Array.from({ length: count }, (_, i) => dataSession(`p-${i}`))
@@ -110,6 +110,69 @@ it.each([2, 20])(
     await flushAccountWork()
     expect(source.listenerCounts()).toEqual([0, 0])
     expect(source.slots[0]!.unsubscribe).toHaveBeenCalledTimes(1)
+    expect(source.pendingStreams()).toBe(0)
+    expect(source.subscriptions).toHaveProperty('cleanups.size', 0)
+
+    // Independent desktop subscribers share the document, never each other's registration.
+    const siblingFrames = vi.fn()
+    const sibling = await source.subscribe({ method: 'accounts.subscribe' }, siblingFrames)
+    await flushAccountWork()
+    for (let cycle = 0; cycle < count; cycle++) {
+      const reopened = render(accountCards([dataSession()]))
+      await flushAccountWork()
+      expect(source.listenerCounts()).toEqual([2, 2])
+      expect(source.pendingStreams()).toBe(2)
+      expect(source.subscriptions).toHaveProperty('cleanups.size', 2)
+      source.seed('opencode', [profile(P, `Cycle ${cycle}`), profile(Q, 'Other')])
+      source.observations.length = 0
+      accountRenders.clear()
+      const siblingBefore = siblingFrames.mock.calls.length
+      await act(async () => {
+        await source.controller.selectData('opencode', null)
+      })
+      expect(source.observations).toEqual([oneProducer, oneProducer])
+      expect(reopened.getByTestId('p').textContent).toContain(`Cycle ${cycle}`)
+      expect(accountRenders.get('p')).toBeGreaterThan(0)
+      expect(siblingFrames.mock.calls.length).toBe(siblingBefore + 1)
+      reopened.unmount()
+      await flushAccountWork()
+      expect(source.listenerCounts()).toEqual([1, 1])
+      expect(source.pendingStreams()).toBe(1)
+      expect(source.subscriptions).toHaveProperty('cleanups.size', 1)
+      expect(source.subscriptions).toHaveProperty('cleanupPromises.size', 0)
+      expect(source.transportListeners()).toBe(1)
+      source.observations.length = 0
+      accountRenders.clear()
+      await act(async () => source.usage.publish())
+      expect(source.observations).toEqual([oneProducer])
+      expect(accountRenders.size).toBe(0)
+    }
+    sibling.unsubscribe()
+    await flushAccountWork()
+    expect(source.listenerCounts()).toEqual([0, 0])
+    expect(source.pendingStreams()).toBe(0)
+    expect(source.transportListeners()).toBe(0)
+    expect(source.subscriptions).toMatchObject({
+      cleanups: new Map(),
+      cleanupPromises: new Map(),
+      subscriptionsByConnection: new Map(),
+      connectionBySubscription: new Map(),
+      subscriptionsByRequest: new Map()
+    })
+    const retired = source.counters()
+    source.observations.length = 0
+    await act(async () => source.usage.publish())
+    expect(source.counters()).toEqual(retired)
+    await act(async () => {
+      await source.controller.selectData('devin', D)
+    })
+    expect(source.observations).toEqual([])
+    expect(source.counters()).toMatchObject({
+      claude: retired.claude,
+      codex: retired.codex,
+      frames: retired.frames
+    })
+    expect(accountRenders.size).toBe(0)
   }
 )
 
@@ -266,4 +329,52 @@ it('fences lost streams and late handles, recovers old readers on new acquire, a
   reacquired.unmount()
   await flushAccountWork()
   expect(nativeListeners).toBe(0)
+
+  // Close before dispatch/ready: the real IPC abort reaches the later admitted handler.
+  source.holdHandles(false)
+  source.holdDispatch(true)
+  const beforeSetup = source.counters()
+  const early = render(accountCards([p]))
+  await flushAccountWork()
+  expect(early.getByTestId('p').textContent).toContain('Unknown')
+  early.unmount()
+  await flushAccountWork()
+  const earlySlot = source.slots.at(-1)!
+  expect(earlySlot.unsubscribe).toHaveBeenCalledTimes(1)
+  expect(source.transportListeners()).toBe(0)
+  await act(async () => earlySlot.releaseDispatch())
+  expect(source.counters()).toEqual(beforeSetup)
+  expect(source.pendingStreams()).toBe(0)
+  expect(source.listenerCounts()).toEqual([0, 0])
+  expect(source.subscriptions).toHaveProperty('cleanups.size', 0)
+
+  // Ready can precede a delayed preload handle; retirement closes that exact late handle.
+  source.holdDispatch(false)
+  source.holdHandles(true)
+  const late = render(accountCards([p]))
+  await flushAccountWork()
+  expect(late.getByTestId('p').textContent).toContain('Work')
+  late.unmount()
+  await flushAccountWork()
+  expect(source.listenerCounts()).toEqual([1, 1])
+  await act(async () => source.slots.at(-1)!.releaseHandle())
+  expect(source.listenerCounts()).toEqual([0, 0])
+  expect(source.pendingStreams()).toBe(0)
+  expect(source.transportListeners()).toBe(0)
+
+  // A real ready-construction failure settles dispatch and releases its server registration.
+  source.holdHandles(false)
+  vi.spyOn(source.runtime, 'getAccountsStreamSnapshot').mockImplementationOnce(() => {
+    throw new Error('ready construction failed')
+  })
+  const failed = render(accountCards([p]))
+  await flushAccountWork()
+  expect(failed.getByTestId('p').textContent).toContain('Unknown')
+  expect(source.listenerCounts()).toEqual([0, 0])
+  expect(source.pendingStreams()).toBe(0)
+  expect(source.transportListeners()).toBe(0)
+  expect(source.subscriptions).toHaveProperty('cleanups.size', 0)
+  expect(source.subscriptions).toHaveProperty('cleanupPromises.size', 0)
+  failed.unmount()
+  await flushAccountWork()
 })

@@ -16,7 +16,7 @@ import {
   isStreamingMethod,
   type RpcContext
 } from '../../src/main/runtime/rpc/core'
-import type { RuntimeRpcResponse } from '../../src/shared/runtime-rpc-envelope'
+import { accountStreamDesktopFixture } from './ai-vault-account-stream-desktop-test-fixture'
 import type {
   ManagedDataAccountProvider,
   ManagedDataAccountsState
@@ -38,14 +38,14 @@ type StreamRuntime = Pick<
   | 'getDataAccountsSnapshot'
   | 'onAccountsChanged'
   | 'registerSubscriptionCleanup'
+  | 'cleanupSubscription'
+  | 'cleanupSubscriptionsForConnection'
+  | 'getRuntimeId'
   | 'refreshAccountsForMobileSubscriber'
 >
 
 type StreamContext = { runtime: StreamRuntime; connectionId?: string }
 type StreamControllerPort = { setServices(services: StreamServicePorts): void }
-type StreamHandlerPort = {
-  handler(params: unknown, context: StreamContext, emit: (frame: unknown) => void): Promise<void>
-}
 type RequestHandlerPort = { handler(params: unknown, context: StreamContext): unknown }
 
 export const P = '11111111-1111-4111-8111-111111111111'
@@ -137,23 +137,13 @@ export function accountStreamFixture() {
     getDataAccountsSnapshot: controller.dataAccountsSnapshot.bind(controller),
     onAccountsChanged: controller.onChanged.bind(controller),
     registerSubscriptionCleanup: subscriptions.register.bind(subscriptions),
+    cleanupSubscription: subscriptions.cleanup.bind(subscriptions),
+    cleanupSubscriptionsForConnection: subscriptions.cleanupForConnection.bind(subscriptions),
+    getRuntimeId: () => 'fixture',
     refreshAccountsForMobileSubscriber: controller.refreshForMobileSubscriber.bind(controller)
   }
   const methods = eraseRpcMethods(ACCOUNT_METHODS)
-  const method = methods.find((candidate) => candidate.name === 'accounts.subscribe')
-  if (!method || !isStreamingMethod(method)) {
-    throw new Error('Missing account stream')
-  }
-  const stream: StreamHandlerPort = method
   const frames: unknown[] = []
-  const slots: {
-    emit: (frame: unknown) => void
-    fail: () => void
-    end: () => void
-    unsubscribe: ReturnType<typeof vi.fn>
-    releaseHandle: () => void
-  }[] = []
-  const running: Promise<unknown>[] = []
   const observations: ReturnType<typeof counters>[] = []
   const observe = (run: () => void) => {
     const before = counters()
@@ -189,66 +179,40 @@ export function accountStreamFixture() {
       close()
     }
   })
-  let holdHandles = false
-  const subscribe = vi.fn(
-    async (
-      request: { method: string; params?: unknown },
-      onResponse: (response: RuntimeRpcResponse<unknown>) => void
-    ) => {
-      if (request.method !== 'accounts.subscribe') {
-        throw new Error('Unexpected stream')
-      }
-      const connectionId = `fixture-${slots.length}`
-      const emit = (frame: unknown) => {
-        frames.push(frame)
-        onResponse({ id: connectionId, ok: true, result: frame, _meta: { runtimeId: 'fixture' } })
-      }
-      const end = () => subscriptions.cleanupForConnection(connectionId)
-      const unsubscribe = vi.fn(end)
-      const handle = Promise.withResolvers<void>()
-      const fail = () =>
-        onResponse({
-          id: connectionId,
-          ok: false,
-          error: { code: 'fixture_error', message: 'Disconnected' }
-        })
-      slots.push({ emit, fail, end, unsubscribe, releaseHandle: () => handle.resolve() })
-      const work = Promise.resolve(stream.handler(null, { runtime, connectionId }, emit))
-      running.push(work)
-      if (holdHandles) {
-        await handle.promise
-      }
-      return {
-        unsubscribe,
-        sendBinary: () => {
-          throw new Error('No fixture binary input')
-        }
-      }
-    }
-  )
+  const desktop = accountStreamDesktopFixture(runtime, frames)
+  const { subscribe } = desktop
   window.api.runtime = { ...window.api.runtime, subscribe }
   const listData = vi.fn()
   window.api.runtime.call = listData
   const lists = vi.spyOn(service, 'list')
   const reads = vi.spyOn(fs, 'readFileSync')
   const parses = vi.spyOn(JSON, 'parse')
-  const counters = () => ({
-    lists: lists.mock.calls.length,
-    reads: reads.mock.calls.filter(
-      ([path]) => String(path) === registry('opencode') || String(path) === registry('devin')
-    ).length,
-    parses: parses.mock.calls.filter(([text]) => text.includes('"activeAccountId"')).length,
-    claude: nativeClaude.mock.calls.length,
-    codex: nativeCodex.mock.calls.length,
-    frames: frames.length,
-    listData: listData.mock.calls.length
-  })
+  const counters = () => {
+    const registryReads = reads.mock.calls.flatMap(([path], index) =>
+      String(path) === registry('opencode') || String(path) === registry('devin')
+        ? [reads.mock.results[index]?.value]
+        : []
+    )
+    const registryText = new Set<unknown>(registryReads)
+    return {
+      lists: lists.mock.calls.length,
+      reads: registryReads.length,
+      parses: parses.mock.calls.filter(([text]) => registryText.has(text)).length,
+      claude: nativeClaude.mock.calls.length,
+      codex: nativeCodex.mock.calls.length,
+      frames: frames.length,
+      listData: listData.mock.calls.length
+    }
+  }
+
   return {
     controller,
+    runtime,
+    subscriptions,
+    ...desktop,
     service,
     usage,
     subscribe,
-    slots,
     frames,
     refresh,
     registry,
@@ -256,9 +220,6 @@ export function accountStreamFixture() {
     counters,
     observations,
     listenerCounts: () => [dataListeners, usageListeners],
-    holdHandles: (hold: boolean) => {
-      holdHandles = hold
-    },
     callStrict: (name: string) => {
       const strict = methods.find((candidate) => candidate.name === name)
       if (!strict || isStreamingMethod(strict)) {
@@ -268,11 +229,7 @@ export function accountStreamFixture() {
       return request.handler(name === 'accounts.list' ? { refreshUsage: false } : null, { runtime })
     },
     dispose: async () => {
-      for (const slot of slots) {
-        slot.releaseHandle()
-        slot.end()
-      }
-      await Promise.all(running)
+      await desktop.dispose()
       fs.rmSync(root, { recursive: true, force: true })
     }
   }

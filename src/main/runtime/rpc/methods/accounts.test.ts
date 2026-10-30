@@ -280,9 +280,11 @@ describe('account RPC methods', () => {
         | 'getAccountsStreamSnapshot'
         | 'onAccountsChanged'
         | 'registerSubscriptionCleanup'
+        | 'cleanupSubscription'
         | 'refreshAccountsForMobileSubscriber'
       >
       connectionId?: string
+      signal?: AbortSignal
     }
     type AccountStreamHandler = {
       handler(
@@ -303,6 +305,11 @@ describe('account RPC methods', () => {
       registerSubscriptionCleanup: vi.fn((_id: string, nextCleanup: () => void) => {
         cleanup = nextCleanup
       }),
+      cleanupSubscription: vi.fn(() => {
+        const release = cleanup
+        cleanup = undefined
+        release?.()
+      }),
       refreshAccountsForMobile: vi.fn().mockResolvedValue(undefined),
       refreshAccountsForMobileSubscriber: vi.fn().mockResolvedValue(undefined)
     }
@@ -313,14 +320,19 @@ describe('account RPC methods', () => {
     const stream: AccountStreamHandler = subscribe
     const emit = vi.fn()
 
-    const running = stream.handler(undefined, { runtime, connectionId: 'connection-1' }, emit)
+    const controller = new AbortController()
+    const running = stream.handler(
+      undefined,
+      { runtime, connectionId: 'connection-1', signal: controller.signal },
+      emit
+    )
     await vi.waitFor(() => {
       expect(runtime.refreshAccountsForMobileSubscriber).toHaveBeenCalledOnce()
     })
 
     expect(runtime.refreshAccountsForMobile).not.toHaveBeenCalled()
     expect(emit).toHaveBeenCalledWith(expect.objectContaining({ type: 'ready', snapshot }))
-    cleanup?.()
+    controller.abort()
     await running
   })
 })
