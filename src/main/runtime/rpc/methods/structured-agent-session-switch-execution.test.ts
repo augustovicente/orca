@@ -660,6 +660,7 @@ it.each([
                   } else if (typeof key === 'string') {
                     counts.decorations += 1
                   }
+                  // oxlint-disable-next-line anti-slop/no-reflect-get -- Proxy get trap forwards raw string|symbol keys with the original receiver.
                   return Reflect.get(target, key, receiver)
                 }
               })
@@ -669,6 +670,7 @@ it.each([
               if (typeof key === 'string' && /^\d+$/.test(key)) {
                 counts.rows += 1
               }
+              // oxlint-disable-next-line anti-slop/no-reflect-get -- Proxy get trap forwards raw string|symbol keys with the original receiver.
               return Reflect.get(target, key, receiver)
             }
           }
@@ -678,6 +680,7 @@ it.each([
             if (typeof key === 'string' && /^\d+$/.test(key)) {
               counts.saved += 1
             }
+            // oxlint-disable-next-line anti-slop/no-reflect-get -- Proxy get trap forwards raw string|symbol keys with the original receiver.
             return Reflect.get(target, key, receiver)
           }
         })
@@ -686,6 +689,7 @@ it.each([
             if (typeof key === 'string' && /^\d+$/.test(key)) {
               counts.unrelated += 1
             }
+            // oxlint-disable-next-line anti-slop/no-reflect-get -- Proxy get trap forwards raw string|symbol keys with the original receiver.
             return Reflect.get(target, key, receiver)
           }
         })
