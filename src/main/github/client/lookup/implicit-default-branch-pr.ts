@@ -5,6 +5,7 @@ import {
   getRepoDefaultBranchName
 } from '../../../source-control/repo-default-branch'
 import type { GhExecOptions, HostedReviewLocalGitOptions } from './../github-exec-scope'
+import { ownerRepoFromPullRequestUrl } from './../github-exec-scope'
 import type { TrackedUpstreamBranch } from './tracked-upstream-cache'
 import {
   pullRequestHeadRepository,
@@ -45,8 +46,14 @@ export function createImplicitDefaultBranchPRPolicy(
       const hidden =
         isForeignSameNamedHead(context, data, prRepo) ||
         (await shouldHideImplicitDefaultBranchPR({ ...context, data, prRepo }))
-      if (hidden && prRepo) {
-        rejected.set(`${githubRepoIdentityKey(prRepo)}#${data.number}`, { data, prRepo })
+      if (hidden) {
+        const rejectedRepo = prRepo ?? ownerRepoFromPullRequestUrl(data.url)
+        if (rejectedRepo) {
+          rejected.set(`${githubRepoIdentityKey(rejectedRepo)}#${data.number}`, {
+            data,
+            prRepo: rejectedRepo
+          })
+        }
       }
       return !hidden
     },

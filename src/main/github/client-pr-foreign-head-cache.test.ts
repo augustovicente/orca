@@ -161,6 +161,27 @@ describe('cached pull request head repository identity', () => {
     })
   })
 
+  it('records branch and cached-number rejection when no repository candidate resolves', async () => {
+    const branch = 'feature/topic'
+    const pr = { ...primeLookup({ expected: null, headRefName: branch }), state: 'MERGED' }
+    resolvePRRepositoryCandidatesMock.mockResolvedValue({ candidates: [], headRepo: null })
+    ghExecFileAsyncMock.mockImplementation(async (args: string[]) => {
+      if (args[0] === 'pr' && args[1] === 'view' && [branch, '7'].includes(args[2])) {
+        return { stdout: JSON.stringify(pr) }
+      }
+      throw new Error(`Unexpected GitHub invocation: ${args.join(' ')}`)
+    })
+
+    expect(await getPRForBranchOutcome('/repo', branch, null, null, 7)).toMatchObject({
+      kind: 'no-pr',
+      rejectedPRUrls: [pr.url]
+    })
+    expect(ghExecFileAsyncMock.mock.calls.map(([args]) => args.slice(0, 3))).toEqual([
+      ['pr', 'view', branch],
+      ['pr', 'view', '7']
+    ])
+  })
+
   it('keeps a cached PR from the checkout repository', async () => {
     primeLookup({ head: upstream })
     expect(await getPRForBranchOutcome('/repo', 'main', null, null, 7)).toMatchObject({
