@@ -17,7 +17,8 @@ import {
 import { translate } from '@/i18n/i18n'
 import { createLocalizedCatalog } from '@/i18n/localized-catalog'
 import { getNativeChatSplitQuickActions } from './native-chat-split-quick-actions'
-import { editionSupports } from '../../../../shared/edition'
+import { editionSupports, ORCA_EDITION_ID } from '../../../../shared/edition'
+import { filterCommandsForEdition } from './edition-command-allowlist'
 export type CmdJQuickActionRunResult =
   | { status: 'ok' }
   | {
@@ -77,7 +78,7 @@ export async function runBrowserWorkspaceAction(
 }
 
 // Keep context-heavy imports in Settings, where explanatory UI and failure states fit.
-export const getCmdJQuickActions = createLocalizedCatalog((): CmdJQuickAction[] => [
+const getCmdJQuickActionsBase = createLocalizedCatalog((): CmdJQuickAction[] => [
   {
     id: 'new-browser-tab',
     kind: 'action',
@@ -230,3 +231,6 @@ export const getCmdJQuickActions = createLocalizedCatalog((): CmdJQuickAction[] 
     }
   }
 ])
+
+export const getCmdJQuickActions = (): CmdJQuickAction[] =>
+  filterCommandsForEdition(getCmdJQuickActionsBase(), ORCA_EDITION_ID)

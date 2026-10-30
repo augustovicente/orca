@@ -6,6 +6,7 @@ import {
   type PaletteFilterState
 } from '@/components/cmd-j/palette-filter'
 import { useAppStore } from '@/store'
+import { editionSupports } from '../../../shared/edition'
 import { parseCmdJTaskSourceUrl } from '@/lib/worktree-palette-task-url-match'
 import { getWorktreePaletteCreateActionState } from '@/lib/worktree-palette-create-action'
 import type { CmdJActiveGroupSnapshot } from '@/components/cmd-j/quick-action-context'
@@ -39,7 +40,9 @@ export function useWorktreeJumpPaletteLocalState({
     [deferredQuery]
   )
   const createWorktreeName = taskSourceUrl ? query.trim() : deferredCreateAction.createWorktreeName
-  const showCreateAction = deferredCreateAction.showCreateAction || taskSourceUrl !== null
+  const showCreateAction =
+    (deferredCreateAction.showCreateAction || taskSourceUrl !== null) &&
+    editionSupports('gitWorkflows')
   const [selectedItemId, setSelectedItemId] = useState('')
   const latestQueryRef = useRef('')
   const autoSelectedItemIdRef = useRef<string | null>(null)
