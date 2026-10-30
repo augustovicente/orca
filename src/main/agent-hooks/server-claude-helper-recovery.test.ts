@@ -11,26 +11,6 @@ import { ClaudeHelperKillPoller } from '../../shared/agent-hook-listener/provide
 import * as cursor from '../../shared/agent-hook-listener/providers/claude-transcript-cursor'
 import { AgentTranscriptPollScheduler } from '../../shared/agent-transcript-poll-scheduler'
 
-type ClaudeHelperObservationInspection = {
-  observedAt: number
-  parent: cursor.ClaudeTranscriptCursor
-  killedAt?: number
-}
-type ClaudeHelperPollerInspection = Pick<ClaudeHelperKillPoller, 'activate'> & {
-  observations: Map<string, ClaudeHelperObservationInspection>
-  scheduler: {
-    entries: ReadonlyMap<string, unknown>
-    deadlines: { timer: ReturnType<typeof setTimeout> | undefined }
-  }
-}
-type DesktopHookServerInspection = {
-  server: ReturnType<typeof createServer> | null
-  claudeHelperKills: ClaudeHelperPollerInspection
-}
-type RelayHookServerInspection = {
-  retryScheduler: { claudeHelperKills: ClaudeHelperPollerInspection }
-}
-
 // Complete captured lifecycle records, with runtime replay seeded by real persisted HTTP state.
 vi.mock('../telemetry/client', () => ({ track: vi.fn() }))
 vi.mock('../telemetry/cohort-classifier', () => ({
@@ -165,8 +145,6 @@ async function setup(
   }
   options.beforeStart?.()
   const desktop = new AgentHookServer()
-  // SAFETY: reads this actual server's protected socket and private helper observer without replacing either.
-  const desktopInspection = desktop as unknown as DesktopHookServerInspection
   servers.push(desktop)
   if (options.retired) {
     desktop.dropStatusEntriesByTabPrefix('tab-1')
@@ -208,7 +186,7 @@ async function setup(
     }
     if (kind === 'desktop-spool') {
       if (!options.disabled) {
-        expect(desktopInspection.server).toBe(null)
+        expect(desktop['server']).toBe(null)
       }
       beforeBind()
     }
@@ -228,8 +206,6 @@ async function setup(
       }
     }
   })
-  // SAFETY: reads this actual relay's private retry owner and helper observer without replacing either.
-  const relayInspection = relay as unknown as RelayHookServerInspection
   servers.push(relay)
   const start = () =>
     kind.startsWith('desktop')
@@ -238,16 +214,16 @@ async function setup(
   if (options.retryBind || (options.throwOnce && kind === 'desktop-spool')) {
     await expect(start()).rejects.toThrow()
     const observer = kind.startsWith('desktop')
-      ? desktopInspection.claudeHelperKills
-      : relayInspection.retryScheduler.claudeHelperKills
-    const retained = observer.observations.get(PANE)!
+      ? desktop['claudeHelperKills']
+      : relay['retryScheduler']['claudeHelperKills']
+    const retained = observer['observations'].get(PANE)!
     expect(retained.parent.offset).toBe(0)
-    expect(observer.scheduler.entries.size).toBe(0)
+    expect(observer['scheduler']['entries'].size).toBe(0)
     if (options.retryBind) {
       Reflect.set(relay, 'preferredPort', 0)
     }
     await start()
-    expect(observer.observations.get(PANE)).toBe(retained)
+    expect(observer['observations'].get(PANE)).toBe(retained)
   } else {
     await start()
   }
@@ -274,9 +250,9 @@ async function setup(
     }
   }
   const poller = kind.startsWith('desktop')
-    ? desktopInspection.claudeHelperKills
-    : relayInspection.retryScheduler.claudeHelperKills
-  const entries = poller.observations
+    ? desktop['claudeHelperKills']
+    : relay['retryScheduler']['claudeHelperKills']
+  const entries = poller['observations']
   return {
     desktop,
     relay,
@@ -455,15 +431,15 @@ it.each(['relay-spool', 'desktop-spool'])(
       p.poller.activate()
       p.poller.activate()
       expect([...p.entries.values()]).toEqual(first)
-      expect(p.poller.scheduler.entries.size).toBe(N)
+      expect(p.poller['scheduler']['entries'].size).toBe(N)
       await vi.waitFor(
         () => {
           expect(p.row()?.subagents ?? []).toEqual([])
           for (const entry of p.entries.values()) {
             expect(entry.killedAt).toBeDefined()
           }
-          expect(p.poller.scheduler.entries.size).toBe(0)
-          expect(p.poller.scheduler.deadlines.timer).toBeUndefined()
+          expect(p.poller['scheduler']['entries'].size).toBe(0)
+          expect(p.poller['scheduler']['deadlines']['timer']).toBeUndefined()
         },
         { timeout: 5000, interval: 30 }
       )
@@ -512,7 +488,7 @@ it.each(['relay-spool', 'desktop-spool'])(
     })
     expect(p.entries.size).toBe(0)
     expect(read).not.toHaveBeenCalled()
-    expect(p.poller.scheduler.entries.size).toBe(0)
+    expect(p.poller['scheduler']['entries'].size).toBe(0)
   }
 )
 
