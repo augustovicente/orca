@@ -12,25 +12,16 @@ import { createGlobalSettingsFixture } from '../../../../shared/global-settings-
 import type { RuntimeClientTarget } from '../../../../shared/runtime-client-target'
 import { useSettingsPageEffects } from '../settings/use-settings-page-effects'
 import { resolveSettingsHostScope } from '../settings/settings-host-scope'
-import { AgentLaunchSettingsSection } from '../settings/AgentLaunchSettingsSection'
+import { renderAgentsSettingsSection } from '../settings/settings-capability-section-renderers'
+import { ActiveSettingsSectionProvider } from '../settings/SettingsSection'
+import type { SettingsRenderContext } from '../settings/settings-render-context'
 import { AGENT_DEFAULT_SURFACE_SECTION_ID } from '../settings/agents-search'
 import { chatDemoRevealTokens, getChatDemoCopy } from './chat-ui-here-feature-tip-demo'
 import { FeatureTipActions } from './FeatureTipActions'
 import FeatureTipsModal from './FeatureTipsModal'
 
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), dismiss: vi.fn() } }))
-vi.mock('../settings/AgentLaunchSettingsCatalog', () => ({
-  AgentLaunchSettingsCatalog: () => null,
-  AgentLaunchSettingsLoading: () => null
-}))
-vi.mock('../settings/HostAgentLaunchSettings', () => ({
-  HostAgentLaunchSettings: () => <p>Paired host agents</p>
-}))
-vi.mock('@/runtime/structured-agent-session-host-capability', async (importOriginal) => ({
-  ...(await importOriginal<Record<string, unknown>>()),
-  useChatSettingsOwnPermissions: () => true
-}))
-
+vi.mock('../settings/AgentsPane', () => ({ AgentsPane: () => <p>Per-agent controls</p> }))
 vi.mock('@/lib/telemetry', () => ({ track: vi.fn() }))
 vi.mock('@/components/ui/dialog', () => ({
   Dialog: ({ children }: { children: ReactNode }) => <div>{children}</div>,
@@ -135,12 +126,17 @@ function SettingsOwner({ retained }: { retained: boolean }): React.JSX.Element {
   return (
     <>
       <output>{pendingScrollTargetRef.current}</output>
-      <AgentLaunchSettingsSection
-        settings={settings}
-        hostScope={scope}
-        updateSettings={updateSettings}
-        renderPermissions={() => null}
-      />
+      <ActiveSettingsSectionProvider value="agents">
+        {renderAgentsSettingsSection(
+          // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: supplies every field read by the Agents section renderer; unrelated Settings sections never run.
+          {
+            model: { settings, settingsHostScope: scope, updateSettings },
+            navigation: { getSectionSearchEntries: () => [] },
+            terminal: { localWindowsRuntimeCapabilities: {} },
+            view: { isSectionMounted: () => true }
+          } as unknown as SettingsRenderContext
+        )}
+      </ActiveSettingsSectionProvider>
     </>
   )
 }
@@ -160,7 +156,6 @@ describe('Chat UI is here tip', () => {
       act(() => root.render(<SettingsOwner retained={retained} />))
       expect(container.querySelectorAll('input[type="radio"]')).toHaveLength(2)
       expect(container.querySelector('output')?.textContent).toBe(AGENT_DEFAULT_SURFACE_SECTION_ID)
-      expect(container.textContent).not.toContain('Paired host agents')
       expect(updateSettingsOrThrow).not.toHaveBeenCalled()
     }
   )

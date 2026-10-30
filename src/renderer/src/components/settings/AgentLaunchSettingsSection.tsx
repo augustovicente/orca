@@ -16,7 +16,6 @@ import {
   AgentLaunchSettingsLoading,
   type AgentPermissionsRenderer
 } from './AgentLaunchSettingsCatalog'
-import { AgentDefaultSurfaceSection } from './AgentDefaultSurfaceSection'
 import { HostAgentLaunchSettings } from './HostAgentLaunchSettings'
 import { SettingsHostScopeUnavailableNotice } from './SettingsHostScopePicker'
 import type { SettingsHostScope } from './settings-host-scope'
@@ -47,15 +46,11 @@ export function AgentLaunchSettingsSection({
   return (
     <section className="space-y-8">
       {!environmentId ? (
-        <>
-          {/* The default is this computer's, so a paired host's page doesn't offer it. */}
-          <AgentDefaultSurfaceSection settings={settings} />
-          <LocalAgentLaunchSettings
-            settings={settings}
-            updateSettings={updateSettings}
-            renderPermissions={renderPermissions}
-          />
-        </>
+        <LocalAgentLaunchSettings
+          settings={settings}
+          updateSettings={updateSettings}
+          renderPermissions={renderPermissions}
+        />
       ) : environment ? (
         <HostAgentLaunchSettings
           key={`${environmentId}:${environment.pairingRevision ?? environment.createdAt}`}
