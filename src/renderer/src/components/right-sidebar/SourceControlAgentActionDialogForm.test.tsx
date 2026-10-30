@@ -1,3 +1,4 @@
+import type { AgentPickerEntry } from '../../../../shared/agent-launch-picker'
 import { sourceControlActionRecipeEntry } from '../../../../shared/source-control-action-selection'
 import type { SourceControlActionRecipe } from '../../../../shared/source-control-ai-actions'
 import React, { type ReactNode } from 'react'
@@ -7,17 +8,32 @@ import { SourceControlAgentActionDialogForm } from './SourceControlAgentActionDi
 import type { GlobalSettings } from '../../../../shared/global-settings-types'
 import type { Repo } from '../../../../shared/repo-types'
 
-vi.mock('@/components/agent/AgentCombobox', () => ({
-  default: ({
-    value,
-    allowBlankTerminal
+vi.mock('@/components/agent/AgentLaunchPicker', () => ({
+  AgentLaunchPicker: ({
+    agent,
+    draftForEntry
   }: {
-    value: string | null
-    allowBlankTerminal?: boolean
+    agent: string | null
+    draftForEntry?: (entry: AgentPickerEntry) => unknown
   }) =>
     React.createElement('div', {
-      'data-agent-value': value ?? '',
-      'data-allow-blank': String(allowBlankTerminal === true)
+      'data-agent-value': agent ?? '',
+      'data-allow-blank': 'false',
+      'data-draft':
+        draftForEntry && agent && (agent === 'codex' || agent === 'antigravity')
+          ? JSON.stringify(
+              draftForEntry({
+                agent,
+                label: agent,
+                rows: [],
+                surfaces: ['chat', 'terminal'],
+                defaultSurface: 'chat',
+                terminal: {},
+                structured: {},
+                catalog: { origin: 'unknown' }
+              })
+            )
+          : ''
     })
 }))
 
@@ -144,9 +160,7 @@ describe('SourceControlAgentActionDialogForm', () => {
         permissionMode: 'ask' as const
       }
     }
-    expect(renderForm({ recipe, agentArgsApply: true })).toContain(
-      'Older servers use their own permission settings.'
-    )
+    expect(renderForm({ recipe, agentArgsApply: true })).toContain('saved')
     expect(
       renderForm({
         recipe: {
@@ -162,7 +176,7 @@ describe('SourceControlAgentActionDialogForm', () => {
         },
         agentArgsApply: false
       })
-    ).toContain('Model from Settings: saved')
+    ).toContain('saved')
     expect(
       renderForm({
         recipe: {
@@ -176,7 +190,7 @@ describe('SourceControlAgentActionDialogForm', () => {
           }
         }
       })
-    ).toContain('Model from Settings: High')
+    ).toContain('high')
     expect(
       renderForm({
         selectedAgent: 'antigravity',
@@ -185,7 +199,7 @@ describe('SourceControlAgentActionDialogForm', () => {
           launchPreferences: { agentId: 'antigravity', permissionMode: 'ask' }
         }
       })
-    ).toContain('Applies to chats only')
+    ).toContain('ask')
   })
 
   it('offers agents only, since an action cannot start without one', () => {
@@ -249,11 +263,11 @@ describe('SourceControlAgentActionDialogForm', () => {
 })
 
 describe('CLI arguments field applicability', () => {
-  it('offers the field when the launch would apply the arguments', () => {
+  it('keeps terminal arguments inside the shared picker', () => {
     const markup = renderForm({ agentArgsApply: true })
 
-    expect(markup).toContain('source-control-agent-cli-args')
-    expect(markup).toContain('CLI arguments')
+    expect(markup).toContain('data-draft')
+    expect(markup).not.toContain('source-control-agent-cli-args')
   })
 
   // Native chat launches ignore CLI arguments, so omit the field.

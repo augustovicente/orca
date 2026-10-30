@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { getDefaultSettings } from '../../../../shared/constants'
 import type { AgentPickerEntry } from '../../../../shared/agent-launch-picker'
 import { editAgentPickerDraft } from '../../../../shared/agent-launch-picker'
 import { editAgentPickerPanelText } from '../../../../shared/agent-launch-picker-arguments'
@@ -27,9 +28,10 @@ const entry: AgentPickerEntry = {
   arguments: '--agents-default',
   catalog: {
     origin: 'probe',
+    fetchedAt: 1,
     models: [
-      { id: 'opus', label: 'Opus' },
-      { id: 'sonnet', label: 'Sonnet' }
+      { id: 'opus', label: 'Opus', isDefault: true, efforts: [], supportsFastMode: true },
+      { id: 'sonnet', label: 'Sonnet', isDefault: false, efforts: [] }
     ]
   }
 }
@@ -38,6 +40,7 @@ const captured = () =>
     actionId: 'resolveConflicts',
     settings: {
       sourceControlAi: {
+        ...getDefaultSettings('/tmp/picker-test').sourceControlAi!,
         actions: {
           resolveConflicts: {
             agentId: 'claude',
@@ -119,6 +122,17 @@ describe('Source Control shared picker projection', () => {
     })
     expect(project(next).agentArgs).toContain('--verbose')
     expect(next.source.authoredPreferences?.permissionMode).toBe('full-access')
+  })
+
+  it('does not materialize an Args override for a model-only edit', () => {
+    const selection = canonicalSourceControlActionSelection({ agentId: 'claude' })
+    const draft = editAgentPickerDraft(sourceControlPickerDraft(selection, entry), {
+      model: 'sonnet'
+    })
+    const next = applySourceControlPickerDraft(selection, entry, draft)
+    expect(next.current.agentArgs).toBeUndefined()
+    expect(next.current.argumentChoices).toBeUndefined()
+    expect(project(next).sessionOptions?.model).toBe('sonnet')
   })
 
   it('retains explicit empty Args without pinning a model', () => {

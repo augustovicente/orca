@@ -67,7 +67,9 @@ export function AgentLaunchPicker({
     ? agentPickerEffectiveChoices(entry, draft ?? agentPickerDraft(entry))
     : undefined
   const modelLabel =
-    entry?.catalog.models?.find((model) => model.id === choices?.model)?.label ?? choices?.model
+    (entry && entry.catalog.origin !== 'unknown'
+      ? entry.catalog.models.find((model) => model.id === choices?.model)?.label
+      : undefined) ?? choices?.model
   const summary = [modelLabel, choices?.options?.effort].filter(Boolean).join(' · ')
   return (
     <div className="space-y-2">
@@ -136,7 +138,12 @@ export function AgentLaunchPicker({
           className="grid w-full grid-cols-2"
           onValueChange={(surface) => {
             if (surface === 'chat' || surface === 'terminal') {
-              onPick(entry.agent, { ...(draft ?? agentPickerDraft(entry)), surface }, entry)
+              onPick(
+                entry.agent,
+                { ...(draft ?? agentPickerDraft(entry)), surface },
+                entry,
+                surface
+              )
             }
           }}
         >

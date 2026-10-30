@@ -75,7 +75,10 @@ export function applySourceControlPickerDraft(
   return {
     current: {
       ...next.current,
-      agentArgs: edited.agentArgs,
+      agentArgs:
+        edited.agentArgs === (next.current.agentArgs ?? '')
+          ? next.current.agentArgs
+          : edited.agentArgs,
       argumentChoices: edited.argumentChoices
     },
     source: { ...next.source, authoredPreferences: edited.launchPreferences }

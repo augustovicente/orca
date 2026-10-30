@@ -135,12 +135,16 @@ export function SourceControlActionRecipeRow<ActionId extends AiActionId>({
                 surface,
                 launchPreferences
               })}
-              onSetupPick={(selection) =>
+              onSetupPick={(selection, previous) =>
                 onLaunchPreferencesChange?.(
                   actionId,
                   selection.source.authoredPreferences,
-                  selection.current.agentArgs,
-                  selection.current.argumentChoices ?? null
+                  selection.current.agentArgs !== previous.current.agentArgs
+                    ? selection.current.agentArgs
+                    : undefined,
+                  selection.current.argumentChoices !== previous.current.argumentChoices
+                    ? (selection.current.argumentChoices ?? null)
+                    : undefined
                 )
               }
               onPick={(agent, choice) =>

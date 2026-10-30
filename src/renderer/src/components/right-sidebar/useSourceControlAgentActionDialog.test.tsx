@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import type * as StructuredAgentClient from '@/runtime/structured-agent-session-client'
 
 import {
   commitSourceControlActionArguments,
@@ -32,6 +33,11 @@ import {
   pickDialogAgent,
   type SaveAction
 } from './source-control-action-dialog.test-fixture'
+
+vi.mock('@/runtime/structured-agent-session-client', async (importOriginal) => ({
+  ...(await importOriginal<typeof StructuredAgentClient>()),
+  callStructuredAgentSession: vi.fn(async () => undefined)
+}))
 
 const initialState = useAppStore.getState()
 afterEach(() => {

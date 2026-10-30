@@ -30,7 +30,7 @@ type PickerProps = {
   repoId?: string
   disabled?: boolean
   selection?: CurrentActionSelection
-  onSetupPick?: (selection: CurrentActionSelection) => void
+  onSetupPick?: (selection: CurrentActionSelection, previous: CurrentActionSelection) => void
   onPick: (agent: TuiAgent | null, choice: Pick<SourceControlActionRecipe, 'surface'>) => void
 }
 
@@ -108,11 +108,12 @@ export function SourceControlActionAgentPickerView({
         sourceControlPickerDraft(selection, entry, props.surface ?? entry.defaultSurface)
       }
       onPick={(agent, draft, entry, surface) => {
-        props.onPick(agent, {
-          surface: canSaveSurface
-            ? savedSurfaceForPick(observation.model, agent, surface)
-            : undefined
-        })
+        const saved = canSaveSurface
+          ? savedSurfaceForPick(observation.model, agent, surface)
+          : undefined
+        if (!draft || props.agent !== agent || props.surface !== saved) {
+          props.onPick(agent, { surface: saved })
+        }
         if (draft && entry) {
           const picked = pickSourceControlActionAgent(
             selection,
@@ -120,7 +121,10 @@ export function SourceControlActionAgentPickerView({
             preview.status === 'ready' ? preview.agent : null,
             surface
           )
-          props.onSetupPick?.(applySourceControlPickerDraft(picked, entry, draft))
+          const next = applySourceControlPickerDraft(picked, entry, draft)
+          if (next !== picked) {
+            props.onSetupPick?.(next, selection)
+          }
         }
       }}
     >

@@ -209,12 +209,16 @@ export function RepositorySourceControlAiActionRows({
                       repo: { sourceControlAi: repoAi },
                       actionId
                     })}
-                    onSetupPick={(selection) =>
+                    onSetupPick={(selection, previous) =>
                       onActionLaunchPreferencesChange(
                         actionId,
                         selection.source.authoredPreferences,
-                        selection.current.agentArgs,
-                        selection.current.argumentChoices ?? null
+                        selection.current.agentArgs !== previous.current.agentArgs
+                          ? selection.current.agentArgs
+                          : undefined,
+                        selection.current.argumentChoices !== previous.current.argumentChoices
+                          ? (selection.current.argumentChoices ?? null)
+                          : undefined
                       )
                     }
                     onPick={(agent, choice) =>

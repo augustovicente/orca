@@ -168,12 +168,20 @@ it('global owner: bounded controlled edits, failed/same selection and no-op save
     throw new Error('Missing recipe row')
   }
   const row = within(container)
-  const input = row.getByRole('textbox', { name: 'Arguments' })
+  const openSetup = async () => {
+    const trigger = row.getByRole('button', { name: 'Select agent' })
+    await waitFor(() => expect(trigger).toHaveProperty('disabled', false))
+    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false })
+    fireEvent.click(screen.getByRole('button', { name: 'Configure Claude' }))
+    return screen.getByRole('textbox', { name: 'Arguments' })
+  }
+  let input = await openSetup()
   await waitFor(() => expect(input).toHaveProperty('disabled', false))
   summary.mockClear()
   lift.mockClear()
   const inputWork: number[][] = []
   for (const n of [32, 320]) {
+    fireEvent.change(input, { target: { value: '--verbose 999' } })
     tokenize.mockClear()
     for (let i = 0; i < n; i++) {
       fireEvent.change(input, { target: { value: `--verbose ${String(i).padStart(3, '0')}` } })
@@ -195,8 +203,7 @@ it('global owner: bounded controlled edits, failed/same selection and no-op save
     )
   }
   fireEvent.change(input, { target: { value: '--dangerously-skip-permissions --verbose' } })
-  fireEvent.keyDown(input, { key: 'Enter' })
-  expect(lift).toHaveBeenCalledTimes(1)
+  fireEvent.click(screen.getByRole('button', { name: 'Use', exact: true }))
   let reject = (_error: Error): void => {}
   persist.mockImplementationOnce(
     () =>
@@ -204,11 +211,16 @@ it('global owner: bounded controlled edits, failed/same selection and no-op save
         reject = fail
       })
   )
-  fireEvent.click(row.getAllByRole('combobox')[0])
-  fireEvent.click(screen.getByRole('option', { name: 'Codex' }))
+  fireEvent.pointerDown(row.getByRole('button', { name: 'Select agent' }), {
+    button: 0,
+    ctrlKey: false
+  })
+  fireEvent.click(screen.getByRole('menuitem', { name: /Codex/ }))
   await waitFor(() => expect(persist).toHaveBeenCalledTimes(1))
   // Actual global writer publishes only after success; failed selection must retain this later edit.
+  input = await openSetup()
   fireEvent.change(input, { target: { value: '--verbose newer' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Use', exact: true }))
   await act(async () => reject(new Error('disk unavailable')))
   await waitFor(() =>
     expect(console.error).toHaveBeenCalledWith(
@@ -216,14 +228,16 @@ it('global owner: bounded controlled edits, failed/same selection and no-op save
       expect.any(Error)
     )
   )
-  expect(input).toHaveProperty('value', '--verbose newer')
-  fireEvent.click(row.getAllByRole('combobox')[0])
+  expect(row.getByRole('button', { name: 'Select agent' }).textContent).toContain('Claude')
+  fireEvent.pointerDown(row.getByRole('button', { name: 'Select agent' }), {
+    button: 0,
+    ctrlKey: false
+  })
   await act(async () => {
-    fireEvent.click(screen.getByRole('option', { name: 'Claude' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /Claude/ }))
   })
   expect(persist).toHaveBeenCalledTimes(2)
-  expect(input).toHaveProperty('value', '--verbose newer')
-  expect(row.getByRole('button', { name: /Remove --dangerously/ })).toBeDefined()
+  expect(row.getByRole('button', { name: 'Select agent' }).textContent).toContain('Claude')
   persist.mockRejectedValueOnce(new Error('Save disk unavailable'))
   fireEvent.click(row.getByRole('button', { name: 'Save' }))
   await waitFor(() =>

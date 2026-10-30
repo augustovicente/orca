@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { shouldShowSourceControlActionArguments } from './source-control-action-arguments-visibility'
 import { useState } from 'react'
-import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, within, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import './__fixtures__/settings-persistence-test-fixture'
 import { useAppStore } from '@/store'
@@ -26,7 +26,11 @@ import { RepositorySourceControlAiActionRows } from './repository/source-control
 import { SourceControlActionRecipeRow } from './SourceControlActionRecipeRow'
 
 vi.mock('@/runtime/runtime-rpc-client', () => ({
-  callRuntimeRpc: vi.fn(async () => ({ agents: [{ agent: 'grok', capabilities: {} }] }))
+  callRuntimeRpc: vi.fn(async (_target, method) =>
+    method === 'agentSession.modelCatalog'
+      ? { origin: 'unknown' }
+      : { agents: [{ agent: 'grok', capabilities: {} }] }
+  )
 }))
 const unused = vi.fn()
 function configure(patch: Partial<GlobalSettings>) {
@@ -56,7 +60,12 @@ function Row({
         baseValue={draft}
         isSavingTemplate={false}
         launchPreferences={preferences}
-        onLaunchPreferencesChange={(_id, value) => setPreferences(value)}
+        onLaunchPreferencesChange={(_id, value, agentArgs) => {
+          setPreferences(value)
+          if (agentArgs !== undefined) {
+            setDraft({ ...draft, agentArgs })
+          }
+        }}
         onAgentArgsChange={(_id, agentArgs) => setDraft({ ...draft, agentArgs })}
         onAgentChange={unused}
         onTemplateChange={unused}
@@ -78,12 +87,16 @@ it.each([
   ['chat off', 'claude', false, undefined, true],
   ['provider off', 'claude', true, { claude: false }, true],
   ['no chat support', 'goose', true, undefined, true]
-] as const)('%s: shows Arguments only for the CLI', (_name, agent, chat, providers, visible) => {
-  configure({ experimentalNativeChat: chat, nativeChatProviders: providers })
-  render(<Row agent={agent} />)
-  expect(Boolean(screen.queryByRole('textbox', { name: 'Arguments' }))).toBe(visible)
-  expect(screen.getByText('Command template')).toBeDefined()
-})
+] as const)(
+  '%s: keeps launch setup behind the common picker',
+  (_name, agent, chat, providers, _visible) => {
+    configure({ experimentalNativeChat: chat, nativeChatProviders: providers })
+    render(<Row agent={agent} />)
+    expect(screen.queryByRole('textbox', { name: 'Arguments' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Select agent' })).toBeDefined()
+    expect(screen.getByText('Command template')).toBeDefined()
+  }
+)
 
 it('hides an unresolved launch even with chat off, but always shows text action Arguments', () => {
   configure({ experimentalNativeChat: false })
@@ -94,33 +107,30 @@ it('hides an unresolved launch even with chat off, but always shows text action 
   expect(screen.getByDisplayValue('--saved')).toBeDefined()
 })
 
-it('keeps the draft while Arguments hide and renders the model and effort beside Permissions', () => {
+it('edits launch arguments in the common setup and keeps the recipe when chat availability changes', async () => {
   configure({ experimentalNativeChat: false })
   render(<Row />)
-  fireEvent.change(screen.getByRole('textbox', { name: 'Arguments' }), {
-    target: { value: '--draft' }
-  })
+  const trigger = screen.getByRole('button', { name: 'Select agent' })
+  await waitFor(() => expect(trigger).toHaveProperty('disabled', false))
+  fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false })
+  fireEvent.click(screen.getByRole('button', { name: 'Configure Claude' }))
+  const input = screen.getByRole('textbox', { name: 'Arguments' })
+  expect(input).toHaveProperty('value', '--saved')
+  fireEvent.change(input, { target: { value: '--draft' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Use', exact: true }))
   act(() => configure({ experimentalNativeChat: true }))
   expect(screen.queryByRole('textbox', { name: 'Arguments' })).toBeNull()
+  act(() => configure({ experimentalNativeChat: false }))
+  fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false })
+  fireEvent.click(screen.getByRole('button', { name: 'Configure Claude' }))
+  expect(screen.getByRole('textbox', { name: 'Arguments' })).toHaveProperty('value', '--draft')
   expect(screen.getByRole('button', { name: 'Claude permissions' }).textContent).toContain(
     'Full access'
   )
-  expect(screen.getByRole('button', { name: 'Claude permissions' }).getAttribute('data-size')).toBe(
-    'sm'
-  )
-  act(() => configure({ experimentalNativeChat: false }))
-  expect(screen.getByRole('textbox', { name: 'Arguments' })).toHaveProperty('value', '--draft')
-  expect(
-    screen.getByRole('button', { name: /Remove --dangerously-skip-permissions/ })
-  ).toBeDefined()
-  expect(screen.getByRole('combobox', { name: 'Sonnet' })).toBeDefined()
-  expect(screen.getByRole('combobox', { name: 'High' })).toBeDefined()
-  expect(unused).not.toHaveBeenCalled()
 })
 
-it('reacts to the real host registry when another agent gains chat support', async () => {
+it('reacts to the host registry without adding an inline launch editor', async () => {
   render(<Row agent="grok" />)
-  expect(screen.getByRole('textbox', { name: 'Arguments' })).toBeDefined()
   await act(() =>
     loadHostStructuredAgents(
       'local',
@@ -129,6 +139,7 @@ it('reacts to the real host registry when another agent gains chat support', asy
     )
   )
   expect(screen.queryByRole('textbox', { name: 'Arguments' })).toBeNull()
+  expect(screen.getByRole('button', { name: 'Select agent' })).toBeDefined()
 })
 
 it('honors an explicit future surface only after an agent resolves', () => {
@@ -208,41 +219,10 @@ it.each(['', null, '--verbose', undefined])(
       throw new Error('Missing action card')
     }
     const controls = within(card)
-    const model = controls.getByRole('combobox', {
-      name: agentArgs === undefined ? 'Sonnet' : 'Agent default'
-    })
-    expect(
-      controls.getByRole('combobox', { name: agentArgs === undefined ? 'High' : 'Default' })
-    ).toBeDefined()
-    expect(
-      controls.getByText(
-        agentArgs === undefined
-          ? 'Global custom args'
-          : agentArgs
-            ? 'Repository custom args'
-            : 'No args'
-      )
-    ).toBeDefined()
-    const row = model.closest('.flex-wrap')
-    expect(row?.contains(controls.getByRole('button', { name: 'Claude permissions' }))).toBe(true)
-    const input = controls.getByRole('textbox', { name: 'Arguments' })
-    expect(row?.querySelector(':scope > .w-full')?.contains(input)).toBe(true)
-    expect(row?.parentElement?.className).toContain('grid-cols-1')
-    expect(
-      row?.parentElement?.lastElementChild?.contains(controls.getByText('Command template'))
-    ).toBe(true)
-    expect(Boolean(controls.queryByRole('button', { name: 'Remove --model sonnet' }))).toBe(
-      agentArgs === undefined
-    )
+    expect(controls.getByRole('button', { name: 'Select agent' })).toBeDefined()
+    expect(controls.queryByRole('textbox', { name: 'Arguments' })).toBeNull()
+    expect(controls.getByText('Command template')).toBeDefined()
     act(() => configure({ experimentalNativeChat: true }))
     expect(controls.queryByRole('textbox', { name: 'Arguments' })).toBeNull()
-    expect(
-      controls.getByRole('combobox', { name: agentArgs === undefined ? 'Sonnet' : 'Agent default' })
-    ).toBeDefined()
-    act(() => configure({ experimentalNativeChat: false }))
-    expect(controls.getByRole('textbox', { name: 'Arguments' })).toHaveProperty(
-      'value',
-      agentArgs ?? ''
-    )
   }
 )
