@@ -1,6 +1,6 @@
 import React from 'react'
 import type * as ReactModule from 'react'
-import { vi } from 'vitest'
+import { vi, type Mock } from 'vitest'
 import type { AgentStatusEntry, AgentStatusState } from '../../../../shared/agent-status-types'
 import type { TuiAgent } from '../../../../shared/tui-agent'
 import type { NotesSendAgentTarget } from '@/lib/notes-send-agent-targets'
@@ -23,7 +23,17 @@ const hookRuntime = vi.hoisted(() => ({
   cleanups: [] as (() => void)[]
 }))
 
-const harness = vi.hoisted(() => ({
+type NotesSendMenuFixtureHarness = {
+  storeState: Record<string, unknown>
+  sendMessageToAgent: Mock
+  track: Mock
+  toastMessage: Mock
+  worktreeAgentRows: DashboardAgentRowData[]
+  noteTargets: NotesSendAgentTarget[]
+  now: number
+}
+
+const harness: NotesSendMenuFixtureHarness = vi.hoisted(() => ({
   storeState: {} as Record<string, unknown>,
   sendMessageToAgent: vi.fn(),
   track: vi.fn(),

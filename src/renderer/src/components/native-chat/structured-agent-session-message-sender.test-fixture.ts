@@ -1,7 +1,13 @@
-import { vi } from 'vitest'
+import { vi, type Mock } from 'vitest'
 import type { AgentJournalSubmission } from '../../../../shared/agent-session-journal-types'
 
-const mocks = vi.hoisted(() => ({
+type MessageSenderFixtureMocks = {
+  call: Mock
+  compatible: Mock<() => Promise<void>>
+  handBack: Mock<() => boolean>
+}
+
+const mocks: MessageSenderFixtureMocks = vi.hoisted(() => ({
   call: vi.fn(),
   compatible: vi.fn(async (): Promise<void> => undefined),
   handBack: vi.fn((): boolean => true)
