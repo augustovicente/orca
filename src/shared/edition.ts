@@ -31,6 +31,27 @@ export type EditionCapabilities = {
   dictation: boolean
   experimental: boolean
   developerTools: boolean
+  contentInput: boolean
+  notificationsPane: boolean
+  shortcutsPane: boolean
+  // Surface-pruning (W3) capabilities.
+  terminalPane: boolean
+  editorTab: boolean
+  diffTab: boolean
+  checksTab: boolean
+  rightSidebar: boolean
+  statusBar: boolean
+  providerUsage: boolean
+  commandPalette: boolean
+  starNag: boolean
+  plugins: boolean
+  devPane: boolean
+  accountsPane: boolean
+  modelPicker: boolean
+  quickCommands: boolean
+  telemetry: boolean
+  ports: boolean
+  resourceUsage: boolean
 }
 
 export type EditionCapability = keyof EditionCapabilities
@@ -55,7 +76,27 @@ const FULL_CAPABILITIES: EditionCapabilities = {
   mobile: true,
   dictation: true,
   experimental: true,
-  developerTools: true
+  developerTools: true,
+  contentInput: true,
+  notificationsPane: true,
+  shortcutsPane: true,
+  terminalPane: true,
+  editorTab: true,
+  diffTab: true,
+  checksTab: true,
+  rightSidebar: true,
+  statusBar: true,
+  providerUsage: true,
+  commandPalette: true,
+  starNag: true,
+  plugins: true,
+  devPane: true,
+  accountsPane: true,
+  modelPicker: true,
+  quickCommands: true,
+  telemetry: true,
+  ports: true,
+  resourceUsage: true
 }
 
 /** Accounting firm edition: files, portals, GUI automation and chat; no software-development surface. */
@@ -76,7 +117,29 @@ const CONTADORCA_CAPABILITIES: EditionCapabilities = {
   onboarding: false,
   dictation: false,
   experimental: false,
-  developerTools: false
+  developerTools: false,
+  contentInput: false,
+  notificationsPane: false,
+  shortcutsPane: false,
+  skills: false,
+  mobile: false,
+  terminalPane: false,
+  editorTab: false,
+  diffTab: false,
+  checksTab: false,
+  rightSidebar: false,
+  statusBar: false,
+  providerUsage: false,
+  commandPalette: false,
+  starNag: false,
+  plugins: false,
+  devPane: false,
+  accountsPane: false,
+  modelPicker: false,
+  quickCommands: false,
+  telemetry: false,
+  ports: false,
+  resourceUsage: false
 }
 
 const CAPABILITIES_BY_EDITION: Record<OrcaEdition, EditionCapabilities> = {

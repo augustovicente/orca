@@ -19,7 +19,7 @@ const ALL_VIEWS: TopLevelView[] = [
   'mobile'
 ]
 
-const ACCOUNTING_KEEPS: EditionCapability[] = ['computerUse', 'browser', 'skills', 'mobile']
+const ACCOUNTING_KEEPS: EditionCapability[] = ['computerUse', 'browser']
 
 const ACCOUNTING_DROPS: EditionCapability[] = [
   'gitWorkflows',
@@ -32,7 +32,32 @@ const ACCOUNTING_DROPS: EditionCapability[] = [
   'artifacts',
   'activity',
   'workspaceSpace',
-  'onboarding'
+  'onboarding',
+  'skills',
+  'mobile',
+  'dictation',
+  'experimental',
+  'developerTools',
+  'terminalPane',
+  'editorTab',
+  'diffTab',
+  'checksTab',
+  'rightSidebar',
+  'statusBar',
+  'providerUsage',
+  'commandPalette',
+  'starNag',
+  'plugins',
+  'devPane',
+  'accountsPane',
+  'modelPicker',
+  'quickCommands',
+  'telemetry',
+  'ports',
+  'resourceUsage',
+  'contentInput',
+  'notificationsPane',
+  'shortcutsPane'
 ]
 
 describe('editionSupports', () => {
@@ -61,13 +86,21 @@ describe('editionSupports', () => {
 
 describe('resolveTopLevelView', () => {
   it('renders a persisted dev view as the workspace surface in the accounting edition', () => {
-    for (const view of ['tasks', 'activity', 'automations', 'space', 'artifacts'] as const) {
+    for (const view of [
+      'tasks',
+      'activity',
+      'automations',
+      'space',
+      'artifacts',
+      'skills',
+      'mobile'
+    ] as const) {
       expect(resolveTopLevelView(view, 'contadorca')).toBe('terminal')
     }
   })
 
   it('keeps accounting views addressable', () => {
-    for (const view of ['terminal', 'settings', 'skills', 'mobile'] as const) {
+    for (const view of ['terminal', 'settings'] as const) {
       expect(resolveTopLevelView(view, 'contadorca')).toBe(view)
     }
   })
