@@ -25,6 +25,7 @@ import { createStructuredAgentSessionLifecycleDelivery } from './structured-agen
 import { createStructuredAgentSessionDispatchFollowUps } from './structured-agent-session-dispatch-followups'
 import { modelCatalogHostDeps } from './structured-agent-model-catalog-wiring'
 import type { StructuredAgentSessionRuntimeDeps } from './structured-agent-session-runtime'
+import type { AgentSessionRecord } from '../../shared/agent-session-record'
 
 export async function installOnJournal(
   deps: StructuredAgentSessionRuntimeDeps,
@@ -62,15 +63,14 @@ export async function installOnJournal(
     await Promise.all(registrations.map((registration) => registration.adapter.closeAll()))
   })
   const providerNaming = createStructuredAgentSessionProviderNaming({
-    store,
     adapter,
     logger: deps.logger
   })
-  const nameProvider = (sessionId: string): void => void providerNaming.push(sessionId)
+  const nameProvider = (record: AgentSessionRecord): void => void providerNaming.push(record)
   host = new StructuredAgentSessionHost({
     store,
     adapter,
-    nameProviderConversation: nameProvider,
+    nameProviderConversation: (record) => void providerNaming.push(record, true),
     agents,
     recoveryCapsule: new AgentSessionRecoveryCapsule(deps.stateDirectory),
     journalDatabase,

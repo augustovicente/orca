@@ -307,6 +307,14 @@ export type StructuredAgentSessionAdapter = StructuredAgentSessionAdapterStop & 
     providerSessionId: string
     name: string
   }): Promise<void>
+  /** Capture native invocation inputs at the committed explicit occurrence. */
+  nameProviderConversation?(input: {
+    record: AgentSessionRecord
+    name: string
+    sequence: number
+    inheritance?: boolean
+  }): Promise<void> | undefined
+  stopProviderNaming?(): void
   /** True proves child exit; root/processless verdicts throw only after finalization (stopAgentSessionProviderRoot). */
   closeSession?(sessionId: string, observeClose?: AgentSessionCloseObserver): Promise<boolean>
   /** Sink-failure shutdown leaves exit recovery unexpected. */

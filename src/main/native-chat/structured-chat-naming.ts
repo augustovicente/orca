@@ -299,7 +299,7 @@ export function createStructuredChatNamingHandler(deps: StructuredChatNamingDeps
     },
     // Not a job: a pending generation must not swallow the user's rename. The record's 'user'
     // source is what makes that generation's later write refuse.
-    setUserName: async (sessionId, name, write) => {
+    setUserName: async (sessionId, name, write, onApplied) => {
       const store = deps.getStore()
       if (!store?.getRecord(sessionId)) {
         return null
@@ -309,6 +309,9 @@ export function createStructuredChatNamingHandler(deps: StructuredChatNamingDeps
         forget(sessionId)
       }
       refresh(record.location.workspaceId, sessionId)
+      if (applied) {
+        onApplied?.(record)
+      }
       return { name: record.conversationName ?? null, applied }
     }
   }

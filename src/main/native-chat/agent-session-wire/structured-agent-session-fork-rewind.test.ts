@@ -209,7 +209,7 @@ describe('rewinding a chat whose agent forks', () => {
       origin: 'forked',
       handle: claudeProviderHandle(fork.sessionId, 'fork-answer-1')
     })
-    expect(nameProviderConversation).toHaveBeenCalledTimes(1)
+    expect(nameProviderConversation).toHaveBeenCalledExactlyOnceWith(record)
     expect(await host.attach(caller, attachParams(record.lease.runtimeFence))).toMatchObject({
       ok: true
     })

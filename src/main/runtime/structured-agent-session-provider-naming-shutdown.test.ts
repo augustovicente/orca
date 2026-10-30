@@ -116,7 +116,7 @@ it('stops naming admission and joins native helper finalization before runtime c
     close()
   })
   const stopDelivery = vi.spyOn(host, 'stopDelivery')
-  host.deps.nameProviderConversation?.(sessionId)
+  host.deps.nameProviderConversation?.(host.deps.store.requireWritableRecord(sessionId))
   await vi.waitFor(() => expect(resolveLaunchArgs).toHaveBeenCalledOnce())
   let stopped = false
   const stopping = stopStructuredAgentSessionRuntime().then(() => {
@@ -124,7 +124,7 @@ it('stops naming admission and joins native helper finalization before runtime c
   })
   await vi.waitFor(() => expect(stopDelivery).toHaveBeenCalledOnce())
   // A retained callback must neither admit a new push nor coalesce another pass.
-  host.deps.nameProviderConversation?.(sessionId)
+  host.deps.nameProviderConversation?.(host.deps.store.requireWritableRecord(sessionId))
   expect(stopped).toBe(false)
   expect(closeAdapters).not.toHaveBeenCalled()
   expect(closeDatabase).not.toHaveBeenCalled()

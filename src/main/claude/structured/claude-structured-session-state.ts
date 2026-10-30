@@ -87,6 +87,12 @@ export type ClaudeLateDispatchOutcome =
   | { clientMessageId: string; state: 'unknown'; reason: string }
 
 export type ClaudeStructuredSessionAdapterDeps = {
+  namingInputs?: (
+    record: import('../../../shared/agent-session-record').AgentSessionRecord
+  ) => Promise<import('../claude-naming-invocation').ClaudeNamingInputs>
+  namingRecord?: (
+    sessionId: string
+  ) => import('../../../shared/agent-session-record').AgentSessionRecord | null | undefined
   atRestCommands?: ClaudeAtRestCommandCatalog
   resolveLaunch: (input: StructuredLaunchRequest) => Promise<ClaudeStructuredLaunch>
   onEvent?: (event: ClaudeStructuredSessionEvent) => void
@@ -217,6 +223,7 @@ export type ClaudeSession = {
   /** Provider identity and initialize proof retained for the host-awaited open. */
   link: AgentSessionProviderHandleLink
   initialization: {
+    facts?: Promise<import('./claude-structured-session-startup').ClaudeInitializeFacts>
     proof: ClaudeInitProof
     account: ClaudeStructuredLaunch['account']
     resumesTranscript: boolean

@@ -3,7 +3,8 @@ import { codexProviderHandle } from '../../../shared/agent-session-provider-hand
 import type { AgentSessionRecord } from '../../../shared/agent-session-record'
 import { agentSessionRecordFixture } from '../agent-session-record-test-fixture'
 import type { StructuredAgentSessionAdapter } from './structured-agent-session-adapter'
-import type { StructuredAgentSessionConversationNaming } from './structured-agent-session-host-types'
+import { createStructuredChatNamingHandler } from '../structured-chat-naming'
+import { setAgentSessionRecordUserName } from '../../runtime/agent-session-record-conversation-name'
 import {
   createStructuredAgentSessionProviderNaming,
   withProviderNaming
@@ -31,10 +32,9 @@ function chat(fields: Partial<AgentSessionRecord> = {}): AgentSessionRecord {
   })
 }
 
-function naming(record: () => AgentSessionRecord | null, rename: Rename) {
+function naming(rename: Rename) {
   const warn = vi.fn()
   const queue = createStructuredAgentSessionProviderNaming({
-    store: { getRecord: () => record() },
     adapter: { renameProviderSession: rename },
     logger: { warn, error: vi.fn() }
   })
@@ -44,11 +44,11 @@ function naming(record: () => AgentSessionRecord | null, rename: Rename) {
 it("never pushes a name Orca chose, or one for a chat that hasn't started its agent", async () => {
   const rename = vi.fn<Rename>(async () => {})
   let record = chat({ conversationNameSource: undefined })
-  const { queue } = naming(() => record, rename)
+  const { queue } = naming(rename)
 
-  await queue.push('chat-1')
+  await queue.push(record)
   record = chat({ providerHandleChain: [] })
-  await queue.push('chat-1')
+  await queue.push(record)
 
   expect(rename).not.toHaveBeenCalled()
 })
@@ -57,30 +57,37 @@ it.each([10, 100])('coalesces %i saved renames into two ordered pushes', async (
   const gates = [Promise.withResolvers<void>(), Promise.withResolvers<void>()]
   const rename = vi.fn<Rename>(() => gates[rename.mock.calls.length - 1]!.promise)
   let record = chat({ conversationName: 'First' })
-  const { queue } = naming(() => record, rename)
-  const setUserName = vi.fn<StructuredAgentSessionConversationNaming['setUserName']>(
-    async (_id, name) => {
-      record = chat({ conversationName: name })
-      return { name, applied: true }
-    }
-  )
-  const wrapped = withProviderNaming(
-    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: only setUserName is invoked; other members pass through.
-    { setUserName } as unknown as StructuredAgentSessionConversationNaming,
-    (id) => void queue.push(id)
-  )
+  const { queue } = naming(rename)
+  const handler = createStructuredChatNamingHandler({
+    getStore: () => ({
+      getRecord: () => record,
+      compareAndSetConversationName: async () => record,
+      setUserConversationName: async (_id, name, write) => {
+        const result = setAgentSessionRecordUserName(record, name, write, Date.now())
+        record = result.record
+        return result
+      }
+    }),
+    getSettings: () => ({ nativeChatAutoName: false }),
+    workerTaskTitle: () => null,
+    readFirstPrompt: async () => '',
+    readJournalFirstPrompt: async () => '',
+    generate: async () => null,
+    onNamed: () => {},
+    logger: { warn: vi.fn(), error: vi.fn() }
+  })
+  const wrapped = withProviderNaming(handler, (committed) => void queue.push(committed))
   await wrapped.setUserName('chat-1', 'First', 'rename')
   for (let i = 1; i <= count; i += 1) {
-    await wrapped.setUserName('chat-1', `Name ${i}`, 'legacy-alias')
+    await wrapped.setUserName('chat-1', `Name ${i}`, 'rename')
   }
   expect(rename).toHaveBeenCalledTimes(1)
-  const done = queue.push('chat-1')
+  const done = queue.push(record)
   gates[0]!.resolve()
   await vi.waitFor(() => expect(rename).toHaveBeenCalledTimes(2))
   gates[1]!.resolve()
   await done
   expect(rename.mock.calls.map(([input]) => input.name)).toEqual(['First', `Name ${count}`])
-  setUserName.mockResolvedValueOnce({ name: record.conversationName ?? '', applied: false })
   await wrapped.setUserName('chat-1', 'Ignored alias', 'legacy-alias')
   expect(rename).toHaveBeenCalledTimes(2)
 })
@@ -90,10 +97,11 @@ it('logs a failed push and still takes the next rename', async () => {
     .fn<Rename>()
     .mockRejectedValueOnce(new Error('thread not found'))
     .mockResolvedValue(undefined)
-  const { queue, warn } = naming(() => chat(), rename)
+  const { queue, warn } = naming(rename)
+  const record = chat()
 
-  await queue.push('chat-1')
-  await queue.push('chat-1')
+  await queue.push(record)
+  await queue.push(record)
 
   expect(warn).toHaveBeenCalledTimes(1)
   expect(rename).toHaveBeenCalledTimes(2)

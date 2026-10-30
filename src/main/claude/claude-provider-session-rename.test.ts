@@ -4,15 +4,12 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { agentSessionRecordFixture } from '../native-chat/agent-session-record-test-fixture'
 import * as transcriptFs from '../native-chat/wsl-transcript-fs-access'
-import { renameClaudeProviderSession } from './claude-provider-session-rename'
-import type { ClaudeSession } from './structured/claude-structured-session-state'
+import { renameClaudeTranscript } from './claude-provider-session-rename'
 
 let home: string
 let conversation: string
 let transcript: string
-
 beforeEach(async () => {
   home = await mkdtemp(join(tmpdir(), 'orca-claude-rename-'))
   conversation = randomUUID()
@@ -20,39 +17,38 @@ beforeEach(async () => {
   await mkdir(project, { recursive: true })
   transcript = join(project, `${conversation}.jsonl`)
 })
-
 afterEach(async () => {
   vi.restoreAllMocks()
   await rm(home, { recursive: true, force: true })
 })
 
-function input(session?: ClaudeSession, name = 'Release notes') {
-  return {
-    session,
-    name,
-    timeoutMs: undefined,
-    providerSessionId: conversation,
-    record: agentSessionRecordFixture({
-      sessionId: 'chat-1',
-      accountHome: { variable: 'CLAUDE_CONFIG_DIR', path: home }
-    })
-  }
-}
-
-it('makes the SDK picker read the saved title after a torn transcript tail', async () => {
-  const user = JSON.stringify({
+it('appends a standalone SDK title after a crash-torn tail and reads it back through the SDK', async () => {
+  const user = {
     type: 'user',
     uuid: randomUUID(),
     sessionId: conversation,
     message: { role: 'user', content: 'ship it' }
-  })
-  await writeFile(transcript, `${user}\n{"type":"assistant","mess`)
-  await renameClaudeProviderSession(input())
+  }
+  const prefix = `${JSON.stringify(user)}\n{"type":"assistant","mess`
+  await writeFile(transcript, prefix)
+  const otherAccount = join(home, 'other-account', 'projects', 'workspace')
+  await mkdir(otherAccount, { recursive: true })
+  const otherTranscript = join(otherAccount, `${conversation}.jsonl`)
+  await writeFile(otherTranscript, 'another account\n')
+  await renameClaudeTranscript(home, conversation, ' Release notes ')
   const lines = (await readFile(transcript, 'utf8')).split('\n')
-  expect(lines.slice(0, 2)).toEqual([user, '{"type":"assistant","mess'])
+  expect(lines.slice(0, 2).join('\n')).toBe(prefix)
+  const title = JSON.parse(lines[2] ?? '')
+  expect(title).toMatchObject({
+    type: 'custom-title',
+    sessionId: conversation,
+    customTitle: 'Release notes'
+  })
+  expect(title.uuid).toEqual(expect.any(String))
+  expect(await readFile(otherTranscript, 'utf8')).toBe('another account\n')
   const listed = await listSessions({
     sessionStore: {
-      load: async () => [JSON.parse(user), JSON.parse(lines[2] ?? '')],
+      load: async () => [user, title],
       append: async () => {},
       listSessions: async () => [{ sessionId: conversation, mtime: 1_700_000_000_000 }]
     }
@@ -60,39 +56,45 @@ it('makes the SDK picker read the saved title after a torn transcript tail', asy
   expect(listed[0]?.customTitle).toBe('Release notes')
 })
 
-it('waits for its retiring writer and refuses an unproven close before appending', async () => {
+it('refuses missing, empty, multiple and incomplete inventories without mutating another candidate', async () => {
+  await expect(renameClaudeTranscript(home, conversation, 'Missing')).rejects.toThrow(
+    'no transcript'
+  )
   await writeFile(transcript, '')
-  const closing = Promise.withResolvers<boolean>()
-  const exitVerdict = { root: 'live', tree: 'unverifiable' }
-  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: rename reads only these session ownership/close fields.
-  const session = {
-    providerSessionId: conversation,
-    closeFinalization: closing.promise,
-    connection: { closed: true, exitVerdict }
-  } as unknown as ClaudeSession
-  const pending = renameClaudeProviderSession(input(session, 'New title'))
-  await Promise.resolve()
-  expect(await readFile(transcript, 'utf8')).toBe('')
-  await writeFile(transcript, '{"type":"custom-title","customTitle":"Old title"}\n')
-  closing.resolve(false)
-  await expect(pending).rejects.toThrow('unproven transcript writer')
-  expect(await readFile(transcript, 'utf8')).not.toContain('New title')
-  exitVerdict.root = 'exited'
-  await renameClaudeProviderSession(input(session, 'New title'))
-  expect((await readFile(transcript, 'utf8')).trim().split('\n').at(-1)).toContain('New title')
+  await expect(renameClaudeTranscript(home, conversation, 'Empty')).rejects.toThrow('no transcript')
+  await writeFile(transcript, 'old\n')
+  const second = join(home, 'projects', 'hash-or-worktree')
+  await mkdir(second)
+  const duplicate = join(second, `${conversation}.jsonl`)
+  await writeFile(duplicate, 'other\n')
+  await expect(renameClaudeTranscript(home, conversation, 'Ambiguous')).rejects.toThrow(
+    'multiple transcripts'
+  )
+  expect(await readFile(transcript, 'utf8')).toBe('old\n')
+  expect(await readFile(duplicate, 'utf8')).toBe('other\n')
+  const denied = Object.assign(new Error('denied'), { code: 'EACCES' })
+  vi.spyOn(transcriptFs, 'wslGatedStat').mockRejectedValue(denied)
+  await expect(renameClaudeTranscript(home, conversation, 'Denied')).rejects.toBe(denied)
+  expect(await readFile(transcript, 'utf8')).toBe('old\n')
 })
 
-it.each([10, 100])('visits each project once across %i projects', async (count) => {
-  await writeFile(transcript, '')
-  for (let i = 0; i < count; i += 1) {
-    const project = join(home, 'projects', `project-${i}`)
-    await mkdir(project)
-    await Promise.all(
-      Array.from({ length: 20 }, (_, j) => writeFile(join(project, `history-${j}.jsonl`), ''))
-    )
+it.each([10, 100])(
+  'bounds literal candidate discovery at %i projects regardless of transcript count',
+  async (count) => {
+    await writeFile(transcript, 'old\n')
+    for (let i = 0; i < count; i++) {
+      const project = join(home, 'projects', `project-${i}`)
+      await mkdir(project)
+      await Promise.all(
+        Array.from({ length: 20 }, (_, j) => writeFile(join(project, `history-${j}.jsonl`), ''))
+      )
+    }
+    const readDirectory = vi.spyOn(transcriptFs, 'wslGatedReaddir')
+    const stat = vi.spyOn(transcriptFs, 'wslGatedStat')
+    await renameClaudeTranscript(home, conversation, 'Final')
+    expect(readDirectory).toHaveBeenCalledTimes(1)
+    expect(stat).toHaveBeenCalledTimes(count + 1)
+    expect(new Set(stat.mock.calls.map(([path]) => path)).size).toBe(count + 1)
+    expect((await readFile(transcript, 'utf8')).trim().split('\n').at(-1)).toContain('Final')
   }
-  const readDirectory = vi.spyOn(transcriptFs, 'wslGatedReaddir')
-  await renameClaudeProviderSession(input())
-  expect(readDirectory).toHaveBeenCalledTimes(count + 2)
-  expect(new Set(readDirectory.mock.calls.map(([path]) => path)).size).toBe(count + 2)
-})
+)

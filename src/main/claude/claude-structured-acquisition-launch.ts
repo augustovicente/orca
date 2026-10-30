@@ -38,6 +38,7 @@ export async function resolveClaudeAcquisitionLaunch(args: {
   callbacks: ClaudeAcquireCallbacks
   previous: ClaudeAcquisitionAttempt | undefined
   attempt: ClaudeAcquisitionAttempt
+  naming?: import('./claude-naming-generation').ClaudeNamingGeneration
 }): Promise<ClaudeAcquisitionLaunch> {
   const { input, deps, sessions, acquisitions, exits, callbacks, previous, attempt } = args
   const sessionId = input.identity.sessionId
