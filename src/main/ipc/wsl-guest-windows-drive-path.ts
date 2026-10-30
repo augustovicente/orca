@@ -1,6 +1,7 @@
 // WSL-host orcad must ignore Windows CLI shims; identify mounts by type because the automount root is configurable.
 import { existsSync, readFileSync } from 'node:fs'
 import { isAbsolute, resolve as resolvePath } from 'node:path'
+import { WINDOWS_ONLY_AGENT_CLI_DIR } from '../codex-cli/windows-only-agent-cli'
 import { resolveCliCommand } from '../../shared/node-cli-command-resolution'
 
 const WINDOWS_DRIVE_MOUNT_TYPES = new Set(['drvfs', '9p', 'virtiofs'])
@@ -130,8 +131,7 @@ export function resolveGuestNativeProgram(
   }
   const native = resolve(command, {
     ...options,
-    acceptPath: (path) =>
-      options.acceptPath?.(path) !== false && !isUnderWindowsDriveMount(resolvePath(path), mounts)
+    pathEnv: guestNativePathEnv(options.pathEnv, mounts)
   })
   if (isAbsolute(native)) {
     return native
@@ -149,7 +149,6 @@ function hasWindowsDriveCopy(
     command,
     options.pathEnv ?? process.env.PATH ?? '',
     options.homePath ?? '',
-    options.cwd ?? '',
     options.platform ?? '',
     mounts.join(':')
   ].join('\0')
@@ -173,4 +172,28 @@ function hasWindowsDriveCopy(
 
 export function _resetWindowsCopyVerdictsForTests(): void {
   windowsCopyVerdicts = new WeakMap()
+}
+
+/** One-shot raw searches classify at the real cwd without rewriting accepted PATH bytes. */
+export function oneShotGuestPathPolicy(cwd: string, mounts = readGuestWindowsDriveMounts()) {
+  const acceptPath = (path: string): boolean =>
+    !isUnderWindowsDriveMount(resolvePath(cwd, path), mounts)
+  const filterPath = (value: string | null): string | null => {
+    if (mounts.length === 0 || value === null) {
+      return value
+    }
+    const permitted = value.split(':').filter(acceptPath)
+    return permitted.length ? permitted.join(':') : WINDOWS_ONLY_AGENT_CLI_DIR
+  }
+  return {
+    acceptPath,
+    filterPath,
+    spawnEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+      if (mounts.length === 0) {
+        return env
+      }
+      const path = filterPath(env.PATH ?? process.env.PATH ?? null)
+      return path === null ? env : { ...env, PATH: path }
+    }
+  }
 }

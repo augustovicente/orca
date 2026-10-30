@@ -35,7 +35,8 @@ type GuardedChild = {
   readonly pid?: number
   readonly connected: boolean
   once(event: 'exit' | 'disconnect', listener: () => void): unknown
-  once(event: 'message', listener: (message: unknown) => void): unknown
+  on(event: 'message', listener: (message: unknown) => void): unknown
+  off(event: 'message', listener: (message: unknown) => void): unknown
 }
 
 function defaultSignalGroup(pgid: number, signal: NodeJS.Signals | 0): void {
@@ -101,15 +102,18 @@ export function guardSupervisedProviderGroup(
   let onChannelClosed = (): void => {}
   child.once('disconnect', () => {
     channelClosed = true
+    child.off('message', onMessage)
     onChannelClosed()
   })
-  child.once('message', (message: unknown) => {
+  const onMessage = (message: unknown): void => {
     const pgid = reportedGroup(message)
     if (pgid !== null) {
+      child.off('message', onMessage)
       identity = proveReportedGroup(pgid, supervisorPid, deps, proof.signal)
       void identity.then((proven) => proven && deps.onProven?.(proven))
     }
-  })
+  }
+  child.on('message', onMessage)
   const untilChannelClosed = (): Promise<void> =>
     channelClosed
       ? Promise.resolve()
@@ -125,7 +129,10 @@ export function guardSupervisedProviderGroup(
     proof.abort()
     // Exit can be observed before the report is delivered.
     void untilChannelClosed()
-      .then(() => identity)
+      .then(() => {
+        child.off('message', onMessage)
+        return identity
+      })
       .then((proven) => (proven ? sweepOrphanedProviderGroup(proven, deps) : ('unproven' as const)))
       .then(deps.onSwept, () => deps.onSwept?.('refused'))
   })

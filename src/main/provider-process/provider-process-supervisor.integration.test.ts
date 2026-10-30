@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
+  INSTALLED_LOOKUP_REQUEST,
+  INSTALLED_PLAN_REPLY,
   PROVIDER_SIGTERM_GRACE_MS,
   PROVIDER_STDIN_END_GRACE_MS,
   PROVIDER_SUPERVISOR_MAX_STOP_MS,
@@ -101,9 +103,10 @@ const OWNER = String.raw`
   spec.ownerPid = process.pid
   const supervisor = spawn(process.execPath, JSON.parse(process.env.ORCA_TEST_SUPERVISOR_ARGS), {
     env: { ...process.env, ORCA_PROVIDER_SUPERVISOR_SPEC: Buffer.from(JSON.stringify(spec)).toString('base64') },
-    stdio: ['pipe', 'pipe', 'ignore'],
+    stdio: ['pipe', 'pipe', 'ignore', ...(spec.installedFallback ? ['ipc'] : [])],
     detached: true
   })
+  if (spec.installedFallback) supervisor.on('message', () => process.stdout.write(JSON.stringify({waiting:supervisor.pid}) + '\n'))
   if (endsStdin) supervisor.stdin.end()
   const holder = quitsCleanly || endsStdin
     ? null
@@ -211,7 +214,7 @@ function launchSupervisor(
   const launch = supervisedPosixLaunch(provider, { ...process.env, ...env }, options)
   const supervisor = spawn(launch.command, [...nodeArgs, ...launch.args], {
     env: launch.env,
-    stdio: ['pipe', 'pipe', stderr],
+    stdio: ['pipe', 'pipe', stderr, ...(options.installedFallback ? ['ipc'] : [])],
     detached: true
   })
   recordedPids.add(supervisor.pid!)
@@ -224,13 +227,13 @@ function launchSupervisor(
 async function launchUnderOwner(
   options: ProviderSupervisorOptions,
   env: Record<string, string> = {},
-  provider: { script: string; pids: readonly string[] } = {
+  provider: { script: string; pids: readonly string[]; command?: string } = {
     script: PROVIDER,
     pids: ['provider', 'grandchild']
   }
 ): Promise<{ owner: ChildProcess; pids: Record<string, number> }> {
   const launch = supervisedPosixLaunch(
-    { command: process.execPath, args: ['-e', provider.script] },
+    { command: provider.command ?? process.execPath, args: ['-e', provider.script] },
     { ...process.env, ...env },
     options
   )
@@ -256,6 +259,82 @@ afterEach(() => {
 })
 
 describe.runIf(process.platform !== 'win32')('POSIX provider supervisor processes', () => {
+  it.each(['malformed', 'preparation failure', 'disconnect', 'duplicate reply'])(
+    'settles the installed lookup channel on %s',
+    async (scenario) => {
+      const { supervisor, exit } = launchSupervisor(
+        { lifetime: 'one-shot', installedFallback: true },
+        {},
+        {
+          command: '/nonexistent/orca-channel-agent',
+          args: ['-e', 'console.log("Channel title")']
+        },
+        [],
+        'pipe'
+      )
+      let stdout = '',
+        stderr = ''
+      supervisor.stdout!.on('data', (chunk: Buffer) => {
+        stdout += chunk
+      })
+      supervisor.stderr!.on('data', (chunk: Buffer) => {
+        stderr += chunk
+      })
+      supervisor.stdin!.end()
+      let requests = 0
+      supervisor.on('message', (message) => {
+        if (
+          typeof message !== 'object' ||
+          message === null ||
+          !('type' in message) ||
+          message.type !== INSTALLED_LOOKUP_REQUEST
+        ) {
+          return
+        }
+        requests++
+        if (scenario === 'disconnect') {
+          return supervisor.disconnect()
+        }
+        const reply =
+          scenario === 'duplicate reply'
+            ? {
+                type: INSTALLED_PLAN_REPLY,
+                runtimePathBase: null,
+                candidates: [{ command: process.execPath, runtimeDirectory: null }]
+              }
+            : scenario === 'preparation failure'
+              ? { type: INSTALLED_PLAN_REPLY, error: true }
+              : { type: INSTALLED_PLAN_REPLY, candidates: 'invalid' }
+        supervisor.send(reply)
+        if (scenario === 'duplicate reply') {
+          supervisor.send(reply)
+        }
+      })
+      const outcome = await exit
+      expect(requests).toBe(1)
+      if (scenario === 'duplicate reply') {
+        expect(outcome).toEqual({ code: 0, signal: null })
+        expect(stdout).toBe('Channel title\n')
+      } else {
+        expect(outcome).toEqual({ code: 127, signal: null })
+        expect(supervisedProviderSpawnFailure(outcome.code, stderr)).toMatchObject({
+          thrown: true,
+          error: { code: 'UNKNOWN' }
+        })
+      }
+    }
+  )
+
+  it('terminates on owner death while awaiting the installed plan with no provider group', async () => {
+    const { owner, pids } = await launchUnderOwner(
+      { lifetime: 'one-shot', installedFallback: true },
+      { ORCA_TEST_OWNER_ENDS_STDIN: '1' },
+      { command: '/nonexistent/orca-waiting-agent', script: '', pids: ['waiting'] }
+    )
+    owner.kill('SIGKILL')
+    expect(await waitFor(() => !alive(pids.supervisor), 3_000)).toBe(true)
+  })
+
   it('reaps the provider group on SIGTERM and exits only after the group is gone', async () => {
     const { supervisor, exit } = launchSupervisor({ sigtermGraceMs: 300 })
     const { provider, grandchild } = await readPids(supervisor, ['provider', 'grandchild'])

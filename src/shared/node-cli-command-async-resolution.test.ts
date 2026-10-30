@@ -1,14 +1,10 @@
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import type * as NodeFs from 'node:fs'
 import { tmpdir } from 'node:os'
-import { delimiter, dirname, join } from 'node:path'
+import { delimiter, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { resolveCliCommandAsync } from './node-cli-command-async-resolution'
-import {
-  resolveCliCommand,
-  resolveCliCommands,
-  withCliRuntimeOnPath
-} from './node-cli-command-resolution'
+import { resolveCliCommand } from './node-cli-command-resolution'
 
 const syncFs = vi.hoisted(() => ({ forbidden: false, calls: new Array<string>() }))
 
@@ -54,27 +50,6 @@ function stage(...relative: string[]): void {
     writeFileSync(join(root, path), '')
   }
 }
-
-it.skipIf(process.platform === 'win32').each([
-  ['bin', 'bin'],
-  ['', ''],
-  [':missing', ''],
-  ['missing:', ''],
-  ['bin ', 'bin ']
-])('preserves cwd-relative PATH %j before install fallbacks', async (pathEnv, directory) => {
-  stage(`workspace/${directory}/cx`, `workspace/${directory}/node`, 'home/.volta/bin/cx')
-  const expected = join(root, 'workspace', directory, 'cx')
-  chmodSync(expected, 0o755)
-  chmodSync(join(root, 'workspace', directory, 'node'), 0o755)
-  chmodSync(join(root, 'home/.volta/bin/cx'), 0o755)
-  const options = { pathEnv, cwd: join(root, 'workspace'), homePath: join(root, 'home') }
-  expect(resolveCliCommand('cx', options)).toBe(expected)
-  await expect(resolveCliCommandAsync('cx', options)).resolves.toBe(expected)
-  expect(resolveCliCommands(['cx'], options).get('cx')).toBe(expected)
-  expect(withCliRuntimeOnPath(expected, { PATH: pathEnv }).PATH).toBe(
-    `${dirname(expected)}:${pathEnv}`
-  )
-})
 
 // Windows' spawn recheck uses the async resolver; it must pick what panes' sync resolver picks.
 // platform: 'win32' skips the X_OK check, so these run on any host.

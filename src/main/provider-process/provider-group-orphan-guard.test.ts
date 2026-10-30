@@ -1,3 +1,4 @@
+import { INSTALLED_LOOKUP_REQUEST } from './provider-process-supervisor'
 import { EventEmitter } from 'node:events'
 import { describe, expect, it, vi } from 'vitest'
 import {
@@ -126,7 +127,10 @@ describe('guardSupervisedProviderGroup', () => {
     const child = new FakeSupervisor()
     const signalGroup = vi.fn()
     const swept = guard(child, async () => row({ ppid: 777 }), signalGroup)
+    child.emit('message', { type: INSTALLED_LOOKUP_REQUEST })
+    expect(child.listenerCount('message')).toBe(1)
     child.report({ pgid: 4242 })
+    expect(child.listenerCount('message')).toBe(0)
     child.emit('exit', null, 'SIGKILL')
     await expect(swept).resolves.toBe('killed')
     expect(signalGroup).toHaveBeenLastCalledWith(4242, 'SIGKILL')

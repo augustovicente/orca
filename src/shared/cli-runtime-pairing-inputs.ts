@@ -1,4 +1,6 @@
-import { closeSync, openSync, readSync } from 'node:fs'
+import { closeSync, constants, openSync, readSync } from 'node:fs'
+import { access, open, stat } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
 
 const NATIVE_EXECUTABLE_MAGIC = [
   [0x7f, 0x45, 0x4c, 0x46], // ELF
@@ -15,9 +17,7 @@ export function isNativeExecutable(commandPath: string): boolean {
     fd = openSync(commandPath, 'r')
     const head = Buffer.alloc(4)
     const read = readSync(fd, head, 0, head.length, 0)
-    return NATIVE_EXECUTABLE_MAGIC.some(
-      (magic) => read >= magic.length && magic.every((byte, index) => head[index] === byte)
-    )
+    return hasNativeSignature(head, read)
   } catch {
     return false
   } finally {
@@ -35,4 +35,47 @@ export function firstWindowsPathEnvKey(env: NodeJS.ProcessEnv): string {
     }
   }
   return 'Path'
+}
+
+function hasNativeSignature(head: Buffer, read: number): boolean {
+  return NATIVE_EXECUTABLE_MAGIC.some(
+    (magic) => read >= magic.length && magic.every((byte, index) => head[index] === byte)
+  )
+}
+
+/** Advisory preparation only; read failures never suppress an execution attempt. */
+export async function installedCliRuntimeDirectory(
+  command: string,
+  acceptPath: (path: string) => boolean
+): Promise<string | null> {
+  const directory = dirname(command)
+  const node = join(directory, 'node')
+  if (!acceptPath(node)) {
+    return null
+  }
+  try {
+    if (!(await stat(node)).isFile()) {
+      return null
+    }
+    await access(node, constants.X_OK)
+  } catch {
+    return null
+  }
+  if (!acceptPath(command)) {
+    return null
+  }
+  let file: Awaited<ReturnType<typeof open>> | undefined
+  try {
+    file = await open(command, 'r')
+    const head = Buffer.alloc(4)
+    const { bytesRead } = await file.read(head, 0, head.length, 0)
+    if (hasNativeSignature(head, bytesRead)) {
+      return null
+    }
+  } catch {
+    // Match synchronous pairing: an unreadable signature is not recognized as native.
+  } finally {
+    await file?.close()
+  }
+  return directory
 }

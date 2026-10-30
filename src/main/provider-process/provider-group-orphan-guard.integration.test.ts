@@ -1,7 +1,11 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { spawnProcess } from '@orca/process-host'
 import type { ChildProcess } from 'node:child_process'
-import { createProviderSpawnSpec } from './provider-process-supervisor'
+import {
+  createProviderSpawnSpec,
+  INSTALLED_LOOKUP_REQUEST,
+  INSTALLED_PLAN_REPLY
+} from './provider-process-supervisor'
 import {
   guardSupervisedProviderGroup,
   type ProviderGroupSweepVerdict
@@ -45,17 +49,23 @@ async function waitFor(predicate: () => boolean, timeoutMs: number): Promise<boo
   return true
 }
 
-function launch(): {
+function launch(fallback = false): {
   supervisor: ChildProcess
   proven: () => boolean
   swept: Promise<ProviderGroupSweepVerdict | 'unproven'>
   pids: Promise<{ provider: number; grandchild: number }>
 } {
   const spec = createProviderSpawnSpec(
-    { command: process.execPath, args: ['-e', PROVIDER] },
+    {
+      command: fallback ? '/nonexistent/orca-guard-agent' : process.execPath,
+      args: ['-e', PROVIDER]
+    },
     process.env,
     process.platform,
-    { lifetime: 'session' }
+    {
+      lifetime: fallback ? 'one-shot' : 'session',
+      ...(fallback ? { installedFallback: true } : {})
+    }
   )
   const supervisor = spawnProcess({
     program: spec.program,
@@ -66,6 +76,25 @@ function launch(): {
     stdio: ['pipe', 'pipe', 'ignore', ...spec.groupReportStdio]
   })
   recordedPids.add(supervisor.pid!)
+  if (fallback) {
+    supervisor.once('message', (message) => {
+      if (
+        typeof message === 'object' &&
+        message !== null &&
+        'type' in message &&
+        message.type === INSTALLED_LOOKUP_REQUEST
+      ) {
+        supervisor.send({
+          type: INSTALLED_PLAN_REPLY,
+          runtimePathBase: null,
+          candidates: [
+            { command: '/nonexistent/orca-guard-first', runtimeDirectory: null },
+            { command: process.execPath, runtimeDirectory: null }
+          ]
+        })
+      }
+    })
+  }
   let identityProven = false
   const swept = new Promise<ProviderGroupSweepVerdict | 'unproven'>((resolve) =>
     guardSupervisedProviderGroup(supervisor, {
@@ -103,17 +132,20 @@ afterEach(() => {
 })
 
 describe.runIf(process.platform !== 'win32')('provider group orphan guard', () => {
-  it('kills the provider group a SIGKILLed supervisor leaves behind', async () => {
-    const { supervisor, proven, swept, pids } = launch()
-    const { provider, grandchild } = await pids
-    // Second-resolution start times require a reread after their second ends.
-    expect(await waitFor(proven, IDENTITY_TIMEOUT_MS)).toBe(true)
+  it.each([false, true])(
+    'kills the proven provider group after supervisor death (fallback=%s)',
+    async (fallback) => {
+      const { supervisor, proven, swept, pids } = launch(fallback)
+      const { provider, grandchild } = await pids
+      // Second-resolution start times require a reread after their second ends.
+      expect(await waitFor(proven, IDENTITY_TIMEOUT_MS)).toBe(true)
 
-    supervisor.kill('SIGKILL')
+      supervisor.kill('SIGKILL')
 
-    await expect(swept).resolves.toBe('killed')
-    expect(await waitFor(() => !alive(provider) && !alive(grandchild), 10_000)).toBe(true)
-  })
+      await expect(swept).resolves.toBe('killed')
+      expect(await waitFor(() => !alive(provider) && !alive(grandchild), 10_000)).toBe(true)
+    }
+  )
 
   it('leaves nothing to sweep when the supervisor stops its own group', async () => {
     const { supervisor, proven, swept, pids } = launch()

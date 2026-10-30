@@ -1,5 +1,5 @@
 import { homedir } from 'node:os'
-import { delimiter, dirname, isAbsolute, join, sep } from 'node:path'
+import { delimiter, dirname, isAbsolute, join } from 'node:path'
 import { firstWindowsPathEnvKey, isNativeExecutable } from './cli-runtime-pairing-inputs'
 import { getFnmDefaultAliasDirectories } from './fnm-default-alias-dirs'
 import { getNvmVersionDirectories, nvmVersionDirectories } from './nvm-version-directories'
@@ -10,9 +10,6 @@ export type ResolveCommandOptions = {
   pathEnv?: string | null
   platform?: NodeJS.Platform
   homePath?: string
-  cwd?: string
-  /** Exclude paths before any filesystem read, including install-directory discovery. */
-  acceptPath?: (path: string) => boolean
   /** Skip the PATH scan; the caller already established absence there (agent detection batches it). */
   skipPathSearch?: boolean
 }
@@ -39,34 +36,6 @@ function splitPath(
     .filter(Boolean)
 }
 
-// The filesystem must traverse symlink/.. components before resolving the parent directory.
-function appendCliPath(directory: string, entry: string): string {
-  return entry ? `${directory}${directory.endsWith(sep) ? '' : sep}${entry}` : directory
-}
-
-function lookupPathDirectories(pathEnv: string | null | undefined, cwd?: string): string[] {
-  if (cwd === undefined) {
-    return splitPath(pathEnv)
-  }
-  const directory = isAbsolute(cwd) ? cwd : appendCliPath(process.cwd(), cwd)
-  return (
-    pathEnv
-      ?.split(delimiter)
-      .map((entry) => (isAbsolute(entry) ? entry : appendCliPath(directory, entry))) ?? []
-  )
-}
-
-function* allowedCliReads<T>(
-  reads: CliFsReads<T>,
-  acceptPath?: (path: string) => boolean
-): CliFsReads<T> {
-  let step = reads.next()
-  while (!step.done) {
-    step = reads.next(acceptPath?.(step.value.path) === false ? null : yield step.value)
-  }
-  return step.value
-}
-
 function* firstRunnable(
   platform: NodeJS.Platform,
   directories: string[],
@@ -74,7 +43,7 @@ function* firstRunnable(
 ): CliFsReads<string | null> {
   for (const directory of directories) {
     for (const executableName of executableNames) {
-      const path = appendCliPath(directory, executableName)
+      const path = join(directory, executableName)
       if ((yield { kind: 'runnable', platform, path }) === true) {
         return path
       }
@@ -86,12 +55,9 @@ function* firstRunnable(
 function findFirstExecutable(
   platform: NodeJS.Platform,
   directories: string[],
-  executableNames: string[],
-  acceptPath?: (path: string) => boolean
+  executableNames: string[]
 ): string | null {
-  return runCliFsReadsSync(
-    allowedCliReads(firstRunnable(platform, directories, executableNames), acceptPath)
-  )
+  return runCliFsReadsSync(firstRunnable(platform, directories, executableNames))
 }
 
 function getBaseVersionManagerDirectories(platform: NodeJS.Platform, homePath: string): string[] {
@@ -149,12 +115,8 @@ function* cliInstallDirectories(platform: NodeJS.Platform, homePath: string): Cl
   ]
 }
 
-function getCliInstallDirectories(
-  platform: NodeJS.Platform,
-  homePath: string,
-  acceptPath?: (path: string) => boolean
-): string[] {
-  return runCliFsReadsSync(allowedCliReads(cliInstallDirectories(platform, homePath), acceptPath))
+function getCliInstallDirectories(platform: NodeJS.Platform, homePath: string): string[] {
+  return runCliFsReadsSync(cliInstallDirectories(platform, homePath))
 }
 
 /** PATH entries first; install dirs are listed only once PATH misses. Run with cli-fs-reads. */
@@ -162,18 +124,11 @@ export function* cliCommandLookup(
   commandName: string,
   options: ResolveCommandOptions = {}
 ): CliFsReads<string> {
-  return yield* allowedCliReads(lookupCliCommand(commandName, options), options.acceptPath)
-}
-
-function* lookupCliCommand(
-  commandName: string,
-  options: ResolveCommandOptions
-): CliFsReads<string> {
   const platform = options.platform ?? process.platform
   const names = getExecutableNames(platform, commandName)
   const pathEnv = options.pathEnv ?? process.env.PATH ?? process.env.Path ?? null
   return (
-    (yield* firstRunnable(platform, lookupPathDirectories(pathEnv, options.cwd), names)) ??
+    (yield* firstRunnable(platform, splitPath(pathEnv), names)) ??
     (yield* firstRunnable(
       platform,
       yield* cliInstallDirectories(platform, options.homePath ?? homedir()),
@@ -217,19 +172,18 @@ export function resolveCliCommands(
 ): Map<string, string> {
   const platform = options.platform ?? process.platform
   const pathEnv = options.pathEnv ?? process.env.PATH ?? process.env.Path ?? null
-  const pathDirectories = lookupPathDirectories(pathEnv, options.cwd)
+  const pathDirectories = splitPath(pathEnv)
   const homePath = options.homePath ?? homedir()
-  const installDirectories = getCliInstallDirectories(platform, homePath, options.acceptPath)
+  const installDirectories = getCliInstallDirectories(platform, homePath)
   const resolved = new Map<string, string>()
 
   for (const commandName of new Set(commandNames)) {
     const executableNames = getExecutableNames(platform, commandName)
     const pathCandidate = options.skipPathSearch
       ? undefined
-      : findFirstExecutable(platform, pathDirectories, executableNames, options.acceptPath)
+      : findFirstExecutable(platform, pathDirectories, executableNames)
     const installCandidate =
-      pathCandidate ??
-      findFirstExecutable(platform, installDirectories, executableNames, options.acceptPath)
+      pathCandidate ?? findFirstExecutable(platform, installDirectories, executableNames)
     resolved.set(commandName, installCandidate ?? commandName)
   }
 
@@ -266,7 +220,7 @@ export function withCliRuntimeOnPath<T extends NodeJS.ProcessEnv>(
   const pathKey = platform === 'win32' ? firstWindowsPathEnvKey(env) : 'PATH'
   const pathDelimiter = platform === 'win32' ? ';' : delimiter
   // Missing child PATH inherits Orca’s; pair over that inherited value.
-  const segments = (env[pathKey] ?? process.env[pathKey])?.split(pathDelimiter) ?? []
+  const segments = splitPath(env[pathKey] ?? process.env[pathKey], pathDelimiter)
   if (segments[0] === commandDirectory) {
     return env
   }
@@ -291,4 +245,19 @@ export function getVersionManagerBinPaths(options: ResolveCommandOptions = {}): 
   const homePath = options.homePath ?? homedir()
   const nodeNames = getExecutableNames(platform, 'node')
   return getVersionManagerDirectories(platform, homePath, nodeNames)
+}
+
+/** Search locations only: actual execution, never command metadata, decides each candidate. */
+export function* installedCliCandidates(
+  command: string,
+  platform: NodeJS.Platform,
+  homePath: string,
+  acceptPath: (path: string) => boolean
+): CliFsReads<string[]> {
+  const reads = cliInstallDirectories(platform, homePath)
+  let step = reads.next()
+  while (!step.done) {
+    step = reads.next(acceptPath(step.value.path) ? yield step.value : null)
+  }
+  return [...new Set(step.value.map((directory) => join(directory, command)))].filter(acceptPath)
 }

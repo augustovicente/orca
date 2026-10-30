@@ -1,12 +1,15 @@
 import { wslDistroForCommand } from '../../shared/wsl-paths'
 import { spawnProcess } from '@orca/process-host'
 import { withCliRuntimeOnPath } from '../../shared/node-cli-command-resolution'
-import { resolveCliCommand, resolveGuestNativeAgentCommand } from '../codex-cli/command'
+import { homedir } from 'node:os'
+import { isAbsolute } from 'node:path'
+import { resolveCliCommand } from '../codex-cli/command'
+import { attachSourceControlInstallFallback } from './source-control-agent-install-fallback'
 import { createProviderSpawnSpec } from '../provider-process/provider-process-supervisor'
 import { guardSupervisedProviderGroup } from '../provider-process/provider-group-orphan-guard'
 import { SOURCE_CONTROL_KILL_SITE } from './source-control-agent-termination'
 import { wslAwareSpawn } from '../git/runner'
-import { guestNativeSpawnEnv } from '../ipc/wsl-guest-windows-drive-path'
+import { guestNativeSpawnEnv, oneShotGuestPathPolicy } from '../ipc/wsl-guest-windows-drive-path'
 import type {
   SourceControlAgentSpawnInput,
   SpawnedSourceControlAgentProcess,
@@ -98,22 +101,31 @@ function spawnSupervisedAgent(
   input: SourceControlAgentSpawnInput,
   spawnEnv: NodeJS.ProcessEnv
 ): SpawnedSourceControlAgentProcess {
-  const resolvedBinary = /[/\\]/.test(input.binary)
-    ? input.binary
-    : resolveGuestNativeAgentCommand(input.binary, {
-        pathEnv: spawnEnv.PATH ?? spawnEnv.Path ?? null,
-        cwd: (input.useCwdForNative ? input.cwd : undefined) ?? process.cwd()
-      })
+  const installedFallback = !/[/\\]/.test(input.binary)
+  const requestedCwd = (input.useCwdForNative ? input.cwd : undefined) ?? process.cwd()
+  // Freeze the actual cwd without normalizing symlink/.. traversal or resolving it twice.
+  const cwd = isAbsolute(requestedCwd) ? requestedCwd : `${process.cwd()}/${requestedCwd}`
+  const policy = oneShotGuestPathPolicy(cwd)
+  const childEnv = installedFallback
+    ? policy.spawnEnv({ ...spawnEnv })
+    : withCliRuntimeOnPath(input.binary, guestNativeSpawnEnv(spawnEnv))
+  const context = {
+    command: input.binary,
+    homePath: homedir(),
+    platform: process.platform,
+    runtimePathBase: policy.filterPath(childEnv.PATH ?? process.env.PATH ?? null),
+    acceptPath: policy.acceptPath
+  }
   const spec = createProviderSpawnSpec(
     {
-      command: resolvedBinary,
+      command: input.binary,
       args: input.args,
-      ...(input.useCwdForNative && input.cwd !== undefined ? { cwd: input.cwd } : {})
+      cwd
     },
     // On a WSL-host orcad, a missing CLI must fail rather than run a Windows shim found via PATH.
-    withCliRuntimeOnPath(resolvedBinary, guestNativeSpawnEnv(spawnEnv)),
+    childEnv,
     process.platform,
-    { lifetime: 'one-shot' }
+    { lifetime: 'one-shot', ...(installedFallback ? { installedFallback: true } : {}) }
   )
   const child = spawnProcess({
     program: spec.program,
@@ -123,6 +135,9 @@ function spawnSupervisedAgent(
     detached: spec.detached,
     stdio: ['pipe', 'pipe', 'pipe', ...spec.groupReportStdio]
   })
+  if (installedFallback) {
+    attachSourceControlInstallFallback(child, context)
+  }
   guardSupervisedProviderGroup(child, {
     site: SOURCE_CONTROL_KILL_SITE,
     supervised: spec.supervised
