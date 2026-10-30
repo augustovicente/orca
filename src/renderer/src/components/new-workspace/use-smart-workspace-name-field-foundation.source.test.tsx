@@ -29,8 +29,9 @@ const mocks = vi.hoisted(() => ({
     preflightStatusChecked: true,
     preflightStatusContextKey: 'test',
     refreshPreflightStatus: vi.fn(),
+    listLinearIssues: vi.fn(async () => ({ items: [] })),
     searchLinearIssues: vi.fn<
-      (query: string, limit: number, options: unknown) => Promise<LinearIssue[]>
+      (query: string, limit: number, options: { workspaceId?: string }) => Promise<LinearIssue[]>
     >(async () => [])
   }
 }))
@@ -86,6 +87,8 @@ describe('smart workspace explicit source connection', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.state.searchLinearIssues.mockResolvedValue([])
+    mocks.state.listLinearIssues.mockResolvedValue({ items: [] })
     mocks.readStatus.mockResolvedValue({ connected: false, viewer: null })
     mocks.state.linearStatus = {
       connected: false,
@@ -157,6 +160,73 @@ describe('smart workspace explicit source connection', () => {
     expect(mocks.readStatus).toHaveBeenCalledWith(source)
     expect(mocks.state.checkLinearConnection).not.toHaveBeenCalled()
     expect(mocks.state.linearStatus.connected).toBe(false)
+  })
+
+  it('lists and searches all workspaces by default, with a composer-only override scoped to its source', async () => {
+    const first = referenceLinearIssue({ id: 'first', workspaceId: 'first' })
+    const second = referenceLinearIssue({ id: 'second', workspaceId: 'second' })
+    mocks.readStatus.mockResolvedValue({
+      connected: true,
+      viewer: null,
+      selectedWorkspaceId: 'first'
+    })
+    mocks.state.searchLinearIssues.mockImplementation(async (_query, _limit, options) =>
+      options.workspaceId === 'all'
+        ? [first, second]
+        : [first, second].filter((issue) => issue.workspaceId === options.workspaceId)
+    )
+    const { result, rerender, unmount } = renderHook(
+      ({ context, query }) => {
+        const foundation = useWorkItemSourceFoundation({
+          ...props(context),
+          defaultLinearWorkspaceId: 'all'
+        })
+        useSmartWorkspaceSecondarySearches({
+          foundation,
+          shouldQueryLinear: foundation.linearAvailable,
+          linearQuery: query,
+          linearUrlIntent: null,
+          linearUrlIntentOwnsInput: false,
+          shouldQueryJira: false,
+          jiraSearchQuery: null
+        })
+        return foundation
+      },
+      { initialProps: { context: source, query: '' } }
+    )
+    await waitFor(() =>
+      expect(mocks.state.listLinearIssues).toHaveBeenCalledWith(
+        { kind: 'list', filter: 'assigned', limit: 12 },
+        { sourceContext: source, workspaceId: 'all' }
+      )
+    )
+    rerender({ context: source, query: 'launch' })
+    await waitFor(() => expect(result.current.linearIssues).toEqual([first, second]))
+    act(() => result.current.setLinearWorkspaceId('second'))
+    await waitFor(() => expect(result.current.linearIssues).toEqual([second]))
+    expect(mocks.state.searchLinearIssues).toHaveBeenLastCalledWith('launch', 12, {
+      sourceContext: source,
+      workspaceId: 'second'
+    })
+    expect(result.current.linearStatus.selectedWorkspaceId).toBe('first')
+    expect(mocks.state.linearStatus.selectedWorkspaceId).toBe('focused-workspace')
+
+    act(() => result.current.setLinearWorkspaceId('all'))
+    await waitFor(() => expect(result.current.linearIssues).toEqual([first, second]))
+    act(() => result.current.setLinearWorkspaceId('second'))
+    const otherHost: TaskSourceContext = { ...source, hostId: 'runtime:other-host' }
+    rerender({ context: otherHost, query: 'launch' })
+    await waitFor(() =>
+      expect(mocks.state.searchLinearIssues).toHaveBeenLastCalledWith('launch', 12, {
+        sourceContext: otherHost,
+        workspaceId: 'all'
+      })
+    )
+    unmount()
+    const reopened = renderHook(() =>
+      useWorkItemSourceFoundation({ ...props(source), defaultLinearWorkspaceId: 'all' })
+    )
+    expect(reopened.result.current.linearWorkspaceIdOverride).toBe('all')
   })
 
   it('shows GitLab workspace search rows without fetching an advertised probe page', async () => {
