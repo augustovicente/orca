@@ -11,13 +11,13 @@ import type { CommentMarkdownLinkClickHandler } from '@/components/sidebar/Comme
 import { translate } from '@/i18n/i18n'
 import type { NativeChatLiveSession } from './use-native-chat-live-session'
 import { useNativeChatTranscriptProjection } from './use-native-chat-transcript-projection'
-import { structuredQuestionTranscript } from '../../../../shared/structured-agent-question-projection'
+import { desktopStructuredTranscript } from './structured-agent-session-message-projection'
 import { nativeChatTaskListPredecessors } from '../../../../shared/native-chat/input/native-chat-task-list-history'
 import { NativeChatDockedTaskList } from './NativeChatDockedTaskList'
 import { useNativeChatTurnStatus } from './use-native-chat-turn-status'
 import { NativeChatAwaitingInputRow } from './NativeChatAwaitingInputRow'
 import type { RuntimeFileOperationArgs } from '@/runtime/runtime-file-client-types'
-import type { NativeChatTurnActivity } from '../../../../shared/native-chat-turn-activity'
+import type { NativeChatTurnActivity } from '../../../../shared/native-chat/transcript/native-chat-turn-activity'
 import { NativeChatTurnActivityLine } from './NativeChatTurnActivityLine'
 import {
   NativeChatDisclosureContext,
@@ -127,7 +127,8 @@ export function NativeChatMessageList({
   const revealedDiff = navigationRequest?.kind === 'diff' ? navigationRequest.target : null
   const railJump = navigationRequest?.kind === 'rail' ? navigationRequest : null
   const receipts = useMemo(
-    () => (journalItems ? structuredQuestionTranscript(journalItems).receipts : new Map()),
+    () =>
+      journalItems ? desktopStructuredTranscript.transcript(journalItems).receipts : new Map(),
     [journalItems]
   )
   const scrollRef = useRef<HTMLDivElement | null>(null)

@@ -2,7 +2,12 @@ import type { TerminalBacklogEnd, TerminalBacklogTimers } from './bridge-termina
 import type { RpcClient } from '../transport/rpc-client'
 import type { BridgeSessionBack } from './bridge-host-back'
 import type { BridgeRefusal } from './bridge/bridge-caps'
-import type { BridgeColorScheme, BridgeInitHost, BridgeInitRoute } from './bridge/bridge-envelope'
+import type {
+  BridgeColorScheme,
+  BridgeInitHost,
+  BridgeInitRoute,
+  BridgeUiLocale
+} from './bridge/bridge-envelope'
 import type { BridgeClearableRouteParam } from './bridge/bridge-route-update'
 import type { BridgeSafeAreaInsets } from './bridge/bridge-safe-area-insets'
 import type { BridgeHapticsKind } from './bridge/bridge-haptics-notify'
@@ -71,6 +76,8 @@ export type BridgeHostOptions = {
   keyboardInset?: number
   // Default to dark; publishColorScheme moves the app's resolved scheme later.
   colorScheme?: BridgeColorScheme
+  // Absent until the shell knows its language; publishUiLocale moves it later.
+  uiLocale?: BridgeUiLocale
   // Read identity at forward time because this host outlives renders; replace the page placeholder as init promised or the desktop refuses spoofed sends.
   readClientIdentity: () => string | null
   // Read allowlisted storage synchronously for every init so document reloads include writes made since mount.
@@ -93,6 +100,8 @@ export type BridgeHostOptions = {
   onPagePainted: () => void
   // Required for native interception: only a live claim owns Back. Document-ending paths publish false so callers need not infer staleness.
   onPageBackClaim: (claimed: boolean) => void
+  // Where a host-area page navigated inside its own document; the native route never moves for those hops.
+  onPageLocation: (href: string) => void
   // Clear a consumed one-shot param only if its value still matches; a newer tap may already have replaced it (ruling 34).
   onRouteParamClear: (param: BridgeClearableRouteParam, value: string) => void
   // Escalate invalid shell routes visibly; a page-only console warning would leave a blank document retrying forever.

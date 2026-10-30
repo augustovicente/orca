@@ -407,10 +407,23 @@ describe('Claude chat catch-up', () => {
     const c = await chat('-old-work', '/new-work')
     await c.write([...chatTurn, ...outsideTurn])
     const lookup = Promise.withResolvers<string | null>()
+    const lookupStarted = Promise.withResolvers<void>()
     const resolve = vi
       .spyOn(sessionFileResolver, 'resolveSessionFilePath')
-      .mockReturnValueOnce(lookup.promise)
-    expect(await c.open('a1', { timeoutMs: 5 })).toBe(false)
+      .mockImplementationOnce(() => {
+        lookupStarted.resolve()
+        return lookup.promise
+      })
+    // Fire the deadline only once the lookup is in flight; a real 5 ms timer raced slow runners.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    try {
+      const opened = c.open('a1', { timeoutMs: 5 })
+      await lookupStarted.promise
+      vi.advanceTimersByTime(5)
+      expect(await opened).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
     expect(resolve.mock.calls[0]?.[3]?.aborted).toBe(true)
     lookup.resolve(null)
     await new Promise<void>((done) => setImmediate(done))
@@ -464,7 +477,7 @@ describe('Claude chat catch-up', () => {
     expect(c.warn).not.toHaveBeenCalled()
   })
 
-  // P saved aliases plus P unacknowledged queued prompts: P×J scope work and one J-item index.
+  // P saved aliases plus P unacknowledged queued prompts: two J-item indexes, not P×J scans.
   it.each([10, 100].flatMap((prompts) => [1_000, 10_000].map((items) => ({ prompts, items }))))(
     'bounds retained-leaf work for $prompts aliases and local misses over $items journal items',
     async ({ prompts, items }) => {
@@ -556,8 +569,7 @@ describe('Claude chat catch-up', () => {
       expect(c.journal.canonicalItemId(alias)).toBe(canonical)
       expect(committed).not.toHaveBeenCalled()
       expect(c.warn).not.toHaveBeenCalled()
-      expect(associationVisits).toBeGreaterThan(prompts * itemCount)
-      expect(associationVisits).toBeLessThanOrEqual((prompts + 1) * itemCount)
+      expect(associationVisits).toBeLessThanOrEqual(2 * itemCount)
       expect(viewVisits).toBeLessThanOrEqual(2 * itemCount)
       console.info('retained-leaf operation counts', {
         prompts,

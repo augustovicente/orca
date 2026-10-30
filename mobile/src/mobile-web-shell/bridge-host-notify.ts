@@ -7,8 +7,10 @@ import {
   type BridgeInitRoute
 } from './bridge/bridge-envelope'
 import { BRIDGE_HAPTICS_NOTIFY } from './bridge/bridge-haptics-notify'
+import { BRIDGE_LIVENESS_PROBE_NOTIFY } from './bridge/bridge-liveness-probe-notify'
 import { bridgeNotifyRefusal } from './bridge/bridge-notify-grants'
 import { BRIDGE_BACK_CLAIM_NOTIFY } from './bridge/bridge-page-back'
+import { BRIDGE_PAGE_LOCATION } from './bridge/bridge-page-location'
 import { BRIDGE_PAGE_PAINTED } from './bridge/bridge-page-painted'
 import { BRIDGE_ROUTE_PARAM_CLEAR } from './bridge/bridge-route-update'
 import type { BridgeHostOptions } from './bridge-host-contract'
@@ -35,6 +37,10 @@ export function createBridgeNotifyForwarder(args: {
     }
     if (message.name === BRIDGE_PAGE_PAINTED) {
       options.onPagePainted()
+      return
+    }
+    if (message.name === BRIDGE_PAGE_LOCATION) {
+      options.onPageLocation(message.href)
       return
     }
     if (message.name === BRIDGE_BACK_CLAIM_NOTIFY) {
@@ -87,6 +93,10 @@ export function createBridgeNotifyForwarder(args: {
         return
       }
       options.onStorageWrite(message.key, message.value)
+      return
+    }
+    if (message.name === BRIDGE_LIVENESS_PROBE_NOTIFY) {
+      client.probeLivenessNow?.()
       return
     }
     if (message.name === BRIDGE_HAPTICS_NOTIFY) {
