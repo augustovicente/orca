@@ -43,6 +43,16 @@ const NAME_COMPLETES_EVIDENCE: ReadonlySet<string> = new Set([
 // A relay's cached snapshot is up to one TTL old plus its capture time, which a busy host keeps under another TTL.
 const EVIDENCE_MAX_AGE_MS = 2 * PROCESS_TABLE_SNAPSHOT_MAX_STALENESS_MS
 
+function judgeFreshForeground(
+  processName: string | null,
+  agent: TuiAgent
+): LaunchedAgentForeground {
+  if (processName && isLaunchedAgent(processName, agent)) {
+    return 'agent'
+  }
+  return processName && isLaunchShell(processName) ? 'shell' : 'unknown'
+}
+
 function isLaunchShell(processName: string): boolean {
   return isShellProcess(processName.replace(/^-/, ''))
 }
@@ -87,19 +97,23 @@ export async function readLaunchedAgentForeground(
     }
     const askedAt = Date.now()
     const evidence = (await controller.inspectProcess?.(ptyId))?.foregroundProcessEvidence
-    // The host's own capture age bounds every use; a capture begun after the read was asked is fresh however long ps took.
-    const fresh =
-      evidence !== undefined &&
-      (evidence.capturedAgeMs <= EVIDENCE_MAX_AGE_MS ||
-        Date.now() - evidence.capturedAgeMs >= askedAt - PROCESS_TABLE_SNAPSHOT_MAX_STALENESS_MS)
     if (
-      fresh &&
-      evidence.verdict === 'live' &&
+      evidence?.verdict === 'live' &&
       evidence.fence.platform === 'posix' &&
       evidence.processName &&
       isLaunchedAgent(evidence.processName, agent)
     ) {
-      return 'agent'
+      // Begun no more than one TTL before the read was asked (so any age within one TTL), however long ps took.
+      if (
+        Date.now() - evidence.capturedAgeMs >=
+        askedAt - PROCESS_TABLE_SNAPSHOT_MAX_STALENESS_MS
+      ) {
+        return 'agent'
+      }
+      // Up to two TTLs the agent may have exited since: a foreground read now decides.
+      if (evidence.capturedAgeMs <= EVIDENCE_MAX_AGE_MS && controller.confirmForegroundProcess) {
+        return judgeFreshForeground(await controller.confirmForegroundProcess(ptyId), agent)
+      }
     }
     // Only evidence that saw an agent row it could not fence alone lets a name complete it.
     const completable =

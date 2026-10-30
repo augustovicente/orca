@@ -154,21 +154,27 @@ describe('the relay’s foreground group as proof of a launched agent', () => {
   })
 
   it.each([
-    // A 500ms-cached snapshot plus capture on a near-zero-latency link.
-    [600, 'agent'],
-    [5_000, 'unknown']
+    // Past one TTL the agent may have exited since the capture: the read made now decides.
+    [990, 'bash', 'shell', 1],
+    // A 500ms-cached snapshot plus capture on a near-zero-latency link, the agent still there.
+    [600, 'claude', 'agent', 1],
+    // Within one TTL the capture alone answers.
+    [400, 'bash', 'agent', 0],
+    [5_000, 'claude', 'unknown', 0]
   ] as const)(
-    'judges live evidence %ims old by the host’s age: %s',
-    async (capturedAgeMs, found) => {
+    'judges live Claude evidence %ims old with a fresh read of %s: %s',
+    async (capturedAgeMs, freshName, found, freshReads) => {
+      const confirmForegroundProcess = vi.fn(async () => freshName)
       const controller = {
         ...controllerAnswering(async () => claudeInGroup(capturedAgeMs)),
         getForegroundProcess: async () => 'claude',
-        confirmForegroundProcess: async () => 'claude'
+        confirmForegroundProcess
       }
 
       await expect(
         readLaunchedAgentForeground(controller, POSIX_SSH, 'pty-1', 'claude')
       ).resolves.toBe(found)
+      expect(confirmForegroundProcess).toHaveBeenCalledTimes(freshReads)
     }
   )
 
