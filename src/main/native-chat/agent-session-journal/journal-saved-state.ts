@@ -3,7 +3,7 @@ import type { JournalHostDatabase } from './journal-host-database'
 import type { JournalReducerState } from './journal-reducer'
 import { readJournalSessionEpoch } from './journal-row-table'
 import { decodeJournalState } from './journal-state-codec'
-import { publishJournalProjection } from './journal-projection-table'
+import { clearJournalSavedState, publishJournalProjection } from './journal-projection-table'
 
 export { ensureJournalSavedStateTables, clearJournalSavedState } from './journal-projection-table'
 
@@ -16,7 +16,9 @@ export function readJournalSavedState(
     .prepare(`SELECT through_seq, version, state_json FROM journal_state
     WHERE session_id = ? AND epoch = ?`)
     .get(sessionId, epoch)
-  if (!row) return null
+  if (!row) {
+    return null
+  }
   try {
     if (typeof row.version !== 'number' || typeof row.state_json !== 'string') {
       throw new Error('invalid saved journal state')
@@ -26,7 +28,9 @@ export function readJournalSavedState(
       WHERE session_id = ? AND epoch = ? ORDER BY ordinal`)
       .all(sessionId, epoch)
     const jsons = items.map((item) => {
-      if (typeof item.item_json !== 'string') throw new Error('invalid saved journal item')
+      if (typeof item.item_json !== 'string') {
+        throw new Error('invalid saved journal item')
+      }
       return item.item_json
     })
     const entries = db
@@ -60,10 +64,14 @@ export function saveJournalState(
   state: JournalReducerState,
   repairEqualPrefix = false
 ): boolean {
-  if (database.readOnly || database.isClosed || state.lastSequence === 0) return false
+  if (database.readOnly || database.isClosed || state.lastSequence === 0) {
+    return false
+  }
   try {
     return database.transaction((db) => {
-      if (readJournalSessionEpoch(db, state.sessionId) !== state.epoch) return false
+      if (readJournalSessionEpoch(db, state.sessionId) !== state.epoch) {
+        return false
+      }
       const previous = db
         .prepare('SELECT epoch, through_seq FROM journal_state WHERE session_id = ?')
         .get(state.sessionId)
@@ -71,8 +79,9 @@ export function saveJournalState(
         previous?.epoch === state.epoch &&
         (Number(previous.through_seq) > state.lastSequence ||
           (Number(previous.through_seq) === state.lastSequence && !repairEqualPrefix))
-      )
+      ) {
         return false
+      }
       publishJournalProjection(db, state)
       return true
     })
@@ -82,13 +91,19 @@ export function saveJournalState(
   }
 }
 
+/** Items and entries are written only beside their session's state row, so orphans are found from
+ * one row per chat; the deletes use each session's key prefix. */
 export function sweepJournalSavedState(database: JournalHostDatabase): void {
   database.transaction((db) => {
-    for (const table of ['journal_items', 'journal_entries', 'journal_state']) {
-      db.exec(`DELETE FROM ${table} WHERE NOT EXISTS (
-        SELECT 1 FROM journal_sessions s WHERE s.session_id = ${table}.session_id
-          AND s.epoch = ${table}.epoch
-      )`)
+    const orphans = db
+      .prepare(`SELECT c.session_id FROM journal_state c
+      LEFT JOIN journal_sessions s ON s.session_id = c.session_id AND s.epoch = c.epoch
+      WHERE s.session_id IS NULL`)
+      .all()
+    for (const { session_id: sessionId } of orphans) {
+      if (typeof sessionId === 'string') {
+        clearJournalSavedState(db, sessionId)
+      }
     }
   })
 }

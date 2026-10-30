@@ -68,8 +68,9 @@ function foldJournalFromState(db: Database.Database, state: JournalReducerState)
   return fold.finish()
 }
 
+/** untilDamage stops at the first damage, for callers that only ask whether a fold publishes. */
 export function startJournalRowFold(
-  input: { sessionId: string; epoch: string },
+  input: { sessionId: string; epoch: string; untilDamage?: boolean },
   state = createJournalReducerState(input.sessionId, input.epoch)
 ): {
   add: (entry: { seq: number; rowJson: string; ts?: number }) => boolean
@@ -126,7 +127,7 @@ export function startJournalRowFold(
         : { sequence: FIRST_JOURNAL_SEQUENCE, cause: 'no-epoch-row' as const })
     return { state, newer, damage: newer ? null : found }
   }
-  return { add, finish }
+  return { add: input.untilDamage ? (entry) => add(entry) && damage === null : add, finish }
 }
 
 export function journalRowsAfterReader(

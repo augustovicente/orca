@@ -19,6 +19,8 @@ export type JournalStateBackfillRun = {
   stopped: () => boolean
   now?: () => number
   rest?: (ms: number) => Promise<void>
+  /** Session to the epoch and newest sequence whose fold could not publish; new rows re-arm it. */
+  unpublishable?: Map<string, string>
 }
 
 const PAGE_ROWS = 32
@@ -67,6 +69,10 @@ export async function backfillJournalState(run: JournalStateBackfillRun): Promis
     ) {
       continue
     }
+    const attempt = `${epoch}\n${lastSequence}`
+    if (run.unpublishable?.get(sessionId) === attempt) {
+      continue
+    }
     try {
       if (!(await pace())) {
         return
@@ -81,7 +87,7 @@ export async function backfillJournalState(run: JournalStateBackfillRun): Promis
       const state =
         readJournalSavedState(opened.db, sessionId, epoch) ??
         createJournalReducerState(sessionId, epoch)
-      const fold = startJournalRowFold({ sessionId, epoch }, state)
+      const fold = startJournalRowFold({ sessionId, epoch, untilDamage: true }, state)
       let afterSequence = state.lastSequence === 0 ? Number.MIN_SAFE_INTEGER : state.lastSequence
       while (afterSequence < lastSequence) {
         const next = await pace()
@@ -111,12 +117,17 @@ export async function backfillJournalState(run: JournalStateBackfillRun): Promis
         }
       }
       const loaded = fold.finish()
+      if (loaded.damage || loaded.newer) {
+        run.unpublishable?.set(sessionId, attempt)
+        continue
+      }
       const target = await pace()
       if (!target) {
         return
       }
-      if (!loaded.damage && !loaded.newer && loaded.state.lastSequence === lastSequence) {
+      if (loaded.state.lastSequence === lastSequence) {
         // Opening meanwhile is safe: publication can only advance the same immutable prefix.
+        // Decode and publication run unrested: O(this chat's live state), independent of its rows.
         if (!(await run.repairOpen(sessionId))) {
           await new JournalWriteQueue(sessionId).serialize(() =>
             saveJournalState(target, loaded.state)
@@ -135,9 +146,10 @@ export function startJournalStateBackfill(
 ): { stop: () => void } {
   let stopped = false
   let timer: ReturnType<typeof setTimeout>
+  const unpublishable = new Map<string, string>()
   const schedule = (delay: number): void => {
     timer = setTimeout(() => {
-      void backfillJournalState({ ...run, stopped: () => stopped })
+      void backfillJournalState({ ...run, stopped: () => stopped, unpublishable })
         .catch(onError)
         .finally(() => {
           if (!stopped) {
