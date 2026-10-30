@@ -62,6 +62,12 @@ export abstract class OrcaRuntimeWithGetPtyRecordForPaneKey extends OrcaRuntimeW
     return leafPty ?? newestMatch
   }
 
+  /** The handle mail reaches this pane's terminal by; read-only, so a lookup mid-reload never re-issues it. */
+  protected getMailboxTerminalHandleForPaneKey(paneKey: string): string | null {
+    const pty = this.getPtyRecordForPaneKey(paneKey)
+    return (pty && this.getOrchestrationMailboxTerminal(pty.ptyId)?.handle) ?? null
+  }
+
   protected getPaneKeyForTerminalHandle(handle: string): string | null {
     const livePaneKey = this.paneOfPty(this.getLivePtyForHandle(handle)?.pty).paneKey
     if (livePaneKey) {

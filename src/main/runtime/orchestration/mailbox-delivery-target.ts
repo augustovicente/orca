@@ -2,7 +2,7 @@ import type { OrchestrationDb } from './db'
 
 type OrchestrationMailboxDeliveryTargetDependencies = {
   getDb: () => OrchestrationDb | null
-  getTerminalHandleForPaneKey: (paneKey: string) => string | null
+  getMailboxTerminalHandleForPaneKey: (paneKey: string) => string | null
   hasTerminalHandle: (handle: string) => boolean
   /** A structured worker or a chat has no PTY handle; its own lane delivers, so this must not claim it. */
   isStructuredSessionOwner: (handle: string) => boolean
@@ -35,7 +35,7 @@ export class OrchestrationMailboxDeliveryTarget {
       ? run.coordinator_pane_key
       : (dispatch?.assignee_pane_key ?? remote?.pane_key)
     const ownerHandle =
-      (paneKey ? this.deps.getTerminalHandleForPaneKey(paneKey) : null) ??
+      (paneKey ? this.deps.getMailboxTerminalHandleForPaneKey(paneKey) : null) ??
       (run ? run.coordinator_handle : (dispatch?.assignee_handle ?? remote?.terminal_handle))
     if (!ownerHandle) {
       return null

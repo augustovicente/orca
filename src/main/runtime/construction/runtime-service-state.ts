@@ -252,7 +252,8 @@ export abstract class OrcaRuntimeWithStopRequestedPtyIds extends OrcaRuntimeWith
 
   protected readonly orchestrationMailboxDeliveryTarget = new OrchestrationMailboxDeliveryTarget({
     getDb: () => this._orchestrationDb,
-    getTerminalHandleForPaneKey: (paneKey) => this.getTerminalHandleForPaneKey(paneKey),
+    getMailboxTerminalHandleForPaneKey: (paneKey) =>
+      this.getMailboxTerminalHandleForPaneKey(paneKey),
     hasTerminalHandle: (handle) => this.hasMailboxTerminalHandle(handle),
     isStructuredSessionOwner: (handle) =>
       isStructuredWorkerHandle(handle) || handle.startsWith(ORCA_SESSION_ADDRESS_PREFIX),
