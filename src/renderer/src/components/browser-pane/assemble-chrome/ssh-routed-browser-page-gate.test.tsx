@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
 import { act, cleanup, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { useAppStore } from '@/store'
+import type { useAppStore as AppStore } from '@/store'
+import type { SshRoutedBrowserPageGate as Gate } from './ssh-routed-browser-page-gate'
 
 const mocks = vi.hoisted(() => ({
   executionHostId: 'local' as string,
@@ -17,10 +18,10 @@ vi.mock('../host-guest/webview-registry', () => ({
   destroyPersistentWebview: mocks.destroyPersistentWebview
 }))
 
-import { SshRoutedBrowserPageGate } from './ssh-routed-browser-page-gate'
+let useAppStore: typeof AppStore
+let SshRoutedBrowserPageGate: typeof Gate
 
 const PAGE_IDS = ['page-1', 'page-2'] as const
-const initialHostState = useAppStore.getState()
 
 const settle = () =>
   act(async () => {
@@ -28,7 +29,11 @@ const settle = () =>
   })
 
 describe('SshRoutedBrowserPageGate', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    // Verified routes outlive mounts at module scope; each test starts with a fresh store and no verified route.
+    vi.resetModules()
+    ;({ useAppStore } = await import('@/store'))
+    ;({ SshRoutedBrowserPageGate } = await import('./ssh-routed-browser-page-gate'))
     useAppStore.setState({
       sshConnectionStates: new Map([
         [
@@ -44,10 +49,7 @@ describe('SshRoutedBrowserPageGate', () => {
       value: { browser: { prepareSshWorkspacePartition: mocks.prepare } }
     })
   })
-  afterEach(() => {
-    cleanup()
-    useAppStore.setState({ sshConnectionStates: initialHostState.sshConnectionStates })
-  })
+  afterEach(() => cleanup())
 
   it('renders children with no override for non-SSH workspaces without any prepare call', async () => {
     mocks.executionHostId = 'local'
@@ -77,6 +79,26 @@ describe('SshRoutedBrowserPageGate', () => {
       targetId: 'target-a',
       browserProfileId: 'session-x'
     })
+  })
+
+  it('keeps an already-routed page mounted when the gate remounts', async () => {
+    mocks.executionHostId = 'ssh:target-a'
+    const gate = (
+      <SshRoutedBrowserPageGate worktreeId="wt-1" sessionProfileId={null} pageIds={PAGE_IDS}>
+        {(partition) => <div data-testid="page">{String(partition)}</div>}
+      </SshRoutedBrowserPageGate>
+    )
+    const first = render(gate)
+    await settle()
+    first.unmount()
+    mocks.destroyPersistentWebview.mockClear()
+
+    // Worktree switches and paint mounts remount the chrome; a preparing pass would destroy and reload the guest.
+    render(gate)
+    expect(screen.getByTestId('page').textContent).toBe('persist:orca-browser-v1-routed')
+    await settle()
+    expect(mocks.destroyPersistentWebview).not.toHaveBeenCalled()
+    expect(mocks.prepare).toHaveBeenCalledOnce()
   })
 
   it('never renders the page on failure and retries on demand', async () => {
