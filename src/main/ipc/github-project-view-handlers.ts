@@ -16,7 +16,8 @@ import type {
   UpdateIssueCommentBySlugArgs,
   UpdateIssueTypeBySlugArgs,
   UpdateProjectItemFieldArgs,
-  UpdatePullRequestBySlugArgs
+  UpdatePullRequestBySlugArgs,
+  WakeWslDistroArg
 } from '../../shared/github/project-request-types'
 import {
   addIssueCommentBySlug,
@@ -37,17 +38,21 @@ import {
   updatePullRequestBySlug
 } from '../github/project-view'
 
-// Picking a board, opening an item and editing are clicks: E9 lets them start a stopped default
-// distro whose gh they need. The board table also reloads unprompted (restore), so it stays gated.
+// Only a click (the renderer sets wakeWslDistro) may start the stopped distro gh lives in (E9); the
+// same reads also run from mount effects on a restored page, which must stay gated.
+function wakeOnClick<T>(args: WakeWslDistroArg | undefined, act: () => Promise<T>): Promise<T> {
+  return args?.wakeWslDistro === true ? runAsDefaultWslCliUserAct(act) : act()
+}
+
 export function registerGitHubProjectViewHandlers(): void {
   ipcMain.handle('gh:listAccessibleProjects', (_event, args?: ListAccessibleProjectsArgs) =>
-    runAsDefaultWslCliUserAct(() => listAccessibleProjects(args))
+    wakeOnClick(args, () => listAccessibleProjects(args))
   )
   ipcMain.handle('gh:resolveProjectRef', (_event, args: ResolveProjectRefArgs) =>
-    runAsDefaultWslCliUserAct(() => resolveProjectRef(args))
+    wakeOnClick(args, () => resolveProjectRef(args))
   )
   ipcMain.handle('gh:listProjectViews', (_event, args: ListProjectViewsArgs) =>
-    runAsDefaultWslCliUserAct(() => listProjectViews(args))
+    wakeOnClick(args, () => listProjectViews(args))
   )
   ipcMain.handle('gh:getProjectViewTable', (_event, args: GetProjectViewTableArgs) =>
     getProjectViewTable(args)
@@ -55,28 +60,28 @@ export function registerGitHubProjectViewHandlers(): void {
   ipcMain.handle(
     'gh:projectWorkItemDetailsBySlug',
     (_event, args: ProjectWorkItemDetailsBySlugArgs) =>
-      runAsDefaultWslCliUserAct(() => getWorkItemDetailsBySlug(args))
+      wakeOnClick(args, () => getWorkItemDetailsBySlug(args))
   )
   ipcMain.handle('gh:updateProjectItemField', (_event, args: UpdateProjectItemFieldArgs) =>
-    runAsDefaultWslCliUserAct(() => updateProjectItemFieldValue(args))
+    wakeOnClick(args, () => updateProjectItemFieldValue(args))
   )
   ipcMain.handle('gh:clearProjectItemField', (_event, args: ClearProjectItemFieldArgs) =>
-    runAsDefaultWslCliUserAct(() => clearProjectItemFieldValue(args))
+    wakeOnClick(args, () => clearProjectItemFieldValue(args))
   )
   ipcMain.handle('gh:updateIssueBySlug', (_event, args: UpdateIssueBySlugArgs) =>
-    runAsDefaultWslCliUserAct(() => updateIssueBySlug(args))
+    wakeOnClick(args, () => updateIssueBySlug(args))
   )
   ipcMain.handle('gh:updatePullRequestBySlug', (_event, args: UpdatePullRequestBySlugArgs) =>
-    runAsDefaultWslCliUserAct(() => updatePullRequestBySlug(args))
+    wakeOnClick(args, () => updatePullRequestBySlug(args))
   )
   ipcMain.handle('gh:addIssueCommentBySlug', (_event, args: AddIssueCommentBySlugArgs) =>
-    runAsDefaultWslCliUserAct(() => addIssueCommentBySlug(args))
+    wakeOnClick(args, () => addIssueCommentBySlug(args))
   )
   ipcMain.handle('gh:updateIssueCommentBySlug', (_event, args: UpdateIssueCommentBySlugArgs) =>
-    runAsDefaultWslCliUserAct(() => updateIssueCommentBySlug(args))
+    wakeOnClick(args, () => updateIssueCommentBySlug(args))
   )
   ipcMain.handle('gh:deleteIssueCommentBySlug', (_event, args: DeleteIssueCommentBySlugArgs) =>
-    runAsDefaultWslCliUserAct(() => deleteIssueCommentBySlug(args))
+    wakeOnClick(args, () => deleteIssueCommentBySlug(args))
   )
   ipcMain.handle('gh:listLabelsBySlug', (_event, args: ListLabelsBySlugArgs) =>
     listLabelsBySlug(args)
@@ -88,6 +93,6 @@ export function registerGitHubProjectViewHandlers(): void {
     listIssueTypesBySlug(args)
   )
   ipcMain.handle('gh:updateIssueTypeBySlug', (_event, args: UpdateIssueTypeBySlugArgs) =>
-    runAsDefaultWslCliUserAct(() => updateIssueTypeBySlug(args))
+    wakeOnClick(args, () => updateIssueTypeBySlug(args))
   )
 }

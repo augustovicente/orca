@@ -1,5 +1,5 @@
-// A user's click on a cwd-less gh action may start the stopped default distro its gh lives in (E9);
-// work that also runs unprompted (the board table reload) must not.
+// A click on a cwd-less gh action may start the stopped default distro its gh lives in (E9); the
+// same reads from mount effects on a restored page must not.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type * as WslModule from '../wsl'
 
@@ -47,6 +47,7 @@ vi.mock('../github/project-view', () => ({
 import { registerGitHubProjectViewHandlers } from './github-project-view-handlers'
 import { registerGitHubAccountHandlers } from './github-account-handlers'
 import type { Store } from '../persistence'
+import type { WakeWslDistroArg } from '../../shared/github/project-request-types'
 
 const originalPlatform = process.platform
 
@@ -68,31 +69,37 @@ function unusedStore(): Store {
   return store as Store
 }
 
-function invoke(channel: string): unknown {
+function invoke(channel: string, args: WakeWslDistroArg = {}): unknown {
   const handler = handlers.get(channel)
   if (!handler) {
     throw new Error(`no handler for ${channel}`)
   }
-  return handler({}, {})
+  return handler({}, args)
 }
 
-describe('cwd-less gh clicks run as a user act on the default distro', () => {
-  it.each([
-    'gh:diagnoseAuth',
-    'gh:listAccessibleProjects',
-    'gh:resolveProjectRef',
-    'gh:listProjectViews',
-    'gh:projectWorkItemDetailsBySlug',
-    'gh:updateProjectItemField',
-    'gh:clearProjectItemField',
-    'gh:updateIssueBySlug',
-    'gh:updatePullRequestBySlug',
-    'gh:addIssueCommentBySlug',
-    'gh:updateIssueCommentBySlug',
-    'gh:deleteIssueCommentBySlug',
-    'gh:updateIssueTypeBySlug'
-  ])('%s', async (channel) => {
-    await expect(invoke(channel)).resolves.toBe(true)
+const CLICK_CHANNELS = [
+  'gh:listAccessibleProjects',
+  'gh:resolveProjectRef',
+  'gh:listProjectViews',
+  'gh:projectWorkItemDetailsBySlug',
+  'gh:updateProjectItemField',
+  'gh:clearProjectItemField',
+  'gh:updateIssueBySlug',
+  'gh:updatePullRequestBySlug',
+  'gh:addIssueCommentBySlug',
+  'gh:updateIssueCommentBySlug',
+  'gh:deleteIssueCommentBySlug',
+  'gh:updateIssueTypeBySlug'
+]
+
+describe('cwd-less gh calls run as a user act on the default distro only when a click says so', () => {
+  it.each(CLICK_CHANNELS)('%s with wakeWslDistro', async (channel) => {
+    await expect(invoke(channel, { wakeWslDistro: true })).resolves.toBe(true)
+  })
+
+  // E.g. useProjectViewTable lists a restored board's views from a mount effect, with no click.
+  it.each(CLICK_CHANNELS)('%s without it stays gated', async (channel) => {
+    await expect(invoke(channel)).resolves.toBe(false)
   })
 
   it.each([
@@ -100,7 +107,12 @@ describe('cwd-less gh clicks run as a user act on the default distro', () => {
     'gh:listLabelsBySlug',
     'gh:listAssignableUsersBySlug',
     'gh:listIssueTypesBySlug'
-  ])('but not %s, which also loads unprompted', async (channel) => {
-    await expect(invoke(channel)).resolves.toBe(false)
+  ])('%s never wakes, even when asked', async (channel) => {
+    await expect(invoke(channel, { wakeWslDistro: true })).resolves.toBe(false)
+  })
+
+  // GhAuthErrorHelp diagnoses from a mount effect.
+  it('the auth diagnosis never wakes', async () => {
+    await expect(invoke('gh:diagnoseAuth', { wakeWslDistro: true })).resolves.toBe(false)
   })
 })
