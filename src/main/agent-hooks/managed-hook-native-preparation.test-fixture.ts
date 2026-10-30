@@ -1,4 +1,9 @@
 import { vi } from 'vitest'
+import { once } from 'node:events'
+import { spawnProcess } from '@orca/process-host'
+import type * as WindowsProcesses from '../windows/windows-process-table'
+import { readWindowsProcessCreationTime } from '../windows/windows-process-table'
+import { readManagedHookProcessIdentity } from './managed-hook-owner-identity'
 import type * as OwnerIdentity from './managed-hook-owner-identity'
 import type * as LockRecords from './managed-hook-lock-records'
 import type * as ChildProcess from 'node:child_process'
@@ -14,6 +19,7 @@ const trace = vi.hoisted(
       code?: string | number
       signal?: string | null
       error?: string
+      value?: string | number | null
     }[]
     pending: Set<Promise<unknown>>
     probes: number
@@ -70,12 +76,44 @@ vi.mock('./managed-hook-owner-identity', async (original) => {
   return {
     ...actual,
     readManagedHookHostIdentity: () => phase('host', () => actual.readManagedHookHostIdentity()),
+    readScopedWindowsSelfIdentity: () => {
+      const started = performance.now()
+      const value = actual.readScopedWindowsSelfIdentity()
+      trace.phases.push({
+        phase: 'scoped-self',
+        started,
+        elapsed: performance.now() - started,
+        value,
+        terminal: value.startsWith('runtime:') ? 'runtime-fallback' : 'native'
+      })
+      return value
+    },
     readManagedHookProcessIdentity: (
       ...args: Parameters<typeof actual.readManagedHookProcessIdentity>
     ) =>
       phase(args[0] === process.pid ? 'self' : 'other-owner', () =>
         actual.readManagedHookProcessIdentity(...args)
       )
+  }
+})
+vi.mock('../windows/windows-process-table', async (original) => {
+  const actual = await original<typeof WindowsProcesses>()
+  return {
+    ...actual,
+    readWindowsProcessCreationTime: (pid: number) => {
+      const started = performance.now()
+      const value = actual.readWindowsProcessCreationTime(pid)
+      if (trace.phases.length < 64) {
+        trace.phases.push({
+          phase: `native-getter:${pid}`,
+          started,
+          elapsed: performance.now() - started,
+          value,
+          terminal: value === null ? 'unavailable' : 'native'
+        })
+      }
+      return value
+    }
   }
 })
 vi.mock('./managed-hook-lock-records', async (original) => {
@@ -153,6 +191,53 @@ export async function joinNativePreparation(home: string) {
   // These are the actual finite raw probes, including work abandoned by a 2s waiter.
   while (trace.pending.size) {
     await Promise.allSettled(trace.pending)
+  }
+  if (trace.nativePlatform === 'win32' && trace.phases.some((row) => row.phase === 'scoped-self')) {
+    try {
+      // This observation follows the original cold action and cannot turn its failure into a pass.
+      const child = spawnProcess({
+        program: process.execPath,
+        args: ['-e', "process.send('ready'); process.on('message', () => process.exit(0))"],
+        env: { ...process.env, HOME: home, USERPROFILE: home, ORCA_BACKGROUND_LAUNCH: '1' },
+        stdio: ['ignore', 'ignore', 'ignore', 'ipc']
+      })
+      const closed = once(child, 'close')
+      try {
+        await Promise.race([
+          once(child, 'message'),
+          closed.then(() => {
+            throw new Error('Birth observer child exited before ready')
+          })
+        ])
+        const rows = []
+        for (const pid of [process.pid, child.pid!]) {
+          const before = performance.now()
+          const native = readWindowsProcessCreationTime(pid)
+          const nativeMs = performance.now() - before
+          const legacy = await readManagedHookProcessIdentity(pid)
+          const compatible =
+            typeof legacy === 'string' &&
+            new RegExp(`^win32:${pid}:[1-9]\\d*$`).test(legacy) &&
+            Number.isSafeInteger(Number(legacy.split(':')[2]))
+          rows.push({
+            pid,
+            native,
+            nativeMs,
+            legacy,
+            canonicalNative: native === null ? null : `win32:${pid}:${native}`,
+            exact: compatible && native !== null ? legacy === `win32:${pid}:${native}` : null
+          })
+        }
+        console.log('NATIVE_HOOK_BIRTH_COMPARISON', JSON.stringify(rows))
+      } finally {
+        if (child.connected) {
+          child.send('shutdown')
+        }
+        await closed
+      }
+    } catch (error) {
+      console.log('NATIVE_HOOK_BIRTH_COMPARISON_ERROR', String(error))
+    }
   }
   const terminal = await diagnosticInstall(
     'subsequent-same-home-scope-after-raw-join',

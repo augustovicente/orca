@@ -277,6 +277,6 @@ export async function withClaudeSystemScope<T>(
       })
     },
     host,
-    { lockParent: join(root, 'lock'), waitTimeoutMs: 250 }
+    { lockParent: join(root, 'lock'), waitTimeoutMs: 250, readEvidence: readStatusLineEvidence }
   )
 }

@@ -36,6 +36,7 @@ async function fixture() {
       contents: `import { ClaudeHookService } from './src/main/claude/hook-service';
         import { barrier, metrics } from 'statusline-test-barrier';
         import { probeMetrics } from 'statusline-test-probes';
+        import { nativeMetrics } from 'statusline-test-native';
         import { tryCreateManagedHookLock } from './src/main/agent-hooks/managed-hook-lock-records';
         import { readManagedHookHostIdentity, readManagedHookProcessIdentity } from './src/main/agent-hooks/managed-hook-owner-identity';
         import { mkdir, unlink } from 'node:fs/promises';
@@ -43,6 +44,10 @@ async function fixture() {
         import { setAppEnvironment } from './src/shared/app-environment';
         setAppEnvironment({ getPath: () => process.env.HOME, getAppPath: () => process.cwd(), getVersion: () => 'test', isPackaged: () => false, onWillQuit: () => {}, exit: code => process.exit(code), getAppMetrics: () => [] });
         const [target, operation, mode] = process.argv.slice(2);
+        if (process.env.ORCA_TEST_NATIVE_MODE) {
+          Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+          const kill = process.kill.bind(process); process.kill = (pid, signal) => { if (signal === 0) nativeMetrics.signals++; return kill(pid, signal); };
+        }
         const controller = new AbortController();
         process.on('message', m => { if (m === 'cancel' || m === 'shutdown') controller.abort(); });
         process.on('disconnect', () => process.exit(0));
@@ -62,7 +67,7 @@ async function fixture() {
         };
         const start = performance.now();
         const result = operation === 'residues' ? residues() : operation === 'reset' ? service.removeSystem(options) : service.installSystem(options);
-        result.then(status => { process.send?.({ phase: 'done', status, metrics: { ...metrics, ...probeMetrics, elapsed: performance.now() - start } }); process.disconnect(); });
+        result.then(status => { process.send?.({ phase: 'done', status, metrics: { ...metrics, ...probeMetrics, ...nativeMetrics, elapsed: performance.now() - start } }); process.disconnect(); });
         void barrier; void mode;`
     },
     outfile: entry,
@@ -75,6 +80,20 @@ async function fixture() {
       {
         name: 'isolated-service-barriers',
         setup(b) {
+          b.onResolve({ filter: /(?:windows-process-table|statusline-test-native)$/ }, () => ({
+            path: 'native',
+            namespace: 'native'
+          }))
+          b.onLoad({ filter: /.*/, namespace: 'native' }, () => ({
+            contents: `
+            export const nativeMetrics = { nativeReads: 0, signals: 0 };
+            export function readWindowsProcessCreationTime(pid) {
+              nativeMetrics.nativeReads++;
+              try { process.kill(pid, 0); } catch { return null; }
+              return process.env.ORCA_TEST_NATIVE_MODE === 'native' ? 1777777777000 : null;
+            }
+          `
+          }))
           b.onResolve({ filter: /^electron$/ }, () => ({ path: 'electron', namespace: 'fixture' }))
           b.onLoad({ filter: /^electron$/, namespace: 'fixture' }, () => ({
             contents: `export const app = { getPath: () => process.env.HOME };`
@@ -95,7 +114,10 @@ async function fixture() {
         export function execFile(...args) { return cp.execFile(...args); }
         Object.defineProperty(execFile, promisify.custom, { value: async (...args) => {
           probeMetrics.probes++; probeMetrics.maxProbes = Math.max(probeMetrics.maxProbes, ++probeMetrics.outstanding);
-          try { return await promisify(cp.execFile)(...args); } finally { probeMetrics.outstanding--; }
+          try {
+            if (process.env.ORCA_TEST_NATIVE_MODE && String(args[0]).endsWith('reg.exe')) return { stdout: 'MachineGuid    REG_SZ    fixture-host', stderr: '' };
+            return await promisify(cp.execFile)(...args);
+          } finally { probeMetrics.outstanding--; }
         }});`
           }))
           b.onResolve(
@@ -142,7 +164,7 @@ async function fixture() {
       }
     ]
   })
-  async function start(target: string, operation = 'install', mode = '') {
+  async function start(target: string, operation = 'install', mode = '', nativeMode = '') {
     const child = spawnProcess({
       program: process.execPath,
       args: [entry, join(home, target), operation, mode],
@@ -152,7 +174,8 @@ async function fixture() {
         USERPROFILE: home,
         CLAUDE_CONFIG_DIR: '',
         ORCA_CLAUDE_INJECTED_CONFIG_DIR: '',
-        ORCA_BACKGROUND_LAUNCH: '1'
+        ORCA_BACKGROUND_LAUNCH: '1',
+        ORCA_TEST_NATIVE_MODE: nativeMode
       },
       stdio: ['ignore', 'pipe', 'pipe', 'ipc']
     })
@@ -286,8 +309,65 @@ it.skipIf(process.platform === 'win32')(
       expect(metrics.maxProbes).toBeLessThanOrEqual(2)
       expect(metrics.probes).toBe(process.platform === 'darwin' ? population + 2 : 0)
       rows.push({ population, metrics })
+      const win = await fixture()
+      expect(
+        (await (await win.start('unused', 'residues', String(population), 'fallback')).done()).state
+      ).toBe('residues')
+      const nextWindows = await win.start('X', 'install', '', 'fallback')
+      expect((await nextWindows.done()).state).toBe('installed')
+      const windows = await nextWindows.metrics()
+      if (!isPlainObject(windows)) {
+        throw new Error('Missing scoped cleanup counters')
+      }
+      expect(windows.cleanupNames).toBe(population)
+      expect(windows.rootListings).toBe(0)
+      expect(windows.probes).toBe(1) // Host registry only; zero self/cleanup CIM.
+      expect(windows.nativeReads).toBe(population + 1)
+      expect(windows.signals).toBeGreaterThanOrEqual(population)
+      rows.push({ population, metrics: windows })
     }
     console.log('SL_SCOPED_CLEANUP', JSON.stringify(rows))
   },
   30_000
+)
+
+// Real processes/fs/protocol with Windows evidence boundary fixtures; this is not native Windows proof.
+it.skipIf(process.platform === 'win32')(
+  'protects native and opaque owners across real install/reset processes until true completion or exit',
+  async () => {
+    const f = await fixture()
+    for (const producer of ['native', 'fallback']) {
+      const owner = await f.start('X', 'install', 'published', producer)
+      try {
+        await owner.wait('published')
+        const before = await readFile(f.settings('X'), 'utf8')
+        const contender = await f.start('X', 'reset', '', 'native')
+        expect((await contender.done()).state).toBe('error')
+        expect(await readFile(f.settings('X'), 'utf8')).toBe(before)
+      } finally {
+        owner.child.send('continue')
+        expect((await owner.done()).state).toBe('installed')
+      }
+      expect((await (await f.start('X', 'reset', '', 'fallback')).done()).state).toBe(
+        'not_installed'
+      )
+      const abandoned = await f.start('X', 'install', 'published', producer)
+      await abandoned.wait('published')
+      abandoned.child.send('exit')
+      await abandoned.closed
+      expect((await (await f.start('X', 'install', '', 'fallback')).done()).state).toBe('installed')
+      expect(JSON.parse(await readFile(f.settings('X'), 'utf8')).statusLine).toBeDefined()
+      const storage = join(f.home, '.orca/agent-hooks/claude-statusline')
+      const { readdir } = await import('node:fs/promises')
+      expect(await readdir(join(storage, 'lock'))).toEqual([])
+      const receipt = (await readdir(storage)).find((name) => name.endsWith('.json'))!
+      expect(JSON.parse(await readFile(join(storage, receipt), 'utf8')).destinations).toEqual([
+        expect.objectContaining({ path: f.settings('X'), phase: 'managed' })
+      ])
+
+      expect((await (await f.start('X', 'reset', '', 'fallback')).done()).state).toBe(
+        'not_installed'
+      )
+    }
+  }
 )

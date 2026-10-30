@@ -3,6 +3,7 @@ import { readdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import {
   CLAIMED_OWNER_PATTERN,
+  activeClaimTokens,
   claimedOwnerFileName,
   claimRecordFileName,
   hasCode,
@@ -14,7 +15,27 @@ import {
   type ManagedHookLockClaim,
   type ManagedHookLockOwner
 } from './managed-hook-lock-records'
-import { readManagedHookProcessIdentity } from './managed-hook-owner-identity'
+import { readWindowsProcessCreationTime } from '../windows/windows-process-table'
+import {
+  readManagedHookProcessIdentity,
+  readProcessPresence,
+  readWindowsProcessIdentity
+} from './managed-hook-owner-identity'
+
+export type ManagedHookLifecycle = 'same' | 'ended' | 'unknown'
+export type ManagedHookEvidenceReader = <T>(
+  signal: AbortSignal,
+  read: () => Promise<T>
+) => Promise<T>
+export type ManagedHookOwnerPolicy = {
+  check: () => void
+  observe: (
+    record: { pid: number; processIdentity: string },
+    token: string,
+    active: boolean,
+    conflict?: boolean
+  ) => Promise<ManagedHookLifecycle>
+}
 
 export type ManagedHookLockRemoval = 'removed' | 'active' | 'foreign' | 'unverifiable'
 
@@ -27,7 +48,58 @@ type AcquiredClaim = {
 
 type ClaimResult = AcquiredClaim | { kind: 'active' | 'foreign' | 'unverifiable' | 'contended' }
 
-const activeClaimTokens = new Set<string>()
+function canonicalBirth(identity: string, pid: number): number | undefined {
+  const match = /^win32:([1-9]\d*):([1-9]\d*)$/.exec(identity)
+  const birth = Number(match?.[2])
+  return match?.[1] === String(pid) && Number.isSafeInteger(birth) && birth > 0 ? birth : undefined
+}
+
+/** Compare only compatible incarnation facts; opaque identities never prove PID reuse. */
+export function scopedWindowsOwnerPolicy(
+  self: string,
+  signal: AbortSignal,
+  readEvidence?: ManagedHookEvidenceReader
+): ManagedHookOwnerPolicy {
+  let observed: { token: string; result: ManagedHookLifecycle } | undefined
+  const check = () => signal.throwIfAborted()
+  return {
+    check,
+    async observe(record, token, active, conflict = false) {
+      check()
+      if (record.pid === process.pid && active) {
+        return 'same'
+      }
+      if (record.pid === process.pid && record.processIdentity === self) {
+        return 'ended'
+      }
+      const saved = canonicalBirth(record.processIdentity, record.pid)
+      const current = readWindowsProcessCreationTime(record.pid)
+      if (saved !== undefined && current !== null) {
+        return current === saved ? 'same' : 'ended'
+      }
+      if (readProcessPresence(record.pid) === null) {
+        return 'ended'
+      }
+      if (saved === undefined || !conflict || !readEvidence) {
+        return 'unknown'
+      }
+      if (observed?.token === token) {
+        return observed.result
+      }
+      const identity = await readEvidence(signal, () => readWindowsProcessIdentity(record.pid))
+      check()
+      const birth = typeof identity === 'string' ? canonicalBirth(identity, record.pid) : undefined
+      let result: ManagedHookLifecycle = 'unknown'
+      if (identity === null) {
+        result = 'ended'
+      } else if (birth !== undefined) {
+        result = birth === saved ? 'same' : 'ended'
+      }
+      observed = { token, result }
+      return result
+    }
+  }
+}
 
 async function findClaimedOwner(
   lockParent: string,
@@ -46,7 +118,8 @@ async function resolveClaimSource(
   lockParent: string,
   owner: ManagedHookLockOwner,
   hostIdentity: string,
-  processIdentity: string
+  processIdentity: string,
+  policy?: ManagedHookOwnerPolicy
 ): Promise<
   | { kind: 'ready'; sourcePath: string; priorClaimRecordPath?: string }
   | { kind: 'active' | 'foreign' | 'unverifiable' }
@@ -89,16 +162,28 @@ async function resolveClaimSource(
   if (priorClaim.hostIdentity !== hostIdentity) {
     return { kind: 'foreign' }
   }
-  const currentIdentity = await readManagedHookProcessIdentity(priorClaim.pid)
-  const recoverOwnInactiveClaim =
-    priorClaim.pid === process.pid &&
-    currentIdentity === processIdentity &&
-    !activeClaimTokens.has(priorClaim.claimToken)
-  if (currentIdentity === undefined) {
-    return { kind: 'unverifiable' }
-  }
-  if (currentIdentity === priorClaim.processIdentity && !recoverOwnInactiveClaim) {
-    return { kind: 'active' }
+  if (policy) {
+    const lifecycle = await policy.observe(
+      priorClaim,
+      priorClaim.claimToken,
+      activeClaimTokens.has(priorClaim.claimToken),
+      true
+    )
+    if (lifecycle !== 'ended') {
+      return { kind: lifecycle === 'same' ? 'active' : 'unverifiable' }
+    }
+  } else {
+    const currentIdentity = await readManagedHookProcessIdentity(priorClaim.pid)
+    const recoverOwnInactiveClaim =
+      priorClaim.pid === process.pid &&
+      currentIdentity === processIdentity &&
+      !activeClaimTokens.has(priorClaim.claimToken)
+    if (currentIdentity === undefined) {
+      return { kind: 'unverifiable' }
+    }
+    if (currentIdentity === priorClaim.processIdentity && !recoverOwnInactiveClaim) {
+      return { kind: 'active' }
+    }
   }
   return { kind: 'ready', sourcePath: claimedOwner.path, priorClaimRecordPath }
 }
@@ -107,12 +192,14 @@ async function claimManagedHookLock(
   lockParent: string,
   owner: ManagedHookLockOwner,
   hostIdentity: string,
-  processIdentity: string
+  processIdentity: string,
+  policy?: ManagedHookOwnerPolicy
 ): Promise<ClaimResult> {
-  const source = await resolveClaimSource(lockParent, owner, hostIdentity, processIdentity)
+  const source = await resolveClaimSource(lockParent, owner, hostIdentity, processIdentity, policy)
   if (source.kind !== 'ready') {
     return source
   }
+  policy?.check()
   const claimToken = randomUUID()
   const claim = {
     ownerToken: owner.token,
@@ -166,9 +253,16 @@ export async function removeManagedHookLock(
   lockParent: string,
   owner: ManagedHookLockOwner,
   hostIdentity: string,
-  processIdentity: string
+  processIdentity: string,
+  policy?: ManagedHookOwnerPolicy
 ): Promise<ManagedHookLockRemoval> {
-  const claimed = await claimManagedHookLock(lockParent, owner, hostIdentity, processIdentity)
+  const claimed = await claimManagedHookLock(
+    lockParent,
+    owner,
+    hostIdentity,
+    processIdentity,
+    policy
+  )
   if (claimed.kind === 'contended') {
     return 'active'
   }

@@ -3,6 +3,8 @@ import * as fs from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import {
   seam,
+  resetService,
+  service,
   current,
   file,
   read,
@@ -256,3 +258,283 @@ it.each(['control', 'install', 'retire', 'off'] as const)(
     }
   }
 )
+
+async function simulatedNativeScope(run: () => Promise<void>, capability = 'getter') {
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform')!
+  Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
+  try {
+    await resetService()
+    const native = await import('../windows/windows-process-table')
+    native.__setWindowsProcessTreeLoaderForTests(() =>
+      capability === 'missing'
+        ? null
+        : {
+            ProcessDataFlag: { None: 0, CommandLine: 2 },
+            getAllProcesses: () => {
+              throw new Error('No native table read permitted')
+            },
+            ...(capability === 'older'
+              ? {}
+              : { getProcessCreationTime: (pid: number) => seam.nativeBirth?.(pid) ?? undefined })
+          }
+    )
+    await run()
+  } finally {
+    Object.defineProperty(process, 'platform', platform)
+  }
+}
+
+it('installs cold with native or unavailable getters, freezes fallback and preserves reset/no-op through the full service', async () => {
+  for (const capability of ['getter', 'missing', 'older', 'null']) {
+    seam.nativeBirth = () => (capability === 'getter' ? 1777777777000 : null)
+    seam.cim = async () => {
+      throw new Error('No self or cleanup CIM permitted')
+    }
+    await simulatedNativeScope(async () => {
+      seam.probes = 0
+      const name = capability
+      const first = await install(name)
+      expect(first.state, JSON.stringify(first)).toBe('installed')
+      expect(first.managedHooksPresent).toBe(true)
+      expect(slot(await read(file(name)))).toBe('managed')
+      expect((await read(file(name))).hooks.SessionStart).toHaveLength(1)
+      expect(
+        (await document()).destinations.some((entry: { path: string }) => entry.path === file(name))
+      ).toBe(true)
+      const bytes = await fs.readFile(file(name), 'utf8')
+      const receipt = await fs.readFile(await documentPath(), 'utf8')
+      // Capability returning cannot change the frozen lifecycle of a live process.
+      seam.nativeBirth = () => 1777777777000
+      expect((await install(name)).state).toBe('installed')
+      expect(await fs.readFile(file(name), 'utf8')).toBe(bytes)
+      expect(await fs.readFile(await documentPath(), 'utf8')).toBe(receipt)
+      expect((await remove(name)).state).toBe('not_installed')
+      expect(slot(await read(file(name)))).toBe('empty')
+      expect((await install(name)).state).toBe('installed')
+      expect(await fs.readdir(join(storage(), 'lock'))).toEqual([])
+      expect(seam.probes).toBe(1) // Existing host registry only; no self/cleanup CIM.
+    }, capability)
+  }
+})
+
+it('protects incompatible owners and claims, recovers exact abandoned lifecycle and bounds actual conflicting CIM through release', async () => {
+  seam.nativeBirth = () => null
+  await simulatedNativeScope(async () => {
+    const { withManagedHookInstallLock } = await import('../agent-hooks/managed-hook-install-lock')
+    const { readStatusLineEvidence } = await import('./statusline-ownership')
+    const parent = join(storage(), 'lock')
+    const lock = join(parent, 'managed-hook-install.lock')
+    const token = '00000000-0000-4000-8000-000000000000'
+    const claimToken = '11111111-1111-4111-8111-111111111111'
+    const ownerPath = join(parent, `managed-hook-install.owner-${token}.json`)
+    const claimed = join(parent, `managed-hook-install.claimed-${token}-${claimToken}.json`)
+    const claim = join(parent, `managed-hook-install.claim-${token}-${claimToken}.json`)
+    const seed = async (identity: string, host = 'win32:fixture-host') => {
+      await fs.mkdir(parent, { recursive: true })
+      const owner = { token, pid: process.pid, hostIdentity: host, processIdentity: identity }
+      await fs.writeFile(ownerPath, JSON.stringify(owner))
+      await fs.link(ownerPath, lock)
+      return owner
+    }
+    const clean = async () => {
+      for (const path of [lock, ownerPath, claimed, claim]) {
+        await fs.unlink(path).catch(() => {})
+      }
+    }
+    seam.cim = async () => ({ stdout: '1777777777000', stderr: '' })
+    for (const identity of [
+      'runtime:other-context',
+      `win32:${process.pid}:bad`,
+      `win32:${process.pid + 1}:1`
+    ]) {
+      await seed(identity)
+      const bytes = await fs.readFile(lock, 'utf8')
+      expect((await install('protected')).state).toBe('error')
+      expect(await fs.readFile(lock, 'utf8')).toBe(bytes)
+      await clean()
+    }
+    await seed('runtime:other-context')
+    await fs.unlink(lock)
+    await fs.writeFile(
+      claim,
+      JSON.stringify({
+        ownerToken: token,
+        claimToken,
+        pid: process.pid,
+        hostIdentity: 'win32:fixture-host',
+        processIdentity: 'runtime:other-context'
+      })
+    )
+    const cleanupProbes = seam.probes
+    expect((await install('unknown-residue')).state).toBe('installed')
+    expect(seam.probes).toBe(cleanupProbes)
+    expect((await fs.readdir(parent)).sort()).toEqual(
+      [ownerPath, claim].map((path) => path.slice(parent.length + 1)).sort()
+    )
+    await clean()
+    await seed(`win32:${process.pid}:1777777777000`)
+    const beforeSame = seam.probes
+    expect((await install('same')).state).toBe('error')
+    expect(seam.probes - beforeSame).toBe(1) // One observation for the unchanged token, not each poll.
+    await clean()
+    await seed(`win32:${process.pid}:1`, 'foreign')
+    expect((await install('foreign')).state).toBe('error')
+    await clean()
+    await seed(`win32:${process.pid}:1`)
+    expect((await install('reused')).state).toBe('installed')
+    expect(await fs.readdir(parent)).toEqual([])
+    await seed(`win32:${process.pid}:1`)
+    await fs.rename(ownerPath, claimed)
+    await fs.writeFile(
+      claim,
+      JSON.stringify({
+        ownerToken: token,
+        claimToken,
+        pid: process.pid,
+        hostIdentity: 'win32:fixture-host',
+        processIdentity: 'runtime:other-context'
+      })
+    )
+    const priorClaim = await fs.readFile(claim, 'utf8')
+    expect((await install('opaque-claim')).state).toBe('error')
+    expect(await fs.readFile(claim, 'utf8')).toBe(priorClaim)
+    await clean()
+    // A failed real release leaves an inactive exact-local owner; next invocation derives recovery.
+    let localIdentity = ''
+    const options = { lockParent: parent, waitTimeoutMs: 250, readEvidence: readStatusLineEvidence }
+    await withManagedHookInstallLock(
+      seam.home,
+      undefined,
+      async () => {
+        localIdentity = JSON.parse(await fs.readFile(lock, 'utf8')).processIdentity
+        await fs.unlink(ownerPath).catch(() => {})
+        const current = JSON.parse(await fs.readFile(lock, 'utf8'))
+        await fs.rename(
+          join(parent, `managed-hook-install.owner-${current.token}.json`),
+          `${lock}.held`
+        )
+      },
+      'win32:fixture-host',
+      options
+    )
+    await fs.rename(`${lock}.held`, ownerPath)
+    await fs.unlink(lock)
+    await fs.writeFile(
+      ownerPath,
+      JSON.stringify({
+        token,
+        pid: process.pid,
+        hostIdentity: 'win32:fixture-host',
+        processIdentity: localIdentity
+      })
+    )
+    await fs.link(ownerPath, lock)
+    await fs.rename(ownerPath, claimed)
+    await fs.writeFile(
+      claim,
+      JSON.stringify({
+        ownerToken: token,
+        claimToken,
+        pid: process.pid,
+        hostIdentity: 'win32:fixture-host',
+        processIdentity: localIdentity
+      })
+    )
+    expect((await install('inactive')).state).toBe('installed')
+    expect(await fs.readdir(parent)).toEqual([])
+
+    const raw = Promise.withResolvers<{ stdout: string; stderr: string }>()
+    let admitted = 0
+    const rawEntered = Promise.withResolvers<void>()
+    seam.cim = () => {
+      admitted++
+      rawEntered.resolve()
+      return raw.promise
+    }
+    await seed(`win32:${process.pid}:1`)
+    const bytes = await fs.readFile(lock, 'utf8')
+    const started = performance.now()
+    let rawWaitMs = 0
+    try {
+      const controller = new AbortController()
+      const p = service().installSystem({
+        ...current,
+        target: { kind: 'system-default', configDir: dirname(file('blocked')) },
+        signal: controller.signal
+      })
+      try {
+        await rawEntered.promise
+        controller.abort()
+        expect((await p).state).toBe('error')
+      } finally {
+        controller.abort()
+        await p
+      }
+      for (let index = 0; index < 2; index++) {
+        expect((await install('blocked')).state).toBe('error')
+      }
+      expect(admitted).toBe(2)
+      rawWaitMs = performance.now() - started
+      expect(performance.now() - started).toBeLessThan(1500)
+      expect(await fs.readFile(lock, 'utf8')).toBe(bytes)
+      await expect(fs.readFile(file('blocked'))).rejects.toMatchObject({ code: 'ENOENT' })
+      raw.resolve({ stdout: '1777777777000', stderr: '' })
+      await raw.promise
+      await new Promise((resolve) => setImmediate(resolve))
+    } finally {
+      raw.resolve({ stdout: '1777777777000', stderr: '' })
+      await raw.promise
+      await new Promise((resolve) => setImmediate(resolve))
+    }
+    expect(await fs.readFile(lock, 'utf8')).toBe(bytes)
+    expect((await install('blocked')).state).toBe('installed')
+    expect(await fs.readdir(parent)).toEqual([])
+
+    const releaseRaw = Promise.withResolvers<{ stdout: string; stderr: string }>()
+    seam.cim = () => releaseRaw.promise
+    const releaseStart = performance.now()
+    let releaseWaitMs = 0
+    try {
+      await withManagedHookInstallLock(
+        seam.home,
+        undefined,
+        async () => {
+          const current = JSON.parse(await fs.readFile(lock, 'utf8'))
+          await fs.rename(
+            join(parent, `managed-hook-install.owner-${current.token}.json`),
+            join(parent, `managed-hook-install.claimed-${current.token}-${claimToken}.json`)
+          )
+          await fs.writeFile(
+            join(parent, `managed-hook-install.claim-${current.token}-${claimToken}.json`),
+            JSON.stringify({
+              ownerToken: current.token,
+              claimToken,
+              pid: process.pid,
+              hostIdentity: 'win32:fixture-host',
+              processIdentity: `win32:${process.pid}:1`
+            })
+          )
+        },
+        'win32:fixture-host',
+        options
+      )
+      releaseWaitMs = performance.now() - releaseStart
+      expect(releaseWaitMs).toBeLessThan(1000)
+      const residue = await fs.readFile(lock, 'utf8')
+      releaseRaw.resolve({ stdout: '1777777777000', stderr: '' })
+      await releaseRaw.promise
+      await new Promise((resolve) => setImmediate(resolve))
+      expect(await fs.readFile(lock, 'utf8')).toBe(residue)
+      expect((await install('release-recovery')).state).toBe('installed')
+      expect(await fs.readdir(parent)).toEqual([])
+    } finally {
+      releaseRaw.resolve({ stdout: '1777777777000', stderr: '' })
+      await releaseRaw.promise
+      await new Promise((resolve) => setImmediate(resolve))
+    }
+    console.log(
+      'SL_CONFLICT_BOUND',
+      JSON.stringify({ admitted, rawWaitMs, releaseWaitMs, elapsed: performance.now() - started })
+    )
+  })
+})

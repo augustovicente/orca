@@ -13,6 +13,8 @@ const seam = vi.hoisted(
     calls: Map<string, number> | null
     bytes: Map<string, number> | null
     probes: number
+    nativeBirth: null | ((pid: number) => number | null)
+    cim: null | (() => Promise<{ stdout: string; stderr: string }>)
     online: boolean
     unavailableHost: boolean
     zeroParent: string | null
@@ -24,6 +26,8 @@ const seam = vi.hoisted(
     calls: null,
     bytes: null,
     probes: 0,
+    nativeBirth: null,
+    cim: null,
     online: true,
     unavailableHost: false,
     zeroParent: null,
@@ -41,6 +45,12 @@ vi.mock('node:child_process', async (original) => {
   Object.defineProperty(execFile, promisify.custom, {
     value: (...args: Parameters<typeof originalAsync>) => {
       seam.probes++
+      if (seam.cim && String(args[0]).endsWith('powershell.exe')) {
+        return seam.cim()
+      }
+      if (seam.nativeBirth && String(args[0]).endsWith('reg.exe')) {
+        return Promise.resolve({ stdout: 'MachineGuid REG_SZ fixture-host', stderr: '' })
+      }
       if (seam.unavailableHost && (args[0] === 'ioreg' || String(args[0]).endsWith('reg.exe'))) {
         throw new Error('Host probe unavailable')
       }
@@ -187,35 +197,36 @@ export const main = async (args: string[]) => await (await import('../../cli/ind
 export function slot(config: Parameters<typeof getStatusLineSlotState>[0]) {
   return getStatusLineSlotState(config)
 }
-const current = { claudeVersion: '2.1.261' }
+export const current = { claudeVersion: '2.1.261' }
 let Service = ClaudeHookService
-const service = () => new Service()
-const file = (name: string) => join(seam.home, name, 'settings.json')
-const read = async (path: string) => JSON.parse(await fs.readFile(path, 'utf8'))
-const write = async (path: string, config: Parameters<typeof getStatusLineSlotState>[0]) => {
+export const service = () => new Service()
+export const file = (name: string) => join(seam.home, name, 'settings.json')
+export const read = async (path: string) => JSON.parse(await fs.readFile(path, 'utf8'))
+export const write = async (path: string, config: Parameters<typeof getStatusLineSlotState>[0]) => {
   await fs.mkdir(dirname(path), { recursive: true })
   await fs.writeFile(path, JSON.stringify(config))
 }
-const install = (name: string, options = current) =>
+export const install = (name: string, options = current) =>
   service().installSystem({
     ...options,
     target: { kind: 'system-default', configDir: dirname(file(name)) }
   })
-const remove = (name: string) =>
+export const remove = (name: string) =>
   service().removeSystem({ target: { kind: 'system-default', configDir: dirname(file(name)) } })
-const erase = async (name: string) => {
+export const erase = async (name: string) => {
   const config = await read(file(name))
   delete config.statusLine
   await write(file(name), config)
 }
-const storage = () => join(seam.home, '.orca/agent-hooks/claude-statusline')
-const documentPath = async () =>
+export const storage = () => join(seam.home, '.orca/agent-hooks/claude-statusline')
+export const documentPath = async () =>
   join(
     storage(),
     (await fs.readdir(storage())).find((name) => name.endsWith('.json'))!
   )
-const document = async () => read(await documentPath())
-const failure = () => Object.assign(new Error('injected storage failure'), { code: 'EACCES' })
+export const document = async () => read(await documentPath())
+export const failure = () =>
+  Object.assign(new Error('injected storage failure'), { code: 'EACCES' })
 beforeEach(async () => {
   seam.online = true
   seam.home = await fs.realpath(await fs.mkdtemp(join(os.tmpdir(), 'pr31199-sl-')))
@@ -234,6 +245,7 @@ afterEach(async () => {
   seam.before = seam.after = null
   seam.calls = seam.bytes = null
   seam.unavailableHost = false
+  seam.nativeBirth = seam.cim = null
   seam.zeroParent = null
   seam.syncAfter = null
   vi.unstubAllEnvs()
@@ -242,21 +254,7 @@ afterEach(async () => {
   await fs.rm(seam.home, { recursive: true, force: true })
 })
 
-export {
-  seam,
-  current,
-  service,
-  file,
-  read,
-  write,
-  install,
-  remove,
-  erase,
-  storage,
-  documentPath,
-  document,
-  failure
-}
+export { seam }
 export async function resetService() {
   vi.resetModules()
   Service = (await import('./hook-service')).ClaudeHookService
