@@ -1,7 +1,10 @@
 // Open the sender through chat or terminal-handle routes; choose feedback from the answering host’s evidence, never the sender’s address shape.
 
 import type { AgentMessageSource } from '../../../shared/agent-session/agent-session-message-source'
-import { structuredSessionOpenFeedback } from './activate-ai-vault-structured-session'
+import {
+  structuredSessionOpenFeedback,
+  openDesktopStructuredSession
+} from './activate-ai-vault-structured-session'
 import { useAppStore } from '@/store'
 import { RuntimeRpcCallError } from '@/runtime/runtime-rpc-result'
 import type { RuntimeClientTarget } from '../../../shared/runtime-client-target'
@@ -11,7 +14,6 @@ import {
   focusRuntimeTerminalHandle
 } from '@/components/terminal-pane/terminal-handle-links'
 import { showAgentPaneUnavailable } from '@/components/terminal-pane/stale-agent-row'
-import { openDesktopStructuredSession } from './activate-ai-vault-structured-session'
 import { getKnownExecutionHostIdForWorktree } from './worktree-runtime-owner'
 import {
   executionHostIdForStructuredTarget,

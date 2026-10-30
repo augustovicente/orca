@@ -8,14 +8,16 @@ import {
   type StructuredSessionOpenTab
 } from '../../../shared/open-structured-agent-session'
 import type { OrchestrationPartyLocationResult } from '../../../shared/orchestration-caller-status'
-import { findStructuredAgentSessionTab } from './agent-session/structured-agent-session-tab-activation'
+import {
+  findStructuredAgentSessionTab,
+  activateStructuredAgentSessionById
+} from './agent-session/structured-agent-session-tab-activation'
 import { showAgentPaneUnavailable } from '@/components/terminal-pane/stale-agent-row'
 import { translate } from '@/i18n/i18n'
 import { toast } from 'sonner'
 import type { AiVaultSession } from '../../../shared/ai-vault-types'
 import { activateAndRevealWorktree } from './worktree-activation'
 import { activateWslMovedWorkspace } from './wsl-moved-chat-activation'
-import { activateStructuredAgentSessionById } from './agent-session/structured-agent-session-tab-activation'
 import { useAppStore } from '@/store'
 import { runtimeEnvironmentIdOrLocalUnlessTwin } from './worktree-runtime-owner'
 import { callRuntimeRpc, runtimeEnvironmentSupportsCapability } from '@/runtime/runtime-rpc-client'
