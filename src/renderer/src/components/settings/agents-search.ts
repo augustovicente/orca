@@ -261,6 +261,6 @@ export function getAgentsPaneSearchEntries({
     hiddenIds.add(CODEX_TERMINAL_SERVER_ISOLATION_SEARCH_ENTRY_ID)
   }
   return getAllAgentsPaneSearchEntries().filter(
-    (entry) => !('id' in entry) || !hiddenIds.has(entry.id)
+    (entry) => !('id' in entry) || typeof entry.id !== 'string' || !hiddenIds.has(entry.id)
   )
 }
