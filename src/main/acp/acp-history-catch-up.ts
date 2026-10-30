@@ -78,6 +78,7 @@ export async function catchUpAcpHistory(input: AcpHistoryCatchUpInput): Promise<
       const written: string[] = []
       const read = (key: string) => baseline.items.get(key) ?? null
       const boundaryBody = acpHistoryBoundary()
+      const correctedDividers = new Set<string>()
       let divided = false
       for (const { source, items } of candidates) {
         check()
@@ -90,7 +91,8 @@ export async function catchUpAcpHistory(input: AcpHistoryCatchUpInput): Promise<
         } as const
         const dividerKey = agentJournalItemKey(dividerIdentity)
         const savedDivider = read(dividerKey)
-        if (savedDivider) {
+        if (savedDivider && !correctedDividers.has(dividerKey)) {
+          correctedDividers.add(dividerKey)
           if (baseline.canonical.get(dividerKey) !== dividerKey) {
             throw new Error('unowned-history-target')
           }

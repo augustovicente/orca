@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { agentSessionHostStatusBody } from '../../shared/agent-session-host-status-rows'
 import * as historyBoundary from './acp-history-boundary'
 import { continuedOutsideNotice } from '../native-chat/agent-session-wire/structured-agent-session-history-catch-up'
 import {
@@ -21,6 +22,58 @@ afterEach(async () => {
 })
 
 describe('ACP recovered history boundaries', () => {
+  it.each(['neutral', 'none'] as const)(
+    'corrects a repeated root once and imports unrelated content with the %s boundary',
+    async (presentation) => {
+      vi.spyOn(historyBoundary, 'acpHistoryBoundary').mockReturnValue(
+        presentation === 'neutral' ? agentSessionHostStatusBody('history-loaded') : null
+      )
+      const { fixture, catchUp, warn } = await setup(OPENCODE_ACP_DIALECT, 'user-message-id')
+      await chatSend(fixture, 'retained', 'keep')
+      await catchUp([userReplay('recovered', 'old')])
+      await fixture.rig.journal.appendItem(
+        {
+          provider: 'legacy',
+          agent: AGENT,
+          sessionId: SESSION,
+          recordId: 'continued-outside:recovered'
+        },
+        continuedOutsideNotice(true),
+        { fence: 1, turnScope: { kind: 'thread' } }
+      )
+      const saved = (await fixture.rig.rows()).find((row) => row.body.kind === 'status')!
+      await fixture.restart()
+      const replay = [
+        userReplay('recovered', 'old'),
+        userReplay('new', 'new'),
+        userReplay('recovered', 'old')
+      ]
+      await catchUp(replay)
+      const imported = await fixture.rig.rows()
+      expect(
+        imported.some(
+          (row) =>
+            row.body.kind === 'message' &&
+            row.body.role === 'user' &&
+            row.body.blocks.some((block) => block.type === 'text' && block.text === 'new')
+        )
+      ).toBe(true)
+      if (presentation === 'neutral') {
+        expect(imported.find((row) => row.itemId === saved.itemId)).toMatchObject({
+          sequence: saved.sequence,
+          revision: saved.revision + 1,
+          body: { kind: 'status', presentation: 'history-loaded' }
+        })
+      } else {
+        expect(imported.find((row) => row.itemId === saved.itemId)).toBeUndefined()
+      }
+      expect(JSON.stringify(imported)).not.toContain('continued-outside-rewound')
+      await catchUp(replay)
+      expect(await fixture.rig.rows()).toEqual(imported)
+      expect(warn).not.toHaveBeenCalled()
+    }
+  )
+
   it.each(['neutral', 'none'] as const)(
     'corrects an old notice and completes imported history with the %s boundary',
     async (presentation) => {
