@@ -74,7 +74,7 @@ it.each([
     accountRenders.clear()
     // Relevant Claude refresh returns a newly allocated equal roster in a different peer order.
     client.setCodex({
-      accounts: snapshot().accounts.reverse(),
+      accounts: snapshot().accounts.toReversed(),
       activeAccountId: 'irrelevant-selection'
     })
     await changeSettings((s) => ({
@@ -151,7 +151,7 @@ it.each([
     expect(metrics.work.helperMembers).toBeGreaterThanOrEqual(3 * (group - 1))
     expect(metrics.work.helperFields).toBeGreaterThanOrEqual(metrics.work.helperMembers)
     // Only collision-sensitive ordering is a native wake; first matching routed summary still wins.
-    client.setClaude({ accounts: [...homes].reverse(), activeAccountId: null })
+    client.setClaude({ accounts: homes.toReversed(), activeAccountId: null })
     await changeSettings((s) => ({
       ...s,
       claudeManagedAccounts: s.claudeManagedAccounts.map((a, i) =>
@@ -203,7 +203,7 @@ it('compares real coverage under the same evidence across ordered candidates and
   const binding = { kind: 'claude' as const, path: saved.managedAuthPath, scope: 'host' }
   const b = new NativeAccountInputs({
     ...settings,
-    claudeManagedAccounts: [...candidates].reverse()
+    claudeManagedAccounts: candidates.toReversed()
   })
   expect(nativeEvidenceCovers(binding, b, evidence)).toBe(false)
   const again = new NativeAccountInputs(
@@ -235,7 +235,7 @@ it('compares real coverage under the same evidence across ordered candidates and
   })
   const swapped = new NativeAccountInputs({
     ...settings,
-    codexManagedAccounts: [...firstPath].reverse()
+    codexManagedAccounts: firstPath.toReversed()
   })
   expect(
     nativeEvidenceCovers(
