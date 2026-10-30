@@ -276,7 +276,7 @@ describe('account RPC methods', () => {
     const snapshot = { claude: null, codex: null }
     let cleanup: (() => void) | undefined
     const runtime = {
-      getAccountsSnapshot: vi.fn(() => snapshot),
+      getAccountsStreamSnapshot: vi.fn(() => snapshot),
       onAccountsChanged: vi.fn(() => vi.fn()),
       registerSubscriptionCleanup: vi.fn((_id: string, nextCleanup: () => void) => {
         cleanup = nextCleanup

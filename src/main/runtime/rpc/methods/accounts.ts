@@ -255,7 +255,7 @@ export const ACCOUNT_METHODS = [
         )
 
         // Publish a snapshot immediately, then refresh stale data; reconnect must not force repeated provider fetches.
-        emit({ type: 'ready', subscriptionId, snapshot: runtime.getAccountsSnapshot() })
+        emit({ type: 'ready', subscriptionId, snapshot: runtime.getAccountsStreamSnapshot() })
         void runtime.refreshAccountsForMobileSubscriber()
       })
     }

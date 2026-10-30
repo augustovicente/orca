@@ -1,185 +1,65 @@
-import { useEffect, useState } from 'react'
-import type { AiVaultSession } from '../../../../shared/ai-vault-types'
-import { isLegacyAgentSessionAccountHome } from '../../../../shared/agent-session-account-home'
-import { normalizeRuntimePathForComparison } from '../../../../shared/cross-platform-path'
-import { LOCAL_EXECUTION_HOST_ID } from '../../../../shared/execution-host'
-import type { GlobalSettings } from '../../../../shared/global-settings-types'
+import { useMemo, useSyncExternalStore } from 'react'
 import type { ManagedDataAccountsState } from '../../../../shared/managed-account-types'
-import { translate } from '@/i18n/i18n'
-import { getCodexAccountDisplayLabel } from '@/lib/codex-account-display-label'
-import { callRuntimeRpc } from '@/runtime/runtime-rpc-client'
-import { subscribeRuntimeRpc } from '@/runtime/runtime-rpc-subscribe'
+import type { ProviderAccountsSnapshot } from '@/runtime/runtime-provider-accounts-client'
 import {
-  fetchProviderAccountsSnapshot,
-  type ProviderAccountsSnapshot
-} from '@/runtime/runtime-provider-accounts-client'
-import { useAppStore } from '../../store'
+  sessionAccountBinding,
+  type SessionAccountSource,
+  type AccountBinding
+} from './ai-vault-account-binding'
+import { readSessionAccount, subscribeSessionAccount } from './ai-vault-account-directory'
+import {
+  NativeAccountInputs,
+  NativeAccountEvidence,
+  nativeAccountLabel,
+  type SessionAccountSettings
+} from './ai-vault-native-account-index'
 
-type SessionAccountSettings = Pick<GlobalSettings, 'claudeManagedAccounts' | 'codexManagedAccounts'>
 type SessionAccounts = Partial<ProviderAccountsSnapshot> & { opencode?: ManagedDataAccountsState }
-type SessionAccountSource = Pick<
-  AiVaultSession,
-  'agent' | 'executionHostId' | 'accountHome' | 'accountWslDistro'
->
 
 export function resolveAiVaultSessionAccount(
   session: SessionAccountSource,
   settings: SessionAccountSettings | null,
   accounts: SessionAccounts | null
 ): string | null {
-  if (session.executionHostId !== LOCAL_EXECUTION_HOST_ID) {
-    return null
+  const selected = sessionAccountBinding(session)
+  if ('value' in selected) {
+    return selected.value
   }
-  const home = session.accountHome
-  if (home === null) {
-    return translate('auto.components.status.bar.StatusBar.c676918adc', 'System default')
+  const { binding } = selected
+  if (binding.kind === 'opencode') {
+    return accounts?.opencode?.accounts.find((account) => account.id === binding.id)?.label ?? null
   }
-  if (!home) {
-    return null
-  }
-  if (!isLegacyAgentSessionAccountHome(home)) {
-    if (home.locator.kind === 'unmanaged') {
-      return translate('auto.components.status.bar.StatusBar.c676918adc', 'System default')
-    }
-    const profileId = home.locator.managedProfileId
-    return accounts?.opencode?.accounts.find((account) => account.id === profileId)?.label ?? null
-  }
-  const sameHome = (path: string | null | undefined): boolean =>
-    !!path &&
-    normalizeRuntimePathForComparison(path) === normalizeRuntimePathForComparison(home.path)
-  const sameRuntime = (
-    runtime: 'host' | 'wsl' | undefined,
-    distro: string | null | undefined
-  ): boolean =>
-    session.accountWslDistro
-      ? runtime === 'wsl' && distro?.toLowerCase() === session.accountWslDistro.toLowerCase()
-      : runtime !== 'wsl'
-
-  if (session.agent === 'claude' && home.variable === 'CLAUDE_CONFIG_DIR') {
-    if (!accounts?.claude || accounts.failedProviders?.includes('claude')) {
-      return null
-    }
-    const roster = accounts.claude.accounts
-    const current = roster.find(
-      (account) =>
-        sameRuntime(account.managedAuthRuntime, account.wslDistro) && sameHome(account.home)
-    )
-    if (current) {
-      return current.email
-    }
-    const saved = settings?.claudeManagedAccounts.find(
-      (account) =>
-        sameRuntime(account.managedAuthRuntime, account.wslDistro) &&
-        (sameHome(account.managedAuthPath) || sameHome(account.wslLinuxAuthPath))
-    )
-    if (!saved) {
-      return null
-    }
-    const summary = roster.find((account) => account.id === saved.id)
-    // The router may replace a legacy saved folder; only older summaries lack its actual home.
-    return !summary || (summary.home && !sameHome(summary.home)) ? null : summary.email
-  }
-  if (session.agent === 'codex' && home.variable === 'CODEX_HOME') {
-    const saved = settings?.codexManagedAccounts.find(
-      (account) =>
-        sameRuntime(account.managedHomeRuntime, account.wslDistro) &&
-        (sameHome(account.managedHomePath) || sameHome(account.wslLinuxHomePath))
-    )
-    if (!saved) {
-      return null
-    }
-    const roster = (accounts?.codex?.accounts ?? settings?.codexManagedAccounts ?? []).filter(
-      (account) => sameRuntime(account.managedHomeRuntime, account.wslDistro)
-    )
-    return getCodexAccountDisplayLabel(
-      roster.find((account) => account.id === saved.id) ?? saved,
-      roster
-    )
-  }
-  return null
+  const inputs = new NativeAccountInputs(settings)
+  return nativeAccountLabel(
+    binding,
+    inputs,
+    accounts ? new NativeAccountEvidence(inputs, accounts) : null
+  )
 }
 
 export function useAiVaultSessionAccount(session: SessionAccountSource): string | null {
-  const [accounts, setAccounts] = useState<SessionAccounts | null>(null)
-  const agent = session.agent
-  const dataAccount =
-    !!session.accountHome &&
-    !isLegacyAgentSessionAccountHome(session.accountHome) &&
-    session.accountHome.locator.kind === 'managed'
-  const needsAccounts =
-    session.executionHostId === LOCAL_EXECUTION_HOST_ID &&
-    session.accountHome != null &&
-    (agent === 'claude' || agent === 'codex' || dataAccount)
-  const claudeSaved = useAppStore((state) =>
-    needsAccounts && agent === 'claude' ? state.settings?.claudeManagedAccounts : undefined
-  )
-  const codexSaved = useAppStore((state) =>
-    needsAccounts && agent === 'codex' ? state.settings?.codexManagedAccounts : undefined
-  )
-
-  useEffect(() => {
-    if (!needsAccounts) {
-      return
+  const selected = sessionAccountBinding(session)
+  const key = 'key' in selected ? selected.key : null
+  const staticValue = 'value' in selected ? selected.value : null
+  const kind = 'binding' in selected ? selected.binding.kind : null
+  const profileId =
+    'binding' in selected && selected.binding.kind === 'opencode' ? selected.binding.id : null
+  const path =
+    'binding' in selected && selected.binding.kind !== 'opencode' ? selected.binding.path : null
+  const scope =
+    'binding' in selected && selected.binding.kind !== 'opencode' ? selected.binding.scope : null
+  const observation = useMemo(() => {
+    const binding: AccountBinding | null =
+      kind === 'opencode' && profileId !== null
+        ? { kind, id: profileId }
+        : (kind === 'claude' || kind === 'codex') && path !== null && scope !== null
+          ? { kind, path, scope }
+          : null
+    return {
+      subscribe: (listener: () => void) =>
+        key !== null && binding ? subscribeSessionAccount(key, binding, listener) : () => {},
+      read: () => (key === null ? staticValue : readSessionAccount(key))
     }
-    let cancelled = false
-    let generation = 0
-    let unsubscribe: (() => void) | undefined
-    const load = (): void => {
-      const attempt = ++generation
-      const request = dataAccount
-        ? callRuntimeRpc<SessionAccounts>({ kind: 'local' }, 'accounts.listData')
-        : fetchProviderAccountsSnapshot({ kind: 'local' })
-      void request.then(
-        (snapshot) => {
-          if (!cancelled && generation === attempt) {
-            setAccounts(snapshot)
-          }
-        },
-        () => {
-          if (!cancelled && generation === attempt) {
-            setAccounts(null)
-          }
-        }
-      )
-    }
-    const lose = (): void => {
-      generation += 1
-      if (!cancelled) {
-        setAccounts(null)
-      }
-    }
-    if (dataAccount) {
-      void subscribeRuntimeRpc({ kind: 'local' }, 'accounts.subscribe', null, {
-        onEvent: (frame) => {
-          if (!cancelled && typeof frame === 'object' && frame !== null && 'type' in frame) {
-            if (frame.type === 'ready' || frame.type === 'snapshot') {
-              load()
-            } else if (frame.type === 'end') {
-              lose()
-            }
-          }
-        },
-        onError: lose,
-        onClose: lose
-      }).then((handle) => {
-        if (cancelled) {
-          handle.unsubscribe()
-        } else {
-          unsubscribe = handle.unsubscribe
-        }
-      }, lose)
-    } else {
-      load()
-    }
-    return () => {
-      cancelled = true
-      unsubscribe?.()
-    }
-  }, [agent, dataAccount, needsAccounts, claudeSaved, codexSaved])
-
-  return resolveAiVaultSessionAccount(
-    session,
-    { claudeManagedAccounts: claudeSaved ?? [], codexManagedAccounts: codexSaved ?? [] },
-    accounts
-  )
+  }, [key, staticValue, kind, profileId, path, scope])
+  return useSyncExternalStore(observation.subscribe, observation.read, observation.read)
 }

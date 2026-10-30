@@ -40,15 +40,43 @@ function session(agent: AiVaultSession['agent'], path: string): AiVaultSession {
 }
 
 describe('session account labels', () => {
-  it('uses the same current Codex label as the account menu', () => {
+  it('preserves first matching routed home, saved path and summary collisions', () => {
+    const source = session('claude', claude.managedAuthPath)
+    const first = {
+      ...claude,
+      id: 'first',
+      home: claude.managedAuthPath,
+      email: 'first@example.com'
+    }
+    const second = { ...first, id: 'second', email: 'second@example.com' }
     expect(
-      resolveAiVaultSessionAccount(session('codex', codex.managedHomePath), settings, {
-        codex: {
-          activeAccountId: 'another',
-          accounts: [{ ...codex, email: 'current@example.com', workspaceLabel: 'Team' }]
+      resolveAiVaultSessionAccount(source, settings, {
+        claude: { activeAccountId: 'second', accounts: [first, second] }
+      })
+    ).toBe(first.email)
+    const saved = { ...codex, id: 'first' }
+    const savedSecond = { ...saved, id: 'second', email: 'second@example.com' }
+    expect(
+      resolveAiVaultSessionAccount(
+        session('codex', codex.managedHomePath),
+        {
+          ...settings,
+          codexManagedAccounts: [saved, savedSecond]
+        },
+        { codex: { activeAccountId: 'second', accounts: [saved, savedSecond] } }
+      )
+    ).toBe(saved.email)
+    expect(
+      resolveAiVaultSessionAccount(source, settings, {
+        claude: {
+          activeAccountId: null,
+          accounts: [
+            { ...claude, email: 'older-first@example.com' },
+            { ...claude, email: 'older-second@example.com' }
+          ]
         }
       })
-    ).toBe('current@example.com (Team)')
+    ).toBe('older-first@example.com')
   })
 
   it('compares Windows paths and requires the recorded WSL distro for Linux homes', () => {
