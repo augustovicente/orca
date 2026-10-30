@@ -185,9 +185,27 @@ export function stripRetiredWebChatSettings(
 
 type RetiredWebSettings = { experimentalNativeChat?: unknown }
 
-/** A browser profile saved while Chat UI was experimental keeps what its launches opened; dropping the key marks this done. */
+export function needsChatUiChoiceCarry(stored: Partial<GlobalSettings>): boolean {
+  return (
+    Object.hasOwn(stored, 'experimentalNativeChat') && !Object.hasOwn(stored, 'agentDefaultSurface')
+  )
+}
+
+export function retainOriginalWebChatSetting(
+  settings: Partial<GlobalSettings>,
+  rawOwner: Partial<GlobalSettings> & RetiredWebSettings
+) {
+  return {
+    ...stripRetiredWebChatSettings(settings),
+    ...(Object.hasOwn(rawOwner, 'experimentalNativeChat')
+      ? { experimentalNativeChat: rawOwner.experimentalNativeChat }
+      : {})
+  }
+}
+
+/** Raw modern field presence ends carry; retained old data is never live intent again. */
 function carryChatUiChoices(stored: Partial<GlobalSettings> & RetiredWebSettings) {
-  if (!Object.hasOwn(stored, 'experimentalNativeChat')) {
+  if (!needsChatUiChoiceCarry(stored)) {
     return {}
   }
   return carriedChatUiLaunchSettings(

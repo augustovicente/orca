@@ -43,10 +43,10 @@ describe('web Chat UI launch migration', () => {
 
     expect(settings.agentDefaultSurface).toBe('terminal')
     expect(settings.nativeChatProviders).toEqual({})
-    expect(saved).not.toHaveProperty('experimentalNativeChat')
+    expect(saved).toHaveProperty('experimentalNativeChat', false)
     expect(saved.nativeChatProviders).toEqual(settings.nativeChatProviders)
 
-    // The dropped key is the run-once marker: a later chat choice survives the next load.
+    // The raw modern default marks completion: later choices survive with the original data retained.
     globals.storage.setItem(
       SETTINGS_KEY,
       JSON.stringify({ ...saved, nativeChatProviders: { claude: true } })
@@ -65,7 +65,7 @@ describe('web Chat UI launch migration', () => {
 
     expect(settings.agentDefaultSurface).toBe('chat')
     expect(settings.nativeChatProviders).toEqual({ codex: false })
-    expect(saved).not.toHaveProperty('experimentalNativeChat')
+    expect(saved).toHaveProperty('experimentalNativeChat', true)
   })
 
   it('writes nothing for a browser profile without the switch', async () => {
@@ -155,7 +155,11 @@ it.each([
           'openAgentTabsInChatByDefault'
         ]) {
           expect(settings).not.toHaveProperty(key)
-          expect(saved).not.toHaveProperty(key)
+          if (key === 'experimentalNativeChat' && Object.hasOwn(stored, key)) {
+            expect(saved[key]).toBe(Reflect.get(stored, key))
+          } else {
+            expect(saved).not.toHaveProperty(key)
+          }
         }
         expect(saved.nativeChatProviders).toEqual(settings.nativeChatProviders)
         expect(saved.agentDefaultSurface).toBe(settings.agentDefaultSurface)
@@ -295,6 +299,11 @@ describe('current browser owner at remote settlement', () => {
       const earlier = start(globals.window.api, method)
       await pending.entered
       await choose(globals.window.api, chat)
+      const replacement = {
+        ...JSON.parse(globals.storage.getItem(SETTINGS_KEY) ?? '{}'),
+        experimentalNativeChat: { replacement: chat }
+      }
+      globals.storage.setItem(SETTINGS_KEY, JSON.stringify(replacement))
       pending.release({
         compactWorktreeCards: true,
         prBotAuthorOverrides: [' Robot '],
@@ -310,6 +319,10 @@ describe('current browser owner at remote settlement', () => {
       })
       const returned = await earlier
       check(returned, chat)
+      expect(returned).not.toHaveProperty('experimentalNativeChat')
+      expect(
+        JSON.parse(globals.storage.getItem(SETTINGS_KEY) ?? '{}').experimentalNativeChat
+      ).toEqual({ replacement: chat })
       if (method === 'settings.updatePRBotAuthorOverride') {
         expect(returned.prBotAuthorOverrides).toEqual(['robot'])
       } else {
@@ -558,6 +571,12 @@ describe('current browser owner at remote settlement', () => {
           botOverrides.mock.calls.length,
           oldHost.calls.length - calls
         ])
+        reads.mockClear()
+        const explicit = await globals.window.api.settings.setActiveRuntimeEnvironmentPreference({
+          environmentId: null
+        })
+        expect(reads.mock.calls.filter(([key]) => key === SETTINGS_KEY)).toHaveLength(3)
+        expect(explicit).not.toHaveProperty('experimentalNativeChat')
         vi.restoreAllMocks()
         const expected = {
           agentDefaultSurface: 'terminal',
@@ -567,7 +586,7 @@ describe('current browser owner at remote settlement', () => {
         expect(syncSettings(globals.window.api)).toMatchObject(expected)
         const saved = JSON.parse(globals.storage.getItem(SETTINGS_KEY) ?? '{}')
         expect(saved).toMatchObject(expected)
-        expect(saved).not.toHaveProperty('experimentalNativeChat')
+        expect(saved).toHaveProperty('experimentalNativeChat', true)
         expect(nativeChatPreferenceFor(returned, 'future-agent')).toBe(false)
         expect(nativeChatPreferenceFor(returned, 'codex')).toBe(true)
         vi.resetModules()
@@ -621,4 +640,125 @@ describe('current browser owner at remote settlement', () => {
       [3, 2, 1]
     ])
   })
+})
+
+it.each([null, { future: [false, 1] }, true, false])(
+  'keeps raw %j private across local APIs, ignored input, active host and reopen',
+  async (original) => {
+    vi.resetModules()
+    oldHost.call = undefined
+    oldHost.reply = undefined
+    oldHost.fail = false
+    const { globals } = await loadSettings({ experimentalNativeChat: original })
+    const input = {
+      experimentalNativeChat: 'must-not-replace',
+      experimentalStructuredNativeChat: true,
+      openAgentTabsInChatByDefault: true,
+      agentDefaultSurface: 'chat' as const,
+      nativeChatProviders: { 'registered-agent': false }
+    }
+    const outputs = [
+      await globals.window.api.settings.set(input),
+      globals.window.api.settings.getSync(),
+      await globals.window.api.settings.setActiveRuntimeEnvironmentPreference({
+        environmentId: null
+      }),
+      await globals.window.api.settings.updatePRBotAuthorOverride({ author: 'robot', isBot: true })
+    ]
+    for (const live of outputs) {
+      expect(live).not.toHaveProperty('experimentalNativeChat')
+      expect(live).not.toHaveProperty('experimentalStructuredNativeChat')
+      expect(live).not.toHaveProperty('openAgentTabsInChatByDefault')
+    }
+    const saved = JSON.parse(globals.storage.getItem(SETTINGS_KEY) ?? '{}')
+    expect(saved.experimentalNativeChat).toEqual(original)
+    expect(saved).not.toHaveProperty('experimentalStructuredNativeChat')
+    vi.resetModules()
+    const { installWebPreloadApi } = await import('./web-preload-api')
+    installWebPreloadApi()
+    expect(await globals.window.api.settings.get()).toMatchObject({
+      agentDefaultSurface: 'chat',
+      nativeChatProviders: { 'registered-agent': false }
+    })
+    expect(
+      JSON.parse(globals.storage.getItem(SETTINGS_KEY) ?? '{}').experimentalNativeChat
+    ).toEqual(original)
+  }
+)
+
+it.each(['terminal', null, 'future-value'])(
+  'honors raw modern presence %j over retained legacy on',
+  async (modern) => {
+    vi.resetModules()
+    const { settings, saved } = await loadSettings({
+      experimentalNativeChat: true,
+      agentDefaultSurface: modern,
+      nativeChatProviders: { 'registered-agent': true }
+    })
+    expect(settings.agentDefaultSurface).toBe('terminal')
+    expect(settings.nativeChatProviders).toEqual({ 'registered-agent': true })
+    expect(settings).not.toHaveProperty('experimentalNativeChat')
+    expect(saved.experimentalNativeChat).toBe(true)
+  }
+)
+
+it('cannot create retained metadata on a fresh owner from public input', async () => {
+  vi.resetModules()
+  const { globals } = await loadSettings({})
+  const input = { theme: 'dark' as const, experimentalNativeChat: true }
+  expect(await globals.window.api.settings.set(input)).not.toHaveProperty('experimentalNativeChat')
+  expect(JSON.parse(globals.storage.getItem(SETTINGS_KEY) ?? '{}')).not.toHaveProperty(
+    'experimentalNativeChat'
+  )
+})
+
+it('finishes carry after failed migration write, legitimate read wake, opposite edit and reopen', async () => {
+  vi.resetModules()
+  oldHost.call = undefined
+  const globals = installBrowserGlobals('Linux')
+  globals.storage.setItem(
+    SETTINGS_KEY,
+    JSON.stringify({ experimentalNativeChat: true, nativeChatProviders: { codex: false } })
+  )
+  const write = globals.storage.setItem.bind(globals.storage)
+  let blocked = true
+  const writes = vi.spyOn(globals.storage, 'setItem').mockImplementation((key, value) => {
+    if (key === SETTINGS_KEY && blocked) {
+      throw new Error('storage full')
+    }
+    write(key, value)
+  })
+  const { installWebPreloadApi } = await import('./web-preload-api')
+  installWebPreloadApi()
+  const before = writes.mock.calls.length
+  expect((await globals.window.api.settings.get()).agentDefaultSurface).toBe('chat')
+  expect(writes.mock.calls.length - before).toBe(1)
+  expect(JSON.parse(globals.storage.getItem(SETTINGS_KEY) ?? '{}')).not.toHaveProperty(
+    'agentDefaultSurface'
+  )
+  blocked = false
+  expect(globals.window.api.settings.getSync()?.agentDefaultSurface).toBe('chat')
+  expect(JSON.parse(globals.storage.getItem(SETTINGS_KEY) ?? '{}')).toMatchObject({
+    experimentalNativeChat: true,
+    agentDefaultSurface: 'chat',
+    nativeChatProviders: { codex: false }
+  })
+  await globals.window.api.settings.set({
+    agentDefaultSurface: 'terminal',
+    nativeChatProviders: { codex: true }
+  })
+  vi.resetModules()
+  const reopened = await import('./web-preload-api')
+  reopened.installWebPreloadApi()
+  const beforeRead = writes.mock.calls.length
+  expect(await globals.window.api.settings.get()).toMatchObject({
+    agentDefaultSurface: 'terminal',
+    nativeChatProviders: { codex: true }
+  })
+  // Existing theme normalization still writes once; carry contributes no additional save/re-entry.
+  expect(writes.mock.calls.length - beforeRead).toBe(1)
+  expect(JSON.parse(globals.storage.getItem(SETTINGS_KEY) ?? '{}').experimentalNativeChat).toBe(
+    true
+  )
+  writes.mockRestore()
 })

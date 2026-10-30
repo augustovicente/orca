@@ -1,3 +1,4 @@
+import { observeTranscriptPaneLifetime } from './helpers/native-chat-transcript-fixture'
 import { randomUUID } from 'node:crypto'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
@@ -38,6 +39,11 @@ test.describe('Native chat first-flush transcript race (#8401)', () => {
       contentType: 'text/plain'
     })
 
+    const finishLifetime = await observeTranscriptPaneLifetime(orcaPage, {
+      tabId,
+      worktreeId: descriptor.worktreeId,
+      paneKey: descriptor.paneKey
+    })
     try {
       await seedClaudeProviderSession(orcaPage, {
         paneKey: descriptor.paneKey,
@@ -86,6 +92,10 @@ test.describe('Native chat first-flush transcript race (#8401)', () => {
         path: path.join(screenshotDir, '02-hydrated.png')
       })
     } finally {
+      await testInfo.attach('transcript-pane-lifetime', {
+        body: JSON.stringify(await finishLifetime()),
+        contentType: 'application/json'
+      })
       rmSync(scratchDir, { recursive: true, force: true })
     }
   })

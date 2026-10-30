@@ -1,3 +1,4 @@
+import { observeTranscriptPaneLifetime } from './helpers/native-chat-transcript-fixture'
 import { randomUUID } from 'node:crypto'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
@@ -12,7 +13,7 @@ const SECOND = 'Secondparagraph echo foxtrot golf.'
 test('chat right-click offers Copy for selected text and Paste in the composer only', async ({
   orcaPage,
   electronApp
-}) => {
+}, testInfo) => {
   await waitForSessionReady(orcaPage)
   await waitForActiveWorktree(orcaPage)
   await ensureTerminalVisible(orcaPage)
@@ -34,6 +35,11 @@ test('chat right-click offers Copy for selected text and Paste in the composer o
     transcriptPath,
     `${row(0, 'user', 'Question alpha')}\n${row(1, 'assistant', `${FIRST}\n\n${SECOND}`)}\n`
   )
+  const finishLifetime = await observeTranscriptPaneLifetime(orcaPage, {
+    tabId,
+    worktreeId: descriptor.worktreeId,
+    paneKey: descriptor.paneKey
+  })
   try {
     // Substitute only the clipboard IPC; never touch the user's system clipboard.
     await electronApp.evaluate(({ ipcMain }) => {
@@ -111,6 +117,10 @@ test('chat right-click offers Copy for selected text and Paste in the composer o
     })
     await expect(paste).toBeVisible()
   } finally {
+    await testInfo.attach('transcript-pane-lifetime', {
+      body: JSON.stringify(await finishLifetime()),
+      contentType: 'application/json'
+    })
     rmSync(scratchDir, { recursive: true, force: true })
   }
 })

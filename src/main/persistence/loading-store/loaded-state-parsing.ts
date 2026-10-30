@@ -47,6 +47,7 @@ type LoadedStateParsingOperationsRuntime = Pick<
   | 'dataFile'
   | 'githubCacheDirty'
   | 'loadNeedsSave'
+  | 'originalExperimentalNativeChat'
   | 'protectedSecrets'
   | 'storageAuthority'
   | 'terminalScrollbackSnapshotStorage'
@@ -102,6 +103,10 @@ export class LoadedStateParsingOperations {
         }
         // Freeze audience before defaults or migrations alter the saved Chat UI state.
         chatUiLaunchTipAudience = this.cohorts.captureChatUiLaunchTipAudience(parsed)
+        this.runtime.originalExperimentalNativeChat =
+          parsed.settings && Object.hasOwn(parsed.settings, 'experimentalNativeChat')
+            ? { experimentalNativeChat: Reflect.get(parsed.settings, 'experimentalNativeChat') }
+            : undefined
         if (parsed.settings?.opencodeSessionCookie) {
           parsed.settings.opencodeSessionCookie = this.runtime.protectedSecrets.decrypt(
             PROTECTED_SECRET_SLOT.opencodeSessionCookie,

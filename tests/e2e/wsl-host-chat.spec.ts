@@ -243,13 +243,53 @@ test.describe('native chat on a WSL host', () => {
             .find((tab) => tab.agentSessionAgent === 'claude')?.entityId ?? null
       )
       expect(sessionId).toBeTruthy()
-      await callEnvironment(page, WSL_ENVIRONMENT_ID, 'agentSession.close', { sessionId })
+      const workspaceId = await hub.evaluate((projectPath) => {
+        const workspace = window.__store
+          ?.getState()
+          .allWorktrees()
+          .find((entry) => entry.path === projectPath)
+        if (!workspace) {
+          throw new Error('Host workspace for the existing chat is missing')
+        }
+        return workspace.id
+      }, projectPath)
+      const originalTab = await page.evaluate(
+        (sessionId) =>
+          Object.values(window.__store?.getState().unifiedTabsByWorktree ?? {})
+            .flat()
+            .find((tab) => tab.entityId === sessionId)?.id,
+        sessionId
+      )
+      expect(originalTab).toBeTruthy()
+      // Workspace sleep stops the provider without user-close's intentional tab removal.
+      const stopped = await callEnvironment(
+        page,
+        WSL_ENVIRONMENT_ID,
+        'agentSession.sleepWorkspace',
+        { workspaceId }
+      )
+      expect(stopped).toMatchObject({ stoppedSessionIds: [sessionId] })
+      await expect(
+        page.locator(`[data-testid="sortable-tab"][data-tab-id="${originalTab}"]`)
+      ).toBeVisible()
+      expect(
+        await page.evaluate(
+          (sessionId) =>
+            Object.values(window.__store?.getState().unifiedTabsByWorktree ?? {})
+              .flat()
+              .find((tab) => tab.entityId === sessionId)?.id,
+          sessionId
+        )
+      ).toBe(originalTab)
       await send('again')
       // Says where it's missing, not "the computer running this chat".
       await expect(
         chat.getByText(/Claude isn't installed in the WSL distro Ubuntu\./).first()
       ).toBeVisible({ timeout: 120_000 })
       await expect(chat.getByText(/the computer running this chat/)).toHaveCount(0)
+      await expect(
+        page.locator(`[data-testid="sortable-tab"][data-tab-id="${originalTab}"]`)
+      ).toBeVisible()
       await page.screenshot({ path: testInfo.outputPath('wsl-host-chat-cli-missing.png') })
     } finally {
       await desktop.dispose()
