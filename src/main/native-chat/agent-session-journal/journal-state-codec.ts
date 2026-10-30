@@ -19,7 +19,8 @@ import type { QueuedMessageRow } from './queued-message-table'
 import type { JournalReducerState } from './journal-reducer'
 import { JournalDerivedTurnScope } from './journal-derived-turn-scope'
 
-export const JOURNAL_STATE_CODEC_VERSION = 1
+// Version 1 was an unreleased whole-state layout; it decodes to null and its chat replays.
+export const JOURNAL_STATE_CODEC_VERSION = 2
 
 const number = z.number().finite()
 const cursor = z.object({ epoch: z.string(), sequence: number })
@@ -130,7 +131,7 @@ const fields = {
       .nullable()
   )
 } satisfies Record<keyof JournalReducerState, z.ZodType>
-const stateV1 = z.object(fields).omit({ items: true })
+const stateV2 = z.object(fields).omit({ items: true })
 
 // Live Stop settlement belongs to its process; only the row-derived pause facts survive restart.
 function durableQueuePauseMarks(
@@ -189,11 +190,11 @@ export function decodeJournalState(
   itemJsons: readonly string[],
   entries?: readonly JournalStoredEntry[]
 ): JournalReducerState | null {
-  if (version !== 1) {
+  if (version !== JOURNAL_STATE_CODEC_VERSION) {
     return null
   }
   const json: unknown = JSON.parse(stateJson)
-  const stored = stateV1.parse(entries ? assembleJournalState(json, entries) : json)
+  const stored = stateV2.parse(entries ? assembleJournalState(json, entries) : json)
   const items = fields.items.parse(itemJsons.map((json) => JSON.parse(json)))
   return {
     sessionId: stored.sessionId,
