@@ -171,18 +171,24 @@ export function answerQuestion(
 
 /** Whether the Dispatch's last turn ended on its own pending question: no mail has reached it since it asked. */
 export function awaitsAnswerToLatestQuestion(this: OrchestrationDb, dispatchId: string): boolean {
-  const unanswered = (table: string) =>
-    `EXISTS (
-       SELECT 1 FROM ${table} q
-        WHERE q.dispatch_id = ? AND q.status = 'pending'
-          AND NOT EXISTS (
-            SELECT 1 FROM messages m
-             WHERE m.to_handle = 'dispatch:' || q.dispatch_id AND m.created_at >= q.created_at
-          )
-     )`
   const row = this.db
     .prepare(
-      `SELECT ${unanswered('question_threads')} OR ${unanswered('remote_questions')} AS pending`
+      `SELECT EXISTS (
+         SELECT 1 FROM question_threads q JOIN messages asked ON asked.id = q.message_id
+          WHERE q.dispatch_id = ? AND q.status = 'pending'
+            AND NOT EXISTS (
+              SELECT 1 FROM messages m
+               WHERE m.to_handle = 'dispatch:' || q.dispatch_id AND m.sequence > asked.sequence
+            )
+       ) OR EXISTS (
+         -- A paired worker's question lives at its Run home, so only its timestamp orders it here.
+         SELECT 1 FROM remote_questions q
+          WHERE q.dispatch_id = ? AND q.status = 'pending'
+            AND NOT EXISTS (
+              SELECT 1 FROM messages m
+               WHERE m.to_handle = 'dispatch:' || q.dispatch_id AND m.created_at > q.created_at
+            )
+       ) AS pending`
     )
     .get(dispatchId, dispatchId)
   return row?.pending === 1
