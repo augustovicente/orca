@@ -94,37 +94,41 @@ export class JournalWriteProjection {
 
   /** Runs after commit notification, never in the adopt path. */
   verify(): void {
-    const strict = JournalWriteProjection.verifyEachCommit
-    if (!strict) {
-      const now = performance.now()
-      if (
-        process.env.NODE_ENV !== 'development' ||
-        now - this.verifiedAt < DEVELOPMENT_VERIFY_INTERVAL_MS
-      ) {
-        return
-      }
-      this.verifiedAt = now
+    if (JournalWriteProjection.verifyEachCommit) {
+      this.checkEquivalent()
+      return
     }
-    const live = this.deps.state()
-    const loaded = restoreJournal(this.deps.database.db, live.sessionId)
+    const now = performance.now()
     if (
-      loaded?.projectionThrough === this.through &&
-      !loaded.damage &&
-      !loaded.newer &&
-      isDeepStrictEqual(encodeJournalState(loaded.state), encodeJournalState(live))
+      process.env.NODE_ENV !== 'development' ||
+      now - this.verifiedAt < DEVELOPMENT_VERIFY_INTERVAL_MS
     ) {
       return
     }
-    const error = new Error('journal projection and contiguous tail differ from live state')
-    if (strict) {
-      throw error
+    this.verifiedAt = now
+    try {
+      this.checkEquivalent()
+    } catch (error) {
+      logJournalProjectionFailure(this.deps.state().sessionId, error)
     }
-    logJournalProjectionFailure(live.sessionId, error)
   }
 
   close(): void {
     this.closed = true
     this.clearTimer()
+  }
+
+  private checkEquivalent(): void {
+    const live = this.deps.state()
+    const loaded = restoreJournal(this.deps.database.db, live.sessionId)
+    if (
+      loaded?.projectionThrough !== this.through ||
+      loaded.damage ||
+      loaded.newer ||
+      !isDeepStrictEqual(encodeJournalState(loaded.state), encodeJournalState(live))
+    ) {
+      throw new Error('journal projection and contiguous tail differ from live state')
+    }
   }
 
   private clearTimer(): void {
