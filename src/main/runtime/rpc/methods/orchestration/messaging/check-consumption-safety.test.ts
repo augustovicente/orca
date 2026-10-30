@@ -157,7 +157,7 @@ describe('consuming checks', () => {
     { kind: 'dispatch', wait: false },
     { kind: 'dispatch', wait: true }
   ] as const)(
-    'acknowledges $kind mail with --ack and takes none (wait: $wait)',
+    'acknowledges $kind mail with --ack and takes newer mail only with --wait ($wait)',
     async ({ kind, wait }) => {
       const box = await mailbox(kind)
       insert(box, 'handled')
@@ -171,6 +171,15 @@ describe('consuming checks', () => {
         { terminal: 'term_lead', ack: handled.deliveryId, wait },
         state.ctx
       )
+      expect(state.db.getDeliveryRaw(handled.deliveryId ?? '')?.status).toBe('acknowledged')
+      if (wait) {
+        expect(acked).toMatchObject({
+          acknowledged: handled.deliveryId,
+          messages: [{ subject: 'stop report' }]
+        })
+        expect(state.db.getMessageById(report.id)?.read).toBe(1)
+        return
+      }
       expect(acked).toMatchObject({
         acknowledged: handled.deliveryId,
         deliveryId: null,
@@ -182,6 +191,14 @@ describe('consuming checks', () => {
       expect(await check()).toMatchObject({ messages: [{ subject: 'stop report' }] })
     }
   )
+
+  it('rejects --ack on direct mail, which has no Delivery, and takes nothing', async () => {
+    const mail = state.db.insertMessage({ from: 'term_coord', to: 'term_other', subject: 'direct' })
+    await expect(
+      h.call('orchestration.check', { terminal: 'term_other', ack: 'delivery_foreign' }, state.ctx)
+    ).rejects.toMatchObject({ code: 'stale_delivery' })
+    expect(state.db.getMessageById(mail.id)?.read).toBe(0)
+  })
 
   it('rolls the take back when its receipt cannot be recorded', () => {
     const box = { address: `dispatch:${dispatch.id}`, runId: dispatch.run_id }

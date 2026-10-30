@@ -165,12 +165,7 @@ export function acknowledgeMailboxDelivery(
       delivery.run_id !== params.runId ||
       delivery.mailbox_handle !== params.mailboxHandle
     ) {
-      throw new OrchestrationError(
-        'stale_delivery',
-        !delivery && this.getMessageById(params.deliveryId)
-          ? `${params.deliveryId} is a message id, not a delivery id. Acknowledge the batch with the deliveryId field from the check response; process the entire batch before acknowledging.`
-          : `Delivery ${params.deliveryId} does not belong to this mailbox. --ack requires a delivery_* ID returned by orchestration check; process the entire batch before acknowledging.`
-      )
+      throw staleDelivery(this, params.deliveryId)
     }
     if (
       delivery.consumer_generation !== params.consumerGeneration ||
@@ -192,6 +187,15 @@ export function acknowledgeMailboxDelivery(
     this.db.exec('ROLLBACK')
     throw error
   }
+}
+
+export function staleDelivery(db: OrchestrationDb, deliveryId: string): OrchestrationError {
+  return new OrchestrationError(
+    'stale_delivery',
+    !db.getDeliveryRaw(deliveryId) && db.getMessageById(deliveryId)
+      ? `${deliveryId} is a message id, not a delivery id. Acknowledge the batch with the deliveryId field from the check response; process the entire batch before acknowledging.`
+      : `Delivery ${deliveryId} does not belong to this mailbox. --ack requires a delivery_* ID returned by orchestration check; process the entire batch before acknowledging.`
+  )
 }
 
 function markDeliveryAcknowledged(db: OrchestrationDb, delivery: DeliveryRow): DeliveryRow {
