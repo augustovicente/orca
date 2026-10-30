@@ -1576,6 +1576,7 @@
     },
     "paneView": {
       "forward": "Forward",
+      "openPdfExternally": "Open PDF externally",
       "reload": "Reload",
       "dialogTitle": "Browser Dialog",
       "keyboardPlaceholder": "Type on page…",
