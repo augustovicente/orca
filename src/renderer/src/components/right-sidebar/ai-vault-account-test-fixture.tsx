@@ -1,5 +1,5 @@
 import { memo } from 'react'
-import { act, cleanup, fireEvent, render, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, within, type RenderResult } from '@testing-library/react'
 import { afterEach, beforeEach, expect, vi } from 'vitest'
 import type { GlobalSettings } from '../../../../shared/global-settings-types'
 import type { AiVaultSession } from '../../../../shared/ai-vault-types'
@@ -85,7 +85,10 @@ export function recordedSession(agent: 'claude' | 'codex', index = 0): AiVaultSe
   }
 }
 
-export function details(sessions: AiVaultSession[]) {
+export function details(sessions: AiVaultSession[]): RenderResult & {
+  account(id: string): ReturnType<typeof within>
+  unknown(id: string): void
+} {
   const resume = vi.fn()
   const panel = render(
     <TooltipProvider>
