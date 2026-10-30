@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { OrchestrationDb } from './orchestration/db'
 import { createRootDispatch } from './orchestration/db/root-dispatch-test-fixture'
+import { ORCA_LAYOUT_OWNER_IS_MAIN } from '../../shared/layout-owner-switch'
 import {
   createRuntime,
   driveToLiveIdle,
@@ -105,7 +106,7 @@ describe('Run and Dispatch mail for a pane whose PTY was replaced', () => {
     db.close()
   })
 
-  it('wakes a headless Dispatch worker once its replacement PTY handle is adopted', async () => {
+  it('wakes a headless Dispatch worker exactly once by the time its replacement PTY handle is adopted', async () => {
     vi.useFakeTimers()
     const db = new OrchestrationDb(':memory:')
     const harness = createRuntime(db, { headless: true })
@@ -115,10 +116,13 @@ describe('Run and Dispatch mail for a pane whose PTY was replaced', () => {
       coordinatorPaneKey: SECOND_PANE_KEY
     })
     const task = db.createTask({ spec: 'worker', runId: run.id })
-    const dispatch = createRootDispatch(db, task.id, TERMINAL_HANDLE, PANE_KEY)
+    const dispatch = createRootDispatch(db, task.id, 'term_previous_pty_in_pane', PANE_KEY)
     await replacePtyWithoutHandle(harness)
     await deliverWhileIdle(harness, db, `dispatch:${dispatch.id}`, run.id)
-    expect(pointerCount(harness.write)).toBe(0)
+    // Main's layout keeps the pane's own handle across a replacement, so only window layout waits for adoption.
+    if (!ORCA_LAYOUT_OWNER_IS_MAIN) {
+      expect(pointerCount(harness.write)).toBe(0)
+    }
 
     harness.runtime.registerPreAllocatedHandleForPty(PTY_ID, 'term_replacement_env')
     await vi.advanceTimersByTimeAsync(600)
