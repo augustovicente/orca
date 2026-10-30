@@ -3,9 +3,13 @@ import { chmodSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { runProcess } from '@orca/process-host'
 import type * as RunProcess from '@orca/process-host'
 import type { ProcessSpec } from '@orca/process-host/process-spec'
-import { POSIX_PROVIDER_SUPERVISOR_SCRIPT } from '../provider-process/provider-process-supervisor'
+import {
+  createProviderSpawnSpec,
+  POSIX_PROVIDER_SUPERVISOR_SCRIPT
+} from '../provider-process/provider-process-supervisor'
 import { generateCommitMessageFromContext } from './commit-message-text-generation'
 import { withPlatform } from './commit-message-text-generation-test-harness'
 import { spawnSourceControlAgent } from './source-control-agent-launch'
@@ -142,6 +146,17 @@ describe('spawnSourceControlAgent', () => {
 describe.runIf(process.platform !== 'win32')('supervised agent processes', () => {
   it('reports a missing agent binary as not found, as a direct spawn does', async () => {
     const missing = join(folder, 'missing-agent')
+    const original = await runProcess({
+      ...createProviderSpawnSpec(
+        { command: missing, args: [], cwd: folder },
+        process.env,
+        process.platform,
+        { lifetime: 'one-shot' }
+      ),
+      timeoutMs: 5000
+    })
+    expect(original).toMatchObject({ code: 127, stdout: '', timedOut: false })
+    expect(original.stderr).toContain('ENOENT')
 
     await expect(
       generateCommitMessageFromContext(
