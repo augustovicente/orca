@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { closeProviderTimelineRigs } from '../native-chat/agent-session-timeline/provider-timeline-assembler-test-support'
 import { providerStartupFailureFact } from '../native-chat/agent-session-wire/structured-agent-session-failure-text'
 import { openAcpAdapterRig, type AcpAdapterRig } from './acp-structured-adapter.test-support'
+import { AcpConnectionClosedError } from './acp-errors'
 
 afterEach(async () => {
   await closeProviderTimelineRigs()
@@ -36,6 +37,26 @@ describe('an ACP CLI the supervisor could not spawn', () => {
     )
 
     expect(refused).toBeInstanceOf(Error)
+    expect(providerStartupFailureFact(refused)).toMatchObject({ kind: 'cliMissing' })
+  })
+
+  it('marks a start whose stream closed before the exit report, once its close proves the exit', async () => {
+    // No grace: the exit lands only when the adapter's close proves it.
+    const rig = await openAcpAdapterRig({ deps: { stopGraceMs: 0 } })
+
+    const refused = await rig
+      .acquire({
+        onSpawned: async () => {
+          rig.child().spawnAbsence = 'executable'
+          throw new AcpConnectionClosedError('the agent closed its stream')
+        }
+      })
+      .then(
+        () => null,
+        (error: unknown) => error
+      )
+
+    expect(rig.child().exited).toBe(true)
     expect(providerStartupFailureFact(refused)).toMatchObject({ kind: 'cliMissing' })
   })
 })

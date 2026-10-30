@@ -136,13 +136,14 @@ export class AcpStructuredSessionAdapter implements SessionAdapter {
         )
         throw connection ? closed : new AgentSessionPreSpawnError(closed)
       }
+      // Once the exit is proven, the start's error names a CLI or folder the spawn found missing.
+      if (error instanceof Error && connection?.exited) {
+        withProviderSpawnAbsence(error, connection.spawnAbsence)
+      }
       if (connection && exitedOnItsOwn && !isAgentSessionPreSpawnError(error)) {
         throw new AgentSessionAcquisitionExitProvenError(
-          withProviderSpawnAbsence(
-            withObservedProviderExit(
-              new Error(connection.stderrTail() || String(error), { cause: error })
-            ),
-            connection.spawnAbsence
+          withObservedProviderExit(
+            new Error(connection.stderrTail() || String(error), { cause: error })
           )
         )
       }
