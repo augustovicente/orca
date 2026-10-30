@@ -229,7 +229,6 @@ export function AgentSessionContinuationDialog({
               onPick={(agent, draft, entry) =>
                 setPick({ request, agent, surface: draft?.surface, draft, entry })
               }
-              triggerClassName="min-w-0 w-full"
             />
             <div className="min-h-4">
               {preparing ? (

@@ -89,7 +89,6 @@ export function NewWorkspaceComposerAgentSection({
               : translate('auto.components.agent.AgentCombobox.986f946354', 'Blank Terminal')
           }
           onPick={(agent, draft, entry) => onQuickAgentChange(agent, draft?.surface, draft, entry)}
-          triggerClassName="h-9 w-full min-w-0 border-input text-sm focus:border-ring focus:ring-[3px] focus:ring-ring/50"
         >
           <DropdownMenuItem onSelect={() => onQuickAgentChange(null)}>
             {translate('auto.components.agent.AgentCombobox.986f946354', 'Blank Terminal')}

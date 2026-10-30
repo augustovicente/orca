@@ -157,7 +157,6 @@ export function SourceControlAgentActionDialogForm({
               worktreeId={surfaceRows.worktreeId}
               agent={selectedAgent}
               disabled={!surfaceRows.selection.ready || isStarting}
-              triggerClassName="w-full"
               draftForEntry={(entry) =>
                 sourceControlPickerDraft(
                   surfaceRows.launchSelection ?? canonicalSourceControlActionSelection(recipe),

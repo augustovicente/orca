@@ -29,7 +29,6 @@ export function AgentLaunchPicker({
   agent,
   disabled,
   setupDisabled,
-  triggerClassName,
   emptyLabel,
   children,
   onTriggerEnter,
@@ -42,7 +41,6 @@ export function AgentLaunchPicker({
   agent: AgentPickerEntry['agent'] | null
   disabled?: boolean
   setupDisabled?: boolean
-  triggerClassName?: string
   emptyLabel?: string
   children?: ReactNode
   onTriggerEnter?: () => void
@@ -79,7 +77,7 @@ export function AgentLaunchPicker({
             type="button"
             aria-label={translate('agentPicker.select', 'Select agent')}
             variant="outline"
-            className={triggerClassName}
+            className="w-full min-w-0"
             disabled={disabled || model.state !== 'settled'}
             onKeyDown={(event) => {
               if (!open && event.key === 'Enter' && onTriggerEnter) {

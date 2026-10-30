@@ -99,7 +99,6 @@ export function SourceControlActionAgentPickerView({
       model={observation.model}
       agent={props.agent}
       disabled={props.disabled}
-      triggerClassName="w-full"
       emptyLabel={translate(
         'auto.components.settings.SourceControlAiActionRecipeDefaults.ee0e5c2a48',
         'Use default agent'
