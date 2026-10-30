@@ -1,6 +1,7 @@
 import { callGitHubTargetOperation } from './github-work-item-target-request'
 import { requireGitHubWorkItemTargetDetails } from '../../../shared/github/work-item-target'
 import type { GitHubWorkItem, GitHubWorkItemDetails } from '../../../shared/github/work-item-types'
+import type { RuntimeClientTarget } from '../../../shared/runtime-client-target'
 import type { TaskSourceContext } from '../../../shared/task-source-context'
 import type { GitHubOwnerRepo } from '../../../shared/github/pull-request-types'
 import { callRuntimeRpc } from '@/runtime/runtime-rpc-client'
@@ -32,6 +33,7 @@ type GitHubWorkItemDetailsLookupArgs = {
   number: number
   type: 'issue' | 'pr'
   ownerRepo?: GitHubOwnerRepo | null
+  target?: RuntimeClientTarget
 }
 
 function runtimeRepoId(args: Pick<GitHubWorkItemLookupArgs, 'repoId' | 'sourceContext'>): string {
@@ -101,9 +103,11 @@ export async function lookupGitHubWorkItemDetailsForSource(
   const sourceContext = args.sourceContext
   const runtimeHost = getGitHubSourceRuntimeHost(sourceContext)
   const result = await callGitHubTargetOperation<GitHubWorkItemDetails | null>({
-    target: runtimeHost
-      ? { kind: 'environment', environmentId: runtimeHost.environmentId }
-      : { kind: 'local' },
+    target:
+      args.target ??
+      (runtimeHost
+        ? { kind: 'environment', environmentId: runtimeHost.environmentId }
+        : { kind: 'local' }),
     ownerRepo: args.ownerRepo,
     read: true,
     method: 'github.workItemDetails',

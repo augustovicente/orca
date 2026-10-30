@@ -1,4 +1,3 @@
-import { useGitHubTaskPublication } from './github-task-identity'
 import { githubTaskKey, requireGitHubTaskTarget } from './github-task-identity'
 import type { HostedCommentReviewActionsModel } from './use-mobile-tasks-hosted-comment-review-actions'
 import { useCallback } from './mobile-tasks-dependencies'
@@ -20,49 +19,51 @@ import type {
 
 export type useMobileTasksGithubCheckFileActionsInput = Pick<
   HostedCommentReviewActionsModel,
+  | 'claimPublication'
   | 'actionItem'
   | 'detailPayload'
   | 'client'
   | 'expandedPrFilePath'
-  | 'mutatingStatus'
   | 'prFileCommentDrafts'
   | 'prFileContents'
   | 'setDetailPayload'
   | 'setDetailRefreshSeq'
   | 'setError'
   | 'setExpandedPrFilePath'
-  | 'setMutatingStatus'
+  | 'tryBeginMutation'
   | 'setPrFileCommentDrafts'
   | 'setPrFileContents'
-  | 'setPrFileLoadingPath'
+  | 'beginFileLoad'
 >
 
 export function useMobileTasksGithubCheckFileActions<
   Model extends useMobileTasksGithubCheckFileActionsInput
 >(model: Model) {
-  const claimPublication = useGitHubTaskPublication(model)
   const {
+    claimPublication,
     client,
     detailPayload,
     expandedPrFilePath,
-    mutatingStatus,
     prFileCommentDrafts,
     prFileContents,
     setDetailPayload,
     setDetailRefreshSeq,
     setError,
     setExpandedPrFilePath,
-    setMutatingStatus,
+    tryBeginMutation,
     setPrFileCommentDrafts,
     setPrFileContents,
-    setPrFileLoadingPath
+    beginFileLoad
   } = model
   const rerunGitHubChecks = useCallback(
     async (item: Extract<TaskItem, { provider: 'github' }>, failedOnly: boolean): Promise<void> => {
-      if (!client || mutatingStatus || item.source.type !== 'pr') {
+      if (!client || item.source.type !== 'pr') {
         return
       }
-      setMutatingStatus(true)
+      const finish = tryBeginMutation()
+      if (!finish) {
+        return
+      }
       setError('')
       const isCurrent = claimPublication(item, detailPayload)
       try {
@@ -91,12 +92,10 @@ export function useMobileTasksGithubCheckFileActions<
         }
         setError(err instanceof Error ? err.message : 'Failed to rerun checks')
       } finally {
-        if (isCurrent()) {
-          setMutatingStatus(false)
-        }
+        finish()
       }
     },
-    [claimPublication, client, detailPayload, mutatingStatus]
+    [claimPublication, client, detailPayload, tryBeginMutation]
   )
 
   const toggleGitHubFileViewed = useCallback(
@@ -104,7 +103,7 @@ export function useMobileTasksGithubCheckFileActions<
       item: Extract<TaskItem, { provider: 'github' }>,
       file: NonNullable<Extract<DetailPayload, { provider: 'github' }>['files'][number]>
     ): Promise<void> => {
-      if (!client || mutatingStatus || item.source.type !== 'pr') {
+      if (!client || item.source.type !== 'pr') {
         return
       }
       if (
@@ -116,7 +115,10 @@ export function useMobileTasksGithubCheckFileActions<
         return
       }
       const viewed = file.viewerViewedState !== 'VIEWED'
-      setMutatingStatus(true)
+      const finish = tryBeginMutation()
+      if (!finish) {
+        return
+      }
       setError('')
       const isCurrent = claimPublication(item, detailPayload)
       try {
@@ -155,12 +157,10 @@ export function useMobileTasksGithubCheckFileActions<
         }
         setError(err instanceof Error ? err.message : 'Failed to update viewed state')
       } finally {
-        if (isCurrent()) {
-          setMutatingStatus(false)
-        }
+        finish()
       }
     },
-    [claimPublication, client, detailPayload, mutatingStatus]
+    [claimPublication, client, detailPayload, tryBeginMutation]
   )
 
   const toggleGitHubReviewThread = useCallback(
@@ -168,11 +168,14 @@ export function useMobileTasksGithubCheckFileActions<
       item: Extract<TaskItem, { provider: 'github' }>,
       comment: DetailComment
     ): Promise<void> => {
-      if (!client || mutatingStatus || item.source.type !== 'pr' || !comment.threadId) {
+      if (!client || item.source.type !== 'pr' || !comment.threadId) {
         return
       }
       const resolve = !comment.isResolved
-      setMutatingStatus(true)
+      const finish = tryBeginMutation()
+      if (!finish) {
+        return
+      }
       setError('')
       const isCurrent = claimPublication(item, detailPayload)
       try {
@@ -210,12 +213,10 @@ export function useMobileTasksGithubCheckFileActions<
         }
         setError(err instanceof Error ? err.message : 'Failed to update review thread')
       } finally {
-        if (isCurrent()) {
-          setMutatingStatus(false)
-        }
+        finish()
       }
     },
-    [claimPublication, client, mutatingStatus]
+    [claimPublication, client, tryBeginMutation]
   )
 
   const toggleGitHubFileExpansion = useCallback(
@@ -242,9 +243,9 @@ export function useMobileTasksGithubCheckFileActions<
         setError('Unable to load file contents for this pull request.')
         return
       }
-      setPrFileLoadingPath(file.path)
       setError('')
-      const isCurrent = claimPublication(item, detailPayload)
+      const request = beginFileLoad(file.path, claimPublication(item, detailPayload))
+      const isCurrent = request.canPublish
       try {
         const reply = await githubPullRequestFileContentsRead.request(
           client,
@@ -271,12 +272,10 @@ export function useMobileTasksGithubCheckFileActions<
         }
         setError(err instanceof Error ? err.message : 'Failed to load file contents')
       } finally {
-        if (isCurrent()) {
-          setPrFileLoadingPath(null)
-        }
+        request.finish()
       }
     },
-    [claimPublication, client, detailPayload, expandedPrFilePath, prFileContents]
+    [beginFileLoad, claimPublication, client, detailPayload, expandedPrFilePath, prFileContents]
   )
 
   const addGitHubFileReviewComment = useCallback(
@@ -285,7 +284,7 @@ export function useMobileTasksGithubCheckFileActions<
       file: GitHubDetailFile,
       line: number
     ): Promise<void> => {
-      if (!client || mutatingStatus || item.source.type !== 'pr') {
+      if (!client || item.source.type !== 'pr') {
         return
       }
       if (
@@ -301,7 +300,10 @@ export function useMobileTasksGithubCheckFileActions<
       if (!body) {
         return
       }
-      setMutatingStatus(true)
+      const finish = tryBeginMutation()
+      if (!finish) {
+        return
+      }
       setError('')
       const isCurrent = claimPublication(item, detailPayload)
       try {
@@ -349,12 +351,10 @@ export function useMobileTasksGithubCheckFileActions<
         }
         setError(err instanceof Error ? err.message : 'Failed to add review comment')
       } finally {
-        if (isCurrent()) {
-          setMutatingStatus(false)
-        }
+        finish()
       }
     },
-    [claimPublication, client, detailPayload, mutatingStatus, prFileCommentDrafts]
+    [claimPublication, client, detailPayload, tryBeginMutation, prFileCommentDrafts]
   )
   return Object.assign(model, {
     rerunGitHubChecks,

@@ -81,6 +81,9 @@ export function GHCommentComposer({
         type: itemType,
         prRepo
       })
+      if (result.ok) {
+        onCommentAdded(result.comment)
+      }
       if (!mountedRef.current) {
         return
       }
@@ -88,7 +91,6 @@ export function GHCommentComposer({
         setBody('')
         requestAnimationFrame(autoGrow)
         // Why: use GitHub's returned comment so the optimistic row shows the real login/avatar without a reopen.
-        onCommentAdded(result.comment)
       } else {
         toast.error(
           codeHostErrorText(result) ??

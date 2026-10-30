@@ -1,3 +1,4 @@
+import { useTaskActionMountOwners } from '../task-action-mount-owners'
 import { hookMount, performHookAction } from '../hook-mount'
 import { observableModel, projectObservable } from '../observable-model'
 import type { MountAdapter, MountContext, MountedOperation } from '../recording-scenario'
@@ -56,6 +57,8 @@ const GITHUB_PR_ITEM = {
   title: 'A pull request',
   source: {
     id: 'github:pr:12',
+    url: 'https://github.com/owner/repo/pull/12',
+    prRepo: { owner: 'owner', repo: 'repo', host: 'github.com' },
     repoId: REPO_ID,
     number: 12,
     type: 'pr',
@@ -72,6 +75,7 @@ const GITHUB_ISSUE_ITEM = {
   title: 'An issue',
   source: {
     id: 'github:issue:9',
+    url: 'https://github.com/owner/repo/issues/9',
     repoId: REPO_ID,
     number: 9,
     type: 'issue',
@@ -134,12 +138,14 @@ type ModelHookSpec<Actions> = {
 }
 
 function mountModelHook<Actions>(
+  modules: ReturnType<typeof operationModuleLoader>,
   context: MountContext,
   spec: ModelHookSpec<Actions>
 ): MountedOperation {
   const model = observableModel(context, { client: context.client, ...spec.fixture })
   let actions!: Actions
   const hook = hookMount(() => {
+    useTaskActionMountOwners(modules, model, spec.fixture)
     // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the recorder supplies every member the hook reads.
     actions = spec.useHook(model as unknown as never)
   })
@@ -175,9 +181,10 @@ export function taskItemChecksStatusMountAdapters(
     const useActions = load<
       typeof import('../../../tasks/use-mobile-tasks-github-check-file-actions')
     >('use-mobile-tasks-github-check-file-actions.tsx').useMobileTasksGithubCheckFileActions
-    return mountModelHook(context, {
+    return mountModelHook(modules, context, {
       useHook: (model) => useActions(model),
       fixture: {
+        actionItem: GITHUB_PR_ITEM,
         detailPayload: githubDetailPayload(),
         expandedPrFilePath: null,
         mutatingStatus: false,
@@ -219,7 +226,7 @@ export function taskItemChecksStatusMountAdapters(
   }
   function hostedStatus(item: Record<string, unknown>) {
     return (context: Parameters<MountAdapter>[0]) =>
-      mountModelHook(context, {
+      mountModelHook(modules, context, {
         useHook: (model) =>
           load<typeof import('../../../tasks/use-mobile-tasks-gitlab-github-status-actions')>(
             'use-mobile-tasks-gitlab-github-status-actions.tsx'

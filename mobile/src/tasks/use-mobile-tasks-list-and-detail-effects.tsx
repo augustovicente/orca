@@ -5,6 +5,7 @@ import {
   clearMobileTaskCopyFeedbackTimer,
   dropFailedGitHubRepoSlugEntries,
   useCallback,
+  useLayoutEffect,
   useEffect
 } from './mobile-tasks-dependencies'
 import { getTaskPresetQuery, scopeGitHubTaskSearch } from './mobile-tasks-legacy-foundation'
@@ -16,7 +17,6 @@ import {
 export function useMobileTasksListAndDetailEffects(model: ProjectLoadingActionsModel) {
   const {
     actionItem,
-    setMutatingStatus,
     activeGitHubProject,
     activeGitHubProjectViewId,
     appliedGithubProjectSearch,
@@ -47,27 +47,13 @@ export function useMobileTasksListAndDetailEffects(model: ProjectLoadingActionsM
     setCreateTeamId,
     setCreatingTask,
     setError,
-    setExpandedPrFilePath,
-    setExpandedResolvedCommentGroups,
     setGithubProjectError,
     setGithubRepoSlugCache,
-    setItemAddAssigneesDraft,
-    setItemAddLabelsDraft,
-    setItemBodyDraft,
-    setItemCommentDraft,
-    setItemRemoveAssigneesDraft,
-    setItemRemoveLabelsDraft,
-    setItemReplyDrafts,
-    setItemReviewersDraft,
-    setItemTitleDraft,
     setLinearCommentDraft,
     setLinearStates,
     setLinearStatesLoading,
     setLinearSubIssueTitle,
     setLinearTeams,
-    setPrFileCommentDrafts,
-    setPrFileContents,
-    setPrFileLoadingPath,
     showCreateTask,
     showGitHubProjectPicker,
     taskStateHydrated,
@@ -285,11 +271,61 @@ export function useMobileTasksListAndDetailEffects(model: ProjectLoadingActionsM
     }
   }, [client, linearMetadataItem, tasksSupported])
 
+  useMobileTasksItemSelectionEffects(model)
+
+  const detailPayload =
+    model.detailPayload?.provider === 'github' &&
+    (actionItem?.provider !== 'github' ||
+      model.detailPayload.targetKey !== githubTaskKey(actionItem.source))
+      ? null
+      : model.detailPayload
+  return Object.assign(model, { detailPayload, refreshGitHubProject, setTaskCopyFeedbackRootRef })
+}
+
+export type ListAndDetailEffectsModel = ReturnType<typeof useMobileTasksListAndDetailEffects>
+
+export function useMobileTasksItemSelectionEffects(
+  model: Pick<
+    ProjectLoadingActionsModel,
+    | 'actionItem'
+    | 'client'
+    | 'connState'
+    | 'detailPayload'
+    | 'resetPrFiles'
+    | 'setExpandedPrFilePath'
+    | 'setExpandedResolvedCommentGroups'
+    | 'setItemAddAssigneesDraft'
+    | 'setItemAddLabelsDraft'
+    | 'setItemBodyDraft'
+    | 'setItemCommentDraft'
+    | 'setItemRemoveAssigneesDraft'
+    | 'setItemRemoveLabelsDraft'
+    | 'setItemReplyDrafts'
+    | 'setItemReviewersDraft'
+    | 'setItemTitleDraft'
+    | 'setPrFileCommentDrafts'
+  >
+) {
+  const {
+    actionItem,
+    client,
+    connState,
+    resetPrFiles,
+    setExpandedPrFilePath,
+    setExpandedResolvedCommentGroups,
+    setItemAddAssigneesDraft,
+    setItemAddLabelsDraft,
+    setItemBodyDraft,
+    setItemCommentDraft,
+    setItemRemoveAssigneesDraft,
+    setItemRemoveLabelsDraft,
+    setItemReplyDrafts,
+    setItemReviewersDraft,
+    setItemTitleDraft,
+    setPrFileCommentDrafts
+  } = model
   const actionIdentity =
     actionItem?.provider === 'github' ? githubTaskKey(actionItem.source) : actionItem?.key
-  useEffect(() => {
-    setMutatingStatus(false)
-  }, [actionIdentity, client, connState, setMutatingStatus])
 
   const fileRevision =
     model.detailPayload?.provider === 'github'
@@ -299,19 +335,9 @@ export function useMobileTasksListAndDetailEffects(model: ProjectLoadingActionsM
           model.detailPayload.baseSha
         ].join('\0')
       : null
-  useEffect(() => {
-    setExpandedPrFilePath(null)
-    setPrFileContents({})
-    setPrFileLoadingPath(null)
-  }, [
-    actionIdentity,
-    client,
-    connState,
-    fileRevision,
-    setExpandedPrFilePath,
-    setPrFileContents,
-    setPrFileLoadingPath
-  ])
+  useLayoutEffect(() => {
+    resetPrFiles()
+  }, [actionIdentity, client, connState, fileRevision, resetPrFiles])
 
   useEffect(() => {
     if (!actionItem) {
@@ -325,8 +351,7 @@ export function useMobileTasksListAndDetailEffects(model: ProjectLoadingActionsM
       setItemReviewersDraft('')
       setItemReplyDrafts({})
       setExpandedPrFilePath(null)
-      setPrFileContents({})
-      setPrFileLoadingPath(null)
+      resetPrFiles()
       setPrFileCommentDrafts({})
       setExpandedResolvedCommentGroups(new Set())
       return
@@ -341,18 +366,8 @@ export function useMobileTasksListAndDetailEffects(model: ProjectLoadingActionsM
     setItemReviewersDraft('')
     setItemReplyDrafts({})
     setExpandedPrFilePath(null)
-    setPrFileContents({})
-    setPrFileLoadingPath(null)
+    resetPrFiles()
     setPrFileCommentDrafts({})
     setExpandedResolvedCommentGroups(new Set())
   }, [actionItem])
-  const detailPayload =
-    model.detailPayload?.provider === 'github' &&
-    (actionItem?.provider !== 'github' ||
-      model.detailPayload.targetKey !== githubTaskKey(actionItem.source))
-      ? null
-      : model.detailPayload
-  return Object.assign(model, { detailPayload, refreshGitHubProject, setTaskCopyFeedbackRootRef })
 }
-
-export type ListAndDetailEffectsModel = ReturnType<typeof useMobileTasksListAndDetailEffects>

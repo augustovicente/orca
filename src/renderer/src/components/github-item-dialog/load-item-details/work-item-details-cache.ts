@@ -1,10 +1,4 @@
 import type { PRComment } from '../../../../../shared/github/comment-types'
-import {
-  GitHubWorkItemTargetError,
-  matchesGitHubWorkItemTarget,
-  type GitHubWorkItemTarget
-} from '../../../../../shared/github/work-item-target'
-import type { GitHubWorkItem } from '../../../../../shared/github/work-item-types'
 import type { PRCheckDetail } from '../../../../../shared/github/check-types'
 import type {
   GitHubAssignableUser,
@@ -25,6 +19,7 @@ export type WorkItemDetailsCacheEntry = {
   fetchedAt: number
   pending?: Promise<GitHubWorkItemDetails | null>
   error?: string
+  viewed?: { requests: Map<string, object>; paths: ReadonlySet<string> }
 }
 export const optimisticWorkItemComments = new Map<string, PRComment[]>()
 export const workItemDetailsCache = new Map<string, WorkItemDetailsCacheEntry>()
@@ -65,8 +60,9 @@ export function getWorkItemDetailsCacheKey(args: {
 
 export function touchWorkItemDetailsCache(key: string, entry: WorkItemDetailsCacheEntry): void {
   // Reinsert as most recent; Map order supplies the eviction order.
+  const previous = workItemDetailsCache.get(key)
   workItemDetailsCache.delete(key)
-  workItemDetailsCache.set(key, entry)
+  workItemDetailsCache.set(key, { ...entry, viewed: entry.viewed ?? previous?.viewed })
   while (workItemDetailsCache.size > WORK_ITEM_DETAILS_CACHE_MAX) {
     const oldest = workItemDetailsCache.keys().next().value
     if (oldest === undefined) {
@@ -81,6 +77,9 @@ export function touchWorkItemDetailsCache(key: string, entry: WorkItemDetailsCac
 export function invalidateWorkItemDetailsCacheForKey(key: string): void {
   workItemDetailsCacheGeneration += 1
   const existed = workItemDetailsCache.delete(key)
+  if (optimisticWorkItemComments.has(key)) {
+    workItemDetailsCache.set(key, { details: null, fetchedAt: 0 })
+  }
   if (existed) {
     notifyWorkItemDetailsCache()
   }
@@ -111,6 +110,9 @@ export function invalidateWorkItemDetailsCacheByMatch(args: {
     const matches = args.repoId ? keyRepoId === args.repoId : keyRepoPath === args.repoPath
     if (matches) {
       workItemDetailsCache.delete(key)
+      if (optimisticWorkItemComments.has(key)) {
+        workItemDetailsCache.set(key, { details: null, fetchedAt: 0 })
+      }
       removed = true
     }
   }
@@ -217,40 +219,75 @@ if (import.meta !== undefined && import.meta.hot) {
   })
 }
 
-export function getAcceptedWorkItemDetails({
-  cachedEntry,
-  resource,
-  workItem,
-  opt
-}: {
-  cachedEntry: WorkItemDetailsCacheEntry | undefined
-  resource: GitHubWorkItemTarget | null
-  workItem: GitHubWorkItem | null
-  opt: PRComment[]
-}): GitHubWorkItemDetails | null {
-  if (resource && cachedEntry?.error === new GitHubWorkItemTargetError(resource).message) {
+export const EMPTY_VIEWED_PATHS: ReadonlySet<string> = new Set()
+
+export function settleWorkItemComment(key: string, comment: PRComment): void {
+  const previous = workItemDetailsCache.get(key)
+  const comments = optimisticWorkItemComments.get(key) ?? []
+  optimisticWorkItemComments.set(key, [
+    ...comments.filter((item) => item.id !== comment.id),
+    comment
+  ])
+  const details = previous?.details
+  touchWorkItemDetailsCache(key, {
+    ...previous,
+    fetchedAt: 0,
+    error: undefined,
+    details: details
+      ? {
+          ...details,
+          comments: [...details.comments.filter((item) => item.id !== comment.id), comment]
+        }
+      : null
+  })
+}
+
+export function beginWorkItemViewed(key: string, path: string, viewed: boolean) {
+  const entry = workItemDetailsCache.get(key)
+  if (!entry?.details) {
     return null
   }
-  if (workItem && resource && !matchesGitHubWorkItemTarget(workItem, resource)) {
+  const owner = entry.viewed ?? { requests: new Map<string, object>(), paths: EMPTY_VIEWED_PATHS }
+  if (owner.requests.has(path)) {
     return null
   }
-  const cachedDetails = cachedEntry?.details ?? null
-  if (cachedDetails && resource && !matchesGitHubWorkItemTarget(cachedDetails.item, resource)) {
-    return null
-  }
-  if (!cachedDetails) {
-    return null
-  }
-  if (opt.length === 0) {
-    return cachedDetails
-  }
-  const ids = new Set(cachedDetails.comments.map((c) => c.id))
-  const missing = opt.filter((c) => !ids.has(c.id))
-  if (missing.length === 0) {
-    return cachedDetails
-  }
+  const request = {}
+  owner.requests.set(path, request)
+  owner.paths = new Set(owner.requests.keys())
+  touchWorkItemDetailsCache(key, { ...entry, viewed: owner })
+  const previous = patchCachedPRFileViewedState(key, path, viewed ? 'VIEWED' : 'UNVIEWED')
+  const optimisticFile = workItemDetailsCache
+    .get(key)
+    ?.details?.files?.find((file) => file.path === path)
+  const ownsPath = () =>
+    workItemDetailsCache.get(key)?.viewed === owner && owner.requests.get(path) === request
+  let finished = false
   return {
-    ...cachedDetails,
-    comments: [...cachedDetails.comments, ...missing]
+    ownsPath,
+    rollback: () => {
+      if (
+        previous &&
+        ownsPath() &&
+        workItemDetailsCache.get(key)?.details?.files?.find((file) => file.path === path) ===
+          optimisticFile
+      ) {
+        patchCachedPRFileViewedState(key, path, previous)
+      }
+    },
+    finish: () => {
+      if (finished) {
+        return
+      }
+      finished = true
+      if (owner.requests.get(path) !== request) {
+        return
+      }
+      owner.requests.delete(path)
+      owner.paths = new Set(owner.requests.keys())
+      const current = workItemDetailsCache.get(key)
+      if (current?.viewed === owner) {
+        touchWorkItemDetailsCache(key, current)
+      }
+    }
   }
 }

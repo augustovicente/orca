@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState, type SetStateAction } from 'react'
+import type { ActionableTaskItem } from './mobile-tasks-project-workspace-types'
 import type { DetailPayload } from './mobile-tasks-provider-detail-types'
 import type { RpcClient } from '../transport/rpc-client'
 import {
@@ -31,40 +32,58 @@ export function requireGitHubTaskTarget(source: GitHubWorkItem) {
   return target
 }
 
-export function useGitHubTaskPublication(model: {
-  actionItem: TaskItem | null
-  client: RpcClient | null
-  detailPayload?: DetailPayload | null
-}) {
-  const latest = useRef(model)
-  latest.current = model
-  const connection = useRef({ client: model.client, revision: 0 })
-  if (connection.current.client !== model.client) {
-    connection.current = { client: model.client, revision: connection.current.revision + 1 }
-  }
-  useEffect(
-    () =>
-      model.client?.onStateChange((state) => {
-        if (state !== 'connected') {
-          connection.current.revision += 1
-        }
-      }),
-    [model.client]
-  )
-  return useCallback((item: TaskItem, details?: DetailPayload | null) => {
-    const client = latest.current.client
-    const generation = client?.getGeneration?.()
-    const revision = connection.current.revision
-    return () =>
-      item.provider !== 'github' ||
-      (latest.current.client === client &&
-        connection.current.revision === revision &&
-        client?.getState() === 'connected' &&
-        client.getGeneration?.() === generation &&
-        sameGitHubTask(latest.current.actionItem, item) &&
-        (details?.provider !== 'github' ||
-          (latest.current.detailPayload?.provider === 'github' &&
-            latest.current.detailPayload.headSha === details.headSha &&
-            latest.current.detailPayload.baseSha === details.baseSha)))
+export function useMobileTasksSelection(client: RpcClient | null, details: DetailPayload | null) {
+  const [actionItem, publishItem] = useState<ActionableTaskItem | null>(null)
+  const owner = useRef({ item: actionItem, visit: {}, client, revision: 0, details, live: true })
+  useLayoutEffect(() => {
+    const current = owner.current
+    if (current.client !== client) {
+      current.revision += 1
+      current.client = client
+    }
+    current.details = details
+  }, [client, details])
+  useLayoutEffect(() => {
+    owner.current.live = true
+    const stop = client?.onStateChange((state) => {
+      if (state !== 'connected') {
+        owner.current.revision += 1
+      }
+    })
+    return () => {
+      stop?.()
+      owner.current.live = false
+      owner.current.revision += 1
+    }
+  }, [client])
+  const setActionItem = useCallback((update: SetStateAction<ActionableTaskItem | null>) => {
+    const current = owner.current
+    const next = typeof update === 'function' ? update(current.item) : update
+    const key = (item: ActionableTaskItem | null) =>
+      item?.provider === 'github' ? githubTaskKey(item.source) : (item?.key ?? null)
+    if (key(next) !== key(current.item)) {
+      current.visit = {}
+    }
+    current.item = next
+    publishItem(next)
   }, [])
+  const claimPublication = useCallback((item: TaskItem | null, accepted?: DetailPayload | null) => {
+    const current = owner.current
+    const { visit, client: selected, revision } = current
+    const generation = selected?.getGeneration?.()
+    return () =>
+      current.live &&
+      current.visit === visit &&
+      current.client === selected &&
+      current.revision === revision &&
+      selected?.getState() === 'connected' &&
+      selected.getGeneration?.() === generation &&
+      (item?.provider !== 'github' || sameGitHubTask(current.item, item)) &&
+      (accepted?.provider !== 'github' ||
+        (current.details?.provider === 'github' &&
+          current.details.targetKey === accepted.targetKey &&
+          current.details.headSha === accepted.headSha &&
+          current.details.baseSha === accepted.baseSha))
+  }, [])
+  return { actionItem, setActionItem, claimPublication }
 }

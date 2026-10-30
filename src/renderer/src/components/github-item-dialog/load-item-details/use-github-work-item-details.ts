@@ -22,7 +22,6 @@ import type {
 import type { TaskSourceContext } from '../../../../../shared/task-source-context'
 import type { GitHubItemDialogProjectOrigin } from './github-item-dialog-types'
 import {
-  getAcceptedWorkItemDetails,
   WORK_ITEM_DETAILS_FRESH_MS,
   invalidateWorkItemDetailsCacheByMatch,
   invalidateWorkItemDetailsCacheForKey,
@@ -30,10 +29,15 @@ import {
   touchWorkItemDetailsCache,
   workItemDetailsCache,
   workItemDetailsCacheGeneration,
-  optimisticWorkItemComments
+  optimisticWorkItemComments,
+  settleWorkItemComment,
+  EMPTY_VIEWED_PATHS
 } from './work-item-details-cache'
-import { settleWorkItemDetailsFetch } from './work-item-details-fetch-settle'
-import { syncPRFileViewedState, usePRFileViewedPending } from './pr-file-viewed-change'
+import {
+  settleWorkItemDetailsFetch,
+  getAcceptedWorkItemDetails
+} from './work-item-details-fetch-settle'
+import { syncPRFileViewedState } from './pr-file-viewed-change'
 
 export function useGitHubWorkItemDetails({
   workItem,
@@ -57,13 +61,14 @@ export function useGitHubWorkItemDetails({
 }) {
   const [tab, setTab] = useState<ItemDialogTab>(() => normalizeItemDialogTab(workItem, initialTab))
 
-  const { resource, detailsCacheKey, canUseDetailsRepoContext } = useGitHubItemTargetIdentity({
-    workItem,
-    repoPath,
-    effectiveRepoId,
-    sourceContext,
-    projectOrigin
-  })
+  const { resource, detailsCacheKey, canUseDetailsRepoContext, operationTarget } =
+    useGitHubItemTargetIdentity({
+      workItem,
+      repoPath,
+      effectiveRepoId,
+      sourceContext,
+      projectOrigin
+    })
 
   // Why: reset during render so an item switch never paints the previous item's tab.
   const tabResetKey =
@@ -89,20 +94,15 @@ export function useGitHubWorkItemDetails({
     )
   )
 
-  // Wake the details memo on cold-open comment writes before a cache entry exists.
-  const [optimisticTick, setOptimisticTick] = useState(0)
-
   // Depend on stable cache-entry identity rather than a freshly built optimistic array.
   const details = useMemo<GitHubWorkItemDetails | null>(() => {
     return getAcceptedWorkItemDetails({
       cachedEntry,
       resource,
       workItem,
-      opt: optimisticWorkItemComments.get(detailsCacheKey ?? '') ?? []
+      opt: detailsCacheKey ? (optimisticWorkItemComments.get(detailsCacheKey) ?? []) : []
     })
-    // Why: optimisticTick forces this ref-reading memo to re-run on cold-open writes; lint can't see the dependency.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cachedEntry, workItem, detailsCacheKey, optimisticTick, resource])
+  }, [cachedEntry, workItem, detailsCacheKey, resource])
 
   const invalidOpenedItem =
     !!workItem && (!resource || !matchesGitHubWorkItemTarget(workItem, resource))
@@ -124,7 +124,11 @@ export function useGitHubWorkItemDetails({
   // Invalidation can remove an open entry without changing fetch dependencies; a tick forces refetch.
   const [refetchTick, setRefetchTick] = useState(0)
   useEffect(() => {
-    if (workItem && detailsCacheKey && !cachedEntry) {
+    if (
+      workItem &&
+      detailsCacheKey &&
+      (!cachedEntry || (!cachedEntry.details && !cachedEntry.pending && !cachedEntry.error))
+    ) {
       setRefetchTick((n) => n + 1)
     }
   }, [workItem, detailsCacheKey, cachedEntry])
@@ -154,7 +158,8 @@ export function useGitHubWorkItemDetails({
         sourceContext,
         number: workItem.number,
         type: workItem.type,
-        ownerRepo: resource?.repository
+        ownerRepo: resource?.repository,
+        target: operationTarget
       })
 
     // Snapshot invalidation generation so pre-mutation results cannot restore stale cache data.
@@ -183,6 +188,7 @@ export function useGitHubWorkItemDetails({
     workItem,
     detailsCacheKey,
     resource,
+    operationTarget,
     refetchTick,
     rejectedCache,
     invalidOpenedItem
@@ -217,35 +223,13 @@ export function useGitHubWorkItemDetails({
     )
   }, [details?.item.reviewRequests, onReviewRequestsChange, workItem])
 
-  const { pendingViewedPaths, setPendingViewedPaths } = usePRFileViewedPending(detailsCacheKey)
-
+  const pendingViewedPaths = cachedEntry?.viewed?.paths ?? EMPTY_VIEWED_PATHS
   const appendOptimisticComment = useCallback(
     (comment: PRComment) => {
       useAppStore.getState().recordFeatureInteraction('github-tasks')
-      // Do not refetch immediately: gh’s cache could overwrite the new optimistic comment.
-      const optimisticKey = detailsCacheKey ?? ''
-      const optimisticComments = optimisticWorkItemComments.get(optimisticKey) ?? []
-      optimisticWorkItemComments.set(optimisticKey, [...optimisticComments, comment])
-      // Notify concurrent drawers through the cache; mark stale so reopening fetches server fields.
       if (detailsCacheKey) {
-        const prev = workItemDetailsCache.get(detailsCacheKey)
-        if (prev?.details) {
-          const ids = new Set(prev.details.comments.map((c) => c.id))
-          if (!ids.has(comment.id)) {
-            touchWorkItemDetailsCache(detailsCacheKey, {
-              details: {
-                ...prev.details,
-                comments: [...prev.details.comments, comment]
-              },
-              fetchedAt: 0,
-              error: undefined
-            })
-            return
-          }
-        }
+        settleWorkItemComment(detailsCacheKey, comment)
       }
-      // Without a cache entry to notify subscribers, wake the memo through local state.
-      setOptimisticTick((n) => n + 1)
     },
     [detailsCacheKey]
   )
@@ -287,8 +271,7 @@ export function useGitHubWorkItemDetails({
         sourceContext,
         projectOrigin,
         path,
-        viewed,
-        setPendingViewedPaths
+        viewed
       })
     },
     [
@@ -299,8 +282,7 @@ export function useGitHubWorkItemDetails({
       repoPath,
       sourceContext,
       displayWorkItem,
-      effectiveRepoId,
-      setPendingViewedPaths
+      effectiveRepoId
     ]
   )
 

@@ -1,7 +1,7 @@
 import { getTaskSourceCacheScope } from '../../../shared/task-source-context'
 import { getGitHubRuntimeRepoId } from '@/lib/github-source-runtime-context'
 import { callGitHubTargetOperation } from '@/lib/github-work-item-target-request'
-import { useGitHubOperationScope } from './useGitHubOperationScope'
+import { useGitHubOperationOwner } from './useGitHubOperationScope'
 import { useGitHubWorkItemTarget } from '@/components/github-item-dialog/load-item-details/github-work-item-target-context'
 import type { RuntimeClientTarget } from '../../../shared/runtime-client-target'
 import type {
@@ -27,13 +27,19 @@ export function useRepoLabels(
   options?: GitHubMetadataOptions
 ): MetadataListState<string> {
   const bound = useGitHubWorkItemTarget()
-  const target = bound?.target ?? options?.target ?? { kind: 'local' as const }
+  const owner = useGitHubOperationOwner({
+    target: bound?.target ?? options?.target,
+    repoId,
+    repoPath,
+    sourceContext: bound?.sourceContext
+  })
+  const target = owner.target
   const runtimeEnvironmentId = target.kind === 'environment' ? target.environmentId : null
   const repoSelector = runtimeEnvironmentId
     ? (getGitHubRuntimeRepoId(bound?.sourceContext, repoId) ?? repoPath ?? '')
     : (repoId ?? repoPath ?? '')
   const ownerRepo = options?.ownerRepo ?? bound?.resource.repository
-  const operationScope = useGitHubOperationScope(target, repoId, repoPath)
+  const operationScope = owner.scope
   const repositoryKey = ownerRepo
     ? `${repoSelector}::${githubRepoIdentityKey(ownerRepo)}::${bound?.sourceContext ? getTaskSourceCacheScope(bound.sourceContext) : ''}::${operationScope}`
     : `${repoSelector}::${operationScope}`
@@ -79,13 +85,19 @@ export function useRepoAssignees(
   options?: GitHubMetadataOptions
 ): MetadataListState<GitHubAssignableUser> {
   const bound = useGitHubWorkItemTarget()
-  const target = bound?.target ?? options?.target ?? { kind: 'local' as const }
+  const owner = useGitHubOperationOwner({
+    target: bound?.target ?? options?.target,
+    repoId,
+    repoPath,
+    sourceContext: bound?.sourceContext
+  })
+  const target = owner.target
   const runtimeEnvironmentId = target.kind === 'environment' ? target.environmentId : null
   const repoSelector = runtimeEnvironmentId
     ? (getGitHubRuntimeRepoId(bound?.sourceContext, repoId) ?? repoPath ?? '')
     : (repoId ?? repoPath ?? '')
   const ownerRepo = options?.ownerRepo ?? bound?.resource.repository
-  const operationScope = useGitHubOperationScope(target, repoId, repoPath)
+  const operationScope = owner.scope
   const repositoryKey = ownerRepo
     ? `${repoSelector}::${githubRepoIdentityKey(ownerRepo)}::${bound?.sourceContext ? getTaskSourceCacheScope(bound.sourceContext) : ''}::${operationScope}`
     : `${repoSelector}::${operationScope}`

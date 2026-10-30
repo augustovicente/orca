@@ -1,9 +1,5 @@
-import { useAppStore } from '@/store'
-import { useGitHubOperationScope } from '@/hooks/useGitHubOperationScope'
-import {
-  canUseGitHubRepoContext,
-  getGitHubRepoRoutingTarget
-} from '@/lib/github-source-runtime-context'
+import { useGitHubOperationOwner } from '@/hooks/useGitHubOperationScope'
+import { canUseGitHubRepoContext } from '@/lib/github-source-runtime-context'
 import {
   resolvePullRequestRepo,
   parseOwnerRepoFromItemUrl
@@ -40,14 +36,8 @@ export function useGitHubItemTargetIdentity({
   sourceContext?: TaskSourceContext | null
   projectOrigin?: GitHubItemDialogProjectOrigin
 }) {
-  // Include source preference so origin/upstream switches cannot reuse details from the wrong repository.
-  const issueSourcePreference = useAppStore((s) => {
-    if (!repoPath && !effectiveRepoId) {
-      return undefined
-    }
-    return s.repos.find((r) => (effectiveRepoId ? r.id === effectiveRepoId : r.path === repoPath))
-      ?.issueSourcePreference
-  })
+  const owner = useGitHubOperationOwner({ repoId: effectiveRepoId, repoPath, sourceContext })
+  const issueSourcePreference = owner.issueSourcePreference
   const canUseDetailsRepoContext = canUseGitHubRepoContext(repoPath, sourceContext)
   const repository = useMemo(
     () =>
@@ -65,8 +55,7 @@ export function useGitHubItemTargetIdentity({
         : null,
     [workItem, repository]
   )
-  const target = getGitHubRepoRoutingTarget(useAppStore.getState(), effectiveRepoId, sourceContext)
-  const operationScope = useGitHubOperationScope(target, effectiveRepoId, repoPath)
+  const operationScope = owner.scope
   const detailsCacheKey = useMemo(() => {
     if (!workItem || !effectiveRepoId || !canUseDetailsRepoContext) {
       return null
@@ -95,7 +84,7 @@ export function useGitHubItemTargetIdentity({
     operationScope
   ])
 
-  return { resource, detailsCacheKey, canUseDetailsRepoContext }
+  return { resource, detailsCacheKey, canUseDetailsRepoContext, operationTarget: owner.target }
 }
 
 export function useGitHubItemTargetContext({
@@ -107,19 +96,16 @@ export function useGitHubItemTargetContext({
   effectiveRepoId: string | null
   sourceContext?: TaskSourceContext | null
 }) {
-  return useMemo(() => {
-    if (!resource || !effectiveRepoId) {
-      return null
-    }
-    const target = getGitHubRepoRoutingTarget(
-      useAppStore.getState(),
-      effectiveRepoId,
-      sourceContext
-    )
-    return {
-      resource,
-      target,
-      sourceContext
-    }
-  }, [resource, effectiveRepoId, sourceContext])
+  const owner = useGitHubOperationOwner({ repoId: effectiveRepoId, sourceContext })
+  return useMemo(
+    () =>
+      resource && effectiveRepoId
+        ? {
+            resource,
+            target: owner.target,
+            sourceContext
+          }
+        : null,
+    [resource, effectiveRepoId, sourceContext, owner]
+  )
 }

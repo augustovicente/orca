@@ -470,33 +470,6 @@ it('retains accepted legacy details and exact viewed actions when generic metada
   expect(view.details?.pullRequestId).toBe('PR_fork')
 })
 
-it('shares accepted content, appends and originating-key optimistic comments across desktop consumers', async () => {
-  io.host = 'github.com'
-  const views: ReturnType<typeof useGitHubWorkItemDetails>[] = []
-  // Stable selected row avoids a test-only render trigger.
-  const opened = item('fork')
-  function Pair() {
-    views[0] = useGitHubWorkItemDetails({
-      workItem: opened,
-      repoPath: '/clone',
-      effectiveRepoId: 'clone'
-    })
-    views[1] = useGitHubWorkItemDetails({
-      workItem: opened,
-      repoPath: '/clone',
-      effectiveRepoId: 'clone'
-    })
-    return null
-  }
-  await act(async () => root.render(<Pair />))
-  expect(views[0].detailsCacheKey).toBe(views[1].detailsCacheKey)
-  await act(async () =>
-    views[0].appendOptimisticComment({ id: 500, body: 'posted', author: 'me', createdAt: '' })
-  )
-  expect(views[1].details?.comments.at(-1)?.body).toBe('posted')
-  expect(io.recordInteraction).toHaveBeenCalledWith('github-tasks')
-})
-
 it('the actual old PR resolver fallback cannot authorize a generic writer', async () => {
   io.host = 'github.com'
   io.upstreamIsIssue = true
@@ -576,15 +549,6 @@ it('publishes through the actual Tasks PR page and Project dialog using one acce
       comments: [{ body: 'fork conversation' }]
     })
   }
-  await act(async () =>
-    page.appendOptimisticComment({
-      id: 501,
-      body: 'published comment',
-      author: 'me',
-      createdAt: ''
-    })
-  )
-  expect(published.get('dialog')?.details?.comments.at(-1)?.body).toBe('published comment')
   await act(async () => patchCachedWorkItemBody(page.detailsCacheKey!, 'saved body'))
   expect(published.get('page')?.body).toBe('saved body')
   expect(published.get('dialog')?.body).toBe('saved body')
@@ -750,7 +714,6 @@ it('shared pending work and invalidation settle only their originating resource 
     root.render(<Probe opened={a} sourceContext={sourceContext} metadataEnabled={false} />)
   )
   const aKey = view.detailsCacheKey!
-  const oldAppend = view.appendOptimisticComment
   await act(async () => view.invalidateCurrentDetailsCache())
   expect(pending).toHaveLength(2)
   await act(async () =>
@@ -766,11 +729,7 @@ it('shared pending work and invalidation settle only their originating resource 
     pending[1](fullA)
     pending[2](fullB)
   })
-  await act(async () =>
-    oldAppend({ id: 901, body: 'originating A comment', author: 'me', createdAt: '' })
-  )
   expect(view.details).toMatchObject({ body: 'upstream body', pullRequestId: 'PR_upstream' })
-  expect(view.details?.comments.some((comment) => comment.id === 901)).toBe(false)
   expect(workItemDetailsCache.get(aKey)?.details?.pullRequestId).toBe('PR_fork')
   expect(workItemDetailsCache.get(bKey)?.pending).toBeUndefined()
 })

@@ -66,7 +66,7 @@ export function GitHubItemDialogPRTabs({
   ) => void
   tab: ItemDialogTab
   setTab: (tab: ItemDialogTab) => void
-  pendingViewedPaths: Set<string>
+  pendingViewedPaths: ReadonlySet<string>
   onViewedChange: (path: string, viewed: boolean) => Promise<boolean>
 }): React.JSX.Element {
   const body = details?.body ?? ''

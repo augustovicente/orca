@@ -38,7 +38,7 @@ const mutants: Record<string, Mutation> = {
   'terminal-input-send-refused': 'terminal-send-refusal-restores-draft',
   'terminal-worktree-connection-resolved': 'worktree-connection-first-repo',
   'pr-sidebar-checks-refused': 'pr-sidebar-checks-failure-state',
-  'tk-item-detail-metadata': 'assignable-user-avatar-null-collapse',
+  'pr-read-surface': 'assignable-user-avatar-null-collapse',
   'worktree-catalog-snapshot-unreadable': 'worktree-catalog-unchecked-reader',
   'mobile-web-bundle-fetch-paged': 'mobile-web-bundle-chunk-placement'
 }

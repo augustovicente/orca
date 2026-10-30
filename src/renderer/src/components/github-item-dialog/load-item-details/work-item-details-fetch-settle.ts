@@ -1,5 +1,9 @@
+import type { PRComment } from '../../../../../shared/github/comment-types'
+import type { GitHubWorkItem } from '../../../../../shared/github/work-item-types'
+import type { WorkItemDetailsCacheEntry } from './work-item-details-cache'
 import {
   GitHubWorkItemTargetError,
+  matchesGitHubWorkItemTarget,
   requireGitHubWorkItemTargetDetails,
   type GitHubWorkItemTarget
 } from '../../../../../shared/github/work-item-target'
@@ -64,4 +68,42 @@ export function settleWorkItemDetailsFetch(args: {
         error: message
       })
     })
+}
+
+export function getAcceptedWorkItemDetails({
+  cachedEntry,
+  resource,
+  workItem,
+  opt
+}: {
+  cachedEntry: WorkItemDetailsCacheEntry | undefined
+  resource: GitHubWorkItemTarget | null
+  workItem: GitHubWorkItem | null
+  opt: PRComment[]
+}): GitHubWorkItemDetails | null {
+  if (resource && cachedEntry?.error === new GitHubWorkItemTargetError(resource).message) {
+    return null
+  }
+  if (workItem && resource && !matchesGitHubWorkItemTarget(workItem, resource)) {
+    return null
+  }
+  const cachedDetails = cachedEntry?.details ?? null
+  if (cachedDetails && resource && !matchesGitHubWorkItemTarget(cachedDetails.item, resource)) {
+    return null
+  }
+  if (!cachedDetails) {
+    return null
+  }
+  if (opt.length === 0) {
+    return cachedDetails
+  }
+  const ids = new Set(cachedDetails.comments.map((c) => c.id))
+  const missing = opt.filter((c) => !ids.has(c.id))
+  if (missing.length === 0) {
+    return cachedDetails
+  }
+  return {
+    ...cachedDetails,
+    comments: [...cachedDetails.comments, ...missing]
+  }
 }

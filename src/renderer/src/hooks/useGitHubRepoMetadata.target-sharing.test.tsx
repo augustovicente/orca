@@ -1,25 +1,94 @@
 // @vitest-environment happy-dom
 import React, { act } from 'react'
 import { createRoot } from 'react-dom/client'
+import { createServer, type Server } from 'node:http'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { runProcess } from '@orca/process-host'
 import { afterEach, expect, it, vi } from 'vitest'
 import { useRepoAssignees, useRepoLabels } from './useGitHubRepoMetadata'
 import { GitHubWorkItemTargetContext } from '@/components/github-item-dialog/load-item-details/github-work-item-target-context'
+import { useGitHubWorkItemDetails } from '@/components/github-item-dialog/load-item-details/use-github-work-item-details'
 import { listAssignableUsers, listLabels } from '../../../main/github/issue-field-options'
+import { resolveGitHubRepoOperationOwner } from '@/lib/github-source-runtime-context'
 import { create } from 'zustand'
+import {
+  createRuntimeStatusSlice,
+  clearRuntimeEnvironmentConnectionGenerationsForTests
+} from '@/store/slices/runtime-status'
+import type { RuntimeStatusStoreState } from '@/store/slices/runtime-status-types'
+import type { PublicKnownRuntimeEnvironment } from '../../../shared/runtime-environments'
+import type { RuntimeStatus } from '../../../shared/runtime-types'
+import type { GitHubOwnerRepo } from '../../../shared/github/pull-request-types'
+import type { Repo } from '../../../shared/repo-types'
+import type { RuntimeClientTarget } from '../../../shared/runtime-client-target'
+import type { TaskSourceContext } from '../../../shared/task-source-context'
 
-const provider = vi.hoisted(() => ({ exec: vi.fn(), pages: 0 }))
-const metadataStore = create(() => ({
-  unrelated: 0,
-  repos: [
-    { id: 'shared', path: '/shared', ghAccount: 'account-a' },
-    { id: 'other', path: '/other', ghAccount: 'account-a' }
+const provider = vi.hoisted(() => ({ exec: vi.fn(), rpc: vi.fn(), evaluations: 0, rows: 0 }))
+function row(host: 'local' | `runtime:${string}`, user: string): Repo {
+  return {
+    id: 'shared',
+    path: '/shared',
+    executionHostId: host,
+    displayName: 'shared',
+    badgeColor: '',
+    addedAt: 0,
+    ghAccount: { host: 'github.corp', user },
+    issueSourcePreference: host === 'local' ? 'upstream' : 'origin'
+  }
+}
+const ROW_COUNT = 250
+function registeredRows() {
+  return [
+    row('local', 'L'),
+    row('runtime:S', 'A'),
+    row('runtime:unused', 'unused'),
+    ...Array.from({ length: ROW_COUNT - 3 }, (_, index) => ({
+      ...row('runtime:unused', 'unused'),
+      id: `other-${index}`,
+      path: `/other-${index}`
+    }))
   ]
+}
+const metadataStore = create<
+  RuntimeStatusStoreState & {
+    unrelated: number
+    repos: Repo[]
+    settings: { activeRuntimeEnvironmentId: string }
+    recordFeatureInteraction: () => void
+  }
+>()((set, get) => ({
+  ...createRuntimeStatusSlice(set, get),
+  clientHostedBrowserCloseIntentsByEnvironment: {},
+  clearClientHostedBrowserCloseIntents: () => {},
+  unrelated: 0,
+  repos: registeredRows(),
+  settings: { activeRuntimeEnvironmentId: 'S' },
+  recordFeatureInteraction: () => {}
 }))
 vi.mock('@/store', () => ({
   useAppStore: Object.assign(
-    (...args: Parameters<typeof metadataStore>) => metadataStore(...args),
+    (select: (state: ReturnType<typeof metadataStore.getState>) => unknown) =>
+      metadataStore((state) => {
+        provider.evaluations++
+        const repos = new Proxy(state.repos, {
+          get(target, key, receiver) {
+            if (typeof key === 'string' && /^\d+$/.test(key)) {
+              provider.rows++
+            }
+            return Reflect.get(target, key, receiver)
+          }
+        })
+        return select({ ...state, repos })
+      }),
     { getState: () => metadataStore.getState() }
   )
+}))
+vi.mock('@/runtime/runtime-rpc-client', () => ({
+  callRuntimeRpc: provider.rpc,
+  clearRuntimeCompatibilityCache: vi.fn(),
+  clearRecentRuntimeCompatibilityFailure: vi.fn()
 }))
 vi.mock('../../../main/github/gh-utils', () => ({
   acquire: vi.fn(),
@@ -35,110 +104,484 @@ vi.mock('../../../main/github/github-api-repository', () => ({
   ) => ({ ownerRepo, ghOptions: options })
 }))
 const roots: ReturnType<typeof createRoot>[] = []
-afterEach(() => {
+let server: Server | undefined
+let configHome: string | undefined
+const requests: string[] = []
+afterEach(async () => {
   for (const root of roots.splice(0)) {
     act(() => root.unmount())
   }
+  if (server) {
+    await new Promise<void>((resolve, reject) =>
+      server!.close((error) => (error ? reject(error) : resolve()))
+    )
+  }
+  server = undefined
+  if (configHome) {
+    await rm(configHome, { recursive: true, force: true })
+  }
+  configHome = undefined
   vi.unstubAllGlobals()
 })
 
 it.each([10, 100])(
-  'shares production repository lists across %i addressed items, with scope and render isolation',
+  'shares actual paginated gh lists at N=%i with host-owned account/source and separate render/I/O/selector counts',
   async (count) => {
-    provider.pages = 0
-    provider.exec.mockReset().mockImplementation(async (args: string[]) => {
-      // Real list implementations invoke gh --paginate once; model a two-page provider response.
-      expect(args).toContain('--paginate')
-      provider.pages += 2
-      return {
-        stdout: args.some((arg) => arg.includes('/assignees'))
-          ? '{"login":"one"}\n{"login":"two"}'
-          : 'one\ntwo'
-      }
-    })
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
-    const api = {
-      listLabels: vi.fn((args) => listLabels(args.repoPath, 'origin', null, {}, args.ownerRepo)),
-      listAssignableUsers: vi.fn((args) =>
-        listAssignableUsers(args.repoPath, 'origin', null, {}, args.ownerRepo)
+    metadataStore.setState({ unrelated: 0, repos: registeredRows() })
+    requests.length = 0
+    provider.exec.mockReset()
+    provider.rpc.mockReset()
+    configHome = await mkdtemp(join(tmpdir(), 'orca-pr36172-gh-'))
+    server = createServer((request, response) => {
+      const url = new URL(request.url ?? '/', 'http://fixture')
+      requests.push(url.pathname + url.search)
+      const page = url.searchParams.get('page') === '2' ? 2 : 1
+      const [, host, account] = url.pathname.split('/')
+      const value = `${host}-${account}-page${page}`
+      if (page === 1) {
+        const next = new URL(request.url ?? '/', base)
+        next.searchParams.set('page', '2')
+        response.setHeader('Link', `<${next}>; rel="next"`)
+      }
+      response.setHeader('Content-Type', 'application/json')
+      response.end(
+        JSON.stringify(
+          url.pathname.endsWith('/labels') ? [{ name: value }] : [{ login: value, avatar_url: '' }]
+        )
       )
+    })
+    await new Promise<void>((resolve) => server!.listen(0, '127.0.0.1', resolve))
+    const address = server.address()
+    if (!address || typeof address === 'string') {
+      throw new Error('fixture address missing')
     }
-    Object.defineProperty(window, 'api', { configurable: true, value: { gh: api } })
+    const base = `http://127.0.0.1:${address.port}`
+    provider.exec.mockImplementation(
+      async (args: string[], options: { ghAccount?: { user: string }; fixtureHost: string }) => {
+        expect(args).toContain('--paginate')
+        const routed = args.map((arg) =>
+          arg.startsWith('repos/')
+            ? `${base}/${options.fixtureHost}/${options.ghAccount?.user}/${arg}`
+            : arg
+        )
+        // Execute gh's real paginator/parser. Only the I/O URL and throwaway authentication are adapted.
+        const result = await runProcess({
+          program: 'gh',
+          args: routed,
+          env: {
+            PATH: process.env.PATH,
+            SystemRoot: process.env.SystemRoot,
+            TEMP: process.env.TEMP,
+            TMP: process.env.TMP,
+            GH_CONFIG_DIR: configHome,
+            GH_TOKEN: 'fixture-token',
+            GH_ENTERPRISE_TOKEN: 'fixture-token',
+            GH_PROMPT_DISABLED: '1',
+            GH_PAGER: 'cat'
+          },
+          timeoutMs: 10_000
+        })
+        expect(result.code).toBe(0)
+        return { stdout: result.stdout }
+      }
+    )
+    const host = `github-${count}.corp`
+    const source: TaskSourceContext = {
+      kind: 'task-source',
+      provider: 'github',
+      projectId: 'p',
+      hostId: 'runtime:S',
+      repoId: 'shared'
+    }
+    const repository = { owner: 'fork', repo: 'widgets', host }
+    const calls = { status: 0, labels: 0, users: 0, details: 0 }
+    provider.rpc.mockImplementation(
+      async (
+        target: RuntimeClientTarget,
+        method: string,
+        args: { ownerRepo?: GitHubOwnerRepo; number: number }
+      ) => {
+        expect(target).toEqual({ kind: 'environment', environmentId: 'S' })
+        if (method === 'status.get') {
+          calls.status++
+          return { runtimeId: 'S', capabilities: ['github.exact-work-item-target.v1'] }
+        }
+        const { repo } = resolveGitHubRepoOperationOwner(metadataStore.getState(), {
+          repoId: 'shared',
+          target
+        })
+        expect(repo?.executionHostId).toBe('runtime:S')
+        if (method === 'github.workItemDetails') {
+          calls.details++
+          return {
+            item: {
+              id: 'pr:93',
+              repoId: 'shared',
+              number: 93,
+              type: 'pr',
+              title: repo?.ghAccount?.user,
+              url: `https://${host}/fork/widgets/pull/93`,
+              prRepo: repository,
+              state: 'open',
+              labels: [],
+              author: null,
+              updatedAt: ''
+            },
+            body: repo?.ghAccount?.user,
+            comments: []
+          }
+        }
+        const options = { ghAccount: repo?.ghAccount, fixtureHost: 'S' }
+        if (method === 'github.listLabels') {
+          calls.labels++
+          return listLabels(
+            '/shared',
+            repo?.issueSourcePreference,
+            repo?.connectionId,
+            options,
+            args.ownerRepo
+          )
+        }
+        if (method === 'github.listAssignableUsers') {
+          calls.users++
+          return listAssignableUsers(
+            '/shared',
+            repo?.issueSourcePreference,
+            repo?.connectionId,
+            options,
+            args.ownerRepo
+          )
+        }
+        throw new Error(`unexpected method ${method}`)
+      }
+    )
     const renders = new Map<string, number>()
-    function Lists({ repoId }: { repoId: string }) {
-      renders.set(repoId, (renders.get(repoId) ?? 0) + 1)
-      const labels = useRepoLabels(`/${repoId}`, repoId)
-      const users = useRepoAssignees(`/${repoId}`, repoId)
+    function Lists({ name }: { name: string }) {
+      const labels = useRepoLabels('/shared', 'shared')
+      const users = useRepoAssignees('/shared', 'shared')
+      renders.set(name, (renders.get(name) ?? 0) + 1)
       return (
-        <span>
+        <span data-list={name}>
           {labels.data.join(',')}:{users.data.map((user) => user.login).join(',')}
         </span>
       )
     }
-    const host = `github-${count}.corp`
-    const entries = Array.from({ length: count }, (_, index) => ({
-      resource: {
-        repository: { owner: 'fork', repo: 'widgets', host },
-        type: index % 2 ? ('pr' as const) : ('issue' as const),
-        number: index + 1
-      },
-      target: { kind: 'local' as const }
-    }))
-    const other = otherRepositoryTarget(entries[0])
-    const root = createRoot(document.createElement('div'))
+    function Detail() {
+      const view = useGitHubWorkItemDetails({
+        workItem: {
+          id: 'pr:93',
+          repoId: 'shared',
+          number: 93,
+          type: 'pr',
+          title: 'fork',
+          url: `https://${host}/fork/widgets/pull/93`,
+          prRepo: repository,
+          state: 'open',
+          labels: [],
+          author: null,
+          updatedAt: ''
+        },
+        repoPath: '/shared',
+        effectiveRepoId: 'shared',
+        sourceContext: source
+      })
+      return <output>{view.details?.body}</output>
+    }
+    const bound = (number: number) => ({
+      resource: { repository, type: number % 2 ? ('pr' as const) : ('issue' as const), number },
+      target: { kind: 'environment' as const, environmentId: 'S' },
+      sourceContext: source
+    })
+    const contexts = Array.from({ length: count }, (_, index) => bound(index + 1))
+    const container = document.createElement('div')
+    const root = createRoot(container)
     roots.push(root)
     await act(async () =>
       root.render(
         <>
-          {entries.map((bound, index) => (
-            <GitHubWorkItemTargetContext.Provider key={index} value={bound}>
-              <Lists repoId="shared" />
+          <Detail />
+          {Array.from({ length: count }, (_, index) => (
+            <GitHubWorkItemTargetContext.Provider key={index} value={contexts[index]}>
+              <Lists name={String(index)} />
             </GitHubWorkItemTargetContext.Provider>
           ))}
-          <GitHubWorkItemTargetContext.Provider value={other}>
-            <Lists repoId="other" />
-          </GitHubWorkItemTargetContext.Provider>
         </>
       )
     )
-    expect(api.listLabels).toHaveBeenCalledTimes(2)
-    expect(api.listAssignableUsers).toHaveBeenCalledTimes(2)
-    expect(provider.pages).toBe(8)
+    async function loaded(account: string) {
+      await act(async () => {
+        await vi.waitFor(
+          () =>
+            expect(container.querySelector('[data-list="0"]')?.textContent).toBe(
+              `S-${account}-page1,S-${account}-page2:S-${account}-page1,S-${account}-page2`
+            ),
+          { timeout: 10_000 }
+        )
+      })
+    }
+    await loaded('A')
+    expect(container.querySelector('output')?.textContent).toBe('A')
+    expect(calls).toEqual({ labels: 1, users: 1, details: 1, status: 3 })
+    expect(provider.exec).toHaveBeenCalledTimes(2)
+    expect(requests).toHaveLength(4)
     const before = new Map(renders)
-    await act(async () => metadataStore.setState({ unrelated: 1 }))
+    const ioBefore = { ...calls }
+    provider.evaluations = 0
+    provider.rows = 0
+    await act(async () => metadataStore.setState({ unrelated: count }))
     expect(renders).toEqual(before)
+    expect(calls).toEqual(ioBefore)
+    expect(provider.evaluations).toBeGreaterThanOrEqual(2 * count)
+    // Numeric array reads observe the production resolver's actual scans, separately from selected-value evaluations/renders.
+    expect(provider.rows).toBeGreaterThanOrEqual(2 * count * ROW_COUNT)
+    expect(provider.rows).toBeLessThanOrEqual(provider.evaluations * ROW_COUNT * 2)
+    for (const unusedHost of ['local', 'runtime:unused']) {
+      await act(async () =>
+        metadataStore.setState((state) => ({
+          repos: state.repos.map((repo) =>
+            repo.executionHostId === unusedHost
+              ? { ...repo, ghAccount: { host, user: `unused-${count}` } }
+              : repo
+          )
+        }))
+      )
+      expect(renders).toEqual(before)
+      expect(calls).toEqual(ioBefore)
+      expect(requests).toHaveLength(4)
+    }
     await act(async () =>
       metadataStore.setState((state) => ({
         repos: state.repos.map((repo) =>
-          repo.id === 'shared' ? { ...repo, ghAccount: `account-${count}` } : repo
+          repo.executionHostId === 'runtime:S'
+            ? { ...repo, ghAccount: { host, user: 'B' }, issueSourcePreference: 'upstream' }
+            : repo
         )
       }))
     )
-    expect(api.listLabels).toHaveBeenCalledTimes(3)
-    expect(api.listAssignableUsers).toHaveBeenCalledTimes(3)
-    expect(provider.pages).toBe(12)
-    expect(renders.get('other')).toBe(before.get('other'))
-    expect(renders.get('shared')).toBeGreaterThan(before.get('shared')!)
-    // Reopening many same-repo items consumes the warm lists, regardless of kind/number.
-    const extra = createRoot(document.createElement('div'))
-    roots.push(extra)
+    await loaded('B')
+    expect(container.querySelector('output')?.textContent).toBe('B')
+    expect(calls).toEqual({ labels: 2, users: 2, details: 2, status: 6 })
+    expect(provider.exec).toHaveBeenCalledTimes(4)
+    expect(requests).toHaveLength(8)
+    expect(renders.get('0')).toBeGreaterThan(before.get('0')!)
+    // Warm reopen and A re-entry reuse their own repository lists; B data never becomes A's list.
     await act(async () =>
-      extra.render(
-        <GitHubWorkItemTargetContext.Provider value={entries[0]}>
-          <Lists repoId="shared" />
-        </GitHubWorkItemTargetContext.Provider>
-      )
+      metadataStore.setState((state) => ({
+        repos: state.repos.map((repo) =>
+          repo.executionHostId === 'runtime:S' ? { ...row('runtime:S', 'A') } : repo
+        )
+      }))
     )
-    expect(api.listLabels).toHaveBeenCalledTimes(3)
-    expect(api.listAssignableUsers).toHaveBeenCalledTimes(3)
+    await loaded('A')
+    expect(provider.exec).toHaveBeenCalledTimes(4)
+    expect(requests).toHaveLength(8)
   }
 )
 
-function otherRepositoryTarget(
-  bound: NonNullable<React.ContextType<typeof GitHubWorkItemTargetContext>>
-) {
+function environment(revision: number): PublicKnownRuntimeEnvironment {
   return {
-    ...bound,
-    resource: { ...bound.resource, repository: { ...bound.resource.repository, owner: 'other' } }
+    id: 'S',
+    name: 'S',
+    createdAt: 1,
+    updatedAt: revision,
+    pairingRevision: revision,
+    hostKeyFingerprint: 'fixture-host',
+    lastUsedAt: null,
+    runtimeId: null,
+    endpoints: [{ id: 'ws-S', kind: 'websocket', label: 'fixture', endpoint: 'ws://fixture' }],
+    preferredEndpointId: 'ws-S'
   }
 }
+function runtime(runtimeId: string): RuntimeStatus {
+  return {
+    runtimeId,
+    rendererGraphEpoch: 0,
+    graphStatus: 'ready',
+    authoritativeWindowId: null,
+    liveTabCount: 0,
+    liveLeafCount: 0,
+    runtimeProtocolVersion: 3,
+    minCompatibleRuntimeClientVersion: 3
+  }
+}
+it('actual catalog and connected-to-connected status publishers wake the selected owner without an added authority subscription', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+  clearRuntimeEnvironmentConnectionGenerationsForTests()
+  metadataStore.setState({
+    repos: registeredRows(),
+    runtimeEnvironments: [],
+    runtimeStatusByEnvironmentId: new Map()
+  })
+  metadataStore.getState().setRuntimeEnvironments([environment(1)])
+  const { useGitHubOperationOwner } = await import('./useGitHubOperationScope')
+  const container = document.createElement('div')
+  const root = createRoot(container)
+  roots.push(root)
+  let renders = 0
+  function Scope() {
+    const owner = useGitHubOperationOwner({
+      repoId: 'shared',
+      target: { kind: 'environment', environmentId: 'S' }
+    })
+    renders++
+    return <output>{owner.scope}</output>
+  }
+  await act(async () => root.render(<Scope />))
+  const initial = container.textContent
+  await act(async () => metadataStore.getState().setRuntimeEnvironments([environment(2)]))
+  expect(container.textContent).not.toBe(initial)
+  const repaired = container.textContent
+  await act(async () =>
+    metadataStore
+      .getState()
+      .setRuntimeEnvironmentStatus(
+        'S',
+        { status: runtime('one'), checkedAt: 1 },
+        { suppressDisconnectToast: true }
+      )
+  )
+  const beforeMigration = renders
+  await act(async () =>
+    metadataStore
+      .getState()
+      .setRuntimeEnvironmentStatus(
+        'S',
+        { status: runtime('two'), checkedAt: 2 },
+        { suppressDisconnectToast: true }
+      )
+  )
+  expect(container.textContent).not.toBe(repaired)
+  expect(renders).toBeGreaterThan(beforeMigration)
+})
+
+const pendingContext = {
+  resource: {
+    repository: { owner: 'fork', repo: 'widgets', host: 'pending.corp' },
+    type: 'pr' as const,
+    number: 93
+  },
+  target: { kind: 'environment' as const, environmentId: 'S' },
+  sourceContext: {
+    kind: 'task-source' as const,
+    provider: 'github' as const,
+    projectId: 'p',
+    hostId: 'runtime:S' as const,
+    repoId: 'shared'
+  }
+}
+
+it('in-flight account A→B→A publishes only its own details/options and deduplicates the original A requests', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+  metadataStore.setState({ repos: registeredRows() })
+  const host = 'pending.corp'
+  const repository = { owner: 'fork', repo: 'widgets', host }
+  const source: TaskSourceContext = {
+    kind: 'task-source',
+    provider: 'github',
+    projectId: 'p',
+    hostId: 'runtime:S',
+    repoId: 'shared'
+  }
+  const pending: { account: string; method: string; resolve: (value: unknown) => void }[] = []
+  provider.rpc
+    .mockReset()
+    .mockImplementation(async (_target: RuntimeClientTarget, method: string) => {
+      if (method === 'status.get') {
+        return { runtimeId: 'S', capabilities: ['github.exact-work-item-target.v1'] }
+      }
+      const account = resolveGitHubRepoOperationOwner(metadataStore.getState(), {
+        repoId: 'shared',
+        target: { kind: 'environment', environmentId: 'S' }
+      }).repo?.ghAccount?.user
+      if (!account) {
+        throw new Error('missing operation account')
+      }
+      return new Promise((resolve) => pending.push({ account, method, resolve }))
+    })
+  const container = document.createElement('div')
+  const root = createRoot(container)
+  roots.push(root)
+  function Current() {
+    const view = useGitHubWorkItemDetails({
+      workItem: {
+        id: 'pr:93',
+        repoId: 'shared',
+        number: 93,
+        type: 'pr',
+        title: 'fork',
+        url: `https://${host}/fork/widgets/pull/93`,
+        prRepo: repository,
+        state: 'open',
+        labels: [],
+        author: null,
+        updatedAt: ''
+      },
+      repoPath: '/shared',
+      effectiveRepoId: 'shared',
+      sourceContext: source
+    })
+    const lists = useRepoLabels('/shared', 'shared')
+    return (
+      <output>
+        {view.details?.body ?? 'pending'}:{lists.data.join(',')}
+      </output>
+    )
+  }
+  await act(async () =>
+    root.render(
+      <GitHubWorkItemTargetContext.Provider value={pendingContext}>
+        <Current />
+      </GitHubWorkItemTargetContext.Provider>
+    )
+  )
+  expect(pending.filter((entry) => entry.account === 'A')).toHaveLength(2)
+  const change = async (user: string) =>
+    act(async () =>
+      metadataStore.setState((state) => ({
+        repos: state.repos.map((repo) =>
+          repo.executionHostId === 'runtime:S'
+            ? { ...repo, ghAccount: { host: 'github.corp', user } }
+            : repo
+        )
+      }))
+    )
+  await change('B')
+  expect(container.textContent).toBe('pending:')
+  expect(pending.filter((entry) => entry.account === 'B')).toHaveLength(2)
+  const finish = async (account: string) =>
+    act(async () => {
+      for (const entry of pending.filter((entry) => entry.account === account)) {
+        entry.resolve(
+          entry.method === 'github.listLabels'
+            ? [account]
+            : {
+                item: {
+                  id: 'pr:93',
+                  type: 'pr',
+                  number: 93,
+                  title: account,
+                  url: `https://${host}/fork/widgets/pull/93`,
+                  prRepo: repository,
+                  state: 'open',
+                  labels: [],
+                  author: null,
+                  updatedAt: ''
+                },
+                body: account,
+                comments: []
+              }
+        )
+      }
+    })
+  await finish('A')
+  expect(container.textContent).toBe('pending:')
+  await change('A')
+  expect(container.textContent).toBe('A:A')
+  expect(pending).toHaveLength(4)
+  await finish('B')
+  expect(container.textContent).toBe('A:A')
+  await change('B')
+  expect(container.textContent).toBe('B:B')
+  expect(pending).toHaveLength(4)
+})

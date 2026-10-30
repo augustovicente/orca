@@ -1234,7 +1234,7 @@
                   "displayName": "Emoji",
                   "repoIcon": {
                     "type": "emoji",
-                    "emoji": "🐳"
+                    "emoji": "\ud83d\udc33"
                   },
                   "connectionId": "ssh-1"
                 },
@@ -8528,19 +8528,44 @@
         },
         {
           "action": "assignable",
-          "id": "assignable"
+          "id": "assignable",
+          "args": {
+            "fork": true
+          }
+        },
+        {
+          "complete": "status.get#1",
+          "params": {
+            "$undefined": true
+          },
+          "reply": {
+            "ok": true,
+            "result": {
+              "runtimeId": "recorded",
+              "hostDescriptor": {
+                "installationId": "recorded"
+              },
+              "capabilities": ["github.exact-work-item-target.v1"]
+            }
+          }
         },
         {
           "complete": "github.listAssignableUsers#1",
           "params": {
-            "repo": "id:repo-9"
+            "repo": "id:repo-9",
+            "ownerRepo": {
+              "owner": "fork-owner",
+              "repo": "fork-repo",
+              "host": "github.enterprise.test"
+            }
           },
           "reply": {
             "ok": true,
             "result": [
               {
                 "login": "octocat",
-                "name": "Octo Cat"
+                "name": "Octo Cat",
+                "avatarUrl": null
               }
             ]
           }
@@ -11893,32 +11918,6 @@
           "id": "mount"
         },
         {
-          "complete": "github.listLabels#1",
-          "params": {
-            "repo": "id:repo-1"
-          },
-          "reply": {
-            "ok": true,
-            "result": ["bug", "chore"]
-          }
-        },
-        {
-          "complete": "github.listAssignableUsers#1",
-          "params": {
-            "repo": "id:repo-1"
-          },
-          "reply": {
-            "ok": true,
-            "result": [
-              {
-                "login": "octocat",
-                "name": "Octo",
-                "avatarUrl": null
-              }
-            ]
-          }
-        },
-        {
           "checkpoint": "mounted"
         }
       ]
@@ -12502,7 +12501,12 @@
             "body": "a comment",
             "number": 9,
             "repo": "id:repo-1",
-            "type": "issue"
+            "type": "issue",
+            "prRepo": {
+              "owner": "owner",
+              "repo": "repo",
+              "host": "github.com"
+            }
           },
           "reply": {
             "ok": true,
@@ -12542,7 +12546,12 @@
           "params": {
             "prNumber": 12,
             "repo": "id:repo-1",
-            "reviewers": ["octocat"]
+            "reviewers": ["octocat"],
+            "prRepo": {
+              "owner": "owner",
+              "repo": "repo",
+              "host": "github.com"
+            }
           },
           "reply": {
             "ok": true,
@@ -12564,7 +12573,12 @@
             "headSha": "head-sha",
             "noCache": true,
             "prNumber": 12,
-            "repo": "id:repo-1"
+            "repo": "id:repo-1",
+            "prRepo": {
+              "owner": "owner",
+              "repo": "repo",
+              "host": "github.com"
+            }
           },
           "reply": {
             "ok": true,
@@ -12692,7 +12706,12 @@
             "failedOnly": true,
             "headSha": "head-sha",
             "prNumber": 12,
-            "repo": "id:repo-1"
+            "repo": "id:repo-1",
+            "prRepo": {
+              "owner": "owner",
+              "repo": "repo",
+              "host": "github.com"
+            }
           },
           "reply": {
             "ok": true,
@@ -12714,7 +12733,12 @@
             "path": "src/index.ts",
             "pullRequestId": "PR_kwDO",
             "repo": "id:repo-1",
-            "viewed": true
+            "viewed": true,
+            "prRepo": {
+              "owner": "owner",
+              "repo": "repo",
+              "host": "github.com"
+            }
           },
           "reply": {
             "ok": true,
@@ -12733,7 +12757,12 @@
           "params": {
             "repo": "id:repo-1",
             "resolve": true,
-            "threadId": "thread-1"
+            "threadId": "thread-1",
+            "prRepo": {
+              "owner": "owner",
+              "repo": "repo",
+              "host": "github.com"
+            }
           },
           "reply": {
             "ok": true,
@@ -12758,7 +12787,12 @@
             "path": "src/index.ts",
             "prNumber": 12,
             "repo": "id:repo-1",
-            "status": "modified"
+            "status": "modified",
+            "prRepo": {
+              "owner": "owner",
+              "repo": "repo",
+              "host": "github.com"
+            }
           },
           "reply": {
             "ok": true,
@@ -12785,7 +12819,12 @@
             "line": 12,
             "path": "src/index.ts",
             "prNumber": 12,
-            "repo": "id:repo-1"
+            "repo": "id:repo-1",
+            "prRepo": {
+              "owner": "owner",
+              "repo": "repo",
+              "host": "github.com"
+            }
           },
           "reply": {
             "ok": true,
@@ -12831,7 +12870,12 @@
             "path": "src/index.ts",
             "prNumber": 12,
             "repo": "id:repo-1",
-            "threadId": "thread-1"
+            "threadId": "thread-1",
+            "prRepo": {
+              "owner": "owner",
+              "repo": "repo",
+              "host": "github.com"
+            }
           },
           "reply": {
             "ok": true,
@@ -12862,7 +12906,12 @@
             "body": "@octocat a reply",
             "number": 12,
             "repo": "id:repo-1",
-            "type": "pr"
+            "type": "pr",
+            "prRepo": {
+              "owner": "owner",
+              "repo": "repo",
+              "host": "github.com"
+            }
           },
           "reply": {
             "ok": true,
@@ -12889,7 +12938,12 @@
           "params": {
             "method": "squash",
             "prNumber": 12,
-            "repo": "id:repo-1"
+            "repo": "id:repo-1",
+            "prRepo": {
+              "owner": "owner",
+              "repo": "repo",
+              "host": "github.com"
+            }
           },
           "reply": {
             "ok": true,
@@ -13007,6 +13061,22 @@
           "id": "github-metadata-1"
         },
         {
+          "complete": "status.get#1",
+          "params": {
+            "$undefined": true
+          },
+          "reply": {
+            "ok": true,
+            "result": {
+              "runtimeId": "recorded",
+              "hostDescriptor": {
+                "installationId": "recorded"
+              },
+              "capabilities": ["github.exact-work-item-target.v1"]
+            }
+          }
+        },
+        {
           "complete": "github.updateIssue#1",
           "params": {
             "number": 9,
@@ -13015,6 +13085,11 @@
               "addLabels": ["triage"],
               "removeLabels": ["bug"],
               "title": "Renamed"
+            },
+            "ownerRepo": {
+              "owner": "owner",
+              "repo": "repo",
+              "host": "github.com"
             }
           },
           "reply": {
@@ -13090,6 +13165,11 @@
             "updates": {
               "body": "new body",
               "title": "Renamed"
+            },
+            "prRepo": {
+              "owner": "owner",
+              "repo": "repo",
+              "host": "github.com"
             }
           },
           "reply": {
@@ -14180,12 +14260,33 @@
           "id": "issue-state-3"
         },
         {
+          "complete": "status.get#1",
+          "params": {
+            "$undefined": true
+          },
+          "reply": {
+            "ok": true,
+            "result": {
+              "runtimeId": "recorded",
+              "hostDescriptor": {
+                "installationId": "recorded"
+              },
+              "capabilities": ["github.exact-work-item-target.v1"]
+            }
+          }
+        },
+        {
           "complete": "github.updateIssue#1",
           "params": {
             "number": 9,
             "repo": "id:repo-1",
             "updates": {
               "state": "closed"
+            },
+            "ownerRepo": {
+              "owner": "owner",
+              "repo": "repo",
+              "host": "github.com"
             }
           },
           "reply": {
@@ -14209,6 +14310,11 @@
             "repo": "id:repo-1",
             "updates": {
               "state": "closed"
+            },
+            "prRepo": {
+              "owner": "owner",
+              "repo": "repo",
+              "host": "github.com"
             }
           },
           "reply": {
@@ -21509,7 +21615,10 @@
           "reply": {
             "ok": true,
             "result": {
-              "clear": { "handle": "terminal-1", "cleared": true }
+              "clear": {
+                "handle": "terminal-1",
+                "cleared": true
+              }
             }
           }
         },

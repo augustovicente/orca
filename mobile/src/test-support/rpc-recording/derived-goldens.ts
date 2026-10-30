@@ -1,5 +1,5 @@
 import { hoistPreludeCheckpoints } from './prelude-checkpoints'
-import { driveReplyMatrix, replyMatrixGoldenId, replyMatrixSites } from './reply-matrix'
+import { driveReplyMatrix, replyMatrixGoldenId, matrixSites } from './reply-matrix'
 import { replyMatrixNormalResult } from './reply-matrix-normal-result'
 import {
   bindCompletions,
@@ -93,7 +93,8 @@ export function familyGoldens(manifest: readonly RecordingScenario[]): DerivedGo
     if (!base) {
       throw new Error(`Family has no scenario: ${family}`)
     }
-    for (const site of replyMatrixSites(base)) {
+    // No-demand producers still have a pilot recording, but no RPC replies to partition.
+    for (const { id: site } of matrixSites(base)) {
       const id = replyMatrixGoldenId(family, site)
       if (ids.has(id)) {
         throw new Error(`Two matrix sites share a golden: ${id}`)

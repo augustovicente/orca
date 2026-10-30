@@ -1,13 +1,11 @@
-import { useCallback, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { setPRFileViewedForRepo } from '@/components/github/github-work-item-comment-mutations'
 import { resolvePullRequestRepo } from '@/components/github/github-work-item-identity'
 import { translate } from '@/i18n/i18n'
-import type { GitHubPRFileViewedState } from '../../../../../shared/github/pull-request-types'
 import type { GitHubWorkItem } from '../../../../../shared/github/work-item-types'
 import type { TaskSourceContext } from '../../../../../shared/task-source-context'
 import type { GitHubItemDialogProjectOrigin } from './github-item-dialog-types'
-import { patchCachedPRFileViewedState } from './work-item-details-cache'
+import { beginWorkItemViewed } from './work-item-details-cache'
 
 export async function syncPRFileViewedState(args: {
   canUseDetailsRepoContext: boolean
@@ -20,7 +18,6 @@ export async function syncPRFileViewedState(args: {
   projectOrigin?: GitHubItemDialogProjectOrigin
   path: string
   viewed: boolean
-  setPendingViewedPaths: (updater: (prev: Set<string>) => Set<string>) => void
 }): Promise<boolean> {
   const {
     canUseDetailsRepoContext,
@@ -31,8 +28,7 @@ export async function syncPRFileViewedState(args: {
     sourceContext,
     projectOrigin,
     path,
-    viewed,
-    setPendingViewedPaths
+    viewed
   } = args
   if (!canUseDetailsRepoContext || !pullRequestId || !workItem || workItem.type !== 'pr') {
     toast.error(
@@ -43,11 +39,10 @@ export async function syncPRFileViewedState(args: {
     )
     return false
   }
-  setPendingViewedPaths((prev) => new Set(prev).add(path))
-  const nextState: GitHubPRFileViewedState = viewed ? 'VIEWED' : 'UNVIEWED'
-  const previousState = detailsCacheKey
-    ? patchCachedPRFileViewedState(detailsCacheKey, path, nextState)
-    : undefined
+  const claim = detailsCacheKey ? beginWorkItemViewed(detailsCacheKey, path, viewed) : null
+  if (!claim) {
+    return false
+  }
   try {
     const ok = await setPRFileViewedForRepo({
       repoId: args.effectiveRepoId ?? workItem.repoId,
@@ -60,9 +55,7 @@ export async function syncPRFileViewedState(args: {
       viewed
     })
     if (!ok) {
-      if (detailsCacheKey && previousState) {
-        patchCachedPRFileViewedState(detailsCacheKey, path, previousState)
-      }
+      claim.rollback()
       toast.error(
         translate(
           'auto.components.GitHubItemDialog.b7bf31b8de',
@@ -74,9 +67,7 @@ export async function syncPRFileViewedState(args: {
     return true
   } catch (err) {
     // Why: an RPC timeout or IPC throw must roll the optimistic patch back, else the shared cache keeps claiming the file is viewed.
-    if (detailsCacheKey && previousState) {
-      patchCachedPRFileViewedState(detailsCacheKey, path, previousState)
-    }
+    claim.rollback()
     toast.error(
       err instanceof Error
         ? err.message
@@ -87,34 +78,6 @@ export async function syncPRFileViewedState(args: {
     )
     return false
   } finally {
-    setPendingViewedPaths((prev) => {
-      const next = new Set(prev)
-      next.delete(path)
-      return next
-    })
+    claim.finish()
   }
-}
-
-export function usePRFileViewedPending(detailsCacheKey: string | null) {
-  const currentKeyRef = useRef(detailsCacheKey)
-  currentKeyRef.current = detailsCacheKey
-  const [viewedPending, setViewedPending] = useState<{ key: string | null; paths: Set<string> }>(
-    () => ({ key: detailsCacheKey, paths: new Set() })
-  )
-  const pendingViewedPaths =
-    viewedPending.key === detailsCacheKey ? viewedPending.paths : new Set<string>()
-  const setPendingViewedPaths = useCallback(
-    (update: (paths: Set<string>) => Set<string>) => {
-      if (currentKeyRef.current !== detailsCacheKey) {
-        return
-      }
-      setViewedPending((previous) => ({
-        key: detailsCacheKey,
-        paths: update(previous.key === detailsCacheKey ? previous.paths : new Set())
-      }))
-    },
-    [detailsCacheKey]
-  )
-
-  return { pendingViewedPaths, setPendingViewedPaths }
 }

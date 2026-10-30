@@ -73,7 +73,7 @@ export function PullRequestPageTabs({
   localState: GitHubWorkItem['state']
   setLocalState: (state: GitHubWorkItem['state']) => void
   detailsCacheKey: string | null
-  pendingViewedPaths: Set<string>
+  pendingViewedPaths: ReadonlySet<string>
   invalidateCurrentDetailsCache: () => void
   appendOptimisticComment: (comment: PRComment) => void
   handlePRFileViewedChange: (path: string, viewed: boolean) => Promise<boolean>

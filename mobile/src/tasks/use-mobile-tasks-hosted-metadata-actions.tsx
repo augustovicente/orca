@@ -1,4 +1,3 @@
-import { useGitHubTaskPublication } from './github-task-identity'
 import { githubTaskKey, sameGitHubTask, requireGitHubTaskTarget } from './github-task-identity'
 import type { GitlabGithubStatusActionsModel } from './use-mobile-tasks-gitlab-github-status-actions'
 import { useCallback } from './mobile-tasks-dependencies'
@@ -11,10 +10,11 @@ import {
 
 export type useMobileTasksHostedMetadataActionsInput = Pick<
   GitlabGithubStatusActionsModel,
+  | 'claimPublication'
   | 'actionItem'
   | 'detailPayload'
   | 'client'
-  | 'loadTasks'
+  | 'captureTaskListRefresh'
   | 'mutatingStatus'
   | 'setActionItem'
   | 'setDetailPayload'
@@ -24,18 +24,18 @@ export type useMobileTasksHostedMetadataActionsInput = Pick<
   | 'setItemRemoveAssigneesDraft'
   | 'setItemRemoveLabelsDraft'
   | 'setItems'
-  | 'setMutatingStatus'
+  | 'tryBeginMutation'
 >
 
 export function useMobileTasksHostedMetadataActions<
   Model extends useMobileTasksHostedMetadataActionsInput
 >(model: Model) {
-  const claimPublication = useGitHubTaskPublication(model)
   const {
+    claimPublication,
     client,
     detailPayload,
-    loadTasks,
-    mutatingStatus,
+    captureTaskListRefresh,
+    tryBeginMutation,
     setActionItem,
     setDetailPayload,
     setError,
@@ -43,22 +43,25 @@ export function useMobileTasksHostedMetadataActions<
     setItemAddLabelsDraft,
     setItemRemoveAssigneesDraft,
     setItemRemoveLabelsDraft,
-    setItems,
-    setMutatingStatus
+    setItems
   } = model
   const updateGitHubPullRequestMetadata = useCallback(
     async (
       item: Extract<TaskItem, { provider: 'github' }>,
       updates: { title?: string; body?: string }
     ): Promise<void> => {
-      if (!client || mutatingStatus || item.source.type !== 'pr') {
+      if (!client || item.source.type !== 'pr') {
         return
       }
       const nextTitle = updates.title?.trim()
       if (updates.title !== undefined && !nextTitle) {
         return
       }
-      setMutatingStatus(true)
+      const finish = tryBeginMutation()
+      if (!finish) {
+        return
+      }
+      const refreshList = captureTaskListRefresh()
       setError('')
       const isCurrent = claimPublication(item)
       try {
@@ -79,6 +82,7 @@ export function useMobileTasksHostedMetadataActions<
         if (result.ok === false) {
           throw new Error(result.error ?? 'Failed to update GitHub pull request')
         }
+        refreshList()
         if (!isCurrent()) {
           return
         }
@@ -111,19 +115,16 @@ export function useMobileTasksHostedMetadataActions<
               : current
           )
         }
-        await loadTasks({ silent: true })
       } catch (err) {
         if (!isCurrent()) {
           return
         }
         setError(err instanceof Error ? err.message : 'Failed to update GitHub pull request')
       } finally {
-        if (isCurrent()) {
-          setMutatingStatus(false)
-        }
+        finish()
       }
     },
-    [claimPublication, client, loadTasks, mutatingStatus]
+    [claimPublication, client, captureTaskListRefresh, tryBeginMutation]
   )
 
   const updateGitLabIssueMetadata = useCallback(
@@ -138,10 +139,14 @@ export function useMobileTasksHostedMetadataActions<
         removeAssignees?: string[]
       }
     ): Promise<void> => {
-      if (!client || mutatingStatus) {
+      if (!client) {
         return
       }
-      setMutatingStatus(true)
+      const finish = tryBeginMutation()
+      if (!finish) {
+        return
+      }
+      const refreshList = captureTaskListRefresh()
       setError('')
       try {
         const updated =
@@ -246,14 +251,14 @@ export function useMobileTasksHostedMetadataActions<
           setItemAddAssigneesDraft('')
           setItemRemoveAssigneesDraft('')
         }
-        await loadTasks({ silent: true })
+        refreshList()
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to update GitLab item')
       } finally {
-        setMutatingStatus(false)
+        finish()
       }
     },
-    [claimPublication, client, detailPayload, loadTasks, mutatingStatus]
+    [claimPublication, client, detailPayload, captureTaskListRefresh, tryBeginMutation]
   )
   return Object.assign(model, { updateGitHubPullRequestMetadata, updateGitLabIssueMetadata })
 }
