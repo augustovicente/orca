@@ -443,21 +443,26 @@ describe('legacy coordinator takeover races', () => {
     expect(mutationReceiptCount(harness.db)).toBe(0)
   })
 
-  it('keeps concurrent duplicates on the live wait result', async () => {
+  it('reports a committed ACK when coordinator takeover interrupts its wait', async () => {
     const harness = createHarness()
-    harness.db.insertMessage({
+    const incoming = harness.db.insertMessage({
       runId: harness.adoptedRunId,
       from: WORKER_HANDLE,
       to: `run:${harness.adoptedRunId}`,
-      subject: 'first delivery'
+      subject: 'ready to acknowledge'
     })
-    await harness.dispatcher.dispatch(
+    const first = await harness.dispatcher.dispatch(
       request(
         'orchestration.check',
         { terminal: COORDINATOR_HANDLE, run: harness.adoptedRunId },
-        'check-first-delivery'
+        'check-delivery-before-takeover'
       )
     )
+    expect(first).toMatchObject({
+      ok: true,
+      result: { deliveryId: expect.any(String), messages: [{ id: incoming.id }] }
+    })
+    const deliveryId = (first as { result: { deliveryId: string } }).result.deliveryId
     let resolveWait: (() => void) | undefined
     let signalWaitStarted: (() => void) | undefined
     const waitStarted = new Promise<void>((resolve) => {
@@ -470,25 +475,87 @@ describe('legacy coordinator takeover races', () => {
           signalWaitStarted?.()
         })
     )
-    const waitRequest = request(
+    const pending = harness.dispatcher.dispatch(
+      request(
+        'orchestration.check',
+        {
+          terminal: COORDINATOR_HANDLE,
+          run: harness.adoptedRunId,
+          ack: deliveryId,
+          wait: true,
+          timeoutMs: 10_000
+        },
+        'check-ack-takeover'
+      )
+    )
+    await waitStarted
+    expect(harness.db.getMessageById(incoming.id)?.read).toBe(1)
+    settleLegacyWorkerAndTakeOver(harness, 'settled during acknowledged wait')
+    resolveWait?.()
+
+    await expect(pending).resolves.toMatchObject({
+      ok: true,
+      result: {
+        acknowledged: deliveryId,
+        count: 0,
+        waitInterrupted: 'consumer_fenced',
+        mutation: { requestId: 'check-ack-takeover', replayed: false }
+      }
+    })
+    const sqlite = (harness.db as unknown as { db: Database.Database }).db
+    expect(sqlite.prepare('SELECT state FROM mutation_receipts').get()).toEqual({
+      state: 'completed'
+    })
+  })
+
+  it('keeps concurrent duplicates on the live ACK-and-wait result', async () => {
+    const harness = createHarness()
+    harness.db.insertMessage({
+      runId: harness.adoptedRunId,
+      from: WORKER_HANDLE,
+      to: `run:${harness.adoptedRunId}`,
+      subject: 'first delivery'
+    })
+    const firstCheck = await harness.dispatcher.dispatch(
+      request(
+        'orchestration.check',
+        { terminal: COORDINATOR_HANDLE, run: harness.adoptedRunId },
+        'check-first-delivery'
+      )
+    )
+    const deliveryId = (firstCheck as { result: { deliveryId: string } }).result.deliveryId
+    let resolveWait: (() => void) | undefined
+    let signalWaitStarted: (() => void) | undefined
+    const waitStarted = new Promise<void>((resolve) => {
+      signalWaitStarted = resolve
+    })
+    vi.spyOn(harness.runtime, 'waitForMessage').mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveWait = () => resolve(new MessageWake())
+          signalWaitStarted?.()
+        })
+    )
+    const ackRequest = request(
       'orchestration.check',
       {
         terminal: COORDINATOR_HANDLE,
         run: harness.adoptedRunId,
+        ack: deliveryId,
         wait: true,
         timeoutMs: 10_000
       },
-      'check-wait-concurrent'
+      'check-ack-concurrent'
     )
-    const original = harness.dispatcher.dispatch(waitRequest)
+    const original = harness.dispatcher.dispatch(ackRequest)
     await waitStarted
     const secondLiveDispatcher = new RpcDispatcher({
       runtime: harness.runtime,
       methods: ORCHESTRATION_METHODS
     })
     const duplicate = secondLiveDispatcher.dispatch({
-      ...waitRequest,
-      id: 'rpc_check-wait-concurrent-duplicate'
+      ...ackRequest,
+      id: 'rpc_check-ack-concurrent-duplicate'
     })
     let duplicateSettled = false
     void duplicate.then(() => {
@@ -509,14 +576,14 @@ describe('legacy coordinator takeover races', () => {
       ok: true,
       result: {
         messages: [{ id: arrived.id }],
-        mutation: { requestId: 'check-wait-concurrent', replayed: false }
+        mutation: { requestId: 'check-ack-concurrent', replayed: false }
       }
     })
     expect(duplicateResult).toMatchObject({
       ok: true,
       result: {
         messages: [{ id: arrived.id }],
-        mutation: { requestId: 'check-wait-concurrent', replayed: true }
+        mutation: { requestId: 'check-ack-concurrent', replayed: true }
       }
     })
   })

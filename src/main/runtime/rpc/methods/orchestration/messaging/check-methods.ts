@@ -1,5 +1,4 @@
-import { z } from 'zod'
-import { defineMethod, type RpcContext } from '../../../core'
+import { defineMethod } from '../../../core'
 import { OrchestrationError } from '../../../../orchestration/orchestration-error'
 import { CheckParams } from '../schemas'
 import { parseMessageTypes } from '../routing'
@@ -16,114 +15,105 @@ import {
   isSupersededDispatch
 } from './dispatch-mailbox-fence'
 
-type CheckParamsInput = z.infer<typeof CheckParams>
-
 export const ORCHESTRATION_CHECK_METHODS = [
   defineMethod({
     name: 'orchestration.check',
     permission: 'workspace',
     params: CheckParams,
-    handler: async (params, context) => {
-      if (!params.ack || !params.wait) {
-        return checkMailbox(params, context)
+    handler: async (
+      params,
+      {
+        orchestrationCompatibilityEvidence,
+        orchestrationCaller,
+        runtime,
+        signal,
+        legacyCoordinatorRunId,
+        revalidateLegacyCoordinator,
+        recordMutationReceipt
       }
-      // A waiting caller reads what the wait takes, so --ack --wait keeps acknowledge-then-take.
-      await checkMailbox({ ...params, wait: false }, context)
-      const taken = await checkMailbox({ ...params, ack: undefined }, context)
-      return { ...z.looseObject({}).parse(taken), acknowledged: params.ack }
+    ) => {
+      const db = runtime.getOrchestrationDb()
+      const handle = params.terminal ?? 'unknown'
+      const typeFilter = parseMessageTypes(params.types)
+
+      const caller = orchestrationCallerIdentity(runtime, {
+        handle,
+        session: orchestrationCaller,
+        // Why: a live runtime handle is authoritative; pane metadata is only the restart fallback.
+        paneKey: runtime.getTerminalPaneKey(handle) ?? params.terminalPaneKey
+      })
+      const paneKey = caller.paneKey ?? undefined
+      const boundRun = hasRunBindingKey(caller) ? db.getCurrentRunForCoordinator(caller) : undefined
+      const consumingCheck = params.peek !== true && params.all !== true && params.unread !== false
+      if (params.run || boundRun) {
+        const result = await checkRunMailbox({
+          params,
+          runtime,
+          db,
+          handle,
+          paneKey,
+          callerSession: orchestrationCaller,
+          typeFilter,
+          signal,
+          legacyCoordinatorRunId,
+          revalidateLegacyCoordinator,
+          orchestrationCompatibilityEvidence,
+          recordMutationReceipt
+        })
+        return consumingCheck && !(params.ack && !params.wait)
+          ? withRunCheckNext(runtime, result)
+          : result
+      }
+
+      const activeDispatch = db.getActiveDispatchForIdentity(handle, paneKey)
+      // Why: reading another pane's Dispatch mail is wrong in every mode, so peek is fenced too.
+      if (activeDispatch && !callerHoldsDispatchPane(activeDispatch, paneKey)) {
+        throw dispatchFenced()
+      }
+      const remoteAttachment =
+        !activeDispatch && paneKey ? db.findActiveRemoteAttachmentForPane(paneKey) : undefined
+      if (
+        remoteAttachment &&
+        !db.isRemoteAttachmentProcessCurrent({
+          dispatchId: remoteAttachment.dispatch_id,
+          paneKey: paneKey ?? null,
+          processIncarnation: runtime.getTerminalProcessIncarnation(handle)
+        })
+      ) {
+        throw new OrchestrationError(
+          'dispatch_inactive',
+          `Dispatch ${remoteAttachment.dispatch_id} is no longer attached to this worker process.`
+        )
+      }
+      if (activeDispatch || remoteAttachment) {
+        return checkWorkerMailbox({
+          params,
+          runtime,
+          db,
+          handle,
+          paneKey,
+          typeFilter,
+          signal,
+          activeDispatch,
+          remoteAttachment,
+          recordMutationReceipt,
+          acknowledgeOnly: !params.wait
+        })
+      }
+      // A superseded Attempt must receive a stop signal, not an empty checkpoint; this outranks pane rebind advice.
+      const settledDispatch = consumingCheck ? db.getLatestDispatchForTerminal(handle) : undefined
+      if (settledDispatch && isSupersededDispatch(settledDispatch)) {
+        throw dispatchFenced()
+      }
+      // Without a live pane or Dispatch, an empty consuming inbox would disguise a stale caller as still waiting.
+      if (!hasRunBindingKey(caller) && consumingCheck) {
+        throw new OrchestrationError(
+          'stable_pane_required',
+          `Terminal ${handle} has no live pane and no active Dispatch, so a consuming check here can never receive mail. Run check from the agent's own live terminal.`,
+          orchestrationSkillRecoveryData()
+        )
+      }
+      return checkDirectMailbox({ params, runtime, db, handle, typeFilter, signal })
     }
   })
 ]
-
-async function checkMailbox(
-  params: CheckParamsInput,
-  {
-    orchestrationCompatibilityEvidence,
-    orchestrationCaller,
-    runtime,
-    signal,
-    legacyCoordinatorRunId,
-    revalidateLegacyCoordinator,
-    recordMutationReceipt
-  }: RpcContext
-): Promise<unknown> {
-  const db = runtime.getOrchestrationDb()
-  const handle = params.terminal ?? 'unknown'
-  const typeFilter = parseMessageTypes(params.types)
-
-  const caller = orchestrationCallerIdentity(runtime, {
-    handle,
-    session: orchestrationCaller,
-    // Why: a live runtime handle is authoritative; pane metadata is only the restart fallback.
-    paneKey: runtime.getTerminalPaneKey(handle) ?? params.terminalPaneKey
-  })
-  const paneKey = caller.paneKey ?? undefined
-  const boundRun = hasRunBindingKey(caller) ? db.getCurrentRunForCoordinator(caller) : undefined
-  const consumingCheck = params.peek !== true && params.all !== true && params.unread !== false
-  if (params.run || boundRun) {
-    const result = await checkRunMailbox({
-      params,
-      runtime,
-      db,
-      handle,
-      paneKey,
-      callerSession: orchestrationCaller,
-      typeFilter,
-      signal,
-      legacyCoordinatorRunId,
-      revalidateLegacyCoordinator,
-      orchestrationCompatibilityEvidence,
-      recordMutationReceipt
-    })
-    return consumingCheck && !params.ack ? withRunCheckNext(runtime, result) : result
-  }
-
-  const activeDispatch = db.getActiveDispatchForIdentity(handle, paneKey)
-  // Why: reading another pane's Dispatch mail is wrong in every mode, so peek is fenced too.
-  if (activeDispatch && !callerHoldsDispatchPane(activeDispatch, paneKey)) {
-    throw dispatchFenced()
-  }
-  const remoteAttachment =
-    !activeDispatch && paneKey ? db.findActiveRemoteAttachmentForPane(paneKey) : undefined
-  if (
-    remoteAttachment &&
-    !db.isRemoteAttachmentProcessCurrent({
-      dispatchId: remoteAttachment.dispatch_id,
-      paneKey: paneKey ?? null,
-      processIncarnation: runtime.getTerminalProcessIncarnation(handle)
-    })
-  ) {
-    throw new OrchestrationError(
-      'dispatch_inactive',
-      `Dispatch ${remoteAttachment.dispatch_id} is no longer attached to this worker process.`
-    )
-  }
-  if (activeDispatch || remoteAttachment) {
-    return checkWorkerMailbox({
-      params,
-      runtime,
-      db,
-      handle,
-      paneKey,
-      typeFilter,
-      signal,
-      activeDispatch,
-      remoteAttachment,
-      recordMutationReceipt
-    })
-  }
-  // A superseded Attempt must receive a stop signal, not an empty checkpoint; this outranks pane rebind advice.
-  const settledDispatch = consumingCheck ? db.getLatestDispatchForTerminal(handle) : undefined
-  if (settledDispatch && isSupersededDispatch(settledDispatch)) {
-    throw dispatchFenced()
-  }
-  // Without a live pane or Dispatch, an empty consuming inbox would disguise a stale caller as still waiting.
-  if (!hasRunBindingKey(caller) && consumingCheck) {
-    throw new OrchestrationError(
-      'stable_pane_required',
-      `Terminal ${handle} has no live pane and no active Dispatch, so a consuming check here can never receive mail. Run check from the agent's own live terminal.`,
-      orchestrationSkillRecoveryData()
-    )
-  }
-  return checkDirectMailbox({ params, runtime, db, handle, typeFilter, signal })
-}

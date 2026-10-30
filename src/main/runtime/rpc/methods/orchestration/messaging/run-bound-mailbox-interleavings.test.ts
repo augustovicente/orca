@@ -78,12 +78,14 @@ describe('Run binding during Dispatch checks', () => {
 
   describe.each(['runCreate', 'runUse'] as const)('%s', (method) => {
     it.each(['parked', 'recovering'] as const)(
-      'cancels a %s Dispatch wait when its pane binds a Run',
+      'cancels a %s Dispatch wait and preserves its ack',
       async (phase) => {
         const old = residual('before bind')
-        await check()
+        const ack = deliveryId(await check())
+        const record = vi.fn()
+        state.ctx.recordMutationReceipt = record
         const wait = vi.spyOn(state.runtime, 'waitForMessage')
-        const waiting = check({ wait: true, timeoutMs: 500 })
+        const waiting = check({ ack, wait: true, timeoutMs: 500 })
         if (phase === 'parked') {
           await vi.waitFor(() =>
             expect(wait).toHaveBeenCalledWith(`dispatch:${dispatch.id}`, expect.anything())
@@ -99,7 +101,8 @@ describe('Run binding during Dispatch checks', () => {
           },
           state.ctx
         )
-        expect(await waiting).toMatchObject({ cancelled: true, timedOut: false })
+        expect(await waiting).toMatchObject({ acknowledged: ack, cancelled: true, timedOut: false })
+        expect(record).toHaveBeenCalledWith(expect.objectContaining({ acknowledged: ack }))
         expect(state.db.getMessageById(old.id)).toMatchObject({ run_id: dispatch.run_id, read: 1 })
         expect(await check()).toMatchObject({
           runId: run.id,

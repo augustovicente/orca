@@ -23,7 +23,8 @@ const TakenRunCheck = z.looseObject({
 const EmptyRunCheck = z.looseObject({
   runId: z.string(),
   count: z.literal(0),
-  cancelled: z.literal(false).optional()
+  cancelled: z.literal(false).optional(),
+  waitInterrupted: z.never().optional()
 })
 
 export function withWorkerStartNext(receipt: unknown): unknown {

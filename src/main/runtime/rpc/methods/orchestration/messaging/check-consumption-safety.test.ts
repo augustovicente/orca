@@ -163,8 +163,6 @@ describe('consuming checks', () => {
       insert(box, 'handled')
       const handled = await check()
       const report = insert(box, 'stop report')
-      const record = vi.fn()
-      state.ctx.recordMutationReceipt = record
 
       const acked = await h.call(
         'orchestration.check',
@@ -186,7 +184,6 @@ describe('consuming checks', () => {
         count: 0,
         next: expect.stringContaining('--ack is not needed')
       })
-      expect(record).toHaveBeenLastCalledWith(acked)
       expect(state.db.getMessageById(report.id)?.read).toBe(0)
       expect(await check()).toMatchObject({ messages: [{ subject: 'stop report' }] })
     }

@@ -138,6 +138,24 @@ export function legacyWorkerDeliveryContract(
     : undefined
 }
 
+export function interruptedAcknowledgedCheck(
+  runId: string,
+  acknowledged: string,
+  reason: 'consumer_fenced' | 'outcome_unknown'
+): Record<string, unknown> {
+  return {
+    runId,
+    deliveryId: null,
+    messages: [],
+    count: 0,
+    acknowledged,
+    timedOut: false,
+    cancelled: false,
+    connectionLost: false,
+    waitInterrupted: reason
+  }
+}
+
 /** Remote Run rows are local mirrors; mail stored there reaches nobody (#32292). */
 export function rejectRemotelyHomedRun(
   db: ReturnType<OrcaRuntimeService['getOrchestrationDb']>,
