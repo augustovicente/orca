@@ -1,6 +1,9 @@
 import { isAgentChatPermissionMode } from '../../../../shared/agent-chat-permission-mode'
 import { normalizeNativeChatAppearanceSettings } from '../../../../shared/native-chat/native-chat-appearance-settings'
-import { carriedNativeChatProviderChoices } from '../../../../shared/native-chat/native-chat-providers'
+import {
+  normalizeAgentDefaultSurface,
+  carriedChatUiLaunchSettings
+} from '../../../../shared/native-chat/native-chat-providers'
 import { normalizeAutoRenameBranchFromWorkDefaultOn } from '../../../../shared/auto-rename-branch-from-work-settings'
 import {
   getDefaultSettings,
@@ -79,6 +82,7 @@ export function mergeHostWebUIState(
     manualRepoOrder: local.manualRepoOrder,
     workspaceHostOrder: local.workspaceHostOrder,
     sidebarOpen: local.sidebarOpen,
+    showAgentModels: local.showAgentModels !== false,
     agentsVisibleHostIds: local.agentsVisibleHostIds,
     agentsFilterRepoIds: local.agentsFilterRepoIds,
     agentsHideWorkspacesFromOtherDevices: local.agentsHideWorkspacesFromOtherDevices === true,
@@ -151,8 +155,7 @@ export function mergeOsc52ClipboardNoticePending(
 export function migrateStoredWebSettings(
   stored: Partial<GlobalSettings> & RetiredWebSettings
 ): Partial<GlobalSettings> {
-  const { experimentalNativeChat: _retiredChatUi, ...current } = stored
-  void _retiredChatUi
+  const current = stripRetiredWebChatSettings(stored)
   return {
     ...current,
     ...carryChatUiChoices(stored),
@@ -165,6 +168,21 @@ export function migrateStoredWebSettings(
   }
 }
 
+/** Retired host intent must not become a new browser-owned legacy choice. */
+export function stripRetiredWebChatSettings(
+  settings: Partial<GlobalSettings>
+): Partial<GlobalSettings> {
+  const current = { ...settings }
+  for (const key of [
+    'experimentalNativeChat',
+    'experimentalStructuredNativeChat',
+    'openAgentTabsInChatByDefault'
+  ]) {
+    Reflect.deleteProperty(current, key)
+  }
+  return current
+}
+
 type RetiredWebSettings = { experimentalNativeChat?: unknown }
 
 /** A browser profile saved while Chat UI was experimental keeps what its launches opened; dropping the key marks this done. */
@@ -172,11 +190,10 @@ function carryChatUiChoices(stored: Partial<GlobalSettings> & RetiredWebSettings
   if (!Object.hasOwn(stored, 'experimentalNativeChat')) {
     return {}
   }
-  const choices = carriedNativeChatProviderChoices(
+  return carriedChatUiLaunchSettings(
     stored.nativeChatProviders,
     stored.experimentalNativeChat === true
   )
-  return Object.keys(choices).length > 0 ? { nativeChatProviders: choices } : {}
 }
 
 /** Move legacy browser-saved permission flags so stored defaults cannot duplicate them; missing keys used the shipped default. */
@@ -228,6 +245,11 @@ export function mergeSettings(
       : (base.activeRuntimeEnvironmentId ?? null),
     terminalCustomThemes: normalizeTerminalCustomThemes(
       updates.terminalCustomThemes ?? base.terminalCustomThemes
+    ),
+    agentDefaultSurface: normalizeAgentDefaultSurface(
+      Object.hasOwn(updates, 'agentDefaultSurface')
+        ? updates.agentDefaultSurface
+        : base.agentDefaultSurface
     ),
     nativeChatAppearance: normalizeNativeChatAppearanceSettings(
       Object.hasOwn(updates, 'nativeChatAppearance')

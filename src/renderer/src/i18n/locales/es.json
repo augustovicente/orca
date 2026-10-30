@@ -58,13 +58,7 @@
         "antigravitySignInNeeded": "Los chats necesitan un inicio de sesión de Antigravity, independiente de tu cuenta de agy en la terminal.",
         "searchAgents": "agentes",
         "searchTerminal": "Terminal",
-        "installed": "Instalado",
-        "notInstalled": "No instalado",
-        "install": "Instalar",
-        "searchCli": "CLI",
-        "toggleLabel": "Abrir {{value0}} como chat",
-        "agentDisabled": "Desactivado en la configuración del agente",
-        "description": "Elige qué agentes se abren como chat. Si desactivas esta opción, los agentes instalados se abren en una terminal."
+        "searchCli": "CLI"
       },
       "permissionsDescriptionOwnAgents": "Los chats nuevos siguen el permiso de cada agente en Configuración → Agentes."
     },
@@ -106,6 +100,26 @@
         "runAdministratorHelp": "Guía de administrador",
         "standardStatus": "Usuario estándar",
         "unknownAdministrator": "No se puede determinar"
+      },
+      "limit": {
+        "label": "Máximo de terminales en ejecución",
+        "description": "Limita las terminales en ejecución entre proyectos en este equipo.",
+        "system": "Límite de PTY del sistema: {{value}}",
+        "unknown": "No disponible",
+        "shared": "Compartido con otras aplicaciones de terminal. Es la capacidad total, no los espacios libres.",
+        "disconnected": "Este equipo está desconectado. Vuelve a conectarlo para ver o cambiar su límite de terminales.",
+        "unsupported": "El servicio de terminal de este equipo aún no permite cambiar este límite.",
+        "environment": "El entorno establece el límite de terminales de esta instancia de Orca. Elimina esa configuración en este equipo para editarlo aquí.",
+        "savedUnreadable": "No se pudo leer el límite de terminales guardado de este host. Se usa {{value}}. Introduce un valor y pulsa Intro para reemplazarlo.",
+        "failed": "No se pudo confirmar el límite de terminales. Inténtalo de nuevo.",
+        "retry": "Reintentar",
+        "unit": "terminales",
+        "search": {
+          "limit": "límite",
+          "maximum": "máximo",
+          "pty": "pty",
+          "capacity": "capacidad"
+        }
       }
     },
     "appearance": {
@@ -306,12 +320,10 @@
       "defaultOpensAs": "Abrir {{value0}} como",
       "defaultOpensAsChat": "Chat",
       "defaultOpensAsCli": "CLI",
-      "defaultOpensAsScope": "Se aplica a las nuevas sesiones de {{value0}} iniciadas desde este equipo, incluso en hosts emparejados. Coincide con su interruptor en Proveedores.",
       "save": "Guardar",
       "clearDefault": "Borrar agente predeterminado",
       "customArgsBadge": "Personalizado",
       "rowPermissions": "Permisos",
-      "autoPermissions": "Automático",
       "otherAgentsPermissions": "Otros agentes",
       "permissionsAutoDescription": "Los <agents>agentes compatibles</agents> aprueban las acciones seguras por su cuenta.",
       "permissionsSearchDescription": "Inicia agentes con permisos Manual, Automático o Yolo.",
@@ -363,7 +375,11 @@
         "description": "Permite que cada cuenta de Codex, y tu propio ~/.codex, reanude conversaciones iniciadas en las demás. Desactívalo para mantener separado el historial de cada cuenta. Desactivarlo no elimina nada de lo que ya se compartió.",
         "unsupported": "Actualiza Orca en {{host}} para cambiar este ajuste allí.",
         "updateFailed": "No se pudo actualizar el ajuste en {{host}}."
-      }
+      },
+      "installCliForTerminal": "Instala la CLI de {{value0}} para abrirlo en un terminal.",
+      "chatRuntime": "Entorno de chat",
+      "chatChoiceTitle": "Abrir como chat o CLI",
+      "chatChoiceDescription": "Elige si cada agente se abre como chat o en su CLI."
     },
     "followSymlinkedDirectoriesKeywords": {
       "symlink": "enlace simbólico",
@@ -1356,10 +1372,7 @@
       },
       "claudeAgentRowView": {
         "subagentNavigationSetup": "Activa la navegación de subagentes de Claude en Ajustes → Agentes y luego inicia Claude 2.1.300+ en Orca. Comprueba que keybindings.json siga asignando Ctrl+Alt+G, H o V a command:orca-agent-view.",
-        "permissionPrompt": "Responde a la solicitud de permiso de Claude antes de cambiar de agente.",
-        "agentUnavailable": "Claude no puede abrir este agente. Es posible que ya no esté disponible.",
-        "closeDialog": "Claude no cambió de vista. Cierra cualquier diálogo abierto e inténtalo de nuevo.",
-        "hostUnavailable": "La navegación de subagentes no está disponible en este host. Actualiza Orca y reinicia Claude en este panel."
+        "permissionPrompt": "Responde a la solicitud de permiso de Claude antes de cambiar de agente."
       },
       "dropFailureReason": {
         "tooLarge": "Es demasiado grande para subirlo a este host.",
@@ -7142,8 +7155,6 @@
           "8fbe1f37c1": "Entorno",
           "2d133152fa": "Sin entorno predeterminado",
           "agentPermissions": "Permisos de Agents",
-          "agentPermissionsYolo": "Yolo",
-          "agentPermissionsManual": "Manual",
           "3f1bdf3cb4": "El texto de entorno es demasiado grande para analizarlo de forma segura.",
           "codexSessionSource": "Directorio Codex a importar",
           "codexSessionSourceInfo": "Sobre la importación del historial de Codex",
@@ -11488,8 +11499,8 @@
           "managedOverSshHelp": "Este escritorio actualiza este servidor por SSH. Usa Actualizar en su fila de Servidores remotos de Orca."
         },
         "BrowserLinkRoutingSetting": {
-          "description": "Abre los enlaces http(s) del terminal, Markdown y el editor en el navegador integrado de Orca. {{shortcut}} siempre usa el navegador del sistema.",
-          "descriptionBase": "Abre los enlaces http(s) del terminal, Markdown y el editor en el navegador integrado de Orca."
+          "description": "Abre los enlaces http(s) de cualquier parte de Orca en su navegador integrado. Las páginas de inicio de sesión y {{shortcut}} siempre usan el navegador del sistema.",
+          "descriptionBase": "Abre los enlaces http(s) de cualquier parte de Orca en su navegador integrado. Las páginas de inicio de sesión siguen abriéndose en el navegador del sistema."
         },
         "BrowserLinkRoutingModifierSetting": {
           "titleSystem": "Mantenga presionada la tecla Mayús para abrir en su navegador web",
@@ -11644,9 +11655,7 @@
           "installing": "Instalando…",
           "reviewLabel": "Revisar e instalar {{value0}}",
           "review": "Revisar e instalar",
-          "retry": "Reintentar",
-          "disable": "Desactivar",
-          "enable": "Activar"
+          "retry": "Reintentar"
         },
         "PluginSettingsRow": {
           "loadingLogs": "Cargando registros…",
@@ -12751,15 +12760,13 @@
           "offTitle": "Los plugins están desactivados"
         },
         "PluginFilterPopover": {
-          "label": "Filtrar plugins",
           "kind": "Categoría",
           "catalog": "Catálogo",
           "clear": "Borrar filtros",
           "themes": "Temas",
           "languages": "Lenguajes",
           "icons": "Iconos",
-          "commands": "Comandos y paneles",
-          "machines": "Máquinas y recetas"
+          "commands": "Comandos y paneles"
         },
         "PluginUpdateAllDialog": {
           "previewError": "No se pudo leer esta actualización",
@@ -12814,10 +12821,6 @@
         },
         "PluginSettingsMenu": {
           "autoUpdateHint": "Solo vuelve a preguntar por accesos nuevos"
-        },
-        "InstalledPluginCarousel": {
-          "previous": "Plugins instalados anteriores",
-          "next": "Siguientes plugins instalados"
         },
         "PluginInUseAction": {
           "inUseDark": "En uso · Oscuro",
@@ -14077,8 +14080,7 @@
             "trashFailed": "No se pudo mover '{{name}}' a la Papelera."
           },
           "useFileExplorerHandlers": {
-            "32cd9fd991": "No se puede abrir el destino del enlace simbólico",
-            "folderLinksOutsideProject": "Esta carpeta enlaza fuera del proyecto, así que no se puede abrir aquí."
+            "32cd9fd991": "No se puede abrir el destino del enlace simbólico"
           },
           "useFileExplorerImport": {
             "importFailedCount_one": "No se pudo importar {{count}} archivo.",
@@ -14793,8 +14795,8 @@
           "aa97420ba4": "Copiar enlace de instalación",
           "ac1eb64952": "Android",
           "711e6f4b47": "iOS",
-          "e75647ace0": "Escanea el código QR con tu teléfono o abre el enlace de instalación para obtener Orca Mobile.",
-          "0d9b33299e": "Obtén la aplicación.",
+          "e75647ace0": "Escanea este QR de descarga con la cámara de tu teléfono. ¿Ya tienes Orca Mobile? Continúa al paso 2 para ver el QR de emparejamiento.",
+          "0d9b33299e": "Descarga la app.",
           "92ddfdfa1f": "Paso 1 de 2",
           "ff48d9d520": "Emparejar otro dispositivo",
           "f9cbf4bb53": "Revocar dispositivo",
@@ -14981,6 +14983,9 @@
           "reconnectBody": "Inicia sesión de nuevo para usar Orca Relay, o usa LAN para emparejar mediante Tailscale o la misma red Wi‑Fi.",
           "notEntitledTitle": "Orca Relay no está incluido en esta cuenta de Orca.",
           "rateLimitedBody": "Orca Relay está ocupado. Espera un minuto y vuelve a intentarlo, o usa LAN para emparejar por Tailscale o la misma Wi‑Fi."
+        },
+        "relayClockSkewMessage": {
+          "message": "El reloj de tu computadora está desfasado unos {{seconds}} segundos. Activa la hora automática y vuelve a intentarlo."
         }
       },
       "gitlab": {
@@ -16941,7 +16946,8 @@
                     "annotations": {
                       "0c7b9b2b7a": "Copiado",
                       "c937229f19": "Captura tomada",
-                      "1f5cb19034": "Anotación añadida"
+                      "1f5cb19034": "Anotación añadida",
+                      "limitReached": "Se alcanzó el límite de {{limit}} anotaciones. Envíe, elimine o borre algunas para añadir más."
                     }
                   }
                 }
@@ -16956,7 +16962,10 @@
                     "09a7c1df70": "Editar anotación {{value0}}",
                     "449d2c2629": "Intención de la anotación",
                     "38d320108c": "Contraer anotaciones",
-                    "9f209891a7": "Expandir anotaciones"
+                    "9f209891a7": "Expandir anotaciones",
+                    "includePageDetails": "Incluir detalles de la página",
+                    "copyFeedback": "Copiar comentarios",
+                    "copyFeedbackWithPageDetails": "Copiar comentarios con detalles de la página"
                   }
                 }
               }
@@ -20166,7 +20175,7 @@
       "heroBody": "Descarga única de {{size}} MB. La comparten los chats de {{agent}} en el equipo que ejecuta este chat.",
       "heroBodyNoSize": "Descarga única. La comparten los chats de {{agent}} en el equipo que ejecuta este chat.",
       "stripSize": "Descarga de {{size}} MB en el equipo que ejecuta este chat",
-      "settingsHint": "También en Ajustes › Chat › Proveedores",
+      "settingsHint": "También en Ajustes › Agentes",
       "installShort": "Instalar",
       "tryAgain": "Reintentar",
       "cancelShort": "Cancelar",
@@ -21205,7 +21214,8 @@
     },
     "codexSharedSettingsNotice": {
       "title": "Codex en Orca ahora usa ~/.codex",
-      "description": "Codex puede volver a pedir que confíes en carpetas o apruebes comandos. Vuelve a agregar los servidores MCP que agregaste solo en Orca."
+      "description": "Codex puede volver a pedir que confíes en carpetas o apruebes comandos. Vuelve a agregar los servidores MCP que agregaste solo en Orca.",
+      "dismiss": "Descartar"
     },
     "paneMove": {
       "failed": "No se pudo mover el panel a una pestaña nueva."
@@ -22722,6 +22732,14 @@
       "markFile": "Marcar {{path}} como visto",
       "unmarkFile": "Desmarcar {{path}} como visto"
     }
+  },
+  "agentPicker": {
+    "search": "Buscar agentes y configuraciones…",
+    "configure": "Configurar {{agent}}",
+    "arguments": "Argumentos",
+    "argumentsHint": "Solo se aplica a los inicios de CLI.",
+    "launchChat": "Iniciar chat",
+    "launchTerminal": "Iniciar terminal"
   },
   "wslMove": {
     "entry": {

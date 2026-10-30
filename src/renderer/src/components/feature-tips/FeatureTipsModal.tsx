@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
 import { toast } from 'sonner'
 import { getDefaultVoiceSettings } from '../../../../shared/constants'
-import { everyAgentChatChoices } from '../../../../shared/native-chat/native-chat-providers'
 import {
   ORCHESTRATION_ENABLED_STORAGE_KEY,
   ORCHESTRATION_SETUP_DISMISSED_STORAGE_KEY,
@@ -151,8 +150,8 @@ export default function FeatureTipsModal(): JSX.Element | null {
           break
         }
         try {
-          // Every saved choice is for a known agent, so this covers them all.
-          await updateSettingsOrThrow({ nativeChatProviders: everyAgentChatChoices() })
+          // Only the default moves; an agent the user set for itself keeps its own choice.
+          await updateSettingsOrThrow({ agentDefaultSurface: 'chat' })
           trackChatUiFeatureTipAction(chatUiLaunchTipVariant, 'use_chat_ui')
         } catch {
           toast.error(

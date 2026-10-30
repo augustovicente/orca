@@ -6,7 +6,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { FEATURE_TIPS, type FeatureTip } from '../../../../shared/feature-tips'
 import type { GlobalSettings } from '../../../../shared/global-settings-types'
 import type { ChatUiLaunchTipVariant } from '../../../../shared/native-chat/chat-ui-launch-tip-audience'
-import { TUI_AGENT_CONFIG } from '../../../../shared/tui-agent-config'
 import { track } from '@/lib/telemetry'
 import { useAppStore } from '@/store'
 import { chatDemoRevealTokens, getChatDemoCopy } from './chat-ui-here-feature-tip-demo'
@@ -64,7 +63,7 @@ function footerButtons(): HTMLButtonElement[] {
 }
 
 describe('Chat UI is here tip', () => {
-  it('saves Chat for every known agent with Use Chat UI, and nothing with Stay in terminal', async () => {
+  it('makes Chat the default with Use Chat UI, leaving agents set for themselves alone, and nothing with Stay in terminal', async () => {
     openTip('chat-ui-off')
     expect(footerButtons().map((button) => button.textContent)).toEqual([
       'Stay in terminal',
@@ -80,11 +79,7 @@ describe('Chat UI is here tip', () => {
     openTip('chat-ui-off')
     await act(async () => footerButtons()[1]?.click())
     expect(useAppStore.getState().activeModal).toBe('none')
-    expect(updateSettingsOrThrow).toHaveBeenCalledExactlyOnceWith({
-      nativeChatProviders: Object.fromEntries(
-        Object.keys(TUI_AGENT_CONFIG).map((agent) => [agent, true])
-      )
-    })
+    expect(updateSettingsOrThrow).toHaveBeenCalledExactlyOnceWith({ agentDefaultSurface: 'chat' })
     expect(updateSettings).not.toHaveBeenCalled()
     expect(track).toHaveBeenLastCalledWith('chat_ui_feature_tip_action', {
       variant: 'chat_ui_off',

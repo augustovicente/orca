@@ -21,7 +21,9 @@ import {
 } from './web-runtime-session'
 import { noopUnsubscribe } from './web-storage'
 
-export function createWebSettingsApi(): Partial<PreloadApi> {
+export function createWebSettingsApi(): Pick<Partial<PreloadApi>, 'agentAwake'> & {
+  settings: Partial<WebSettingsApi>
+} {
   return {
     settings: {
       get: async () => getRuntimeBackedStoredSettings(),
@@ -82,9 +84,7 @@ export function createWebSettingsApi(): Partial<PreloadApi> {
           preserveAutoRenameBranchFromWorkUpdate: 'autoRenameBranchFromWork' in sanitizedUpdates
         })
         writeStoredSettings(next)
-        return settingsForActiveVisibilityOwner(
-          await syncRuntimeBackedSettings(sanitizedUpdates, next)
-        )
+        return settingsForActiveVisibilityOwner(await syncRuntimeBackedSettings(sanitizedUpdates))
       },
       setActiveRuntimeEnvironmentPreference: async ({ environmentId }) => {
         const requestedEnvironmentId = environmentId?.trim() || null
@@ -100,7 +100,7 @@ export function createWebSettingsApi(): Partial<PreloadApi> {
       updatePRBotAuthorOverride: (args) => updateRuntimePRBotAuthorOverride(args),
       listFonts: () => Promise.resolve([]),
       onChanged: () => noopUnsubscribe
-    } satisfies Partial<WebSettingsApi> as unknown as WebSettingsApi,
+    },
     agentAwake: {
       getStatus: async () => {
         const settings = getStoredSettings()
