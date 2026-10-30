@@ -145,7 +145,7 @@ export function structuredAgentSessionSwitchSource(context: SwitchSourceContext)
         })
         // Source completion cannot occupy the serializer or the destination-work barrier.
         for (;;) {
-          await deadline.wait(source.physical.wait())
+          await deadline.wait(source.physical.wait(deadline.signal))
           const complete = await context.serialize(sessionId, async () => {
             deadline.check()
             const current = context.sessions.get(sessionId)?.child

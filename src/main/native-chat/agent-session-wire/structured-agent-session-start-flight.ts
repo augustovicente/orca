@@ -42,14 +42,17 @@ export class StructuredAgentSessionStartFlights {
   /** Empty coverage survives handle eviction; completed process graphs do not. */
   physicalExit(sessionId: string, retiredWithoutRoot: boolean) {
     return {
-      wait: (): Promise<void> => {
+      wait: (signal?: AbortSignal): Promise<void> => {
+        throwIfSignalAborted(signal)
         const history = this.physical.get(sessionId)
         if (history ? !history.covered : retiredWithoutRoot) {
           throw agentSessionRefusalError('agent_session_ownership_unknown', {
             reason: 'ownerUnproven'
           })
         }
-        return Promise.all(history?.owners ?? []).then(() => {})
+        // Rejoin the live set after each exact exit; expired callers detach from this observer.
+        const pending = history?.owners.values().next().value
+        return pending ? waitForPromiseWithSignal(pending, signal) : Promise.resolve()
       },
       current: (): boolean => {
         const history = this.physical.get(sessionId)
