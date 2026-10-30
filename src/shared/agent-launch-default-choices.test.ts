@@ -1,3 +1,6 @@
+import { resolveAgentChoiceLayers } from './agent-choice-layers'
+import { terminalSessionOptionInputs, resolveAgentLaunchCommand } from './tui-agent-launch-command'
+import { quoteStartupArg, tokenizeStartupCommand } from './tui-agent-startup-shell'
 import { describe, expect, it } from 'vitest'
 import {
   agentLaunchSettingsMutationUpdates,
@@ -28,6 +31,19 @@ function mutate(
 }
 
 describe('host-authored launch defaults', () => {
+  it('does not inspect raw text when no model or option can yield', () => {
+    expect(
+      resolveAgentChoiceLayers({
+        agent: 'claude',
+        argumentOwner: 'launch',
+        defaults: { permissionMode: 'ask' },
+        get userArgs(): string {
+          throw new Error('Raw arguments are not needed for permission-only layers')
+        }
+      })
+    ).toEqual({ permissionMode: 'ask' })
+  })
+
   it('migrates typed-permission profiles once, preserves independent effort and initialized emptiness', () => {
     const loaded = migrateAgentPermissionChoice({
       agentPermissionDefault: 'ask',
@@ -186,3 +202,78 @@ describe('host-authored launch defaults', () => {
     }
   })
 })
+
+it.each(['posix', 'powershell', 'cmd'] as const)(
+  'uses original raw ownership before compiling authored terminal defaults on %s',
+  (shell) => {
+    const settings = {
+      agentPermissionDefault: 'own',
+      agentDefaultArgs: { claude: '--verbose' },
+      agentLaunchChoices: {
+        claude: { model: 'opus', options: { effort: 'high', fastMode: 'true' } }
+      }
+    } as const
+    const input = (
+      agentArgs: string | undefined,
+      sessionOptions?: Record<string, string>,
+      yieldToAgentArgs?: boolean
+    ) =>
+      terminalSessionOptionInputs({
+        agent: 'claude',
+        settings,
+        shell,
+        agentArgs,
+        sessionOptions,
+        yieldToAgentArgs
+      })
+    const launch = (startup: ReturnType<typeof input>) => {
+      const result = resolveAgentLaunchCommand({
+        agent: 'claude',
+        cmdOverrides: {},
+        platform: 'linux',
+        shell,
+        ...startup
+      })
+      if (!result.ok) {
+        throw new Error(result.error)
+      }
+      const parsed = tokenizeStartupCommand(result.command, shell)
+      if (!parsed.ok) {
+        throw new Error(parsed.error)
+      }
+      return parsed.tokens
+    }
+    expect(input(undefined).sessionOptions).toEqual({
+      model: 'opus',
+      effort: 'high',
+      fastMode: 'true'
+    })
+    expect(launch(input(undefined))).toEqual([
+      'claude',
+      '--verbose',
+      '--model',
+      'opus',
+      '--effort',
+      'high',
+      '--settings',
+      '{"fastMode":true}'
+    ])
+    expect(input('--model alias').sessionOptions).toBeUndefined()
+    expect(launch(input('--model alias'))).toEqual(['claude', '--model', 'alias'])
+    expect(input('--effort low').sessionOptions).toEqual({ model: 'opus', fastMode: 'true' })
+    expect(input(undefined, { model: 'sonnet' }, true).sessionOptions).toEqual({ model: 'sonnet' })
+    expect(input('--model alias', { model: 'sonnet' }, true).sessionOptions).toBeUndefined()
+    expect(input('--model alias', { model: 'sonnet', effort: 'low' }).sessionOptions).toEqual({
+      model: 'sonnet',
+      effort: 'low'
+    })
+    const raw = `--settings ${quoteStartupArg('{"language":"french","fastMode":false}', shell)}`
+    // The existing token grammar, including file settings, owns the complete carrier.
+    expect(input('--settings config.json').sessionOptions).toEqual({
+      model: 'opus',
+      effort: 'high'
+    })
+    expect(input(raw).sessionOptions).toEqual({ model: 'opus', effort: 'high' })
+    expect(launch(input(raw))).toContain('{"language":"french","fastMode":false}')
+  }
+)

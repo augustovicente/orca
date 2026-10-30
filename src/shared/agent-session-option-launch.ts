@@ -3,6 +3,7 @@ import {
   rewriteAgentChoiceSettings,
   readAgentChoiceSettings
 } from './agent-choice-settings'
+import { yieldAgentChoicesToArgs } from './agent-choice-layers'
 import type { AgentType } from './agent-status-types'
 import {
   findCatalogModel,
@@ -12,8 +13,7 @@ export { getAgentSessionOptionLaunchCatalog } from './agent-session-option-catal
 import type {
   AgentSessionOptionCatalog,
   CatalogModel,
-  CatalogOption,
-  CatalogOptionApply
+  CatalogOption
 } from './agent-session-option-catalog-types'
 import type { SessionOptionValue } from './native-chat/input/native-chat-session-options'
 import { AGENT_CHAT_PERMISSION_MODE_OPTION_ID } from './agent-chat-permission-mode'
@@ -30,21 +30,6 @@ export type ResolvedSessionOptionLaunch = {
   args: string[]
   permissionArgs?: readonly string[]
   appliedValues: Record<string, SessionOptionValue>
-}
-
-function isOverriddenByAgentArgs(
-  agent: AgentType,
-  apply: CatalogOptionApply,
-  tokens: readonly string[]
-): boolean {
-  const settings = apply.cli?.filter((form) => form.kind === 'settings')
-  if (settings?.length) {
-    return settings.some(
-      (form) => agentChoiceSettingsOccurrences(agent, form.names, tokens).length > 0
-    )
-  }
-  const kept = apply.removeAgentArgs?.(tokens)
-  return kept !== undefined && kept.length < tokens.length
 }
 
 export function removeOverriddenAgentSessionArgs(
@@ -145,9 +130,15 @@ function resolveModelOptionLaunch(
   const { model, options: modelOptions } = launchOptionsFor(catalog, modelId)
   const appliedValues: Record<string, SessionOptionValue> = {}
   const args: string[] = []
-  const modelValues = launchModelValues(model, modelOptions, values, includeCatalogDefaults)
-  const modelOverridden =
-    modelId !== null && isOverriddenByAgentArgs(agent, catalog.modelApply, trailingAgentArgs)
+  const modelValues = yieldAgentChoicesToArgs(
+    agent,
+    {
+      ...launchModelValues(model, modelOptions, values, includeCatalogDefaults),
+      ...(modelId ? { model: modelId } : {})
+    },
+    trailingAgentArgs
+  )
+  const modelOverridden = modelId !== null && modelValues.model === undefined
   const appliesModel = Boolean(modelId && catalog.modelApply.launchArgs && !modelOverridden)
 
   // Why: a repeated model flag can prevent the CLI from starting.
@@ -170,11 +161,7 @@ function resolveModelOptionLaunch(
       continue
     }
     // Why: options belong to the picked model and may be invalid for the user's model.
-    if (
-      !option.apply.launchArgs ||
-      modelOverridden ||
-      isOverriddenByAgentArgs(agent, option.apply, trailingAgentArgs)
-    ) {
+    if (!option.apply.launchArgs || modelOverridden) {
       continue
     }
     const settings = option.apply.cli?.find((form) => form.kind === 'settings')

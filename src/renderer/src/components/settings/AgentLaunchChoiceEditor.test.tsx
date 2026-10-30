@@ -124,9 +124,9 @@ it('saves a dirty Arguments edit with a menu choice once, and shares pending sta
   const input = screen.getByRole('textbox', { name: 'Arguments' })
   fireEvent.change(input, { target: { value: '--model sonnet --verbose changed' } })
   input.focus()
-  await userEvent.click(screen.getByRole('combobox', { name: 'Opus' }))
+  await userEvent.click(screen.getByRole('button', { name: 'Opus' }))
   expect(save).not.toHaveBeenCalled()
-  await userEvent.click(screen.getByRole('option', { name: 'Haiku' }))
+  await userEvent.click(screen.getByRole('menuitemradio', { name: 'Haiku' }))
   await waitFor(() => expect(save).toHaveBeenCalledTimes(1))
   expect(save).toHaveBeenCalledWith({
     type: 'launch-choices',
@@ -145,7 +145,7 @@ it('saves a dirty Arguments edit with a menu choice once, and shares pending sta
     patch: undefined,
     userArgs: ''
   })
-  expect(screen.getByRole('combobox', { name: 'Haiku' }).hasAttribute('disabled')).toBe(true)
+  expect(screen.getByRole('button', { name: 'Haiku' }).hasAttribute('disabled')).toBe(true)
   await act(async () => pending.resolve())
   await waitFor(() => expect(input).toHaveProperty('value', ''))
 })

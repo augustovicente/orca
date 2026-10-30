@@ -1,4 +1,3 @@
-import { readLaunchPermissionChoice } from '../../../shared/tui-agent-permission-choice'
 import type { LaunchAgentInNewTabArgs } from '@/lib/launch-agent-in-new-tab-args'
 import { useAppStore } from '@/store'
 import { validateActionTerminalArgs } from './launch-work-item-direct-messages'
@@ -16,7 +15,6 @@ import { isWebRuntimeSessionActive } from '@/runtime/web-runtime-session-environ
 import { launchAgentInWebHostTab } from '@/lib/launch-agent-web-host-tab'
 import {
   agentLaunchPermissionSettings,
-  resolveTuiAgentLaunchArgs,
   resolveTuiAgentLaunchEnv
 } from '../../../shared/tui-agent-launch-defaults'
 import { TUI_AGENT_CONFIG } from '../../../shared/tui-agent-config'
@@ -79,14 +77,6 @@ export function launchAgentInNewTabWithOutcome(
     store.settings ?? {},
     sessionOptions
   )
-  const effectiveAgentArgs =
-    agentArgs !== undefined
-      ? agentArgs
-      : resolveTuiAgentLaunchArgs(
-          agent,
-          permissionSettings,
-          readLaunchPermissionChoice(sessionOptions) ? 'own' : undefined
-        )
   const agentEnv = resolveTuiAgentLaunchEnv(agent, permissionSettings, resolvedLaunchPlatform)
   const trimmedPrompt = prompt?.trim() ?? ''
   const hasPrompt = trimmedPrompt.length > 0
@@ -146,9 +136,11 @@ export function launchAgentInNewTabWithOutcome(
     agent,
     sessionOptions,
     yieldToAgentArgs: args.sessionOptionsYieldToAgentArgs,
-    agentArgs: effectiveAgentArgs,
+    agentArgs,
+    settings: permissionSettings,
     shell: terminalShell
   })
+  const effectiveAgentArgs = terminalOptions.agentArgs
   const startupPlanBase = {
     agent,
     cmdOverrides: store.settings?.agentCmdOverrides ?? {},

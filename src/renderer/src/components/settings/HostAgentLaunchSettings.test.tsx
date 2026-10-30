@@ -101,7 +101,7 @@ describe('host launch settings form', () => {
     transport.mutate.mockResolvedValue(settings)
     render(pane(17))
     await screen.findByDisplayValue('--host-marker')
-    expect(screen.getByRole('combobox', { name: 'Opus' })).toBeDefined()
+    expect(screen.getByRole('button', { name: 'Opus' })).toBeDefined()
     fireEvent.change(screen.getByRole('textbox', { name: 'Arguments' }), {
       target: { value: '--model sonnet --host-marker' }
     })

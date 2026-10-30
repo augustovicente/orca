@@ -1,4 +1,3 @@
-import { readLaunchPermissionChoice } from '../../../shared/tui-agent-permission-choice'
 import { toast } from 'sonner'
 import { track, tuiAgentToAgentKind } from '@/lib/telemetry'
 import {
@@ -14,7 +13,6 @@ import type { TuiAgent } from '../../../shared/tui-agent'
 import type { AgentStartupShell } from '../../../shared/tui-agent-startup-shell'
 import {
   agentLaunchPermissionSettings,
-  resolveTuiAgentLaunchArgs,
   resolveTuiAgentLaunchEnv,
   type AgentLaunchProfileSettings
 } from '../../../shared/tui-agent-launch-defaults'
@@ -52,14 +50,6 @@ export function buildDirectWorkItemAgentStartupPlan(args: {
     args.settings ?? {},
     args.sessionOptions
   )
-  const effectiveAgentArgs =
-    args.agentArgs === undefined
-      ? resolveTuiAgentLaunchArgs(
-          args.agent,
-          permissionSettings,
-          readLaunchPermissionChoice(args.sessionOptions) ? 'own' : undefined
-        )
-      : args.agentArgs
   const effectiveAgentEnv = resolveTuiAgentLaunchEnv(
     args.agent,
     permissionSettings,
@@ -69,7 +59,8 @@ export function buildDirectWorkItemAgentStartupPlan(args: {
     agent: args.agent,
     sessionOptions: args.sessionOptions,
     yieldToAgentArgs: args.sessionOptionsYieldToAgentArgs,
-    agentArgs: effectiveAgentArgs,
+    agentArgs: args.agentArgs,
+    settings: permissionSettings,
     shell: args.shell ?? (args.launchPlatform === 'win32' ? 'powershell' : 'posix')
   })
   const draftLaunchPlan =
@@ -82,7 +73,7 @@ export function buildDirectWorkItemAgentStartupPlan(args: {
           platform: args.launchPlatform,
           ...(args.shell ? { shell: args.shell } : {}),
           isRemote: args.isRemote,
-          agentArgs: effectiveAgentArgs,
+          agentArgs: sessionOptionInputs.agentArgs,
           agentEnv: effectiveAgentEnv,
           ...sessionOptionInputs
         })
@@ -112,7 +103,7 @@ export function buildDirectWorkItemAgentStartupPlan(args: {
     platform: args.launchPlatform,
     ...(args.shell ? { shell: args.shell } : {}),
     isRemote: args.isRemote,
-    agentArgs: effectiveAgentArgs,
+    agentArgs: sessionOptionInputs.agentArgs,
     agentEnv: effectiveAgentEnv,
     ...sessionOptionInputs,
     allowEmptyPromptLaunch: true,

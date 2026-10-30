@@ -14,12 +14,8 @@ import {
 } from '../../../../shared/source-control-action-launch-preferences'
 import { encodeCatalogOptionValue } from '../../../../shared/structured-agent-session-option-codec'
 import type { TuiAgent } from '../../../../shared/tui-agent'
-import { Select, SelectContent, SelectItem } from '../ui/select'
-import {
-  SourceControlActionOptionField,
-  SourceControlActionOptionTrigger,
-  sourceControlActionRouteHint
-} from './SourceControlActionOptionField'
+import { AgentChoiceMenu } from './AgentChoiceMenu'
+import { sourceControlActionRouteHint } from './SourceControlActionOptionField'
 import { translate } from '@/i18n/i18n'
 
 const AGENT_DEFAULT_VALUE = '__agent_default__'
@@ -31,7 +27,7 @@ export type AgentChoiceControlsProps = {
   onOpenChange?: (open: boolean) => void
   optionIds?: readonly string[]
   defaultLabels?: { model?: string; options?: Record<string, string> }
-  layout?: 'stacked' | 'contents'
+  layout?: 'stacked' | 'contents' | 'rows'
   onChange: (value: AgentDedicatedChoices | undefined) => void
 }
 
@@ -69,51 +65,35 @@ export function AgentChoiceControls({
   return (
     <div className={layout === 'contents' ? 'contents' : 'grid min-w-0 grid-cols-1 gap-2'}>
       {catalog ? (
-        <SourceControlActionOptionField
+        <AgentChoiceMenu
           label={translate('settings.sourceControl.actionModel.model', 'Model')}
-        >
-          <Select
-            onOpenChange={onOpenChange}
-            value={selected?.model ?? AGENT_DEFAULT_VALUE}
-            disabled={disabled}
-            onValueChange={(model) =>
-              onChange(
-                reconcileAgentChoiceArgs({
-                  agent,
-                  choices: selected ?? {},
-                  userArgs: '',
-                  mode: 'choice-edit',
-                  keys: new Set(['model']),
-                  patch: { model: model === AGENT_DEFAULT_VALUE ? null : model }
-                }).choices
-              )
-            }
-          >
-            <SourceControlActionOptionTrigger
-              disabled={disabled}
-              label={
-                selected?.model
-                  ? (model?.label ?? selected.model)
-                  : (defaultLabels?.model ??
-                    translate('settings.sourceControl.actionModel.agentDefault', 'Agent default'))
-              }
-            />
-            <SelectContent>
-              <SelectItem value={AGENT_DEFAULT_VALUE}>
-                {defaultLabels?.model ??
-                  translate('settings.sourceControl.actionModel.agentDefault', 'Agent default')}
-              </SelectItem>
-              {catalog.models.map((model) => (
-                <SelectItem key={model.id} value={model.id}>
-                  {model.label}
-                </SelectItem>
-              ))}
-              {unlistedModel ? (
-                <SelectItem value={unlistedModel}>{unlistedModel}</SelectItem>
-              ) : null}
-            </SelectContent>
-          </Select>
-        </SourceControlActionOptionField>
+          row={layout === 'rows'}
+          value={selected?.model ?? AGENT_DEFAULT_VALUE}
+          disabled={disabled}
+          onOpenChange={onOpenChange}
+          choices={[
+            {
+              value: AGENT_DEFAULT_VALUE,
+              label:
+                defaultLabels?.model ??
+                translate('settings.sourceControl.actionModel.agentDefault', 'Agent default')
+            },
+            ...catalog.models.map(({ id, label }) => ({ value: id, label })),
+            ...(unlistedModel ? [{ value: unlistedModel, label: unlistedModel }] : [])
+          ]}
+          onChange={(model) =>
+            onChange(
+              reconcileAgentChoiceArgs({
+                agent,
+                choices: selected ?? {},
+                userArgs: '',
+                mode: 'choice-edit',
+                keys: new Set(['model']),
+                patch: { model: model === AGENT_DEFAULT_VALUE ? null : model }
+              }).choices
+            )
+          }
+        />
       ) : null}
       {options.map(({ option, route }) => {
         const choices =
@@ -131,54 +111,40 @@ export function AgentChoiceControls({
               ]
         const current = selected?.options?.[option.id]
         return (
-          <SourceControlActionOptionField
+          <AgentChoiceMenu
             key={option.id}
             label={option.label}
+            row={layout === 'rows'}
             hint={sourceControlActionRouteHint(route)}
-          >
-            <Select
-              onOpenChange={onOpenChange}
-              value={current ?? AGENT_DEFAULT_VALUE}
-              disabled={disabled}
-              onValueChange={(next) => {
-                const { [option.id]: _old, ...rest } = selected?.options ?? {}
-                const encoded =
-                  next === AGENT_DEFAULT_VALUE
-                    ? null
-                    : encodeCatalogOptionValue(
-                        option.kind,
-                        option.kind.type === 'boolean' ? next === 'true' : next
-                      )
-                const values = {
-                  ...rest,
-                  ...(encoded === null ? {} : { [option.id]: encoded })
-                }
-                save({ ...selected, options: values })
-              }}
-            >
-              <SourceControlActionOptionTrigger
-                disabled={disabled}
-                label={
-                  current
-                    ? (choices.find((choice) => choice.value === current)?.label ?? current)
-                    : (defaultLabels?.options?.[option.id] ?? defaultLabel)
-                }
-              />
-              <SelectContent>
-                <SelectItem value={AGENT_DEFAULT_VALUE}>
-                  {defaultLabels?.options?.[option.id] ?? defaultLabel}
-                </SelectItem>
-                {choices.map((choice) => (
-                  <SelectItem key={choice.value} value={choice.value}>
-                    {choice.label}
-                  </SelectItem>
-                ))}
-                {current && !choices.some((choice) => choice.value === current) ? (
-                  <SelectItem value={current}>{current}</SelectItem>
-                ) : null}
-              </SelectContent>
-            </Select>
-          </SourceControlActionOptionField>
+            value={current ?? AGENT_DEFAULT_VALUE}
+            disabled={disabled}
+            onOpenChange={onOpenChange}
+            choices={[
+              {
+                value: AGENT_DEFAULT_VALUE,
+                label: defaultLabels?.options?.[option.id] ?? defaultLabel
+              },
+              ...choices,
+              ...(current && !choices.some((choice) => choice.value === current)
+                ? [{ value: current, label: current }]
+                : [])
+            ]}
+            onChange={(next) => {
+              const { [option.id]: _old, ...rest } = selected?.options ?? {}
+              const encoded =
+                next === AGENT_DEFAULT_VALUE
+                  ? null
+                  : encodeCatalogOptionValue(
+                      option.kind,
+                      option.kind.type === 'boolean' ? next === 'true' : next
+                    )
+              const values = {
+                ...rest,
+                ...(encoded === null ? {} : { [option.id]: encoded })
+              }
+              save({ ...selected, options: values })
+            }}
+          />
         )
       })}
     </div>

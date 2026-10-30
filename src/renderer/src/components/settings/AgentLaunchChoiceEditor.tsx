@@ -81,12 +81,12 @@ export function AgentLaunchChoiceEditor({
   }
   return (
     <div ref={editorRef} className="space-y-3">
-      <div className="flex flex-wrap items-end gap-3">
+      <div className="space-y-2">
         <AgentChoiceControls
           agent={agent}
           value={choices}
           disabled={pending}
-          layout="contents"
+          layout="rows"
           onOpenChange={onOpenChange}
           optionIds={['effort']}
           onChange={(next) =>
@@ -110,6 +110,7 @@ export function AgentLaunchChoiceEditor({
             <AgentPermissionMenu
               agentId={agent}
               label={label}
+              layout="row"
               disabled={pending}
               onOpenChange={onOpenChange}
               permission={{
