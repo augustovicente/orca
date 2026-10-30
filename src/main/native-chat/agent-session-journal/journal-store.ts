@@ -23,7 +23,7 @@ import {
   newestStructuredAgentSessionTurnBySequence,
   runningStructuredAgentSessionTurnItemBySequence
 } from '../../../shared/structured-agent-session-live-turn'
-import { readJournalSince } from './journal-cursor'
+import { journalWroteBeforeOpen, readJournalSince } from './journal-cursor'
 import type { JournalHostDatabase } from './journal-host-database'
 import { journalRowsAfterReader } from './journal-open'
 import {
@@ -155,11 +155,7 @@ export class AgentSessionJournal {
 
   /** Only rows from this handle's opening epoch can predate the open. */
   wroteBeforeOpen(sequence: number | undefined): boolean {
-    return (
-      sequence !== undefined &&
-      this.state.epoch === this.openedThrough.epoch &&
-      sequence <= this.openedThrough.sequence
-    )
+    return journalWroteBeforeOpen(this.state, this.openedThrough, sequence)
   }
 
   /** Fallback reopen boundary until its mark is written; each new handle marks again. */
