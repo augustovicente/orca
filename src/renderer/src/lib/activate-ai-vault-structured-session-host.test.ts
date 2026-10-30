@@ -61,6 +61,9 @@ beforeEach(() => {
   mocks.state.unifiedTabsByWorktree = { workspace: [tab('wrong-local', 'local')] }
   mocks.supports.mockResolvedValue(true)
   mocks.call.mockImplementation(async (_host, method: string) => {
+    if (method === 'orchestration.partyLocation') {
+      return { location: { kind: 'chat', sessionId: 'sender', worktreeId: 'workspace' } }
+    }
     if (method === 'agentSession.reveal') {
       // The paired mirror, rather than the local snapshot apply, publishes the revealed tab.
       mocks.state.unifiedTabsByWorktree.workspace.push(tab('right-remote', 'runtime:remote-2'))
@@ -69,28 +72,41 @@ beforeEach(() => {
   })
 })
 
-it('keeps the known host through the default refresh/reveal/activation path without applying its snapshot as local', async () => {
-  await expect(
-    activateAiVaultStructuredSession(
-      {
-        structuredSession: { workspaceId: 'workspace', sessionId: 'sender' }
-      },
-      undefined,
-      TARGET
+it.each([false, true])(
+  'keeps the known host through lineage/refresh/reveal/activation without applying its snapshot as local; older lookup=%s',
+  async (olderLookup) => {
+    if (olderLookup) {
+      const call = mocks.call.getMockImplementation()!
+      mocks.call.mockImplementation(async (...args) => {
+        if (args[1] === 'orchestration.partyLocation') {
+          throw Object.assign(new Error('old host'), { code: 'method_not_found' })
+        }
+        return call(...args)
+      })
+    }
+    await expect(
+      activateAiVaultStructuredSession(
+        {
+          structuredSession: { workspaceId: 'workspace', sessionId: 'sender' }
+        },
+        undefined,
+        TARGET
+      )
+    ).resolves.toBe(true)
+    expect(mocks.supports).toHaveBeenCalledWith(
+      'remote-2',
+      STRUCTURED_AGENT_SESSION_REVEAL_RUNTIME_CAPABILITY,
+      expect.any(Number)
     )
-  ).resolves.toBe(true)
-  expect(mocks.supports).toHaveBeenCalledWith(
-    'remote-2',
-    STRUCTURED_AGENT_SESSION_REVEAL_RUNTIME_CAPABILITY,
-    expect.any(Number)
-  )
-  expect(mocks.call.mock.calls.map(([host, method]) => [host, method])).toEqual([
-    [TARGET, 'session.tabs.list'],
-    [TARGET, 'agentSession.reveal'],
-    [TARGET, 'session.tabs.list'],
-    [TARGET, 'session.tabs.activate']
-  ])
-  expect(mocks.apply).not.toHaveBeenCalled()
-  expect(mocks.activateTab).toHaveBeenCalledOnce()
-  expect(mocks.activateTab).toHaveBeenCalledWith('right-remote', { worktreeId: 'workspace' })
-})
+    expect(mocks.call.mock.calls.map(([host, method]) => [host, method])).toEqual([
+      [TARGET, 'orchestration.partyLocation'],
+      [TARGET, 'session.tabs.list'],
+      [TARGET, 'agentSession.reveal'],
+      [TARGET, 'session.tabs.list'],
+      [TARGET, 'session.tabs.activate']
+    ])
+    expect(mocks.apply).not.toHaveBeenCalled()
+    expect(mocks.activateTab).toHaveBeenCalledOnce()
+    expect(mocks.activateTab).toHaveBeenCalledWith('right-remote', { worktreeId: 'workspace' })
+  }
+)
