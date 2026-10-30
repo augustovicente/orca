@@ -45,11 +45,11 @@ function mount() {
 }
 const path = '/repo/folder'
 const outside = () => new Error(PATH_OUTSIDE_ALLOWED_DIRECTORIES)
-beforeEach(async () => {
+const actual = await vi.importActual<typeof DirectoryListing>('./file-explorer-directory-listing')
+beforeEach(() => {
   useAppStore.setState(initialAppState, true)
   initializeExplorerSubscriptions()
   transport.mockReset()
-  const actual = await vi.importActual<typeof DirectoryListing>('./file-explorer-directory-listing')
   readDirectoryMock.mockReset().mockImplementation(actual.readFileExplorerDirectory)
 })
 afterEach(() => {
