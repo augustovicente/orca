@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef } from 'react'
-import { TriangleAlert } from 'lucide-react'
+import { TriangleAlert, type LucideIcon } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { translate } from '@/i18n/i18n'
 
@@ -57,10 +58,12 @@ export function PaneBannerLearnMore({ onClick }: { onClick: () => void }): React
   )
 }
 
-/** The warning strip across the top of a terminal pane, with its actions and optional Dismiss. */
+/** The strip across the top of a terminal pane, with its actions and optional Dismiss; neutral for plain state. */
 export function PaneTopWarningBanner({
   title,
   body,
+  tone = 'warning',
+  icon: Icon = TriangleAlert,
   primaryAction,
   onDismiss,
   onDontShowAgain,
@@ -68,6 +71,8 @@ export function PaneTopWarningBanner({
 }: {
   title: string
   body?: React.ReactNode
+  tone?: 'warning' | 'neutral'
+  icon?: LucideIcon
   primaryAction: React.ReactNode
   onDismiss?: () => void
   onDontShowAgain?: () => void
@@ -82,14 +87,22 @@ export function PaneTopWarningBanner({
     <div
       ref={ref}
       role="status"
-      // Why pr-16: the pane's own split/close controls float over its top-right corner.
-      className="pane-top-banner @container border-b border-status-warning-border bg-status-warning-background py-2 pr-16 pl-3 text-xs"
+      // Why pr-24: an agent pane floats four controls (hand off, chat, split, close) over its top-right corner.
+      className={cn(
+        'pane-top-banner @container border-b py-2 pr-24 pl-3 text-xs',
+        tone === 'warning'
+          ? 'border-status-warning-border bg-status-warning-background'
+          : 'border-border bg-card'
+      )}
     >
       {/* Wrap actions in narrow panes using disjoint container-query properties so unlayered utilities cannot override them. */}
       <div className="@[44rem]:flex @[44rem]:items-center @[44rem]:gap-2">
         <div className="flex min-w-0 flex-1 items-start gap-2.5">
-          <TriangleAlert
-            className="mt-0.5 size-4 shrink-0 text-status-warning"
+          <Icon
+            className={cn(
+              'mt-0.5 size-4 shrink-0',
+              tone === 'warning' ? 'text-status-warning' : 'text-muted-foreground'
+            )}
             aria-hidden="true"
           />
           <div className="min-w-0 leading-5">

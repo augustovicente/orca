@@ -55,13 +55,15 @@ function NoticeRow({ notice }: { notice: NativeChatComposerNotice }): React.JSX.
   const isError = notice.kind === 'error'
   const isHostWarning = notice.kind === 'host' && notice.tone === 'warning'
   const Icon =
-    notice.kind === 'host'
-      ? ServerOff
-      : notice.kind === 'device'
-        ? Smartphone
-        : isError
-          ? AlertCircle
-          : Paperclip
+    notice.kind === 'worker'
+      ? notice.icon
+      : notice.kind === 'host'
+        ? ServerOff
+        : notice.kind === 'device'
+          ? Smartphone
+          : isError
+            ? AlertCircle
+            : Paperclip
   const dismissLabel = translate('components.native-chat.notices.dismiss', 'Dismiss')
   return (
     <li data-notice-kind={notice.kind} className={cn(isError && 'bg-destructive/5')}>
