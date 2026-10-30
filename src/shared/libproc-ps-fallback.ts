@@ -162,9 +162,15 @@ function createPsForkBudget(burst: number, refillMs: number): PsForkBudget {
         continue
       }
       const served = await new Promise<boolean>((resolve) => {
-        const queue = queues[background ? 1 : 0]
-        const entry = queue.get(key) ?? { spec, waiters: new Map() }
-        queue.set(key, entry)
+        // One entry per invocation: an interactive request promotes a queued poll's, a poll joins an interactive one.
+        const [interactive, polls] = queues
+        const entry = interactive.get(key) ?? polls.get(key) ?? { spec, waiters: new Map() }
+        if (!background) {
+          polls.delete(key)
+          interactive.set(key, entry)
+        } else if (!interactive.has(key)) {
+          polls.set(key, entry)
+        }
         const timer = setTimeout(
           () => {
             entry.waiters.delete(wake)

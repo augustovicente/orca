@@ -16,6 +16,7 @@ import {
 import { nativeReadWaitersForTests, resetNativeReadsForTests } from './libproc-native-reads'
 import { runPsInProcess } from './libproc-process-table'
 import { resetPsFallbackForTests } from './libproc-ps-fallback'
+import { createProcessTableSnapshotReader } from './process-table-snapshot-reader'
 import { parseCheapProcessTableRows, parseStrictProcessTableRows } from './process-table-snapshot'
 
 const TTYS004 = (16 << 24) | 4
@@ -472,7 +473,7 @@ describe('runPsInProcess', () => {
     expect(runProcess).toHaveBeenCalledTimes(2)
   })
 
-  it('trusts recovered argv only within the 2s evidence window, so a same-comm re-exec is seen', async () => {
+  it('reuses recovered argv for at most 2s, so a same-comm re-exec is seen', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] })
     const sudo = row({
       pid: 5100,
@@ -587,5 +588,89 @@ describe('runPsInProcess', () => {
     expect(result?.stdout).toContain('5400 -sh\n')
     // The pane's root login is not in the foreground group, so it never costs a ps.
     expect(runProcess.mock.calls.map(([spec]) => spec.args.at(-1))).toEqual(['5400'])
+  })
+
+  describe('recovered argv age in strict evidence', () => {
+    // Each case its own pid: the argv cache is process-wide.
+    let pid = 5500
+    const agent = () =>
+      row({
+        pid,
+        ppid: 4242,
+        tdev: TTYS004,
+        uid: OTHER_UID,
+        comm: 'node',
+        command: '(node)'
+      })
+    const args = ['-o', 'pid=,command=', '-t', 'ttys004']
+    // The production reader, stamping on the same monotonic clock the fake timers drive.
+    const strictReader = () =>
+      createProcessTableSnapshotReader({
+        runPs: (_fresh, inputAt) =>
+          runPsInProcess(args, { ...BUDGET, timeoutMs: 10_000, onArgvReadAt: inputAt }).then(
+            (result) => result?.stdout
+          ),
+        now: () => performance.now(),
+        ttlMs: 0
+      })
+    const psAnswers = (argv: () => string) =>
+      runProcess.mockImplementation(async () => ({
+        code: 0,
+        signal: null,
+        stdout: ` ${pid} ${argv()}\n`,
+        stderr: '',
+        timedOut: false
+      }))
+
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] })
+      installAddon({
+        readProcessTable: vi.fn(async (query: LibprocQuery) => tableFor(query, [...TABLE, agent()]))
+      })
+    })
+
+    it('ages a capture by the cached argv it reused, so a same-comm re-exec cannot read as fresh', async () => {
+      let argv = 'node /opt/claude/cli.js'
+      psAnswers(() => argv)
+      const reader = strictReader()
+      await reader.getSnapshotWithAge()
+      // node re-execs into a server; same pid, start time and comm.
+      argv = 'node /srv/server.js'
+      await vi.advanceTimersByTimeAsync(1_900)
+
+      const snapshot = await reader.getSnapshotWithAge()
+      expect(snapshot.value).toContain('claude')
+      expect(snapshot.capturedAgeMs).toBeGreaterThanOrEqual(1_900)
+    })
+
+    it('never answers a reader with a recovery begun more than 2s before it asked', async () => {
+      pid = 5600
+      let finishSlow: (stdout: string) => void = () => {}
+      runProcess
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              finishSlow = (stdout) =>
+                resolve({ code: 0, signal: null, stdout, stderr: '', timedOut: false })
+            })
+        )
+        .mockResolvedValue({
+          code: 0,
+          signal: null,
+          stdout: ' 5600 node /srv/server.js\n',
+          stderr: '',
+          timedOut: false
+        })
+      // Two captures (say the daemon's and main's), sharing one recovery that takes 6s.
+      void strictReader().getSnapshotWithAge()
+      await vi.advanceTimersByTimeAsync(5_900)
+
+      const late = strictReader().getSnapshotWithAge()
+      await vi.advanceTimersByTimeAsync(100)
+      finishSlow(' 5600 node /opt/claude/cli.js\n')
+      const snapshot = await late
+      expect(snapshot.value).toContain('/srv/server.js')
+      expect(runProcess).toHaveBeenCalledTimes(2)
+    })
   })
 })

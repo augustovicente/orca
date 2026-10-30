@@ -58,10 +58,10 @@ function needsRecovery(
 type Recovered = { startedAtMs: number; settledAtMs: number; command: string | undefined }
 
 // exec can keep pid, start time and comm (node → node with another script) and no cheap field shows it, so recovered
-// argv is trusted only within the evidence staleness window: strict evidence stays honest about its age.
+// argv is reused for at most 2s, and every row carries when ps read it so evidence reports its oldest input's age.
 const recovered = new Map<string, Recovered>()
 // One ps run's answer per process; undefined when ps omitted it, failed or the budget withheld it.
-const recovering = new Map<string, Promise<string | undefined>>()
+const recovering = new Map<string, { startedAtMs: number; command: Promise<string | undefined> }>()
 const RECOVERED_LIMIT = 512
 const RECOVERED_TTL_MS = 2_000
 // A row ps could not answer (exited, or unreadable to it too) waits this long before costing another ps.
@@ -73,6 +73,10 @@ function commandKey(ctype: string, row: LibprocProcessRow): string {
 }
 
 function remember(key: string, entry: Recovered): void {
+  // A recovery begun past an older one's window can finish first; the older answer must not replace it.
+  if ((recovered.get(key)?.startedAtMs ?? Number.NEGATIVE_INFINITY) > entry.startedAtMs) {
+    return
+  }
   recovered.delete(key)
   for (const oldest of recovered.keys()) {
     if (recovered.size < RECOVERED_LIMIT) {
@@ -124,7 +128,11 @@ export async function completeCommands(
 ): Promise<void> {
   const byPid = new Map(rows.map((row) => [row.pid, row]))
   const now = monotonicNow()
-  const pending: { row: LibprocProcessRow; command: Promise<string | undefined> }[] = []
+  const pending: {
+    row: LibprocProcessRow
+    readAtMs: number
+    command: Promise<string | undefined>
+  }[] = []
   const missing: { row: LibprocProcessRow; key: string }[] = []
   for (const row of rows) {
     if (!needsRecovery(row, selection, byPid)) {
@@ -138,11 +146,13 @@ export async function completeCommands(
     }
     if (known?.command !== undefined && now - known.startedAtMs < RECOVERED_TTL_MS) {
       row.command = known.command
+      row.commandReadAtMs = known.startedAtMs
       continue
     }
+    // A run begun too long ago reads argv older than this caller may reuse.
     const inFlight = recovering.get(key)
-    if (inFlight) {
-      pending.push({ row, command: inFlight })
+    if (inFlight && now - inFlight.startedAtMs < RECOVERED_TTL_MS) {
+      pending.push({ row, readAtMs: inFlight.startedAtMs, command: inFlight.command })
     } else {
       missing.push({ row, key })
     }
@@ -159,13 +169,15 @@ export async function completeCommands(
       background
     )
     for (const { row, key } of missing) {
-      const recovery = read.then((commands) => commands?.get(row.pid))
+      const recovery = { startedAtMs, command: read.then((commands) => commands?.get(row.pid)) }
       recovering.set(key, recovery)
-      void recovery.then((command) => {
+      void recovery.command.then((command) => {
         remember(key, { startedAtMs, settledAtMs: monotonicNow(), command })
-        recovering.delete(key)
+        if (recovering.get(key) === recovery) {
+          recovering.delete(key)
+        }
       })
-      pending.push({ row, command: recovery })
+      pending.push({ row, readAtMs: startedAtMs, command: recovery.command })
     }
   }
   if (pending.length === 0) {
@@ -178,10 +190,11 @@ export async function completeCommands(
   if (commands === DEADLINE_PASSED) {
     return
   }
-  pending.forEach(({ row }, index) => {
+  pending.forEach(({ row, readAtMs }, index) => {
     const command = commands[index]
     if (command !== undefined) {
       row.command = command
+      row.commandReadAtMs = readAtMs
     }
   })
 }

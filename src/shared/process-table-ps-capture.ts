@@ -21,16 +21,18 @@ export function assertWholeCapture(stdout: string): string {
   return stdout
 }
 
-/** One ps-shaped capture: in process where possible; `background` (a display poll) yields the fork budget. */
+/** One ps-shaped capture: in process where possible; `background` (a display poll) yields the fork budget, and
+ * `onArgvReadAt` learns when the oldest recovered argv in it was read. */
 export async function captureProcessTable(
   args: readonly string[],
   timeout = PS_TIMEOUT_MS,
   ps = false,
-  background = false
+  background = false,
+  onArgvReadAt?: (monotonicMs: number) => void
 ) {
   const env = psLocaleEnvironment()
   const options = { timeoutMs: timeout, maxOutputBytes: PS_MAX_BUFFER_BYTES, background }
-  let stdout = ps ? null : await readPsStdoutInProcess(args, { env, ...options })
+  let stdout = ps ? null : await readPsStdoutInProcess(args, { env, ...options, onArgvReadAt })
   try {
     // A forced subprocess capture (held naming pass) shares the fork budget; elsewhere ps is the only reader.
     stdout ??=

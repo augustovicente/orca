@@ -38,6 +38,9 @@ export type InProcessPsOptions = {
   maxOutputBytes?: number
   /** A display poll: any ps it needs waits behind interactive and fresh readers in the fork budget. */
   background?: boolean
+  /** Called with when (monotonic ms) the result's oldest recovered argv was read, when that predates this request:
+   * evidence built on the result is as old as that input, not as the table read. */
+  onArgvReadAt?: (monotonicMs: number) => void
   /** The caller runs its own ps when the in-process reader is down, rather than share the fallback budget, which may
    * time it out (signalling paths that must not lose their read). */
   callerRunsPs?: boolean
@@ -114,7 +117,8 @@ export async function runPsInProcess(
   }
   const registeredSequence = registerNativeRequest()
   const fallbackSequence = registerPsFallbackRequest()
-  const deadline = monotonicNow() + options.timeoutMs
+  const requestedAtMs = monotonicNow()
+  const deadline = requestedAtMs + options.timeoutMs
   const env = options.env ?? process.env
   // ps gets the caller's whole timeout from the moment the reader gives up, as the caller's own ps did.
   const fallback = async (): Promise<LibprocPsResult | null> =>
@@ -189,6 +193,10 @@ export async function runPsInProcess(
   }
   if (monotonicNow() > deadline) {
     return TIMED_OUT
+  }
+  const argvReadAt = Math.min(...(rows ?? []).map((row) => row.commandReadAtMs ?? Infinity))
+  if (argvReadAt < requestedAtMs) {
+    options.onArgvReadAt?.(argvReadAt)
   }
   // ps exits 1 when -t names no terminal or a -p/-t selection matched nothing.
   if (rows === null) {

@@ -23,6 +23,8 @@ export type LibprocProcessRow = {
   comm: string
   /** ps's command text (getproclline + strvis in the query's LC_CTYPE). */
   command?: string
+  /** Set by argv recovery, not the addon: monotonic ms no later than setuid ps read `command`, so ages never understate. */
+  commandReadAtMs?: number
   /** argv was unreadable (another user's, exiting or mid-exec): `command` holds `(comm)`, where setuid ps may print argv. */
   commandIncomplete?: boolean
 }

@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises'
+import { monotonicNow } from './deadline-settle-notifier'
 import { PS_TIMEOUT_MS, assertWholeCapture, captureProcessTable } from './process-table-ps-capture'
 import {
   captureDarwinProcessTable,
@@ -21,8 +22,9 @@ export { PROCESS_TABLE_SNAPSHOT_MAX_STALENESS_MS, PS_ARGS, PS_MAX_BUFFER_BYTES, 
 type Snapshot<T> = { value: T; capturedAtMs: number; completedAtMs: number }
 
 type ProcessTableSnapshotReaderDeps<T> = {
-  /** `fresh`: an authoritative read waiting on this capture; anything else is a display poll. */
-  runPs: (fresh: boolean) => Promise<T>
+  /** `fresh`: an authoritative read waiting on this capture; anything else is a display poll. `inputAt` takes the
+   * time (in `now()`'s clock) of any input older than the capture itself, such as recovered argv. */
+  runPs: (fresh: boolean, inputAt: (atMs: number) => void) => Promise<T>
   now: () => number
   ttlMs?: number
 }
@@ -43,10 +45,12 @@ export function createProcessTableSnapshotReader<T = string>(
   let freshQueued: { promise: Promise<T>; startSequence: number | null } | null = null
 
   async function runSnapshot(fresh = false): Promise<T> {
-    // Stamp evidence age at capture start, TTL at completion: slow captures must remain old yet still coalesce
-    // instead of spawning one whole-machine ps per caller on loaded hosts.
-    const capturedAtMs = deps.now()
-    const promise = deps.runPs(fresh)
+    // Stamp evidence age at capture start (or its oldest input), TTL at completion: slow captures must remain old
+    // yet still coalesce instead of spawning one whole-machine ps per caller on loaded hosts.
+    let capturedAtMs = deps.now()
+    const promise = deps.runPs(fresh, (atMs) => {
+      capturedAtMs = Math.min(capturedAtMs, atMs)
+    })
     inFlight = promise
     try {
       const value = await promise
@@ -224,12 +228,18 @@ async function readLinuxProcessStartTimes(
   return new Map(starts.filter((entry) => entry !== null))
 }
 
+/** Recovered argv reports monotonic read times; the snapshot readers stamp ages on the wall clock. */
+function onArgvReadAt(inputAt: (atMs: number) => void): (monotonicMs: number) => void {
+  return (monotonicMs) => inputAt(Date.now() - (monotonicNow() - monotonicMs))
+}
+
 const processTableReader = createProcessTableSnapshotReader<ProcessTableCapture>({
-  runPs: async (fresh) => {
+  runPs: async (fresh, inputAt) => {
     const stdout =
       process.platform === 'darwin'
         ? await captureDarwinProcessTable(
-            (args, timeout, ps) => captureProcessTable(args, timeout, ps, !fresh),
+            (args, timeout, ps) =>
+              captureProcessTable(args, timeout, ps, !fresh, onArgvReadAt(inputAt)),
             assertWholeCapture,
             PS_TIMEOUT_MS
           )
@@ -245,9 +255,15 @@ const processTableReader = createProcessTableSnapshotReader<ProcessTableCapture>
 
 // Separate shell reader avoids macOS terminal-name costs and waiting on full captures it cannot use.
 const shellForegroundReader = createProcessTableSnapshotReader<ProcessTableRow[]>({
-  runPs: async (fresh) =>
+  runPs: async (fresh, inputAt) =>
     parseShellForegroundRows(
-      await captureProcessTable(SHELL_FOREGROUND_PS_ARGS, PS_TIMEOUT_MS, false, !fresh)
+      await captureProcessTable(
+        SHELL_FOREGROUND_PS_ARGS,
+        PS_TIMEOUT_MS,
+        false,
+        !fresh,
+        onArgvReadAt(inputAt)
+      )
     ),
   now: () => Date.now()
 })
