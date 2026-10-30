@@ -23,6 +23,8 @@ import { translate } from '@/i18n/i18n'
 import { SessionSearchTipDialog } from './SessionSearchTipDialog'
 import { useSessionSearchTipSetup } from './use-session-search-tip-setup'
 import { VoiceDictationTipDialog } from './VoiceDictationTipDialog'
+import { MacosSupportNoticeTip } from './macos-12-support-notice/MacosSupportNoticeTip'
+import { isMacos12SupportNoticeEligible } from '../../../../shared/macos-12-support-notice/upgrade-support'
 
 export default function FeatureTipsModal(): JSX.Element | null {
   const activeModal = useAppStore((s) => s.activeModal)
@@ -43,6 +45,10 @@ export default function FeatureTipsModal(): JSX.Element | null {
   const [skillTerminalOpen, setSkillTerminalOpen] = useState(false)
   const isOpen = activeModal === 'feature-tips'
   const currentTip = getFeatureTipForModal({
+    macos12SupportNoticeEligible: isMacos12SupportNoticeEligible(
+      window.api.platform.get(),
+      isWebClientLocation()
+    ),
     cliInstalled: true,
     modalData,
     seenTipIds,
@@ -122,6 +128,8 @@ export default function FeatureTipsModal(): JSX.Element | null {
 
     markFeatureTipsSeen([currentTip.id])
     switch (currentTip.action) {
+      case 'review-macos-support':
+        break
       case 'learn-cmd-j-palette': {
         trackCmdJPaletteFeatureTipAcknowledged(
           getOrcaCliFeatureTipTelemetrySource(modalData.source)
@@ -247,6 +255,10 @@ export default function FeatureTipsModal(): JSX.Element | null {
 
   if (!isOpen || !currentTip) {
     return null
+  }
+
+  if (currentTip.action === 'review-macos-support') {
+    return <MacosSupportNoticeTip open={isOpen} onOpenChange={handleOpenChange} />
   }
 
   if (currentTip.action === 'setup-cli') {

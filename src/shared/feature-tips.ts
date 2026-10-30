@@ -4,11 +4,17 @@ import {
   type FeatureInteractionState
 } from './feature-interactions'
 
-export type FeatureTipId = 'voice-dictation' | 'orca-cli' | 'cmd-j-palette' | 'agent-session-search'
+export type FeatureTipId =
+  | 'macos-12-support'
+  | 'voice-dictation'
+  | 'orca-cli'
+  | 'cmd-j-palette'
+  | 'agent-session-search'
 
 export type FeatureTipPriority = 'new' | 'unseen'
 
 export type FeatureTipAction =
+  | 'review-macos-support'
   | 'enable-voice'
   | 'setup-cli'
   | 'learn-cmd-j-palette'
@@ -26,6 +32,7 @@ export type FeatureTip = {
 }
 
 export type CompletedFeatureTipState = {
+  macos12SupportNoticeEligible?: boolean
   cliInstalled: boolean
   voiceDictationEnabled: boolean
   /** Search is on, or this client cannot turn it on. */
@@ -34,6 +41,17 @@ export type CompletedFeatureTipState = {
 }
 
 export const FEATURE_TIPS = [
+  {
+    id: 'macos-12-support',
+    priority: 'new',
+    eyebrow: 'Compatibility',
+    title: 'A heads-up for your Mac',
+    description:
+      'Orca will soon require macOS 13 or later. You can keep using this version for now.',
+    action: 'review-macos-support',
+    ctaLabel: 'Review your options',
+    completedByFeatureInteractions: []
+  },
   {
     id: 'agent-session-search',
     priority: 'new',
@@ -101,6 +119,9 @@ export function normalizeFeatureTipIds(value: unknown): FeatureTipId[] {
 
 export function getCompletedFeatureTipIds(state: CompletedFeatureTipState): Set<FeatureTipId> {
   const completedIds = new Set<FeatureTipId>()
+  if (!state.macos12SupportNoticeEligible) {
+    completedIds.add('macos-12-support')
+  }
   if (state.cliInstalled) {
     completedIds.add('orca-cli')
   }

@@ -52,6 +52,36 @@ function makeCliStatus(overrides: Partial<CliInstallStatus> = {}): CliInstallSta
 }
 
 describe('feature tip startup gate', () => {
+  it('prioritizes the Monterey notice once and keeps it out of browser clients', () => {
+    const input = {
+      activeModal: 'none',
+      cliInstalled: false,
+      featureTipsSeenIds: [],
+      featureInteractions: {},
+      onboarding: existingUserOnboarding,
+      persistedUIReady: true,
+      promptedThisSession: false,
+      settings: makeSettings(),
+      suppressedByOnboardingThisSession: false,
+      webClient: false,
+      macos12SupportNoticeEligible: true
+    }
+    expect(getFeatureTipsAppOpenDecision(input)).toEqual({
+      kind: 'open',
+      tipId: 'macos-12-support'
+    })
+    expect(
+      getFeatureTipsAppOpenDecision({ ...input, featureTipsSeenIds: ['macos-12-support'] })
+    ).toEqual({
+      kind: 'open',
+      tipId: 'orca-cli'
+    })
+    expect(getFeatureTipsAppOpenDecision({ ...input, webClient: true })).toEqual({
+      kind: 'open',
+      tipId: 'orca-cli'
+    })
+  })
+
   it('opens the CLI feature tip first for an existing user on app open', () => {
     expect(
       getFeatureTipsAppOpenDecision({

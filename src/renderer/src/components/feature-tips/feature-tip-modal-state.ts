@@ -8,6 +8,7 @@ import {
 import { getPendingFeatureTips, type FeatureTipSettings } from './feature-tip-startup-gate'
 
 export function getFeatureTipForModal(args: {
+  macos12SupportNoticeEligible?: boolean
   cliInstalled: boolean
   modalData: Record<string, unknown>
   seenTipIds: readonly FeatureTipId[]
@@ -17,6 +18,12 @@ export function getFeatureTipForModal(args: {
 }): FeatureTip | null {
   const modalTipId = isFeatureTipId(args.modalData.tipId) ? args.modalData.tipId : null
   if (modalTipId) {
+    if (
+      modalTipId === 'macos-12-support' &&
+      (!args.macos12SupportNoticeEligible || args.webClient)
+    ) {
+      return null
+    }
     return FEATURE_TIPS.find((tip) => tip.id === modalTipId) ?? null
   }
 
