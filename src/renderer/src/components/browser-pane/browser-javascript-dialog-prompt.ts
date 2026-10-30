@@ -20,6 +20,8 @@ export const javaScriptDialogPrompt: BrowserPagePromptHandler<'javascript-dialog
       acknowledgeOnly: type === 'alert',
       // Enter accepts, as in Chrome; a prompt keeps focus in its answer field.
       initialFocus: type === 'prompt' ? undefined : 'confirm',
+      // A held Enter on the page's own button must not also answer the dialog it opened.
+      ignoresOpeningGesture: true,
       confirmLabel: translate('auto.components.browserPane.javaScriptDialog.confirm', 'OK'),
       cancelLabel: translate('auto.components.browserPane.javaScriptDialog.cancel', 'Cancel'),
       fields:

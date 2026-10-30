@@ -149,6 +149,15 @@ export abstract class AgentBrowserBridgeQueue extends AgentBrowserBridgeShutdown
                   )
                 }
                 assertNoJavaScriptDialog(target.webContentsId, pageId, gate)
+                if (target.webContentsId !== webContentsId) {
+                  // The page got a replacement guest while this command waited.
+                  const stopWatchingQueued = stopWatching
+                  const stopWatchingTarget = watch(target.webContentsId)
+                  stopWatching = () => {
+                    stopWatchingQueued()
+                    stopWatchingTarget()
+                  }
+                }
                 running = true
                 return origin.bridged
                   ? this.runHostCommand(session, target.webContentsId, gate, origin, () =>
@@ -166,30 +175,32 @@ export abstract class AgentBrowserBridgeQueue extends AgentBrowserBridgeShutdown
         resolve: resolve as (value: unknown) => void,
         reject
       }
-      pageQueue.push(entry)
-      stopWatching = onBrowserJavaScriptDialogOpened(webContentsId, (dialog) => {
-        const waitingAt = pageQueue.indexOf(entry)
-        if (waitingAt !== -1) {
-          pageQueue.splice(waitingAt, 1)
-        }
-        interrupted = true
-        try {
-          assertNotRevoked(webContentsId)
-        } catch (error) {
-          reject(error)
-          return
-        }
-        const opened = `The page opened a JavaScript ${dialog.type}: ${quoteDialogMessage(dialog)}.`
-        const effect = running
-          ? "The command may already have taken effect, so don't repeat it."
-          : 'The command did not run.'
-        reject(
-          new BrowserError(
-            'browser_dialog_opened',
-            `${opened} ${effect} ${dialogAnswerHint(dialog, pageId)}.`
+      const watch = (guestId: number): (() => void) =>
+        onBrowserJavaScriptDialogOpened(guestId, (dialog) => {
+          const waitingAt = pageQueue.indexOf(entry)
+          if (waitingAt !== -1) {
+            pageQueue.splice(waitingAt, 1)
+          }
+          interrupted = true
+          try {
+            assertNotRevoked(guestId)
+          } catch (error) {
+            reject(error)
+            return
+          }
+          const opened = `The page opened a JavaScript ${dialog.type}: ${quoteDialogMessage(dialog)}.`
+          const effect = running
+            ? "The command may already have taken effect, so don't repeat it."
+            : 'The command did not run.'
+          reject(
+            new BrowserError(
+              'browser_dialog_opened',
+              `${opened} ${effect} ${dialogAnswerHint(dialog, pageId)}.`
+            )
           )
-        )
-      })
+        })
+      pageQueue.push(entry)
+      stopWatching = watch(webContentsId)
       this.processQueue(sessionName)
     }).finally(() => {
       stopWatching()
