@@ -27,7 +27,7 @@ class JournalDraft {
         this.assigned.add(value)
       }
     },
-    finish: (value) => this.finish(value),
+    finish: (value) => this.resolve(value),
     defer: (apply) => this.pending.push(apply)
   }
 
@@ -35,13 +35,14 @@ class JournalDraft {
     if (typeof value !== 'object' || value === null) {
       return value
     }
-    const previous = this.proxies.get(value) ?? this.originals.get(value)
-    if (previous) {
-      previous.listen(changed)
-      // SAFETY: the draft has the same interface as the object it isolates.
-      return previous.value as T
-    }
-    const listeners = new Set([changed])
+    const node = this.proxies.get(value) ?? this.originals.get(value) ?? this.track(value, path)
+    node.listen(changed)
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: a node's draft (overlay collection or copy-on-write proxy) has the interface of the object it isolates.
+    return node.value as T
+  }
+
+  private track<T extends object>(value: T, path: string): DraftNode {
+    const listeners = new Set<() => void>()
     let dirty = false
     const mark = (): void => {
       if (!dirty) {
@@ -154,8 +155,7 @@ class JournalDraft {
     }
     this.originals.set(value, node)
     this.proxies.set(node.value, node)
-    // SAFETY: collection overlays and object proxies preserve the wrapped interface.
-    return node.value as T
+    return node
   }
 
   changes(): JournalEntryChange[] {
@@ -163,12 +163,16 @@ class JournalDraft {
   }
 
   adopt<T>(value: T): T {
-    // SAFETY: finalization removes tracking wrappers without changing the reducer's shape.
-    const result = this.finish(value) as T
+    const result = this.resolve(value)
     for (const apply of this.pending) {
       apply()
     }
     return result
+  }
+
+  private resolve<T>(value: T): T {
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: finishing returns the value itself or the live object its draft stands for, so its type is unchanged.
+    return this.finish(value) as T
   }
 
   private tracks(value: unknown): boolean {

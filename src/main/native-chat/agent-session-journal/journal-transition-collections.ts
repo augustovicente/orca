@@ -11,7 +11,7 @@ export type JournalEntryChange = {
 export type JournalDraftAccess = {
   wrap: <T>(value: T, changed: () => void, path: string) => T
   assign: (value: unknown) => void
-  finish: (value: unknown) => unknown
+  finish: <T>(value: T) => T
   defer: (apply: () => void) => void
 }
 
@@ -39,11 +39,7 @@ export class JournalDraftMap<K, V> extends Map<K, V> {
   }
 
   override get(key: K): V | undefined {
-    if (!this.has(key)) {
-      return undefined
-    }
-    const value = this.writes.has(key) ? this.writes.get(key) : this.source.get(key)
-    return this.access.wrap(value, () => this.touch(key), `${this.path}.*`)
+    return this.has(key) ? this.draft(key) : undefined
   }
 
   override set(key: K, value: V): this {
@@ -87,15 +83,13 @@ export class JournalDraftMap<K, V> extends Map<K, V> {
 
   override *values(): MapIterator<V> {
     for (const key of this.keys()) {
-      // SAFETY: keys() yields only present entries, including entries with an undefined value.
-      yield this.get(key) as V
+      yield this.draft(key)
     }
   }
 
   override *entries(): MapIterator<[K, V]> {
     for (const key of this.keys()) {
-      // SAFETY: keys() yields only present entries, including entries with an undefined value.
-      yield [key, this.get(key) as V]
+      yield [key, this.draft(key)]
     }
   }
 
@@ -120,24 +114,29 @@ export class JournalDraftMap<K, V> extends Map<K, V> {
   }
 
   finish(): Map<K, V> {
-    const changes = this.changes().map((entry) => ({
-      ...entry,
-      // SAFETY: finishing a draft preserves the type of its collection value.
-      value: this.access.finish(entry.value) as V,
-      // SAFETY: changes() returns keys from this map.
-      key: entry.key as K
+    const changes = [...this.touched].map((key) => ({
+      key,
+      reinsert: this.inserted.has(key),
+      kept: this.has(key) ? { value: this.access.finish(this.draft(key)) } : null
     }))
     this.access.defer(() => {
-      for (const entry of changes) {
-        if (entry.deleted || entry.reinsert) {
-          this.source.delete(entry.key)
+      for (const { key, reinsert, kept } of changes) {
+        if (!kept || reinsert) {
+          this.source.delete(key)
         }
-        if (!entry.deleted) {
-          this.source.set(entry.key, entry.value)
+        if (kept) {
+          this.source.set(key, kept.value)
         }
       }
     })
     return this.source
+  }
+
+  /** Only for present keys; a present entry may hold undefined. */
+  private draft(key: K): V {
+    const stored = this.writes.has(key) ? this.writes.get(key) : this.source.get(key)
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: callers pass only keys has() reports present, so the stored value is a V even when V includes undefined.
+    return this.access.wrap(stored as V, () => this.touch(key), `${this.path}.*`)
   }
 
   private touch(key: K): void {
@@ -226,15 +225,17 @@ export class JournalDraftSet<T> extends Set<T> {
     }))
   }
   finish(): Set<T> {
-    const changes = this.changes()
+    const changes = [...this.touched].map((value) => ({
+      value,
+      deleted: !this.has(value),
+      reinsert: this.inserted.has(value)
+    }))
     this.access.defer(() => {
-      for (const entry of changes) {
-        // SAFETY: changes() returns keys from this set.
-        const value = entry.key as T
-        if (entry.deleted || entry.reinsert) {
+      for (const { value, deleted, reinsert } of changes) {
+        if (deleted || reinsert) {
           this.source.delete(value)
         }
-        if (!entry.deleted) {
+        if (!deleted) {
           this.source.add(value)
         }
       }
