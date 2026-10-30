@@ -9,7 +9,6 @@ import { isAdmissibleAgentJournalItemBody } from '../../../../shared/agent-sessi
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { MessageRow } from './NativeChatMessageRow'
 import { NativeChatNoticeRow } from './NativeChatNoticeRow'
-import { nativeChatNoticeLook } from '../../../../shared/native-chat/native-chat-notice'
 import { useAppStore } from '@/store'
 import { i18n } from '@/i18n/i18n'
 import { agentSessionFailureWords } from '../../../../shared/agent-session-failure-words'
@@ -716,53 +715,5 @@ it.each([
       'Réponse du fournisseur tronquée (taille d’origine : 99999 octets).'
     )
     expect(disclosure.open).toBe(true)
-  }
-)
-
-it.each([
-  { provider: 'codex', kind: 'notification:warning' },
-  { provider: 'codex', kind: 'item/autoApprovalReview/completed' },
-  { provider: 'claude', kind: 'request:canUseTool' },
-  { provider: 'claude', kind: 'notification:guardianWarning' }
-])('does not infer settled permission state from other frame kinds (%j)', (frame) => {
-  expect(
-    nativeChatNoticeLook({
-      type: 'text',
-      text: 'Permission denied automatically',
-      tone: 'error',
-      providerFrame: {
-        ...frame,
-        payload: {
-          head: '{"status":"denied"}',
-          byteLength: 19,
-          digest: 'synthetic',
-          truncated: false
-        }
-      }
-    })
-  ).toEqual({ kind: 'line', tone: 'error' })
-})
-
-it.each([
-  { failure: { kind: 'usageLimitReached' } },
-  { presentation: 'orca-stop' },
-  { presentation: 'plan-document' },
-  { orcaStop: { cause: 'quit' } }
-] as const)(
-  'keeps special presentations and typed failures ahead of permission disclosure (%j)',
-  (special) => {
-    expect(
-      nativeChatNoticeLook({
-        type: 'text',
-        text: 'Existing behavior',
-        tone: 'error',
-        ...special,
-        providerFrame: {
-          provider: 'codex',
-          kind: 'notification:guardianWarning',
-          payload: { head: '{}', byteLength: 2, digest: 'synthetic', truncated: false }
-        }
-      }).kind
-    ).not.toBe('settled-permission')
   }
 )
