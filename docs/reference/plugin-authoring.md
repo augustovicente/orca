@@ -136,7 +136,13 @@ worker, and the plugin's logs to see what it printed.
 
 ```sh
 pnpm validate:plugin path/to/plugin
+# or, without an Orca checkout:
+orca plugin validate path/to/plugin
 ```
+
+`orca plugin create <dir> --template <theme|terminal-theme|icon-theme|syntax|language-pack|editor|panel>`
+scaffolds a plugin that passes these checks, and `orca plugin inspect <dir>` shows what it would be
+allowed to do and its content hash.
 
 This runs the manifest checks Orca runs, strictly: unknown keys, limits, contributions beyond the
 execution profile, and an `engines.orca` too low for the fields used. On a catalog it also

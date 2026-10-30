@@ -279,6 +279,11 @@ export const HANDLER_GROUPS: readonly HandlerGroup[] = [
     load: async () => (await import('./handlers/skill-sharing.js')).SKILL_SHARING_HANDLERS
   },
   {
+    name: 'plugin-authoring',
+    keys: ['plugin create', 'plugin validate', 'plugin inspect'],
+    load: async () => (await import('./handlers/plugin-authoring.js')).PLUGIN_AUTHORING_HANDLERS
+  },
+  {
     name: 'skills',
     keys: ['skills list', 'skills get', 'skills install', 'skills update'],
     load: async () => (await import('./handlers/skills.js')).SKILL_HANDLERS
