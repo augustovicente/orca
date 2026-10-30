@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util'
 import { expect, vi } from 'vitest'
 import type { SqliteStatement } from '../../sqlite/sqlite-statement'
 import type { JournalHostDatabase } from './journal-host-database'
@@ -90,6 +91,22 @@ export function expectProjectionMatches(
     const replayed = replayJournal(database.db, state.sessionId)
     expect(replayed && encodeJournalState(replayed.state)).toStrictEqual(encodeJournalState(state))
   }
+}
+
+/** The saved view's coverage when it and its contiguous tail fold to a full replay, else null. */
+export function replayedPrefixCoverage(
+  database: JournalHostDatabase,
+  sessionId = projectionSessionId
+): number | null {
+  const restored = restoreJournal(database.db, sessionId)
+  const replayed = replayJournal(database.db, sessionId)
+  return restored &&
+    replayed &&
+    !restored.damage &&
+    !restored.newer &&
+    isDeepStrictEqual(encodeJournalState(restored.state), encodeJournalState(replayed.state))
+    ? (restored.projectionThrough ?? 0)
+    : null
 }
 
 /** Every statement prepared, and the rows read back by journal row page queries. */

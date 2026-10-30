@@ -1,51 +1,108 @@
 import type Database from '../../sqlite/sync-database'
 import type { JournalHostDatabase } from './journal-host-database'
 import type { JournalReducerState } from './journal-reducer'
-import { readJournalSessionEpoch } from './journal-row-table'
-import { decodeJournalState } from './journal-state-codec'
+import { startJournalStateDecode } from './journal-state-codec'
 import { clearJournalSavedState, publishJournalProjection } from './journal-projection-table'
 
 export { ensureJournalSavedStateTables, clearJournalSavedState } from './journal-projection-table'
+
+/** The saved row a projection delta is computed from; null when the chat has none. */
+export type JournalSavedStamp = { epoch: string; through: number; version: number } | null
+
+export function readJournalSavedStamp(db: Database.Database, sessionId: string): JournalSavedStamp {
+  const row = db
+    .prepare('SELECT epoch, through_seq, version FROM journal_state WHERE session_id = ?')
+    .get(sessionId)
+  return row &&
+    typeof row.epoch === 'string' &&
+    typeof row.through_seq === 'number' &&
+    typeof row.version === 'number'
+    ? { epoch: row.epoch, through: row.through_seq, version: row.version }
+    : null
+}
 
 export function readJournalSavedState(
   db: Database.Database,
   sessionId: string,
   epoch: string
 ): JournalReducerState | null {
-  const row = db
-    .prepare(`SELECT through_seq, version, state_json FROM journal_state
-    WHERE session_id = ? AND epoch = ?`)
-    .get(sessionId, epoch)
-  if (!row) {
-    return null
+  const pages = readJournalSavedStatePages(() => db, sessionId, epoch)
+  let step = pages.next()
+  while (!step.done) {
+    step = pages.next()
   }
+  return step.value
+}
+
+/** Decodes `limit` stored rows per page in storage order, yielding between pages; a negative limit
+ * reads each table at once. Null when the view is absent, from another codec, or invalid. */
+export function* readJournalSavedStatePages(
+  database: () => Database.Database,
+  sessionId: string,
+  epoch: string,
+  limit = -1
+): Generator<void, JournalReducerState | null> {
   try {
+    const row = database()
+      .prepare(`SELECT through_seq, version, state_json FROM journal_state
+      WHERE session_id = ? AND epoch = ?`)
+      .get(sessionId, epoch)
+    if (!row) {
+      return null
+    }
     if (typeof row.version !== 'number' || typeof row.state_json !== 'string') {
       throw new Error('invalid saved journal state')
     }
-    const items = db
-      .prepare(`SELECT item_json FROM journal_items
-      WHERE session_id = ? AND epoch = ? ORDER BY ordinal`)
-      .all(sessionId, epoch)
-    const jsons = items.map((item) => {
-      if (typeof item.item_json !== 'string') {
-        throw new Error('invalid saved journal item')
+    const decode = startJournalStateDecode(row.version, row.state_json)
+    if (!decode) {
+      return null
+    }
+    let ordinal = -1
+    for (;;) {
+      const items = database()
+        .prepare(`SELECT ordinal, item_json FROM journal_items
+        WHERE session_id = ? AND epoch = ? AND ordinal > ? ORDER BY ordinal LIMIT ?`)
+        .all(sessionId, epoch, ordinal, limit)
+      for (const item of items) {
+        if (typeof item.ordinal !== 'number' || typeof item.item_json !== 'string') {
+          throw new Error('invalid saved journal item')
+        }
+        decode.item(item.item_json)
+        ordinal = item.ordinal
       }
-      return item.item_json
-    })
-    const entries = db
-      .prepare(`SELECT field, entry_json FROM journal_entries
-      WHERE session_id = ? AND epoch = ? ORDER BY field, ordinal`)
-      .all(sessionId, epoch)
-      .map((entry) => {
-        if (typeof entry.field !== 'string' || typeof entry.entry_json !== 'string') {
+      if (limit < 0 || items.length < limit) {
+        break
+      }
+      yield
+    }
+    let field = ''
+    ordinal = -1
+    for (;;) {
+      const entries = database()
+        .prepare(`SELECT field, ordinal, entry_json FROM journal_entries
+        WHERE session_id = ? AND epoch = ? AND (field, ordinal) > (?, ?)
+        ORDER BY field, ordinal LIMIT ?`)
+        .all(sessionId, epoch, field, ordinal, limit)
+      for (const entry of entries) {
+        if (
+          typeof entry.field !== 'string' ||
+          typeof entry.ordinal !== 'number' ||
+          typeof entry.entry_json !== 'string'
+        ) {
           throw new Error('invalid saved journal entry')
         }
-        return { path: entry.field, entryJson: entry.entry_json }
-      })
-    const state = decodeJournalState(row.version, row.state_json, jsons, entries)
+        decode.entry(entry.field, entry.entry_json)
+        field = entry.field
+        ordinal = entry.ordinal
+      }
+      if (limit < 0 || entries.length < limit) {
+        break
+      }
+      yield
+    }
+    const state = decode.finish()
     if (
-      state?.sessionId !== sessionId ||
+      state.sessionId !== sessionId ||
       state.epoch !== epoch ||
       state.lastSequence !== row.through_seq
     ) {
@@ -55,39 +112,6 @@ export function readJournalSavedState(
   } catch (error) {
     logJournalProjectionFailure(sessionId, error)
     return null
-  }
-}
-
-/** Full publication runs only on the owning write lane, for bootstrap or coverage repair. */
-export function saveJournalState(
-  database: JournalHostDatabase,
-  state: JournalReducerState,
-  repairEqualPrefix = false
-): boolean {
-  if (database.readOnly || database.isClosed || state.lastSequence === 0) {
-    return false
-  }
-  try {
-    return database.transaction((db) => {
-      if (readJournalSessionEpoch(db, state.sessionId) !== state.epoch) {
-        return false
-      }
-      const previous = db
-        .prepare('SELECT epoch, through_seq FROM journal_state WHERE session_id = ?')
-        .get(state.sessionId)
-      if (
-        previous?.epoch === state.epoch &&
-        (Number(previous.through_seq) > state.lastSequence ||
-          (Number(previous.through_seq) === state.lastSequence && !repairEqualPrefix))
-      ) {
-        return false
-      }
-      publishJournalProjection(db, state)
-      return true
-    })
-  } catch (error) {
-    logJournalProjectionFailure(state.sessionId, error)
-    return false
   }
 }
 

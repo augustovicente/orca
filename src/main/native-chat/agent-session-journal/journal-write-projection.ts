@@ -1,7 +1,7 @@
 import { isDeepStrictEqual } from 'node:util'
 import type Database from '../../sqlite/sync-database'
 import type { JournalHostDatabase } from './journal-host-database'
-import type { JournalReducerState } from './journal-reducer'
+import { applyJournalRow, type JournalReducerState } from './journal-reducer'
 import type { JournalRow } from './journal-row-schema'
 import type { JournalWriteQueue } from './journal-write-queue'
 import { isolateJournalTransition } from './journal-reducer-transition'
@@ -9,14 +9,18 @@ import { writeJournalProjection } from './journal-projection-table'
 import { encodeJournalState } from './journal-state-codec'
 import { restoreJournal } from './journal-open'
 import {
+  journalCatchUpPace,
+  JournalProjectionCatchUp,
+  type JournalCatchUpStep
+} from './journal-projection-catch-up'
+import {
   logJournalProjectionFailure,
-  saveJournalState,
   unrefJournalProjectionTimer,
   writeJournalProjectionSavepoint
 } from './journal-saved-state'
 
-// Each failed publication or savepoint quadruples the wait, so a full disk never rewrites a whole
-// chat on a short fixed timer; a healthy incremental write or a reopen resets it.
+// Each failed page or savepoint quadruples the wait, so a full disk is not retried on a short fixed
+// timer; a committed page, a healthy incremental write or a reopen resets it.
 const REPAIR_DELAY_MS = 1_000
 const MAX_REPAIR_DELAY_MS = 60 * 60_000
 // A full restore per check: development samples each chat so long streams stay responsive.
@@ -31,6 +35,8 @@ export class JournalWriteProjection {
   private verifiedAt = Number.NEGATIVE_INFINITY
   private timer: ReturnType<typeof setTimeout> | null = null
   private closed = false
+  private catchUp: JournalProjectionCatchUp | null = null
+  private catchingUp: Promise<void> | null = null
 
   constructor(
     private readonly deps: {
@@ -44,6 +50,7 @@ export class JournalWriteProjection {
   opened(through: number): void {
     this.through = through
     this.failures = 0
+    this.catchUp = null
     this.clearTimer()
     this.schedule()
   }
@@ -51,7 +58,11 @@ export class JournalWriteProjection {
   /** The callback is invoked only after the outer transaction has committed. */
   prepare(db: Database.Database, rows: readonly JournalRow[], savedAt: number): () => void {
     const live = this.deps.state()
-    const transition = isolateJournalTransition(live, rows, savedAt)
+    const transition = isolateJournalTransition(live, (draft) => {
+      for (const row of rows) {
+        applyJournalRow(draft, row, savedAt)
+      }
+    })
     const attempted = this.through === live.lastSequence && this.through > 0
     const projected = attempted && this.write(db, transition)
     return () => {
@@ -66,30 +77,69 @@ export class JournalWriteProjection {
     }
   }
 
+  /** Timer and background requests join the one catch-up in flight. */
   repair = (): Promise<void> => {
     // A closing chat's next open repairs it.
     if (this.closed) {
       return Promise.resolve()
     }
-    return this.deps.queue
-      .serialize(() => {
-        const state = this.deps.state()
-        if (this.through === state.lastSequence) {
+    this.catchingUp ??= this.catchUpPages().finally(() => {
+      this.catchingUp = null
+      this.schedule()
+    })
+    return this.catchingUp
+  }
+
+  /** Sends keep committing between pages, skipping the projection until coverage meets the tip. */
+  private async catchUpPages(): Promise<void> {
+    const pace = journalCatchUpPace()
+    const rest = async (): Promise<boolean> => {
+      await pace()
+      return !this.closed
+    }
+    try {
+      for (;;) {
+        const live = this.deps.state()
+        if (this.closed || this.through === live.lastSequence) {
           return
         }
-        // Capture on this lane, after admitted recovery writes; publication rechecks the epoch.
-        if (saveJournalState(this.deps.database, state, true)) {
-          this.through = state.lastSequence
-        } else {
-          this.failures += 1
+        const catchUp =
+          this.catchUp && this.catchUp.epoch === live.epoch
+            ? this.catchUp
+            : new JournalProjectionCatchUp(this.deps.database, live.sessionId, live.epoch)
+        this.catchUp = catchUp
+        if (!(await catchUp.load(rest))) {
+          return
         }
-        this.schedule()
-      })
-      .catch((error) => {
+        const step = await this.deps.queue.serialize(() => this.page(catchUp))
+        if (step === 'failed' || step === 'parked') {
+          this.failures += 1
+          return
+        }
+        if (step === 'retired') {
+          return
+        }
+        await pace()
+      }
+    } catch (error) {
+      if (!this.closed) {
         this.failures += 1
         logJournalProjectionFailure(this.deps.state().sessionId, error)
-        this.schedule()
-      })
+      }
+    }
+  }
+
+  /** On the lane, so the next send sees whether coverage reached the tip. */
+  private page(catchUp: JournalProjectionCatchUp): JournalCatchUpStep {
+    if (this.closed || this.catchUp !== catchUp) {
+      return 'stale'
+    }
+    const step = catchUp.page()
+    if (step === 'advanced' || step === 'current') {
+      this.through = catchUp.through
+      this.failures = 0
+    }
+    return step
   }
 
   /** Runs after commit notification, never in the adopt path. */
@@ -115,6 +165,7 @@ export class JournalWriteProjection {
 
   close(): void {
     this.closed = true
+    this.catchUp = null
     this.clearTimer()
   }
 
@@ -140,7 +191,12 @@ export class JournalWriteProjection {
   }
 
   private schedule(): void {
-    if (this.closed || this.timer || this.through === this.deps.state().lastSequence) {
+    if (
+      this.closed ||
+      this.timer ||
+      this.catchingUp ||
+      this.through === this.deps.state().lastSequence
+    ) {
       return
     }
     const delay = Math.min(REPAIR_DELAY_MS * 4 ** this.failures, MAX_REPAIR_DELAY_MS)

@@ -1,7 +1,7 @@
 // Versioned reducer snapshots preserve insertion order and the presence of undefined echo declarations.
 
 import { z } from 'zod'
-import { assembleJournalState, type JournalStoredEntry } from './journal-state-layout'
+import type { journalStateLayout } from './journal-state-layout'
 import {
   isAdmissibleAgentJournalRenderItem,
   isAdmissibleAgentJournalMessageBody,
@@ -131,7 +131,29 @@ const fields = {
       .nullable()
   )
 } satisfies Record<keyof JournalReducerState, z.ZodType>
-const stateV2 = z.object(fields).omit({ items: true })
+const scalarsV2 = z
+  .object(fields)
+  .pick({
+    sessionId: true,
+    epoch: true,
+    lastSequence: true,
+    lastActivityAt: true,
+    oldestSequence: true,
+    highestFence: true,
+    derivedTurnScope: true,
+    latestAcceptedTurnSequence: true,
+    queuePauseMarks: true,
+    historyOrigin: true
+  })
+  .extend({ queue: fields.queue.pick({ revision: true }) })
+
+type CollectionPath =
+  | {
+      [K in keyof typeof journalStateLayout]: (typeof journalStateLayout)[K] extends 'map' | 'set'
+        ? K
+        : never
+    }[keyof typeof journalStateLayout]
+  | 'queue.cards'
 
 // Live Stop settlement belongs to its process; only the row-derived pause facts survive restart.
 function durableQueuePauseMarks(
@@ -183,44 +205,101 @@ export function encodeJournalState(state: JournalReducerState): {
   }
 }
 
-/** Keep every shipped version's decoder here; future codecs migrate its decoded state forward. */
-export function decodeJournalState(
+export type JournalStateDecode = {
+  item: (itemJson: string) => void
+  entry: (path: string, entryJson: string) => void
+  finish: () => JournalReducerState
+}
+
+/** Keep every shipped version's decoder here; future codecs migrate its decoded state forward.
+ * Rows decode one at a time in storage order, so a paced reader can rest between pages. */
+export function startJournalStateDecode(
   version: number,
-  stateJson: string,
-  itemJsons: readonly string[],
-  entries?: readonly JournalStoredEntry[]
-): JournalReducerState | null {
+  stateJson: string
+): JournalStateDecode | null {
   if (version !== JOURNAL_STATE_CODEC_VERSION) {
     return null
   }
-  const json: unknown = JSON.parse(stateJson)
-  const stored = stateV2.parse(entries ? assembleJournalState(json, entries) : json)
-  const items = fields.items.parse(itemJsons.map((json) => JSON.parse(json)))
-  return {
+  const stored = scalarsV2.parse(JSON.parse(stateJson))
+  const state: JournalReducerState = {
     sessionId: stored.sessionId,
     epoch: stored.epoch,
     lastSequence: stored.lastSequence,
     lastActivityAt: stored.lastActivityAt,
     oldestSequence: stored.oldestSequence,
     highestFence: stored.highestFence,
-    items: new Map(items.map((item) => [item.itemId, item])),
-    itemFences: new Map(stored.itemFences),
-    itemExecutionOwners: new Map(stored.itemExecutionOwners),
-    providerActivityAt: new Map(stored.providerActivityAt),
-    tombstones: new Map(stored.tombstones),
-    removedTurnIds: new Set(stored.removedTurnIds),
-    submissions: new Map(stored.submissions),
-    receipts: new Map(stored.receipts),
-    aliases: new Map(stored.aliases),
-    itemEchoes: new Map(stored.itemEchoes.map((entry) => [entry[0], entry[1]])),
-    appliedSettlementIds: new Set(stored.appliedSettlementIds),
+    items: new Map(),
+    itemFences: new Map(),
+    itemExecutionOwners: new Map(),
+    providerActivityAt: new Map(),
+    tombstones: new Map(),
+    removedTurnIds: new Set(),
+    submissions: new Map(),
+    receipts: new Map(),
+    aliases: new Map(),
+    itemEchoes: new Map(),
+    appliedSettlementIds: new Set(),
     derivedTurnScope: JournalDerivedTurnScope.restore(stored.derivedTurnScope),
     latestAcceptedTurnSequence: stored.latestAcceptedTurnSequence,
     queuePauseMarks: durableQueuePauseMarks(stored.queuePauseMarks),
-    stoppedHistoryCarried: new Map(stored.stoppedHistoryCarried),
-    queuedHandOffPlaces: new Map(stored.queuedHandOffPlaces),
-    normalizedHandOffs: new Set(stored.normalizedHandOffs),
-    queue: { revision: stored.queue.revision, cards: new Map(stored.queue.cards) },
+    stoppedHistoryCarried: new Map(),
+    queuedHandOffPlaces: new Map(),
+    normalizedHandOffs: new Set(),
+    queue: { revision: stored.queue.revision, cards: new Map() },
     historyOrigin: stored.historyOrigin
   }
+  const collections = collectionDecoders(state)
+  return {
+    item: (itemJson) => {
+      const item = fields.items.element.parse(JSON.parse(itemJson))
+      state.items.set(item.itemId, item)
+    },
+    entry: (path, entryJson) => {
+      const decode = collections.get(path)
+      if (!decode) {
+        throw new Error('unknown saved journal collection')
+      }
+      const entry: unknown = JSON.parse(entryJson)
+      if (!Array.isArray(entry) || entry.length < 1 || entry.length > 2) {
+        throw new Error('invalid saved journal entry')
+      }
+      decode(entry)
+    },
+    finish: () => state
+  }
+}
+
+// Entry tuples hold [key, value] for maps and [value, value] for sets; echoes may omit an undefined value.
+function collectionDecoders(state: JournalReducerState): Map<string, (entry: unknown[]) => void> {
+  const map =
+    <K, V>(target: Map<K, V>, schema: z.ZodType<[K, V]>) =>
+    (entry: unknown[]): void => {
+      const [key, value] = schema.parse(entry)
+      target.set(key, value)
+    }
+  const set =
+    <T>(target: Set<T>, schema: z.ZodType<T>) =>
+    (entry: unknown[]): void => {
+      target.add(schema.parse(entry[0]))
+    }
+  const decoders = {
+    itemFences: map(state.itemFences, fields.itemFences.element),
+    itemExecutionOwners: map(state.itemExecutionOwners, fields.itemExecutionOwners.element),
+    providerActivityAt: map(state.providerActivityAt, fields.providerActivityAt.element),
+    tombstones: map(state.tombstones, fields.tombstones.element),
+    removedTurnIds: set(state.removedTurnIds, fields.removedTurnIds.element),
+    submissions: map(state.submissions, fields.submissions.element),
+    receipts: map(state.receipts, fields.receipts.element),
+    aliases: map(state.aliases, fields.aliases.element),
+    itemEchoes: (entry: unknown[]): void => {
+      const echo = fields.itemEchoes.element.parse(entry)
+      state.itemEchoes.set(echo[0], echo[1])
+    },
+    appliedSettlementIds: set(state.appliedSettlementIds, fields.appliedSettlementIds.element),
+    stoppedHistoryCarried: map(state.stoppedHistoryCarried, fields.stoppedHistoryCarried.element),
+    queuedHandOffPlaces: map(state.queuedHandOffPlaces, fields.queuedHandOffPlaces.element),
+    normalizedHandOffs: set(state.normalizedHandOffs, fields.normalizedHandOffs.element),
+    'queue.cards': map(state.queue.cards, fields.queue.shape.cards.element)
+  } satisfies Record<CollectionPath, (entry: unknown[]) => void>
+  return new Map(Object.entries(decoders))
 }

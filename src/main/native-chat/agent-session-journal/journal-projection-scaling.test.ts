@@ -7,15 +7,13 @@ import { agentSessionSendBodyFingerprint } from '../../../shared/structured-agen
 import type { AgentJournalMessageItem } from '../../../shared/agent-session-journal-types'
 import {
   closeTestJournalHostDatabases,
+  insertTestJournalRow,
   openTestJournalHostDatabase,
-  publishTestJournalEpoch
+  publishTestJournalEpoch,
+  saveTestJournalState
 } from './journal-host-database-test-support'
 import { restoreJournal } from './journal-open'
-import {
-  readJournalSavedState,
-  saveJournalState,
-  sweepJournalSavedState
-} from './journal-saved-state'
+import { readJournalSavedState, sweepJournalSavedState } from './journal-saved-state'
 import { backfillJournalState } from './journal-state-backfill'
 import type { JournalHostDatabase } from './journal-host-database'
 import type { JournalRow } from './journal-row-schema'
@@ -106,7 +104,7 @@ function chatOf(size: number, label: string) {
   }
   rows.push(send(rows.length + 1, 'send', message('Continue'), true))
   const state = seedProjectionRows(database, rows)
-  expect(saveJournalState(database, state)).toBe(true)
+  saveTestJournalState(database, state)
   const rig = projectionWriter(database, state)
   rigs.push(rig)
   return { database, rig }
@@ -221,32 +219,47 @@ it('sweeps an orphaned projection with the same indexed statements at N and 10N 
   expect(sweep(10 * N)).toStrictEqual(sweep(N))
 })
 
-// One closed chat's decode and publication run between rests: O(its live state), not its rows.
-it('publishes a closed chat with writes bounded by its live state at N and 10N rows', async () => {
-  const publish = async (revisions: number) => {
-    const database = openTestJournalHostDatabase(join(root, `closed-${revisions}`))
-    const rows: JournalRow[] = [projectionEpochRow]
-    for (let revision = 1; revision <= revisions; revision++) {
-      for (const itemId of ['first', 'second', 'third']) {
-        rows.push({
-          ...base(rows.length + 1),
-          kind: 'item',
-          itemId,
-          revision,
-          body: message(`${itemId} ${revision}`, 'assistant')
-        })
+it('catches up a lagging closed chat in pages whose writes do not grow with its live state at N and 10N', async () => {
+  const catchUp = async (size: number) => {
+    const { database, rig } = chatOf(size, `lagging-${size}`)
+    const through = rig.state().lastSequence
+    database.transaction((db) => {
+      for (let revision = 1; revision <= 3 * 32; revision++) {
+        insertTestJournalRow(
+          db,
+          sessionId,
+          answer(`Revision ${revision}`, revision)(through + revision, 2_000)
+        )
       }
-    }
-    seedProjectionRows(database, rows)
+    })
     const writes = countWrites(database)
+    const stretches: ReturnType<typeof writes>[] = []
+    let tick = 0
     await backfillJournalState({
       database: () => database,
       repairOpen: async () => false,
       stopped: () => false,
-      rest: async () => undefined
+      // Every slice overruns, so the pass rests after each page of the saved view and of the tail.
+      now: () => (tick += 30),
+      rest: async () => {
+        stretches.push(writes())
+      }
     })
-    expect(readJournalSavedState(database.db, sessionId, epoch)?.lastSequence).toBe(rows.length)
-    return shape(writes().filter(({ write }) => !write.startsWith('journal_rows')))
+    stretches.push(writes())
+    expect(readJournalSavedState(database.db, sessionId, epoch)?.lastSequence).toBe(through + 96)
+    return {
+      loadRests: stretches.length,
+      written: stretches
+        .map((stretch) => shape(stretch.filter(({ write }) => !write.startsWith('journal_rows'))))
+        .filter((stretch) => stretch.length > 0)
+    }
   }
-  expect(await publish(10 * N)).toStrictEqual(await publish(N))
+  const small = await catchUp(N)
+  const large = await catchUp(10 * N)
+  // One transaction per page of the tail, each the same at N and 10N: no whole-view rewrite.
+  expect(small.written).toHaveLength(3)
+  expect(large.written).toStrictEqual(small.written)
+  expect(small.written.flat().filter(([write]) => String(write).endsWith('DELETE'))).toEqual([])
+  // Decoding the larger saved view takes more paced pages, not a longer stretch.
+  expect(large.loadRests).toBeGreaterThan(small.loadRests)
 })

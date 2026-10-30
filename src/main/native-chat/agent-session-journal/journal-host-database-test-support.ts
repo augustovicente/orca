@@ -3,6 +3,8 @@
 import { resolve } from 'node:path'
 import { JournalHostDatabase } from './journal-host-database'
 import { clearJournalSavedState } from './journal-saved-state'
+import { publishJournalProjection } from './journal-projection-table'
+import type { JournalReducerState } from './journal-reducer'
 import { replayJournal, type JournalLoad } from './journal-open'
 import { serializeJournalRow, type JournalRow } from './journal-row-schema'
 import {
@@ -99,6 +101,14 @@ export function publishTestJournalEpoch(
   epoch: string
 ): void {
   publishJournalSessionEpoch(db, { sessionId, workspaceId: 'ws-1' }, epoch)
+}
+
+/** Seeds a saved view of `state` as one whole publication. */
+export function saveTestJournalState(
+  database: JournalHostDatabase,
+  state: JournalReducerState
+): void {
+  database.transaction((db) => publishJournalProjection(db, state))
 }
 
 export function readTestJournalRows(

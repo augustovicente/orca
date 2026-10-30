@@ -159,7 +159,7 @@ export class AgentSessionJournal {
     return this.reopenUnmarked
   }
 
-  /** A legacy or lagging chat publishes its saved state on the write lane after it opens. */
+  /** A legacy or lagging chat catches its saved state up page by page after it opens. */
   async open(): Promise<void> {
     await this.restore()
     this.openedThrough = this.cursor()

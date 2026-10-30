@@ -1,7 +1,6 @@
 // Track writes through objects, iterators and collection entries; finalize only after COMMIT.
 
-import { applyJournalRow, type JournalReducerState } from './journal-reducer'
-import type { JournalRow } from './journal-row-schema'
+import type { JournalReducerState } from './journal-reducer'
 import {
   JournalDraftMap,
   JournalDraftSet,
@@ -214,19 +213,23 @@ class JournalDraft {
   }
 }
 
-export function isolateJournalTransition(
+/** Fold onto a draft of `state`; the live state changes only when `adopt` runs after COMMIT. */
+export function isolateJournalTransition<T>(
   state: JournalReducerState,
-  rows: readonly JournalRow[],
-  savedAt: number
+  fold: (draft: JournalReducerState) => T
 ): {
   state: JournalReducerState
+  result: T
   changes: () => JournalEntryChange[]
   adopt: () => JournalReducerState
 } {
   const draft = new JournalDraft()
   const candidate = draft.wrap(state, () => undefined, '')
-  for (const row of rows) {
-    applyJournalRow(candidate, row, savedAt)
+  const result = fold(candidate)
+  return {
+    state: candidate,
+    result,
+    changes: () => draft.changes(),
+    adopt: () => draft.adopt(candidate)
   }
-  return { state: candidate, changes: () => draft.changes(), adopt: () => draft.adopt(candidate) }
 }

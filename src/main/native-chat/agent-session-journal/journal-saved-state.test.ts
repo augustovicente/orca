@@ -25,9 +25,10 @@ import {
   openTestJournalHostDatabase,
   publishTestJournalEpoch,
   insertTestJournalRow,
-  liveTestJournalRows
+  liveTestJournalRows,
+  saveTestJournalState
 } from './journal-host-database-test-support'
-import { readJournalSavedState, saveJournalState } from './journal-saved-state'
+import { readJournalSavedState, readJournalSavedStatePages } from './journal-saved-state'
 import type { JournalRow } from './journal-row-schema'
 import type { JournalHostDatabase } from './journal-host-database'
 
@@ -243,9 +244,18 @@ it('round trips the complete replayed reducer, including insertion order and und
   expect(state.itemEchoes.get(itemId(2))).toBeUndefined()
   expect([...state.appliedSettlementIds][0]).toBe('settlement-2')
   expect(state.derivedTurnScope.snapshot()).toBe(itemId(5))
-  expect(saveJournalState(database, state)).toBe(true)
+  saveTestJournalState(database, state)
   const restored = requireState(readJournalSavedState(database.db, identity.sessionId, epoch))
   expectSameState(restored, state)
+  // A paced reader decodes the same state one stored row per page.
+  const pages = readJournalSavedStatePages(() => database.db, identity.sessionId, epoch, 1)
+  let page = pages.next()
+  let rests = 0
+  for (; !page.done; page = pages.next()) {
+    rests += 1
+  }
+  expectSameState(requireState(page.value), state)
+  expect(rests).toBeGreaterThan(state.items.size)
   expect(restored.derivedTurnScope.scopeFor(text('next'))).toEqual({
     kind: 'turn',
     turnItemId: itemId(5)

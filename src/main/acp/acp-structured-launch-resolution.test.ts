@@ -11,13 +11,13 @@ import {
 import type { AgentSessionRecord } from '../../shared/agent-session-record'
 import { agentSessionRecordFixture } from '../../shared/agent-session-record.test-fixture'
 import { replayJournal, restoreJournal } from '../native-chat/agent-session-journal/journal-open'
-import { saveJournalState } from '../native-chat/agent-session-journal/journal-saved-state'
 import {
   openTestJournalHostDatabase,
   closeTestJournalHostDatabase,
   publishTestJournalEpoch,
   insertTestJournalRow,
-  insertTestJournalRowJson
+  insertTestJournalRowJson,
+  saveTestJournalState
 } from '../native-chat/agent-session-journal/journal-host-database-test-support'
 import type { JournalLoad } from '../native-chat/agent-session-journal/journal-open'
 import { createJournalReducerState } from '../native-chat/agent-session-journal/journal-reducer'
@@ -145,7 +145,7 @@ describe('ACP launch resolution', () => {
       if (!load) {
         throw new Error('missing replay')
       }
-      expect(saveJournalState(database, load.state)).toBe(true)
+      saveTestJournalState(database, load.state)
       const readDecisions = async (readJournal: () => JournalLoad | null) => {
         const launch = await resolver(record, readJournal).resolve({ identity })
         return {

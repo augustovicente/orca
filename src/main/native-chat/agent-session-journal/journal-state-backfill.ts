@@ -1,17 +1,12 @@
-// Pace closed-chat replay between pages; live chats repair through their own write queue.
+// Closed chats catch up page by page between rests; an open chat takes over at a page boundary.
 
 import type { JournalHostDatabase } from './journal-host-database'
-import { startJournalRowFold } from './journal-open'
-import { createJournalReducerState } from './journal-reducer'
-import { readJournalRowsAfter } from './journal-row-table'
+import { journalCatchUpPace, JournalProjectionCatchUp } from './journal-projection-catch-up'
 import {
   logJournalProjectionFailure,
-  readJournalSavedState,
-  saveJournalState,
   sweepJournalSavedState,
   unrefJournalProjectionTimer
 } from './journal-saved-state'
-import { JournalWriteQueue } from './journal-write-queue'
 
 export type JournalStateBackfillRun = {
   database: () => JournalHostDatabase | null
@@ -23,26 +18,15 @@ export type JournalStateBackfillRun = {
   unpublishable?: Map<string, string>
 }
 
-const PAGE_ROWS = 32
-const SLICE_MS = 25
-
 export async function backfillJournalState(run: JournalStateBackfillRun): Promise<void> {
-  const now = run.now ?? (() => performance.now())
-  const rest =
-    run.rest ??
-    ((ms) => new Promise<void>((resolve) => unrefJournalProjectionTimer(setTimeout(resolve, ms))))
-  let sliceAt = now()
+  const pace = journalCatchUpPace(run.now, run.rest)
   const current = (): JournalHostDatabase | null => {
     const database = run.database()
     return run.stopped() || !database || database.isClosed || database.readOnly ? null : database
   }
-  const pace = async (): Promise<JournalHostDatabase | null> => {
-    const elapsed = now() - sliceAt
-    if (elapsed >= SLICE_MS) {
-      await rest(elapsed * 9)
-      sliceAt = now()
-    }
-    return current()
+  const resume = async (): Promise<boolean> => {
+    await pace()
+    return current() !== null
   }
   const database = current()
   if (!database) {
@@ -74,64 +58,24 @@ export async function backfillJournalState(run: JournalStateBackfillRun): Promis
       continue
     }
     try {
-      if (!(await pace())) {
-        return
-      }
-      if (await run.repairOpen(sessionId)) {
-        continue
-      }
-      const opened = current()
-      if (!opened) {
-        return
-      }
-      const state =
-        readJournalSavedState(opened.db, sessionId, epoch) ??
-        createJournalReducerState(sessionId, epoch)
-      const fold = startJournalRowFold({ sessionId, epoch, untilDamage: true }, state)
-      let afterSequence = state.lastSequence === 0 ? Number.MIN_SAFE_INTEGER : state.lastSequence
-      while (afterSequence < lastSequence) {
-        const next = await pace()
-        if (!next) {
+      const catchUp = new JournalProjectionCatchUp(database, sessionId, epoch)
+      for (;;) {
+        if (!(await resume())) {
           return
         }
-        const page = readJournalRowsAfter(
-          next.db,
-          sessionId,
-          epoch,
-          afterSequence,
-          PAGE_ROWS
-        ).filter((entry) => entry.seq <= lastSequence)
-        if (page.length === 0) {
+        // An open chat owns its lane and continues from the last committed page.
+        if (await run.repairOpen(sessionId)) {
           break
         }
-        let readable = true
-        for (const entry of page) {
-          afterSequence = entry.seq
-          if (!fold.add(entry)) {
-            readable = false
-            break
-          }
+        if (!(await catchUp.load(resume)) || !current()) {
+          return
         }
-        if (!readable) {
+        const step = catchUp.page()
+        if (step === 'parked') {
+          run.unpublishable?.set(sessionId, attempt)
+        }
+        if (step !== 'advanced' && step !== 'stale') {
           break
-        }
-      }
-      const loaded = fold.finish()
-      if (loaded.damage || loaded.newer) {
-        run.unpublishable?.set(sessionId, attempt)
-        continue
-      }
-      const target = await pace()
-      if (!target) {
-        return
-      }
-      if (loaded.state.lastSequence === lastSequence) {
-        // Opening meanwhile is safe: publication can only advance the same immutable prefix.
-        // Decode and publication run unrested: O(this chat's live state), independent of its rows.
-        if (!(await run.repairOpen(sessionId))) {
-          await new JournalWriteQueue(sessionId).serialize(() =>
-            saveJournalState(target, loaded.state)
-          )
         }
       }
     } catch (error) {

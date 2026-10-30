@@ -7,9 +7,10 @@ import { agentSessionSendBodyFingerprint } from '../../../shared/structured-agen
 import type { AgentJournalMessageItem } from '../../../shared/agent-session-journal-types'
 import {
   closeTestJournalHostDatabases,
-  openTestJournalHostDatabase
+  openTestJournalHostDatabase,
+  saveTestJournalState
 } from './journal-host-database-test-support'
-import { readJournalSavedState, saveJournalState } from './journal-saved-state'
+import { readJournalSavedState } from './journal-saved-state'
 import { restoreJournal } from './journal-open'
 import { encodeJournalState } from './journal-state-codec'
 import { JournalStopMarks } from './journal-stop-marks'
@@ -22,7 +23,8 @@ import {
   projectionEpochRow,
   projectionSessionId as sessionId,
   projectionWriter,
-  seedProjectionRows
+  seedProjectionRows,
+  watchJournalStatements
 } from './journal-projection-test-support'
 
 let root: string
@@ -85,7 +87,7 @@ function receipt() {
 
 it('commits through a statement-only projection failure, skips the lag, repairs after reopen, and propagates an outer abort', async () => {
   const initial = seedProjectionRows(database, [projectionEpochRow])
-  saveJournalState(database, initial)
+  saveTestJournalState(database, initial)
   const rig = rigFor(initial)
   const notify = receipt()
   database.db.exec(`CREATE TRIGGER fail_projection BEFORE INSERT ON journal_state
@@ -150,7 +152,7 @@ it('commits through a statement-only projection failure, skips the lag, repairs 
 
 it('backs off a failing repair on its own timer, then publishes once the cause clears', async () => {
   const initial = seedProjectionRows(database, [projectionEpochRow])
-  saveJournalState(database, initial)
+  saveTestJournalState(database, initial)
   const rig = rigFor(initial)
   database.db.exec(`CREATE TRIGGER fail_projection BEFORE INSERT ON journal_state
     BEGIN SELECT RAISE(ABORT, 'database or disk is full'); END`)
@@ -175,9 +177,35 @@ it('backs off a failing repair on its own timer, then publishes once the cause c
   )
 })
 
+it('keeps committed catch-up pages and the live state when a later page fails, then resumes after them', async () => {
+  const initial = seedProjectionRows(database, [
+    projectionEpochRow,
+    ...Array.from({ length: 63 }, (_, index) =>
+      status(`lagging-${index}`)(index + 2, 1_002 + index)
+    )
+  ])
+  const rig = rigFor(initial)
+  database.db.exec(`CREATE TRIGGER fail_page BEFORE INSERT ON journal_state
+    WHEN NEW.through_seq > 32 BEGIN SELECT RAISE(ABORT, 'database or disk is full'); END`)
+  vi.spyOn(console, 'warn').mockImplementation(() => {})
+  const live = rig.state()
+  const before = encodeJournalState(live)
+  await vi.advanceTimersByTimeAsync(1_000)
+  expect(readJournalSavedState(database.db, sessionId, epoch)?.lastSequence).toBe(32)
+  expect(rig.state()).toBe(live)
+  expect(encodeJournalState(live)).toStrictEqual(before)
+  expectProjectionMatches(database, live)
+  database.db.exec('DROP TRIGGER fail_page')
+  const watched = watchJournalStatements(database)
+  await vi.advanceTimersByTimeAsync(4_000)
+  expect(readJournalSavedState(database.db, sessionId, epoch)?.lastSequence).toBe(64)
+  expect(watched.rowsRead()).toBe(64 - 32)
+  expectProjectionMatches(database, live)
+})
+
 it('fails the per-commit check when saved state stops decoding, though a full replay still matches', async () => {
   const initial = seedProjectionRows(database, [projectionEpochRow, status('kept')(2, 1_002)])
-  saveJournalState(database, initial)
+  saveTestJournalState(database, initial)
   const rig = rigFor(initial)
   database.db.prepare("UPDATE journal_items SET item_json = '{' WHERE item_id = 'kept'").run()
   vi.spyOn(console, 'warn').mockImplementation(() => {})
@@ -215,7 +243,7 @@ it('leaves every live reducer value and the Stop handle unchanged after fold the
       stopEvent: { reason: 'user-stop', at: 1_004 }
     }
   ])
-  saveJournalState(database, initial)
+  saveTestJournalState(database, initial)
   const rig = rigFor(initial)
   const stops = new JournalStopMarks({ state: rig.state })
   const settle = stops.beginSettle(true)
