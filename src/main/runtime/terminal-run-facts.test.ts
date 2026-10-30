@@ -163,4 +163,13 @@ describe('terminal run facts', () => {
     expect(facts.readLastInputAt('pty-1')).toBe(100)
     expect(facts.read('pty-1', null).firstUserInputAt).toBeNull()
   })
+
+  it('reads a batch of mouse and focus reports as nobody driving, but a batch with a key as driving', () => {
+    // Remote transports merge frames, so hover then click-to-focus arrives as one payload.
+    const facts = new TerminalRunFactsRegister()
+    facts.recordInput('pty-1', 'driving', '\x1b[<35;7;6M\x1b[I', 100)
+    expect(facts.readLastDrivingInputAt('pty-1')).toBeNull()
+    facts.recordInput('pty-1', 'driving', '\x1b[<35;7;6M\x1b[Ix', 200)
+    expect(facts.readLastDrivingInputAt('pty-1')).toBe(200)
+  })
 })

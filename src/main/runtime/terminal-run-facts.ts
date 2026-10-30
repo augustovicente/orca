@@ -3,7 +3,7 @@ import {
   type PtySpawnCommitOrigin
 } from '../persistence/loading-store/pty-binding-span'
 import {
-  isTerminalPointerReportOnly,
+  isTerminalPointerOrFocusReportOnly,
   isUntypedTerminalInput
 } from '../../shared/terminal-untyped-input'
 import { isDrivingInputKind, type TerminalInputKind } from '../../shared/terminal-input-kind'
@@ -118,7 +118,7 @@ export class TerminalRunFactsRegister {
     this.lastInputAtByPtyId.set(ptyId, now)
     const run = this.runsByPtyId.get(ptyId)
     if (isDrivingInputKind(inputKind)) {
-      if (inputKind === 'driving' && !isTerminalPointerReportOnly(data)) {
+      if (inputKind === 'driving' && !isTerminalPointerOrFocusReportOnly(data)) {
         this.lastDrivingInputAtByPtyId.set(ptyId, now)
       }
       for (const listener of this.inputListeners) {

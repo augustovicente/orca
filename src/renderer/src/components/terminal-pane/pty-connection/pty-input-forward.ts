@@ -3,7 +3,7 @@ import { subscribeToTerminalInputData } from '../terminal-user-input-signal'
 import { installTerminalImeCompositionRoute } from '../terminal-ime-composition-route'
 import { useAppStore } from '@/store'
 import { isTerminalQueryReply } from '../../../../../shared/terminal-query-reply'
-import { isTerminalPointerReportOnly } from '../../../../../shared/terminal-untyped-input'
+import { isTerminalPointerOrFocusReportOnly } from '../../../../../shared/terminal-untyped-input'
 import { reportWorkerTerminalUserInput } from '@/lib/worker-terminal-takeover-report'
 import { safeFitAndThen } from '@/lib/pane-manager/pane-tree-ops'
 import { getFitOverrideForPty } from '@/lib/pane-manager/mobile-fit-overrides'
@@ -155,7 +155,7 @@ export function installPtyInputForward(session: ConnectPanePtySession): void {
     session.pane.terminal,
     (data, wasUserInput) => {
       // Only xterm's provenance proves a person; their mouse over the pane reads it, typing takes it over.
-      if (wasUserInput && !isTerminalPointerReportOnly(data)) {
+      if (wasUserInput && !isTerminalPointerOrFocusReportOnly(data)) {
         reportWorkerTerminalUserInput(session.cacheKey, session.runtimeEnvironmentId)
       }
       const forward = wasUserInput ? forwardUserInput : forwardUnclassifiedInput
