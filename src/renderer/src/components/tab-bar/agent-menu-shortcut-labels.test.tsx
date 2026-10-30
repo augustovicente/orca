@@ -21,7 +21,8 @@ const entry: AgentPickerEntry = {
   surfaces: ['terminal'],
   defaultSurface: 'terminal',
   terminal: {},
-  structured: {}
+  structured: {},
+  catalog: { origin: 'unknown' }
 }
 afterEach(cleanup)
 it('projects live shortcuts only in the + picker and preserves its loading presentation', () => {
