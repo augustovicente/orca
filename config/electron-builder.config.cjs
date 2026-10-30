@@ -149,7 +149,13 @@ const emojiShortcodeDatasetResource = {
   from: 'node_modules/emojibase-data/en/shortcodes/emojibase.json',
   to: 'node_modules/emojibase-data/en/shortcodes/emojibase.json'
 }
+// The first-run seed reads process.resourcesPath/whitelabel/profile.json.
+const whitelabelProfileResources = {
+  from: 'resources/whitelabel',
+  to: 'whitelabel'
+}
 const commonExtraResources = [
+  whitelabelProfileResources,
   relayExtraResource,
   orcadTemplateExtraResource,
   orcadTemplateNodeModulesExtraResource,
