@@ -110,7 +110,7 @@ export async function prepareQuickComposerStartup(
     linkedWorkItem: Parameters<typeof resolveQuickCreateLinkedWorkItemPrompt>[0]
     note: string
   }
-): Promise<QuickComposerStartup> {
+): Promise<QuickComposerStartup & { prompt: string; draftPrompt: string | null }> {
   const preferences = input.agent
     ? await ensureAgentLaunchPreferences(useAppStore.getState(), {
         kind: 'git-worktree',
@@ -122,15 +122,19 @@ export async function prepareQuickComposerStartup(
     input.agent ? input.linkedWorkItem : null,
     input.note
   )
-  return buildQuickComposerStartup({
-    ...input,
+  return {
     prompt,
     draftPrompt,
-    settings: input.settings
-      ? {
-          ...input.settings,
-          agentLaunchChoices: preferences?.agentLaunchChoices ?? input.settings.agentLaunchChoices
-        }
-      : input.settings
-  })
+    ...buildQuickComposerStartup({
+      ...input,
+      prompt,
+      draftPrompt,
+      settings: input.settings
+        ? {
+            ...input.settings,
+            agentLaunchChoices: preferences?.agentLaunchChoices ?? input.settings.agentLaunchChoices
+          }
+        : input.settings
+    })
+  }
 }

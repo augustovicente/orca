@@ -1,36 +1,4 @@
-import type { ComposerModel } from './composer-model'
-
-type QuickCreationExecutionInput = Pick<
-  ComposerModel,
-  | 'clearNewWorkspaceDraft'
-  | 'createMultiple'
-  | 'effectivePresetId'
-  | 'ephemeralVmRecipes'
-  | 'ephemeralVmsEnabled'
-  | 'isSubmissionCancelled'
-  | 'linkedGitLabIssue'
-  | 'linkedGitLabMR'
-  | 'normalizedSparseDirectories'
-  | 'onCreated'
-  | 'parentWorktreeId'
-  | 'persistDraft'
-  | 'persistSetupAgentStartupPolicy'
-  | 'prepareQuickSubmit'
-  | 'resetForNextCreate'
-  | 'resolvedInitialWorkspaceStatus'
-  | 'selectedEphemeralVmRecipeId'
-  | 'selectedRepoAgentLaunchFact'
-  | 'selectedRepoExecutionHostId'
-  | 'selectedRepoIsGit'
-  | 'selectedRepoIsRemote'
-  | 'selectedRepoTarget'
-  | 'selectedRepoStartupShell'
-  | 'selectedWorkspaceTarget'
-  | 'settings'
-  | 'sparseEnabled'
-  | 'taskSourceContext'
-  | 'telemetrySource'
->
+import type { QuickCreationExecutionInput } from './composer-model'
 
 import { useCallback } from 'react'
 import type { TuiAgent } from '../../../../shared/tui-agent'
@@ -124,7 +92,9 @@ export function useQuickCreationExecution(input: QuickCreationExecutionInput) {
       const {
         startupPlan,
         backendStartup,
-        telemetry: quickTelemetry
+        telemetry: quickTelemetry,
+        prompt: quickPrompt,
+        draftPrompt: quickDraftPrompt
       } = await prepareQuickComposerStartup({
         agent,
         linkedWorkItem: submitLinkedWorkItem,
