@@ -112,6 +112,7 @@ export function MobileNativeChatNoticeRow({
             accessibilityLabel={summary}
             accessibilityState={{ expanded }}
             onPress={() => setExpanded((open) => !open)}
+            onLongPress={onLongPress}
             style={styles.disclosure}
           >
             <ChevronRight
