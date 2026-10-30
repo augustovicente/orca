@@ -1,5 +1,5 @@
 import type { Dispatch, SetStateAction } from 'react'
-import { useEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef } from 'react'
 import { useAppStore } from '@/store'
 import { shouldResetFileExplorerForVisibleWorktree } from './file-explorer-reset'
 import { clearFileExplorerUndoHistory } from './fileExplorerUndoRedo'
@@ -50,7 +50,9 @@ export function useFileExplorerTreeLoadEffects({
   setNameFilterQuery
 }: UseFileExplorerTreeLoadEffectsParams): void {
   const interactionRef = useRef(interactionBlocked)
-  interactionRef.current = interactionBlocked
+  useLayoutEffect(() => {
+    interactionRef.current = interactionBlocked
+  }, [interactionBlocked])
   const followSymlinks = useAppStore((s) => s.settings?.followSymlinkedDirectories ?? false)
   const lastFollowSymlinks = useRef(followSymlinks)
   useEffect(() => {

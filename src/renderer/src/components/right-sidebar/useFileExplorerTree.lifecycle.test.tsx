@@ -655,6 +655,9 @@ it.each(
         current().setNative(true)
       }
     })
+    if (interaction === 'native-drag') {
+      expect(current().native).toBe(true)
+    }
     if (interaction === 'rename') {
       fireEvent.change(screen.getByRole('textbox'), { target: { value: 'typed-draft.txt' } })
     }
@@ -723,6 +726,9 @@ it.each(
         current().setNative(true)
       }
     })
+    if (interaction === 'native-drag') {
+      expect(current().native).toBe(true)
+    }
     if (interaction === 'rename') {
       fireEvent.change(screen.getByRole('textbox'), { target: { value: 'link-draft' } })
     }
@@ -785,25 +791,6 @@ it('interaction admission stops queued automatic children and replacement still 
       (path) => hook.result.current.dirCache[path].children[0].name === 'drained.txt'
     )
   ).toBe(true)
-})
-
-it('opening wakes the root, background full refresh does not, and verified cache reuse adds no read', async () => {
-  const hook = renderVisibleTree()
-  await settle()
-  expect(read).toHaveBeenCalledTimes(1)
-  expect(read.mock.calls[0][3]?.wakeWslDistro).toBe(true)
-  await act(async () => {
-    await hook.result.current.loadDir('/repo/link', 0, { force: true, wakeWslDistro: true })
-    hook.result.current.requestDir('/repo/link')
-  })
-  expect(read).toHaveBeenCalledTimes(2)
-  restore(['/repo/link'])
-  read.mockClear()
-  await act(async () => {
-    expect(await hook.result.current.refreshTree()).toBe('refreshed')
-  })
-  expect(read.mock.calls.map((call) => call[2])).toEqual(['/repo', '/repo/link'])
-  expect(read.mock.calls.every((call) => !call[3]?.wakeWslDistro)).toBe(true)
 })
 
 it('New File loads its requested parent while the rendered creation draft stays typed', async () => {

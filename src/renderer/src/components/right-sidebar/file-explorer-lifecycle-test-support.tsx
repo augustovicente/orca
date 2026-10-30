@@ -1,5 +1,7 @@
 import { useCallback, useLayoutEffect, useMemo, type Dispatch, type SetStateAction } from 'react'
-import { render } from '@testing-library/react'
+import { flushSync } from 'react-dom'
+import { fireEvent, render } from '@testing-library/react'
+import { Virtualizer } from '@tanstack/react-virtual'
 import { vi } from 'vitest'
 import { useFileExplorerTree } from './useFileExplorerTree'
 import { useFileExplorerTreePaneState } from './use-file-explorer-tree-pane-state'
@@ -83,11 +85,18 @@ export function useVisibleTree(
     native: pane.dragDrop.isNativeDragOver,
     setNative: (value: boolean) => {
       if (value) {
-        // SAFETY: the production drag-enter handler reads only types and preventDefault.
-        pane.dragDrop.rootDragHandlers.onDragEnter({
-          dataTransfer: { types: ['Files'] },
-          preventDefault() {}
-        } as React.DragEvent)
+        const target = flushSync(() =>
+          render(<div onDragEnter={pane.dragDrop.rootDragHandlers.onDragEnter} />)
+        )
+        try {
+          const dataTransfer = new DataTransfer()
+          dataTransfer.items.add(new File([], 'native-drag.txt'))
+          // Happy DOM omits the browser Files marker for real file items.
+          Object.defineProperty(dataTransfer, 'types', { value: ['Files'] })
+          fireEvent.dragEnter(target.container.firstElementChild!, { dataTransfer })
+        } finally {
+          target.unmount()
+        }
       } else {
         pane.dragDrop.clearNativeDragState()
       }
@@ -144,22 +153,30 @@ export function renderInteractionTree(owner: FileExplorerOperationOwner, storeNa
     })
     const { projection, input } = rendered
     const count = projection.getVisibleCount() + (input.inlineInputIndex >= 0 ? 1 : 0)
-    // SAFETY: VirtualRows uses only these three virtualizer methods; all rows are visible in this fixture.
-    const virtualizer = {
-      getTotalSize: () => count * 26,
-      getVirtualItems: () =>
-        Array.from({ length: count }, (_, index) => {
-          const inline = input.inlineInputIndex >= 0 && index === input.inlineInputIndex
-          const rowIndex =
-            input.inlineInputIndex >= 0 && index > input.inlineInputIndex ? index - 1 : index
-          return {
-            index,
-            key: inline ? '__inline_input__' : projection.getRowAtIndex(rowIndex)!.path,
-            start: index * 26
-          }
-        }),
-      measureElement: () => {}
-    } as Parameters<typeof FileExplorerVirtualRows>[0]['virtualizer']
+    const virtualizer = new Virtualizer<HTMLDivElement, Element>({
+      count,
+      getScrollElement: () => null,
+      estimateSize: () => 26,
+      scrollToFn: vi.fn(),
+      observeElementRect: vi.fn(),
+      observeElementOffset: vi.fn()
+    })
+    virtualizer.getTotalSize = () => count * 26
+    virtualizer.getVirtualItems = () =>
+      Array.from({ length: count }, (_, index) => {
+        const inline = input.inlineInputIndex >= 0 && index === input.inlineInputIndex
+        const rowIndex =
+          input.inlineInputIndex >= 0 && index > input.inlineInputIndex ? index - 1 : index
+        return {
+          index,
+          key: inline ? '__inline_input__' : projection.getRowAtIndex(rowIndex)!.path,
+          start: index * 26,
+          end: (index + 1) * 26,
+          size: 26,
+          lane: 0
+        }
+      })
+    virtualizer.measureElement = () => {}
     return (
       <FileExplorerVirtualRows
         virtualizer={virtualizer}

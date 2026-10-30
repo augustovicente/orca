@@ -246,6 +246,7 @@ it('manual producer retains no-wake first-listing permission during protection a
   const current = renderInteractionTree(owner)
   await settle()
   act(() => current().setNative(true))
+  expect(current().native).toBe(true)
   const target = gateRead()
   read.mockReturnValueOnce(target.promise)
   const scroll = vi.spyOn(current().pane.rowScrolling.virtualizer, 'scrollToIndex')

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { getRelativePathInsideRoot } from '@/lib/path'
 import { getExplorerDisplayDepth, FILE_EXPLORER_FULL_ROOT } from './file-explorer-display-root'
 import { useAppStore } from '@/store'
@@ -30,7 +30,9 @@ export function useFileExplorerReveal({
   virtualizer
 }: UseFileExplorerRevealParams): () => void {
   const currentRequestRef = useRef(pendingExplorerReveal)
-  currentRequestRef.current = pendingExplorerReveal
+  useLayoutEffect(() => {
+    currentRequestRef.current = pendingExplorerReveal
+  }, [pendingExplorerReveal])
   const revealScrollFrameRef = useRef<number | null>(null)
   const revealScrollTimeoutRef = useRef<number | null>(null)
 

@@ -3,7 +3,7 @@ import { fileExplorerListingToDirCache } from './file-explorer-dir-pages'
 import { refreshFileExplorerExpandedDirs } from './file-explorer-expanded-dirs-refresh'
 import { fileExplorerRefreshConcurrency } from './file-explorer-refresh-concurrency'
 import type { Dispatch, SetStateAction } from 'react'
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type {
   DirCache,
   FileExplorerDirectoryReadOptions as ReadOptions
@@ -64,15 +64,16 @@ export function useFileExplorerDirectoryLoads(
     []
   )
   const executionRef = useRef(new AbortController())
-  const dirLoadTrackerRef = useRef<ReturnType<typeof createFileExplorerDirLoadTracker>>(undefined!)
-  dirLoadTrackerRef.current ??= createFileExplorerDirLoadTracker(() => {
-    const execution = executionRef.current
-    try {
-      updateLoadingDirPaths(() => EMPTY_FILE_EXPLORER_LOADING_DIRS)
-    } finally {
-      execution.abort()
-    }
-  })
+  const [dirLoadTrackerRef] = useState(() => ({
+    current: createFileExplorerDirLoadTracker(() => {
+      const execution = executionRef.current
+      try {
+        updateLoadingDirPaths(() => EMPTY_FILE_EXPLORER_LOADING_DIRS)
+      } finally {
+        execution.abort()
+      }
+    })
+  }))
   // Reconciliation needs invalidation marks before the next cache/loading render.
   const staleDirsRef = useRef(new Set<string>())
   const readDir = useCallback(
@@ -151,7 +152,7 @@ export function useFileExplorerDirectoryLoads(
         .catch(() => tracker.retire(token))
       return token.promise
     },
-    [activeWorktreeId, setDirCache, updateLoadingDirPaths, worktreePath]
+    [activeWorktreeId, dirLoadTrackerRef, setDirCache, updateLoadingDirPaths, worktreePath]
   )
 
   const markPathAsDirectory = useCallback(
@@ -249,7 +250,7 @@ export function useFileExplorerDirectoryLoads(
         }
       })
     },
-    [activeWorktreeId, setDirCache, updateLoadingDirPaths, worktreePath]
+    [activeWorktreeId, dirLoadTrackerRef, setDirCache, updateLoadingDirPaths, worktreePath]
   )
 
   const visibleLoadingRef = useRef(loadingDirPaths)
@@ -261,7 +262,6 @@ export function useFileExplorerDirectoryLoads(
       (displayRootPath && dirCache[displayRootPath]?.error !== undefined) ||
       executionRef.current.signal.aborted
     ) {
-      visibleLoadingRef.current = loadingDirPaths
       return loadingDirPaths
     }
     const pending = Array.from(expanded).filter(
@@ -275,9 +275,11 @@ export function useFileExplorerDirectoryLoads(
     if (next.size === previous.size && Array.from(next).every((path) => previous.has(path))) {
       return previous
     }
-    visibleLoadingRef.current = next
     return next
   }, [dirCache, displayRootPath, expanded, loadingDirPaths, loadRevision, rootError])
+  useLayoutEffect(() => {
+    visibleLoadingRef.current = visibleLoadingDirs
+  }, [visibleLoadingDirs])
   return {
     visibleLoadingDirs,
     dirCache,
