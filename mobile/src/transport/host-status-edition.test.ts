@@ -1,0 +1,24 @@
+import { describe, expect, it } from 'vitest'
+import { hostStatusSchema } from './host-status-reply-schema'
+
+describe('hostStatusSchema edition', () => {
+  it('defaults to undefined when missing', () => {
+    const parsed = hostStatusSchema.parse({})
+    expect(parsed.edition).toBeUndefined()
+  })
+
+  it('drops unknown values', () => {
+    const parsed = hostStatusSchema.parse({ edition: 'weird' })
+    expect(parsed.edition).toBeUndefined()
+  })
+
+  it('accepts full', () => {
+    const parsed = hostStatusSchema.parse({ edition: 'full' })
+    expect(parsed.edition).toBe('full')
+  })
+
+  it('accepts contadorca', () => {
+    const parsed = hostStatusSchema.parse({ edition: 'contadorca' })
+    expect(parsed.edition).toBe('contadorca')
+  })
+})
