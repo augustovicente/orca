@@ -51,7 +51,7 @@ export function resolvePtyForegroundMembers(
     !front.length ||
     front.some((row) => {
       const name = unreadableArgvName(row.command)
-      return name !== null && isShellProcess(name.replace(/^-/, ''))
+      return !row.command.trim() || (name !== null && isShellProcess(name.replace(/^-/, '')))
     })
   ) {
     return { verdict: 'unverifiable', reason: 'foreground_argv_unreadable' }
@@ -75,7 +75,11 @@ export function resolvePtyForegroundMembers(
   const selected = selectForegroundProcessCandidate(foreground, candidates)
   const name = (row: ProcessTableRow): string =>
     getCommandTokenPathBasename(getFirstCommandToken(row.command)).replace(/^-/, '')
-  const nonShell = foreground.filter((row) => !isShellProcess(name(row)))
+  // An interpreter running an agent script (`bash ~/.local/bin/claude`) is that agent, not a returned shell.
+  const nonShell = foreground.filter(
+    (row) =>
+      !isShellProcess(name(row)) || recognizeAgentProcessFromCommandLine(row.command) !== null
+  )
   const ordinary = [...(nonShell.length ? nonShell : foreground)].sort(
     (a, b) => b.depth - a.depth
   )[0]

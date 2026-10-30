@@ -2,7 +2,7 @@ import type { DaemonPtyAdapter } from './daemon-pty-adapter'
 import type { IPtyProvider } from '../providers/pty-provider-contract'
 import type { PtyProcessInspectionOptions } from '../providers/pty-process-inspection'
 
-/** Exact-owner reads never borrow the current daemon's default route. */
+/** Foreground reads go to the exact owner and never borrow the current daemon's default route. */
 export class DaemonPtyTargetInspection {
   constructor(
     private readonly adapters: () => readonly DaemonPtyAdapter[],
@@ -10,7 +10,7 @@ export class DaemonPtyTargetInspection {
     private readonly incarnationFor: (id: string) => string | undefined
   ) {}
 
-  private adapterFor(id: string, remember = true): DaemonPtyAdapter {
+  private exactOwner(id: string, remember = true): DaemonPtyAdapter {
     const established = this.routes.get(id)
     const candidates = established
       ? [established]
@@ -25,19 +25,31 @@ export class DaemonPtyTargetInspection {
     return adapter
   }
 
+  private firstOwner(id: string): DaemonPtyAdapter {
+    const adapter = this.routes.get(id) ?? this.adapters().find((c) => c.hasPty(id))
+    if (!adapter) {
+      throw new Error('terminal_gone')
+    }
+    this.routes.set(id, adapter)
+    return adapter
+  }
+
   supportsForegroundObservation(id: string): boolean {
     try {
-      return this.adapterFor(id, false).supportsForegroundObservation?.(id) === true
+      return this.exactOwner(id, false).supportsForegroundObservation?.(id) === true
     } catch {
       return false
     }
   }
 
   async inspectProcess(id: string, options: PtyProcessInspectionOptions | undefined) {
-    const adapter = this.adapterFor(id)
+    if (options?.foregroundOnly !== true) {
+      return this.firstOwner(id).inspectProcess(id, options)
+    }
+    const adapter = this.exactOwner(id)
     const incarnation = this.incarnationFor(id)
     const result = await adapter.inspectProcess(id, options)
-    if (this.adapterFor(id) !== adapter || this.incarnationFor(id) !== incarnation) {
+    if (this.exactOwner(id) !== adapter || this.incarnationFor(id) !== incarnation) {
       throw new Error('terminal_handle_stale')
     }
     return result
@@ -47,7 +59,7 @@ export class DaemonPtyTargetInspection {
   async listProcesses(ids: readonly string[], opts: Parameters<IPtyProvider['listProcesses']>[0]) {
     const targets = ids.map((id) => ({
       id,
-      adapter: this.adapterFor(id),
+      adapter: this.exactOwner(id),
       incarnation: this.incarnationFor(id)
     }))
     const groups = new Set(targets.map((target) => target.adapter))
@@ -65,16 +77,16 @@ export class DaemonPtyTargetInspection {
     ).flat()
     for (const target of targets) {
       if (
-        this.adapterFor(target.id) !== target.adapter ||
+        this.exactOwner(target.id) !== target.adapter ||
         this.incarnationFor(target.id) !== target.incarnation
       ) {
         throw new Error('terminal_handle_stale')
       }
-      const row = rows.find((row) => row.id === target.id)
-      if (!row || (target.incarnation && row.incarnationId !== target.incarnation)) {
-        throw new Error('terminal_gone')
-      }
     }
-    return rows.filter((row) => ids.includes(row.id))
+    // A missing or replaced row is absent here; the caller reads that as unknown, never as exit.
+    return rows.filter((row) => {
+      const target = targets.find((candidate) => candidate.id === row.id)
+      return target && (!target.incarnation || row.incarnationId === target.incarnation)
+    })
   }
 }

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { readTerminalProcessRows } from './terminal-foreground-group'
+import { judgeTerminalForeground, readTerminalProcessRows } from './terminal-foreground-group'
+import { resolvePtyForegroundMembers } from '../pty/pty-master-foreground-observation'
 import { readLaunchedAgentForeground } from './launched-agent-foreground'
 import { createAdapter } from '../daemon/daemon-pty-router-test-fixture'
 import { DaemonPtyRouter } from '../daemon/daemon-pty-router'
@@ -83,5 +84,31 @@ describe('fresh target foreground regressions', () => {
       .mockResolvedValueOnce(result('ttys903'))
       .mockResolvedValueOnce({ ...result(rows(90300)), ...failure })
     expect(await readTerminalProcessRows(90300)).toBeNull()
+  })
+  it('keeps a capture whose blank-argv row sits outside the foreground group', async () => {
+    mocks.runProcess
+      .mockResolvedValueOnce(result('ttys904'))
+      .mockResolvedValueOnce(result(`${rows(90400)}90410 90400 90410 90401 S   \n`))
+      .mockResolvedValueOnce(result('ttys904'))
+    const captured = (await readTerminalProcessRows(90400)) ?? []
+    expect(captured).toHaveLength(3)
+    expect(judgeTerminalForeground(captured, 90400, 'claude')).toBe('agent')
+    expect(resolvePtyForegroundMembers(captured, 90401)).toMatchObject({
+      verdict: 'observed',
+      foregroundKind: 'non-shell'
+    })
+    // Inside the foreground group the same blank argv proves nothing.
+    const blankMember = {
+      pid: 90402,
+      ppid: 90401,
+      pgid: 90401,
+      tpgid: 90401,
+      stat: 'S+',
+      command: ''
+    }
+    expect(judgeTerminalForeground([...captured, blankMember], 90400, 'claude')).toBe('unknown')
+    expect(resolvePtyForegroundMembers([...captured, blankMember], 90401).verdict).toBe(
+      'unverifiable'
+    )
   })
 })

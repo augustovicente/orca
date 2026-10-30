@@ -227,11 +227,13 @@ describe('target-scoped foreground inventory', () => {
     await router.listProcesses()
     legacy.emitIdentityChange()
     vi.mocked(legacy.listProcesses).mockRejectedValue(new Error('unreachable'))
-    await expect(router.listProcesses({ ptyIds: ['target'] })).resolves.toMatchObject([
-      { id: 'target' }
-    ])
+    await expect(
+      router.listProcesses({ ptyIds: ['target'], targetOwnerOnly: true })
+    ).resolves.toMatchObject([{ id: 'target' }])
     expect(legacy.listProcesses).toHaveBeenCalledTimes(1)
     await expect(router.listProcesses()).rejects.toThrow()
+    // Stop and liveness proofs keep complete-inventory semantics.
+    await expect(router.listProcesses({ ptyIds: ['target'] })).rejects.toThrow()
   })
   it('never routes an unresolved or ambiguous owner to current', async () => {
     const current = createAdapter('current')
@@ -240,9 +242,11 @@ describe('target-scoped foreground inventory', () => {
     await expect(router.inspectProcess('unadopted', { foregroundOnly: true })).rejects.toThrow(
       'terminal_gone'
     )
-    await expect(router.listProcesses({ ptyIds: ['unadopted'] })).rejects.toThrow('terminal_gone')
+    // No established route: owner resolution, as for every other caller, finds no target.
+    await expect(
+      router.listProcesses({ ptyIds: ['unadopted'], targetOwnerOnly: true })
+    ).resolves.toEqual([])
     expect(current.inspectProcess).not.toHaveBeenCalled()
-    expect(current.listProcesses).not.toHaveBeenCalled()
     expect(current.spawn).not.toHaveBeenCalled()
   })
   it('discards target responses if the established owner changed while reading', async () => {

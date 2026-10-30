@@ -1,4 +1,3 @@
-import type * as ForegroundModule from '../pty/pty-master-foreground-observation'
 import { assert, beforeEach, describe, expect, it, vi } from 'vitest'
 import type * as MacosTccLoginShell from './macos-tcc-login-shell'
 import type * as ForegroundProcess from './agent-foreground-process'
@@ -65,29 +64,6 @@ vi.mock('fs', () => ({
 vi.mock('electron', () => ({
   app: {
     getPath: vi.fn(() => '/tmp/orca-user-data')
-  }
-}))
-
-vi.mock('../pty/pty-master-foreground-observation', async (importOriginal) => ({
-  ...(await importOriginal<typeof ForegroundModule>()),
-  observePtyForeground: async (proc: { pid: number; process: string }) => {
-    const value = await resolveAgentForegroundProcessMock(
-      proc.pid,
-      proc.process.replace(/^.*\//, ''),
-      {}
-    )
-    const resolution =
-      value && typeof value === 'object' && 'available' in value
-        ? value
-        : { available: true, processName: value ?? proc.process }
-    return resolution.available
-      ? {
-          verdict: 'observed',
-          source: 'pty-master',
-          foregroundKind: 'non-shell',
-          processName: resolution.processName
-        }
-      : { verdict: 'unverifiable', reason: 'process_table_unreadable' }
   }
 }))
 

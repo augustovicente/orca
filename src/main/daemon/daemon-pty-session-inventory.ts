@@ -20,6 +20,7 @@ export abstract class DaemonPtySessionInventory extends DaemonPtyProcessInspecti
   async listProcesses(opts?: {
     deadlineMs?: number
     ptyIds?: readonly string[]
+    targetOwnerOnly?: boolean
   }): Promise<PtyProcessInfo[]> {
     try {
       // Retry connect and inventory together; reconcile only once after both succeed.
@@ -36,7 +37,8 @@ export abstract class DaemonPtySessionInventory extends DaemonPtyProcessInspecti
           const admission = new PtyProcessListAdmission()
           const processes: PtyProcessInfo[] = []
           const aliveSessionIds = new Map<string, string | undefined>()
-          const requested = opts?.ptyIds ? new Set(opts.ptyIds) : undefined
+          // A target read skips unrelated rows and never reconciles them as absent.
+          const requested = opts?.targetOwnerOnly && opts.ptyIds ? new Set(opts.ptyIds) : undefined
           for (const session of result.sessions) {
             if (requested && !requested.has(session.sessionId)) {
               continue
@@ -68,8 +70,6 @@ export abstract class DaemonPtySessionInventory extends DaemonPtyProcessInspecti
           }
           if (!requested) {
             this.ptyInventory.commit(inventory, aliveSessionIds)
-          }
-          if (!requested) {
             this.publishAuditObservation(
               recordAuthenticatedInventory(this.auditContext, this.exactDaemonIncarnation)
             )

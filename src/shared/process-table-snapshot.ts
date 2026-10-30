@@ -52,7 +52,15 @@ export function parseShellForegroundRows(
 ): ProcessTableRow[] {
   const rows: ProcessTableRow[] = []
   for (const rawLine of stdout.split(/\r?\n/)) {
-    const match = rawLine.trim().match(/^(\d+)\s+(\d+)\s+(-?\d+)\s+(-?\d+)\s+(\S+)\s+(.+)$/)
+    // Strict keeps a blank-argv row: one process outside the foreground cannot void the capture, and readers
+    // treat a blank foreground member as unreadable.
+    const match = rawLine
+      .trim()
+      .match(
+        options?.strict
+          ? /^(\d+)\s+(\d+)\s+(-?\d+)\s+(-?\d+)\s+(\S+)(?:\s+(.+))?$/
+          : /^(\d+)\s+(\d+)\s+(-?\d+)\s+(-?\d+)\s+(\S+)\s+(.+)$/
+      )
     const pid = match ? Number(match[1]) : 0
     if (
       options?.strict &&
@@ -74,7 +82,7 @@ export function parseShellForegroundRows(
         pgid: Number(match[3]),
         tpgid: Number(match[4]),
         stat: match[5],
-        command: match[6]
+        command: match[6] ?? ''
       })
     }
   }

@@ -73,11 +73,8 @@ export async function confirmFreshPtyForeground(args: {
   }
 }
 
-/** POSIX confirmations read the physical terminal even when its display name already names an agent. */
+/** Known direct agent names need no POSIX scan; Windows decisions still require fresh evidence. */
 export function shouldConfirmPtyForeground(fallback: string | null, decision: boolean): boolean {
-  if (process.platform !== 'win32') {
-    return true
-  }
   if (!fallback) {
     return decision
   }

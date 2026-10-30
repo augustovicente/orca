@@ -2154,16 +2154,22 @@ diff --git a/src/unix/pty.cc b/src/unix/pty.cc
 diff --git a/src/unixTerminal.ts b/src/unixTerminal.ts
 --- a/src/unixTerminal.ts
 +++ b/src/unixTerminal.ts
-@@ -255,6 +255,11 @@
-   /**
-    * Gets the name of the process.
-    */
+@@ -252,6 +252,15 @@
+     } catch (e) { /* swallow */ }
+   }
+ 
++  /**
++   * Gets the foreground process group from the master: null once the master is closed,
++   * undefined when the native addon predates this export.
++   */
 +  public getForegroundProcessGroup(): number | null | undefined {
 +    if (this._fd < 0) return null;
 +    return typeof pty.foregroundProcessGroup === 'function' ? pty.foregroundProcessGroup(this._fd) : undefined;
 +  }
 +
-   public get process(): string {
+   /**
+    * Gets the name of the process.
+    */
      if (process.platform === 'darwin') {
        const title = pty.process(this._fd);
 diff --git a/lib/unixTerminal.js b/lib/unixTerminal.js

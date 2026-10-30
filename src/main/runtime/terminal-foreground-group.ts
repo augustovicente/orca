@@ -26,7 +26,8 @@ export function judgeTerminalForeground(
     const name = unreadableArgvName(row.command)
     return name !== null && isShellProcess(name.replace(/^-/, ''))
   }
-  if (front.length === 0 || front.some(unreadableShell)) {
+  // A blank argv names nothing, so it proves neither shell nor agent.
+  if (front.length === 0 || front.some((row) => !row.command.trim() || unreadableShell(row))) {
     return 'unknown'
   }
   return front.some(

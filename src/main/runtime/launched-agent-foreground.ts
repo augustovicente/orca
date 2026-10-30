@@ -101,8 +101,7 @@ export async function readLaunchedAgentForeground(
         if (
           !isTerminalForegroundObservation(observation) ||
           observation.ptyId !== ptyId ||
-          (expectedIncarnationId !== undefined &&
-            observation.ptyIncarnationId !== expectedIncarnationId) ||
+          (expectedIncarnationId && observation.ptyIncarnationId !== expectedIncarnationId) ||
           observation.verdict !== 'observed'
         ) {
           return 'unknown'
@@ -116,7 +115,10 @@ export async function readLaunchedAgentForeground(
     }
     if (!host.remote) {
       const target = (
-        await controller.listProcesses?.(LOCAL_EXECUTION_HOST_ID, { ptyIds: [ptyId] })
+        await controller.listProcesses?.(LOCAL_EXECUTION_HOST_ID, {
+          ptyIds: [ptyId],
+          targetOwnerOnly: true
+        })
       )?.find((pane) => pane.id === ptyId)
       if (
         expectedIncarnationId &&

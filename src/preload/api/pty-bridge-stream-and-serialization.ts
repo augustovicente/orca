@@ -11,7 +11,6 @@ export const ptyStreamAndSerializationApi = {
   inspectProcess: (
     id: string,
     options?: {
-      foregroundOnly?: boolean
       expectedIncarnationId?: string
       scanChildProcesses?: boolean
       steadyState?: boolean

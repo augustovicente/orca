@@ -304,7 +304,7 @@ describe('fresh foreground observation contract', () => {
     const subprocess = createSubprocess()
     subprocess.observeForeground = vi.fn(
       () =>
-        new Promise((resolve) => {
+        new Promise<TerminalForegroundSample>((resolve) => {
           finish = resolve
         })
     )

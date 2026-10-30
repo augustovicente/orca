@@ -182,6 +182,7 @@ export type RuntimePtyController = {
       deadlineMs?: number
       includeForegroundProcessEvidence?: boolean
       ptyIds?: readonly string[]
+      targetOwnerOnly?: boolean
     }
   ): Promise<PtyProcessInfo[]>
   listProcessesWithHostScope?(opts?: {

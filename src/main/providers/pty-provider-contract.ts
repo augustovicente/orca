@@ -214,6 +214,8 @@ export type IPtyProvider = {
     worktreeId?: string
     /** Scope route validation to these PTYs; absence still requires a complete inventory. */
     ptyIds?: readonly string[]
+    /** Foreground proof only: read `ptyIds` from their established owner. Never exit proof or a census. */
+    targetOwnerOnly?: boolean
     /** Diagnostic display only: include generations whose routing owner is unverifiable. */
     includeUnrouted?: boolean
   }): Promise<PtyProcessInfo[]>

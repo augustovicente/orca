@@ -7,6 +7,9 @@ import {
 } from './pty-master-foreground-observation'
 import { TUI_AGENT_CONFIG } from '../../shared/tui-agent-config'
 import { isTerminalForegroundObservation } from '../../shared/terminal-foreground-observation'
+import { judgeTerminalForeground } from '../runtime/terminal-foreground-group'
+import type { ProcessTableRow } from '../../shared/process-table-snapshot'
+import type { TuiAgent } from '../../shared/tui-agent'
 const mocks = vi.hoisted(() => ({ rows: vi.fn(), tty: vi.fn(), ps: vi.fn() }))
 vi.mock('./terminal-process-rows', async (importOriginal) => ({
   ...(await importOriginal<typeof ForegroundModule>()),
@@ -143,7 +146,7 @@ describe('physical PTY observations', () => {
     expect(await observePtyForeground(owner, () => true)).toMatchObject({ verdict: 'unverifiable' })
     expect(mocks.rows).toHaveBeenCalledTimes(2)
     mocks.rows.mockClear()
-    expect(await observePtyForeground(proc(), () => true, Date.now() - 1)).toMatchObject({
+    expect(await observePtyForeground(proc(), () => true, 0)).toMatchObject({
       verdict: 'unverifiable'
     })
     expect(mocks.rows).not.toHaveBeenCalled()
@@ -194,5 +197,157 @@ describe('physical PTY observations', () => {
         reason: 'new_host_reason'
       })
     ).toBe(true)
+  })
+})
+
+/** `ps -t` rows on one terminal: the shell (root 100) and whatever holds foreground group `tpgid`. */
+function terminal(
+  tpgid: number,
+  members: [pid: number, ppid: number, pgid: number, stat: string, command: string][]
+): ProcessTableRow[] {
+  return members.map(([pid, ppid, pgid, stat, command]) => ({
+    pid,
+    ppid,
+    pgid,
+    tpgid,
+    stat,
+    command
+  }))
+}
+const CLAUDE_NODE = 'node /usr/local/lib/node_modules/@anthropic-ai/claude-code/cli.js'
+const CODEX_NODE = 'node /usr/local/lib/node_modules/@openai/codex/bin/codex.js'
+const CODEX_NATIVE =
+  '/usr/local/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex'
+
+describe('local admission parity with the root-pid judge', () => {
+  it.each<[string, TuiAgent, ProcessTableRow[]]>([
+    ['plain shell', 'claude', terminal(100, [[100, 1, 100, 'Ss+', '-zsh']])],
+    [
+      'nested shell',
+      'claude',
+      terminal(200, [
+        [100, 1, 100, 'Ss', '-zsh'],
+        [200, 100, 200, 'S+', 'bash']
+      ])
+    ],
+    [
+      'native claude',
+      'claude',
+      terminal(200, [
+        [100, 1, 100, 'Ss', '-zsh'],
+        [200, 100, 200, 'S+', 'claude --resume abc']
+      ])
+    ],
+    [
+      'node claude',
+      'claude',
+      terminal(200, [
+        [100, 1, 100, 'Ss', '-zsh'],
+        [200, 100, 200, 'S+', CLAUDE_NODE]
+      ])
+    ],
+    [
+      'codex node with its native child',
+      'codex',
+      terminal(200, [
+        [100, 1, 100, 'Ss', '-zsh'],
+        [200, 100, 200, 'S+', CODEX_NODE],
+        [201, 200, 200, 'S+', CODEX_NATIVE]
+      ])
+    ],
+    // An alias and `cx() { command codex; }` both leave the shell behind codex's own job.
+    [
+      'alias or shell function',
+      'codex',
+      terminal(200, [
+        [100, 1, 100, 'Ss', '-zsh'],
+        [200, 100, 200, 'S+', 'codex --yolo']
+      ])
+    ],
+    [
+      'non-exec wrapper script',
+      'claude',
+      terminal(200, [
+        [100, 1, 100, 'Ss', '-zsh'],
+        [200, 100, 200, 'S+', 'sh /usr/local/bin/claude'],
+        [201, 200, 200, 'S+', CLAUDE_NODE]
+      ])
+    ],
+    [
+      'interpreter running an agent script',
+      'claude',
+      terminal(200, [
+        [100, 1, 100, 'Ss', '-zsh'],
+        [200, 100, 200, 'S+', 'bash /opt/bin/claude']
+      ])
+    ],
+    [
+      'agent at its trust dialog',
+      'claude',
+      terminal(200, [
+        [100, 1, 100, 'Ss', '-zsh'],
+        [200, 100, 200, 'S+', 'claude']
+      ])
+    ],
+    [
+      'agent stopped with Ctrl-Z',
+      'claude',
+      terminal(100, [
+        [100, 1, 100, 'Ss+', '-zsh'],
+        [200, 100, 200, 'T', 'claude']
+      ])
+    ],
+    [
+      'tmux client',
+      'claude',
+      terminal(200, [
+        [100, 1, 100, 'Ss', '-zsh'],
+        [200, 100, 200, 'S+', 'tmux attach']
+      ])
+    ],
+    [
+      'ssh',
+      'claude',
+      terminal(200, [
+        [100, 1, 100, 'Ss', '-zsh'],
+        [200, 100, 200, 'S+', 'ssh build-host']
+      ])
+    ],
+    [
+      'sudo with withheld argv',
+      'claude',
+      terminal(200, [
+        [100, 1, 100, 'Ss', '-zsh'],
+        [200, 100, 200, 'S+', '(sudo)']
+      ])
+    ],
+    [
+      'unreadable root shell',
+      'claude',
+      terminal(200, [
+        [100, 1, 100, 'Ss', '-zsh'],
+        [200, 100, 200, 'S+', '(bash)']
+      ])
+    ]
+  ])('%s', (_name, agent, rows) => {
+    const sample = resolvePtyForegroundMembers(rows, rows[0].tpgid ?? 0)
+    const local =
+      sample.verdict !== 'observed'
+        ? 'unknown'
+        : sample.foregroundKind === 'shell'
+          ? 'shell'
+          : 'agent'
+    expect(local).toBe(judgeTerminalForeground(rows, 100, agent))
+  })
+
+  it('refuses a zombie or stopped-only foreground the root-pid judge admitted', () => {
+    for (const stat of ['Z+', 'T+']) {
+      const rows = terminal(200, [
+        [100, 1, 100, 'Ss', '-zsh'],
+        [200, 100, 200, stat, 'claude']
+      ])
+      expect(judgeTerminalForeground(rows, 100, 'claude')).toBe('agent')
+      expect(resolvePtyForegroundMembers(rows, 200).verdict).toBe('unverifiable')
+    }
   })
 })

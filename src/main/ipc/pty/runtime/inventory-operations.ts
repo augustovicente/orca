@@ -17,18 +17,14 @@ function markSshInventoryUnverifiable(
 
 export async function listProcessesWithHostScopeFromRuntimeController(
   deps: Pick<PtyRuntimeControllerDeps, 'runtime'>,
-  opts?: {
-    deadlineMs?: number
-    includeForegroundProcessEvidence?: boolean
-    ptyIds?: readonly string[]
-  }
+  opts?: { deadlineMs?: number; includeForegroundProcessEvidence?: boolean }
 ): Promise<{ processes: PtyProcessInfo[]; hostIds: ExecutionHostId[] }> {
   const providerSessions = await Promise.all(
     registeredPtyProviders().map(async ({ provider, hostId }) => {
       const isLocal = hostId === LOCAL_EXECUTION_HOST_ID
       try {
         return {
-          processes: await provider.listProcesses(opts),
+          processes: await (isLocal ? provider.listProcesses() : provider.listProcesses(opts)),
           hostId
         }
       } catch (error) {
@@ -54,10 +50,14 @@ export async function listProcessesFromRuntimeController(
     deadlineMs?: number
     includeForegroundProcessEvidence?: boolean
     ptyIds?: readonly string[]
+    targetOwnerOnly?: boolean
   }
 ) {
   if (hostId === LOCAL_EXECUTION_HOST_ID) {
-    return localProvider.listProcesses(opts)
+    // Local inventory keeps its own deadline (#18078); only a target scope is forwarded.
+    return localProvider.listProcesses(
+      opts?.ptyIds ? { ptyIds: opts.ptyIds, targetOwnerOnly: opts.targetOwnerOnly } : undefined
+    )
   }
   if (hostId !== undefined) {
     try {

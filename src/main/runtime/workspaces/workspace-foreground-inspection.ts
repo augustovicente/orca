@@ -25,7 +25,7 @@ export abstract class OrcaRuntimeWithForegroundInspection extends OrcaRuntimeWit
       host,
       ptyId,
       agent,
-      incarnation
+      incarnation ?? undefined
     )
     return this.ptysById.get(ptyId) === pty && pty?.incarnationId === incarnation
       ? result

@@ -272,7 +272,8 @@ export class DaemonPtyRouter implements IPtyProvider {
   }
 
   async listProcesses(opts?: Parameters<IPtyProvider['listProcesses']>[0]) {
-    if (opts?.ptyIds && !opts.includeUnrouted && !opts.worktreeId) {
+    // Only an established route skips owner resolution; everyone else keeps complete-inventory proof.
+    if (opts?.targetOwnerOnly && opts.ptyIds?.every((id) => this.sessionAdapters.has(id))) {
       return this.targetInspection.listProcesses(opts.ptyIds, opts)
     }
     const processes = await this.ownerResolver.listProcesses(opts)

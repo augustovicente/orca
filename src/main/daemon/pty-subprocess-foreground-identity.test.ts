@@ -1,4 +1,3 @@
-import type * as ForegroundModule from '../pty/pty-master-foreground-observation'
 import { describe, expect, it, vi } from 'vitest'
 import type * as LocalPtyUtils from '../providers/local-pty-utils'
 
@@ -20,29 +19,6 @@ const {
       )
     }
   })
-}))
-
-vi.mock('../pty/pty-master-foreground-observation', async (importOriginal) => ({
-  ...(await importOriginal<typeof ForegroundModule>()),
-  observePtyForeground: async (proc: { pid: number; process: string }) => {
-    const value = await resolveAgentForegroundProcessMock(
-      proc.pid,
-      proc.process.replace(/^.*\//, ''),
-      {}
-    )
-    const resolution =
-      value && typeof value === 'object' && 'available' in value
-        ? value
-        : { available: true, processName: value ?? proc.process }
-    return resolution.available
-      ? {
-          verdict: 'observed',
-          source: 'pty-master',
-          foregroundKind: 'non-shell',
-          processName: resolution.processName
-        }
-      : { verdict: 'unverifiable', reason: 'process_table_unreadable' }
-  }
 }))
 
 vi.mock('node-pty', () => ({
@@ -197,11 +173,11 @@ describe('createPtySubprocess', () => {
       expect(handle.getForegroundProcess()).toBe('node')
       await Promise.resolve()
       await Promise.resolve()
-      await vi.waitFor(() => expect(handle.getForegroundProcess()).toBe('grok'))
+      expect(handle.getForegroundProcess()).toBe('grok')
 
       // Keep serving resolved identity across cache expiry while refresh runs.
       vi.advanceTimersByTime(1_500)
-      await vi.waitFor(() => expect(handle.getForegroundProcess()).toBe('grok'))
+      expect(handle.getForegroundProcess()).toBe('grok')
     } finally {
       vi.useRealTimers()
       if (platform) {
@@ -230,14 +206,14 @@ describe('createPtySubprocess', () => {
       expect(handle.getForegroundProcess()).toBe('node')
       await Promise.resolve()
       await Promise.resolve()
-      await vi.waitFor(() => expect(handle.getForegroundProcess()).toBe('grok'))
+      expect(handle.getForegroundProcess()).toBe('grok')
       // Settle refresh cleanup so the next read can revalidate.
       await Promise.resolve()
       await Promise.resolve()
 
       // The old identity survives until the refresh rules out an agent behind the wrapper.
       vi.advanceTimersByTime(1_500)
-      await vi.waitFor(() => expect(handle.getForegroundProcess()).toBe('grok'))
+      expect(handle.getForegroundProcess()).toBe('grok')
       await Promise.resolve()
       await Promise.resolve()
       await Promise.resolve()
