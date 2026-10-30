@@ -7,7 +7,6 @@ import {
 import type { GhExecOptions, HostedReviewLocalGitOptions } from './../github-exec-scope'
 import type { TrackedUpstreamBranch } from './tracked-upstream-cache'
 import {
-  isSameRepositoryPullRequest,
   pullRequestHeadRepository,
   pullRequestMatchesHeadRepository,
   type PullRequestLookupData,
@@ -29,24 +28,31 @@ export type ImplicitDefaultBranchPRContext = {
 export function createImplicitDefaultBranchPRPolicy(
   context: ImplicitDefaultBranchPRContext
 ): PullRequestLookupPolicy {
-  const rejected = new Set<string>()
-  const rejectedPRUrls = new Set<string>()
+  const rejected = new Map<string, { data: PullRequestLookupData; prRepo: OwnerRepo }>()
+  // Tracking can identify a fork after branch discovery rejected it without head evidence.
+  const remainsRejected = (data: PullRequestLookupData, prRepo: OwnerRepo): boolean =>
+    data.headRefName !== context.branchName || isForeignSameNamedHead(context, data, prRepo)
   return {
-    rejectedPRUrls,
+    get rejectedPRUrls() {
+      return new Set(
+        [...rejected.values()]
+          .filter(({ data, prRepo }) => remainsRejected(data, prRepo))
+          .map(({ data }) => data.url)
+          .filter(Boolean)
+      )
+    },
     async accepts(data, prRepo) {
       const hidden =
         isForeignSameNamedHead(context, data, prRepo) ||
         (await shouldHideImplicitDefaultBranchPR({ ...context, data, prRepo }))
       if (hidden && prRepo) {
-        rejected.add(`${githubRepoIdentityKey(prRepo)}#${data.number}`)
-        if (data.url) {
-          rejectedPRUrls.add(data.url)
-        }
+        rejected.set(`${githubRepoIdentityKey(prRepo)}#${data.number}`, { data, prRepo })
       }
       return !hidden
     },
     isRejected(prRepo, number) {
-      return rejected.has(`${githubRepoIdentityKey(prRepo)}#${number}`)
+      const entry = rejected.get(`${githubRepoIdentityKey(prRepo)}#${number}`)
+      return Boolean(entry && remainsRejected(entry.data, entry.prRepo))
     }
   }
 }
@@ -60,13 +66,12 @@ function isForeignSameNamedHead(
   const expectedHeads = [context.originHeadRepo, context.trackedUpstream?.headRepo].filter(
     (head) => head != null
   )
-  if (data.headRefName !== context.branchName || expectedHeads.length === 0) {
+  if (data.headRefName !== context.branchName) {
     return false
   }
-  if (isSameRepositoryPullRequest(data, prRepo)) {
-    return false
-  }
-  return expectedHeads.every((head) => !pullRequestMatchesHeadRepository(data, prRepo, head))
+  return (expectedHeads.length > 0 ? expectedHeads : [null]).every(
+    (head) => !pullRequestMatchesHeadRepository(data, prRepo, head)
+  )
 }
 
 async function shouldHideImplicitDefaultBranchPR(
