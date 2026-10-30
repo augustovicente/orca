@@ -17,7 +17,7 @@ import {
   serializeJournalRow,
   type JournalRow
 } from '../main/native-chat/agent-session-journal/journal-row-schema'
-import type { AgentSessionJournal } from '../main/native-chat/agent-session-journal/journal-store'
+import type { AgentSessionHistoryJournal } from '../main/native-chat/agent-session-wire/agent-session-history-page'
 import {
   readAgentSessionHistory,
   readAgentSessionHydrationPage
@@ -193,8 +193,7 @@ export function compactionTransportCorpus(through = 15) {
       ).slice(0, limit)
     })
   }
-  // SAFETY: these production history readers use exactly the snapshot/cursor/read members above.
-  const reader = journal as unknown as AgentSessionJournal
+  const reader: AgentSessionHistoryJournal = journal
   const snapshot: AgentSessionSubscribeEvent = {
     type: 'snapshot',
     sessionId: COMPACTION_IDENTITY.sessionId,

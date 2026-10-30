@@ -40,6 +40,11 @@ export { AGENT_SESSION_HISTORY_MAX_PAGE_BYTES } from './agent-session-history-pa
 /** In-process only: both scopes window by own-agent rows; own-agent also excludes other producers. */
 export type AgentSessionHistoryScope = 'every-agent' | 'own-agent'
 
+export type AgentSessionHistoryJournal = Pick<
+  AgentSessionJournal,
+  'publicRead' | 'snapshot' | 'readSince' | 'canonicalItemId'
+>
+
 /** Window by own-agent rows, retaining contiguous subagent work and whole sibling groups within byte bounds. */
 function conversationWindow(
   items: readonly AgentJournalRenderItem[],
@@ -65,7 +70,7 @@ function isSubagentRow(item: AgentJournalRenderItem): boolean {
 }
 
 export function readAgentSessionHistory(
-  journal: AgentSessionJournal,
+  journal: AgentSessionHistoryJournal,
   request: AgentSessionHistoryRequest,
   {
     view = journal.publicRead(),
@@ -149,7 +154,7 @@ export function createAgentSessionCatchUpReader(
 }
 
 export function readAgentSessionHydrationPage(
-  journal: AgentSessionJournal,
+  journal: AgentSessionHistoryJournal,
   fence?: number,
   reader: HistoryReader = CLIENT_HISTORY_READER,
   snapshot: AgentJournalSnapshot = journal.snapshot()
@@ -198,7 +203,7 @@ function historyReset(
 }
 
 function readForward(
-  journal: AgentSessionJournal,
+  journal: AgentSessionHistoryJournal,
   snapshot: AgentJournalSnapshot,
   cursor: AgentJournalCursor | undefined,
   limit: number,
