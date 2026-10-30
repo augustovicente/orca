@@ -1,3 +1,4 @@
+import { registerLiveTerminalSourceCompletionTests } from './runtime-client-ipc-bridge-live-completion.spec'
 import { registerLateTerminalSourceRetryTest } from './runtime-client-ipc-bridge-late-terminal-source.spec'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { useAppStore } from '@/store'
@@ -696,7 +697,7 @@ it('R3 keeps a same-incarnation execution when restarted host state arrives afte
     runtime.applyTerminalTransientObservation('physical', 'incarnation', source.snapshot())
     expect(markTerminalBell).not.toHaveBeenCalled()
     expect(effects).not.toHaveBeenCalled()
-    expect(restore).toHaveBeenCalledWith(expect.anything(), true)
+    expect(restore).toHaveBeenCalledWith(expect.anything(), true, true, undefined, [])
     source.record({ kind: 'bell' }, Date.now())
     runtime.applyTerminalTransientObservation('physical', 'incarnation', source.snapshot())
     expect(produced.filter((event) => event.type === 'terminalSideEffects')).toHaveLength(2)
@@ -754,3 +755,5 @@ it('R3 keeps a same-incarnation execution when restarted host state arrives afte
 })
 
 registerLateTerminalSourceRetryTest(createHarness)
+
+registerLiveTerminalSourceCompletionTests(createHarness)

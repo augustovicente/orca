@@ -20,7 +20,8 @@ export type TerminalResidentPolicy = {
     current: TerminalTransientCurrent,
     first: boolean,
     complete?: boolean,
-    subject?: TerminalFactSubject | null
+    subject?: TerminalFactSubject | null,
+    liveEffects?: readonly TerminalSnapshotEffect[]
   ) => void
   applyEffect: (
     effect: TerminalSnapshotEffect,
@@ -89,7 +90,7 @@ export class TerminalResident<Policy extends TerminalResidentPolicy> {
             fact.kind === 'pr-link' ? { kind: 'pr-link', url: fact.link.url } : fact
           )
     )
-    this.policy.restoreCurrent(source.snapshot.current, true)
+    this.policy.restoreCurrent(source.snapshot.current, true, true, undefined, live.effects)
     for (const effect of live.effects) {
       this.policy.applyEffect(effect, source.snapshot.current)
     }

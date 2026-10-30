@@ -101,7 +101,8 @@ export function createTerminalResidentSnapshotCallbacks(
     current: TerminalTransientCurrent,
     first: boolean,
     complete = true,
-    subject?: TerminalFactSubject | null
+    subject?: TerminalFactSubject | null,
+    liveEffects: readonly TerminalSnapshotEffect[] = []
   ): void => {
     if (subject !== undefined && !subject?.isCurrent()) {
       return
@@ -116,23 +117,39 @@ export function createTerminalResidentSnapshotCallbacks(
               observedAt: current.program.observedAt
             }
           : null)
-      context.completion.restoreCurrent({
-        title: title?.rawTitle ?? null,
-        working:
-          current.activity === 'working' ||
-          status?.payload.state === 'working' ||
-          (current.activity === null &&
-            title !== null &&
-            detectAgentStatusFromTitle(title.rawTitle) === 'working'),
-        status: status ? { ...status.payload, stateStartedAt: status.observedAt } : null
-      })
+      // Live companions retain their completion identity; only history may mark it handled.
+      if (
+        !liveEffects.some(
+          ({ fact }) =>
+            fact.kind === 'agent-status' ||
+            fact.kind === 'agent-working' ||
+            fact.kind === 'agent-idle'
+        )
+      ) {
+        context.completion.restoreCurrent({
+          title: title?.rawTitle ?? null,
+          working:
+            current.activity === 'working' ||
+            status?.payload.state === 'working' ||
+            (current.activity === null &&
+              title !== null &&
+              detectAgentStatusFromTitle(title.rawTitle) === 'working'),
+          status: status ? { ...status.payload, stateStartedAt: status.observedAt } : null
+        })
+      }
       if (current.program?.payload) {
         context.onAgentStatus(current.program.payload, current.program.observedAt, true)
       }
       if (current.inBandStatus) {
         context.onAgentStatus(current.inBandStatus.payload, current.inBandStatus.observedAt, true)
       }
-      context.commandCode.restoreCurrent(current.commandCode)
+      if (
+        !liveEffects.some(
+          ({ fact }) => fact.kind === 'command-code-working' || fact.kind === 'command-code-done'
+        )
+      ) {
+        context.commandCode.restoreCurrent(current.commandCode)
+      }
       captureCommand(current.commandOrdinal)
     }
     if (title && title.rawTitle !== context.currentTitle) {
