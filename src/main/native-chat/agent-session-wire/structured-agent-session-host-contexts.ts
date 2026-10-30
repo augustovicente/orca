@@ -1,4 +1,3 @@
-import type { createRestartReconciler } from './structured-agent-session-restart-reconcile'
 import type { StructuredAgentSessionTaskQueue } from './structured-agent-session-task-queue'
 import type { StructuredAgentSessionHostRuntimeState } from './structured-agent-session-host-runtime-state'
 import type { StructuredAgentSessionLifetimeContext } from './structured-agent-session-host-lifetime'
@@ -20,7 +19,6 @@ export abstract class StructuredAgentSessionHostContexts {
   protected abstract readonly subscribers: StructuredAgentSessionClientDelivery['subscribers']
   protected abstract readonly tasks: StructuredAgentSessionTaskQueue
   protected abstract readonly runtimeState: StructuredAgentSessionHostRuntimeState
-  protected abstract readonly reconcileLeases: ReturnType<typeof createRestartReconciler>
   protected abstract readonly lifetime: lifetime.StructuredAgentSessionConversationLifetime
   protected abstract readonly conversationDelivery: conversation.StructuredAgentSessionConversationDelivery
   protected abstract readonly eventRecovery: StructuredAgentSessionEventRecovery
@@ -47,7 +45,7 @@ export abstract class StructuredAgentSessionHostContexts {
       ...this.lifetimeContext(),
       subscribers: this.subscribers,
       tasks: this.tasks,
-      reconcileLeases: (sessionId) => this.reconcileLeases(sessionId),
+      reconcileLeases: (sessionId) => this.runtimeState.reconcileLeases(sessionId),
       waitSwitchPhysical: (sessionId) => this.lifetime.waitSwitchPhysical(sessionId),
       serialize: (sessionId, task) => this.serialize(sessionId, task),
       openProviderChild: this.eventRecovery.openProviderChild,

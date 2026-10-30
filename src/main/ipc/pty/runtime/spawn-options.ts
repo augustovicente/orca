@@ -12,7 +12,7 @@ import {
   assemblePtySpawnLaunchOptions,
   seedPtySpawnSize
 } from '../spawn-options-assembly'
-import type { RuntimePtySpawnState } from './spawn-state'
+import { isRuntimeWslBackgroundStart, type RuntimePtySpawnState } from './spawn-state'
 import { prepareAntigravityAccountForLaunch } from '../../../antigravity/native-account-launch'
 
 export async function buildRuntimePtySpawnOptions(
@@ -127,8 +127,7 @@ export async function buildRuntimePtySpawnOptions(
   if (args.signal) {
     ctx.spawnOptions.signal = args.signal
   }
-  // Default-deny (E9): a main-side start is background work unless its caller names the user's act.
-  if (!ctx.preAdoptedStablePane && args.wslUserAct !== true) {
+  if (isRuntimeWslBackgroundStart(ctx)) {
     ctx.spawnOptions.wslBackgroundStart = true
   }
   if (ctx.wslHoldReadAnchor !== undefined) {
