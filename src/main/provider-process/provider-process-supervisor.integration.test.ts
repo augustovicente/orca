@@ -275,10 +275,10 @@ describe.runIf(process.platform !== 'win32')('POSIX provider supervisor processe
       let stdout = '',
         stderr = ''
       supervisor.stdout!.on('data', (chunk: Buffer) => {
-        stdout += chunk
+        stdout += chunk.toString('utf8')
       })
       supervisor.stderr!.on('data', (chunk: Buffer) => {
-        stderr += chunk
+        stderr += chunk.toString('utf8')
       })
       supervisor.stdin!.end()
       let requests = 0
