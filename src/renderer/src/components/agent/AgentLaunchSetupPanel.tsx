@@ -146,23 +146,24 @@ export function AgentLaunchSetupPanel({
           argumentsKnown)
     }
   })
-  const renderOptions = (rows: SessionOptionDescriptor[]) => (
-    <NativeChatSessionOptionRows
-      options={rows}
-      shownReason={null}
-      pendingIds={new Set()}
-      divided={false}
-      layout="settings"
-      onSet={(option, value) =>
-        setDraft(
-          option.id === 'fastMode' || option.id === 'serviceTier'
-            ? editAgentPickerSpeed(entry, draft, option.id, String(value), currentModel)
-            : editAgentPickerDraft(draft, { options: { [option.id]: String(value) } })
-        )
-      }
-      onAction={() => {}}
-    />
-  )
+  const renderOptions = (rows: SessionOptionDescriptor[]) =>
+    rows.length ? (
+      <NativeChatSessionOptionRows
+        options={rows}
+        shownReason={null}
+        pendingIds={new Set()}
+        divided={false}
+        layout="settings"
+        onSet={(option, value) =>
+          setDraft(
+            option.id === 'fastMode' || option.id === 'serviceTier'
+              ? editAgentPickerSpeed(entry, draft, option.id, String(value), currentModel)
+              : editAgentPickerDraft(draft, { options: { [option.id]: String(value) } })
+          )
+        }
+        onAction={() => {}}
+      />
+    ) : null
   const use = (surface: AgentPickerSurface) => onUse({ ...draft, surface })
   const legacyCount = models.filter((model) => model.isLegacy && !model.hidden).length
   return (

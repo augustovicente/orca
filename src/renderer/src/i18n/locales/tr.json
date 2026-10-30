@@ -22559,5 +22559,26 @@
       "needsPermission": "Ajan için izin gerekiyor",
       "statusStale": "Ajan durumu güncel değil"
     }
+  },
+  "agentPicker": {
+    "search": "Aracı ve yapılandırma ara…",
+    "configure": "{{agent}} yapılandır",
+    "arguments": "Argümanlar",
+    "argumentsHint": "Yalnızca CLI başlatmaları için geçerlidir.",
+    "launchChat": "Sohbet başlat",
+    "launchTerminal": "Terminal başlat",
+    "setByArguments": "Argümanlarınız tarafından ayarlandı",
+    "searchModels": "Model ara",
+    "noModels": "Aramanızla eşleşen model yok.",
+    "legacyModels": "Eski modeller",
+    "toggleArguments": "Argümanları göster veya gizle",
+    "argumentsTerminalHint": "Yalnızca terminal (CLI) başlatmaları için geçerlidir",
+    "searchAgentModels": "{{agent}} modellerini ara…",
+    "legacyModelCount": "{{total}} model",
+    "use": "Kullan",
+    "select": "Aracı seç",
+    "openIn": "Açılacağı yer",
+    "chat": "Sohbet",
+    "terminal": "Terminal"
   }
 }

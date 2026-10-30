@@ -41,6 +41,7 @@ export function AgentLaunchPickerMenu({
   setupDisabled,
   mode,
   value,
+  draftForEntry,
   runLaunch,
   entries,
   hideSearch,
@@ -51,6 +52,7 @@ export function AgentLaunchPickerMenu({
   setupDisabled?: boolean
   mode?: 'launch' | 'select'
   value?: AgentPickerDraft
+  draftForEntry?: (entry: AgentPickerEntry) => AgentPickerDraft
   runLaunch: Launch
   entries: AgentPickerEntry[]
   hideSearch?: boolean
@@ -71,6 +73,7 @@ export function AgentLaunchPickerMenu({
         <div className="p-1">
           <Input
             value={query}
+            density="compact"
             autoFocus
             placeholder={translate('agentPicker.search', 'Search agents and setups…')}
             onChange={(event) => setQuery(event.target.value)}
@@ -118,7 +121,7 @@ export function AgentLaunchPickerMenu({
           key={entry.agent}
           entry={entry}
           mode={mode}
-          selected={value?.agent === entry.agent ? value : undefined}
+          selected={value?.agent === entry.agent ? value : draftForEntry?.(entry)}
           setupDisabled={setupDisabled}
           openSetup={openSetup}
           onSetupOpenChange={setOpenSetup}

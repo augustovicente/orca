@@ -22062,7 +22062,20 @@
     "arguments": "引数",
     "argumentsHint": "CLI での起動にのみ適用されます。",
     "launchChat": "チャットを起動",
-    "launchTerminal": "ターミナルを起動"
+    "launchTerminal": "ターミナルを起動",
+    "setByArguments": "引数で設定",
+    "searchModels": "モデルを検索",
+    "noModels": "検索に一致するモデルはありません。",
+    "legacyModels": "旧モデル",
+    "toggleArguments": "引数の表示を切り替え",
+    "argumentsTerminalHint": "ターミナル（CLI）での起動にのみ適用",
+    "searchAgentModels": "{{agent}} のモデルを検索…",
+    "legacyModelCount": "{{total}} 個のモデル",
+    "use": "使用",
+    "select": "エージェントを選択",
+    "openIn": "起動先",
+    "chat": "チャット",
+    "terminal": "ターミナル"
   },
   "wslMove": {
     "entry": {

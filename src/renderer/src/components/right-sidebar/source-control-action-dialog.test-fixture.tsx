@@ -22,6 +22,7 @@ import {
 } from '../../../../shared/protocol-version'
 import { normalizeSourceControlActionRecipe } from '../../../../shared/source-control-ai-actions'
 import { useSourceControlAgentActionDialog } from './useSourceControlAgentActionDialog'
+import * as dialogController from './useSourceControlAgentActionDialog'
 import {
   render,
   renderHook,
@@ -42,6 +43,7 @@ type MountedSourceDialog = {
   onStart: Mock<NonNullable<RunSourceControlAgentActionStartArgs['onStart']>>
   props: SourceControlAgentActionDialogProps
   repo: Repo
+  readonly controller: ReturnType<typeof useSourceControlAgentActionDialog>
 }
 
 type RenderedSourceDialog = RenderHookResult<
@@ -117,24 +119,44 @@ export function mountSourceDialog(
     onStart,
     onSaveAgentDefault: persist
   }
+  let controller: ReturnType<typeof useSourceControlAgentActionDialog> | undefined
+  const original = dialogController.useSourceControlAgentActionDialog
+  vi.spyOn(dialogController, 'useSourceControlAgentActionDialog').mockImplementation((props) => {
+    controller = original(props)
+    return controller
+  })
   const mount = () =>
     render(<SourceControlAgentActionDialog {...props} />, { wrapper: TooltipProvider })
-  return { view: mount(), mount, persist, onStart, props, repo }
+  return {
+    view: mount(),
+    mount,
+    persist,
+    onStart,
+    props,
+    repo,
+    get controller() {
+      if (!controller) {
+        throw new Error('Dialog has not rendered')
+      }
+      return controller
+    }
+  }
 }
 
 export async function pickDialogAgent(label: string, terminal: boolean) {
-  await waitFor(() =>
-    expect(screen.getAllByRole('combobox')[0].hasAttribute('disabled')).toBe(false)
+  const trigger = screen.getByRole('button', { name: 'Select agent' })
+  await waitFor(() => expect(trigger.hasAttribute('disabled')).toBe(false))
+  fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false })
+  const row = (await screen.findAllByRole('menuitem')).find((item) =>
+    item.textContent?.startsWith(label)
   )
-  fireEvent.click(screen.getAllByRole('combobox')[0])
-  if (terminal) {
-    fireEvent.click(await screen.findByRole('button', { name: `Start ${label} in a terminal` }))
-  } else {
-    const row = screen.getAllByRole('option').find((item) => item.textContent?.startsWith(label))
-    if (!row) {
-      throw new Error(`Missing agent row ${label}`)
-    }
-    fireEvent.click(row)
+  if (!row) {
+    throw new Error(`Missing agent row ${label}`)
+  }
+  fireEvent.click(row)
+  const toggle = screen.queryByRole('radio', { name: terminal ? 'Terminal' : 'Chat', exact: true })
+  if (toggle) {
+    fireEvent.click(toggle)
   }
 }
 
@@ -185,7 +207,7 @@ export function freshDialogRecipe(repoId: string) {
 }
 
 export async function pickDialogSaveTarget(label: string) {
-  fireEvent.click(screen.getAllByRole('combobox')[1])
+  fireEvent.click(screen.getByRole('combobox'))
   fireEvent.click(await screen.findByRole('option', { name: label }))
 }
 

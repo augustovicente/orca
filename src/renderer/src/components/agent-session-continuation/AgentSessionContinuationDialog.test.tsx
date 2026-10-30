@@ -77,7 +77,7 @@ it('clears failed detection, gates unresolved Start, and submits the displayed r
   expect(mocks.launch).not.toHaveBeenCalled()
   mocks.detection.mockReturnValue(detection)
   view.rerender(<AgentSessionContinuationDialog {...props} />)
-  fireEvent.pointerDown(screen.getByRole('button', { name: 'Codex' }), {
+  fireEvent.pointerDown(screen.getByRole('button', { name: 'Select agent' }), {
     button: 0,
     ctrlKey: false
   })
@@ -105,7 +105,7 @@ it('clears failed detection, gates unresolved Start, and submits the displayed r
       request={{ ...request, initialCwd: '/repo/packages/app' }}
     />
   )
-  fireEvent.pointerDown(screen.getByRole('button', { name: 'Codex' }), {
+  fireEvent.pointerDown(screen.getByRole('button', { name: 'Select agent' }), {
     button: 0,
     ctrlKey: false
   })

@@ -1,8 +1,5 @@
 import type { RepositorySourceControlAiActionRowsProps } from './repository-source-control-ai-action-rows-props'
-import {
-  sourceControlActionSelectedPreferences,
-  sourceControlActionExecutionArgs
-} from '../../../../../../shared/source-control-action-launch-preferences'
+import { sourceControlActionExecutionArgs } from '../../../../../../shared/source-control-action-launch-preferences'
 import { useAppStore } from '@/store/index'
 import { useAgentMenuObservation } from '@/components/tab-bar/use-new-tab-agent-menu-rows'
 import { sourceControlRepoAgentRows } from '@/lib/source-control-agent-picker'
@@ -11,7 +8,6 @@ import {
   sourceControlActionAgentPreview,
   canSaveSourceControlActionSurface
 } from '../../SourceControlActionAgentPicker'
-import { SourceControlActionArguments } from '../../SourceControlActionArguments'
 import type React from 'react'
 import { Terminal } from 'lucide-react'
 
@@ -58,10 +54,10 @@ import {
   useSourceControlActionAgentInventory,
   useSourceControlActionAgent
 } from '../../use-source-control-action-agent'
-import { resolveSourceControlActionRecipe } from '../../../../../../shared/source-control-ai-operation-policy'
-import { shouldShowSourceControlActionArguments } from '../../source-control-action-arguments-visibility'
-import { chatProviderAgents, useHostStructuredAgentsVersion } from '@/lib/chat-provider-agents'
-import { LOCAL_EXECUTION_HOST_ID } from '../../../../../../shared/execution-host'
+import {
+  captureSourceControlActionSelection,
+  resolveSourceControlActionRecipe
+} from '../../../../../../shared/source-control-ai-operation-policy'
 
 export function RepositorySourceControlAiActionRows({
   repoId,
@@ -84,8 +80,6 @@ export function RepositorySourceControlAiActionRows({
   const rows = sourceControlRepoAgentRows(repo)
   const observation = useAgentMenuObservation(rows.target, true, rows.detectionTarget)
   const canSaveSurface = canSaveSourceControlActionSurface(rows.target)
-  const settings = useAppStore((state) => state.settings)
-  useHostStructuredAgentsVersion()
   const resolveAgent = useSourceControlActionAgent(null, defaultTuiAgent ?? null).resolve
   return (
     <div className="space-y-3">
@@ -209,7 +203,20 @@ export function RepositorySourceControlAiActionRows({
                     surface={recipe.surface}
                     observation={observation}
                     canSaveSurface={canSaveSurface}
-                    disabled={!hasOverride}
+                    disabled={!hasOverride || isSavingAction}
+                    selection={captureSourceControlActionSelection({
+                      settings: { sourceControlAi: source },
+                      repo: { sourceControlAi: repoAi },
+                      actionId
+                    })}
+                    onSetupPick={(selection) =>
+                      onActionLaunchPreferencesChange(
+                        actionId,
+                        selection.source.authoredPreferences,
+                        selection.current.agentArgs,
+                        selection.current.argumentChoices ?? null
+                      )
+                    }
                     onPick={(agent, choice) =>
                       onActionAgentChange(actionId, agent ?? DEFAULT_AGENT_VALUE, choice)
                     }
@@ -260,37 +267,7 @@ export function RepositorySourceControlAiActionRows({
                 ) : null}
               </div>
               <div className="flex min-w-0 flex-wrap items-start gap-3">
-                {isLaunchAction ? (
-                  <SourceControlActionArguments
-                    showArguments={shouldShowSourceControlActionArguments({
-                      agent: actual.status === 'ready' ? actual.agent : null,
-                      settings,
-                      launchKind: recipe.surface,
-                      chatAgents: chatProviderAgents(LOCAL_EXECUTION_HOST_ID, undefined)
-                    })}
-                    agent={pickerAgent}
-                    value={override?.agentArgs}
-                    placeholder={
-                      override?.agentArgs === undefined ? agentArgsPlaceholder : undefined
-                    }
-                    preferences={
-                      pickerAgent
-                        ? sourceControlActionSelectedPreferences(recipe, pickerAgent)
-                        : undefined
-                    }
-                    argumentChoices={override?.argumentChoices}
-                    authoredAgent={override?.agentId}
-                    modelSelectionBase="inherit"
-                    authoredPreferences={override?.launchPreferences ?? null}
-                    disabled={!hasOverride || actual.status === 'pending' || isSavingAction}
-                    onArgsChange={(value, commit) =>
-                      onActionAgentArgsChange(actionId, value, commit)
-                    }
-                    onPreferencesChange={(value, userArgs, nodes) =>
-                      onActionLaunchPreferencesChange(actionId, value, userArgs, nodes)
-                    }
-                  />
-                ) : (
+                {!isLaunchAction ? (
                   <SourceControlActionOptionField
                     label={translate('auto.components.settings.AgentsPane.cfb3f35775', 'Arguments')}
                   >
@@ -303,7 +280,7 @@ export function RepositorySourceControlAiActionRows({
                       className="h-8 font-mono text-xs disabled:cursor-not-allowed disabled:bg-muted/40"
                     />
                   </SourceControlActionOptionField>
-                )}
+                ) : null}
               </div>
               <div className="space-y-2">
                 <Label className="text-[11px] text-muted-foreground">

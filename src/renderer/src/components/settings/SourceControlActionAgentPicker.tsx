@@ -1,12 +1,20 @@
 import { pickSourceControlLaunchAgent } from '../../../../shared/source-control-launch-agent-selection'
-import AgentCombobox from '@/components/agent/AgentCombobox'
+import { AgentLaunchPicker } from '@/components/agent/AgentLaunchPicker'
+import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
+import {
+  sourceControlPickerDraft,
+  applySourceControlPickerDraft
+} from './source-control-agent-launch-picker'
+import {
+  canonicalSourceControlActionSelection,
+  pickSourceControlActionAgent,
+  type CurrentActionSelection
+} from '../../../../shared/source-control-action-selection'
 import { useAgentMenuObservation } from '@/components/tab-bar/use-new-tab-agent-menu-rows'
 import { useAppStore } from '@/store'
-import { getAgentCatalog } from '@/lib/agent-catalog'
 import {
   sourceControlRepoAgentRows,
   savedSurfaceForPick,
-  sourceControlAgentPickerSelection,
   type SourceControlAgentRows
 } from '@/lib/source-control-agent-picker'
 import { buildAgentLaunchRouteInput } from '@/lib/agent-launch-route-input'
@@ -21,6 +29,8 @@ type PickerProps = {
   surface?: SourceControlActionRecipe['surface']
   repoId?: string
   disabled?: boolean
+  selection?: CurrentActionSelection
+  onSetupPick?: (selection: CurrentActionSelection) => void
   onPick: (agent: TuiAgent | null, choice: Pick<SourceControlActionRecipe, 'surface'>) => void
 }
 
@@ -80,35 +90,46 @@ export function SourceControlActionAgentPickerView({
   observation: ReturnType<typeof useAgentMenuObservation>
   canSaveSurface: boolean
 }) {
-  const pickerSelection = sourceControlAgentPickerSelection(
-    observation.model,
-    observation.selectionFor(props.agent, props.surface === 'terminal' ? 'terminal' : undefined)
-  )
+  const selection =
+    props.selection ??
+    canonicalSourceControlActionSelection({ agentId: props.agent, surface: props.surface })
+  const preview = sourceControlActionAgentPreview(observation, props.agent)
   return (
-    <AgentCombobox
-      allowBlankTerminal
-      blankLabel={translate(
+    <AgentLaunchPicker
+      model={observation.model}
+      agent={props.agent}
+      disabled={props.disabled}
+      triggerClassName="w-full"
+      emptyLabel={translate(
         'auto.components.settings.SourceControlAiActionRecipeDefaults.ee0e5c2a48',
         'Use default agent'
       )}
-      disabled={props.disabled || !pickerSelection.ready}
-      allowNarrowTrigger
-      triggerClassName="w-full"
-      agents={getAgentCatalog()}
-      value={props.agent}
-      onValueChange={(agent) => props.onPick(agent, {})}
-      surfaceRows={{
-        model: observation.model,
-        selection: pickerSelection,
-        contextKey: observation.contextKey,
-        surface: props.surface,
-        onPick: (agent, surface) =>
-          props.onPick(agent, {
-            surface: canSaveSurface
-              ? savedSurfaceForPick(observation.model, agent, surface)
-              : undefined
-          })
+      draftForEntry={(entry) =>
+        sourceControlPickerDraft(selection, entry, props.surface ?? entry.defaultSurface)
+      }
+      onPick={(agent, draft, entry, surface) => {
+        props.onPick(agent, {
+          surface: canSaveSurface
+            ? savedSurfaceForPick(observation.model, agent, surface)
+            : undefined
+        })
+        if (draft && entry) {
+          const picked = pickSourceControlActionAgent(
+            selection,
+            agent,
+            preview.status === 'ready' ? preview.agent : null,
+            surface
+          )
+          props.onSetupPick?.(applySourceControlPickerDraft(picked, entry, draft))
+        }
       }}
-    />
+    >
+      <DropdownMenuItem onSelect={() => props.onPick(null, {})}>
+        {translate(
+          'auto.components.settings.SourceControlAiActionRecipeDefaults.ee0e5c2a48',
+          'Use default agent'
+        )}
+      </DropdownMenuItem>
+    </AgentLaunchPicker>
   )
 }

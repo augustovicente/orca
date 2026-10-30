@@ -25,6 +25,7 @@ export function AgentLaunchPicker({
   model,
   worktreeId,
   value,
+  draftForEntry,
   agent,
   disabled,
   setupDisabled,
@@ -37,6 +38,7 @@ export function AgentLaunchPicker({
   model: NewTabAgentMenuModel
   worktreeId?: string
   value?: AgentPickerDraft
+  draftForEntry?: (entry: AgentPickerEntry) => AgentPickerDraft
   agent: AgentPickerEntry['agent'] | null
   disabled?: boolean
   setupDisabled?: boolean
@@ -47,7 +49,8 @@ export function AgentLaunchPicker({
   onPick: (
     agent: AgentPickerEntry['agent'],
     draft?: AgentPickerDraft,
-    entry?: AgentPickerEntry
+    entry?: AgentPickerEntry,
+    surface?: AgentPickerDraft['surface']
   ) => void
 }) {
   const [open, setOpen] = useState(false)
@@ -59,8 +62,9 @@ export function AgentLaunchPicker({
     selected ?? agent ?? undefined
   )
   const entry = entries.find((entry) => entry.agent === agent)
+  const draft = entry ? (value ?? draftForEntry?.(entry)) : undefined
   const choices = entry
-    ? agentPickerEffectiveChoices(entry, value ?? agentPickerDraft(entry))
+    ? agentPickerEffectiveChoices(entry, draft ?? agentPickerDraft(entry))
     : undefined
   const modelLabel =
     entry?.catalog.models?.find((model) => model.id === choices?.model)?.label ?? choices?.model
@@ -71,6 +75,7 @@ export function AgentLaunchPicker({
         <DropdownMenuTrigger asChild>
           <Button
             type="button"
+            aria-label={translate('agentPicker.select', 'Select agent')}
             variant="outline"
             className={triggerClassName}
             disabled={disabled || model.state !== 'settled'}
@@ -101,11 +106,19 @@ export function AgentLaunchPicker({
               model={model}
               entries={entries}
               value={value}
+              draftForEntry={draftForEntry}
               mode="select"
               disabled={disabled}
               setupDisabled={setupDisabled}
               onSelectAgent={setSelected}
-              runLaunch={(row, draft, entry) => onPick(row.agent, draft, entry)}
+              runLaunch={(row, draft, entry) =>
+                onPick(
+                  row.agent,
+                  draft,
+                  entry,
+                  draft?.surface ?? (row.kind === 'chat' ? 'chat' : 'terminal')
+                )
+              }
             />
           ) : (
             <DropdownMenuItem disabled>
@@ -117,13 +130,13 @@ export function AgentLaunchPicker({
       {entry && entry.surfaces.length > 1 ? (
         <ToggleGroup
           type="single"
-          value={value?.surface ?? entry.defaultSurface}
+          value={draft?.surface ?? entry.defaultSurface}
           disabled={disabled}
           aria-label={translate('agentPicker.openIn', 'Open in')}
           className="grid w-full grid-cols-2"
           onValueChange={(surface) => {
             if (surface === 'chat' || surface === 'terminal') {
-              onPick(entry.agent, { ...(value ?? agentPickerDraft(entry)), surface }, entry)
+              onPick(entry.agent, { ...(draft ?? agentPickerDraft(entry)), surface }, entry)
             }
           }}
         >

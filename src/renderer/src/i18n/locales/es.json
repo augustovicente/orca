@@ -22750,7 +22750,20 @@
     "arguments": "Argumentos",
     "argumentsHint": "Solo se aplica a los inicios de CLI.",
     "launchChat": "Iniciar chat",
-    "launchTerminal": "Iniciar terminal"
+    "launchTerminal": "Iniciar terminal",
+    "setByArguments": "Definido por tus argumentos",
+    "searchModels": "Buscar modelos",
+    "noModels": "Ningún modelo coincide con tu búsqueda.",
+    "legacyModels": "Modelos anteriores",
+    "toggleArguments": "Mostrar u ocultar argumentos",
+    "argumentsTerminalHint": "Solo se aplica a los inicios de terminal (CLI)",
+    "searchAgentModels": "Buscar modelos de {{agent}}…",
+    "legacyModelCount": "{{total}} modelos",
+    "use": "Usar",
+    "select": "Seleccionar agente",
+    "openIn": "Abrir en",
+    "chat": "Chat",
+    "terminal": "Terminal"
   },
   "wslMove": {
     "entry": {

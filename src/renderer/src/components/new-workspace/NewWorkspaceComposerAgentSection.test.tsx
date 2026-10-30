@@ -45,7 +45,7 @@ describe('NewWorkspaceComposerAgentSection agent picker', () => {
       </TooltipProvider>
     )
 
-    fireEvent.pointerDown(screen.getByRole('button', { name: 'Codex' }), {
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'Select agent' }), {
       button: 0,
       ctrlKey: false
     })

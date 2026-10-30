@@ -22576,5 +22576,26 @@
       "needsPermission": "Agent benötigt eine Genehmigung",
       "statusStale": "Agentenstatus ist veraltet"
     }
+  },
+  "agentPicker": {
+    "search": "Agenten und Konfigurationen suchen…",
+    "configure": "{{agent}} konfigurieren",
+    "arguments": "Argumente",
+    "argumentsHint": "Gilt nur für CLI-Starts.",
+    "launchChat": "Chat starten",
+    "launchTerminal": "Terminal starten",
+    "setByArguments": "Durch deine Argumente festgelegt",
+    "searchModels": "Modelle suchen",
+    "noModels": "Keine Modelle entsprechen deiner Suche.",
+    "legacyModels": "Ältere Modelle",
+    "toggleArguments": "Argumente ein- oder ausblenden",
+    "argumentsTerminalHint": "Gilt nur für Starts im Terminal (CLI)",
+    "searchAgentModels": "{{agent}}-Modelle suchen…",
+    "legacyModelCount": "{{total}} Modelle",
+    "use": "Verwenden",
+    "select": "Agent auswählen",
+    "openIn": "Öffnen in",
+    "chat": "Chat",
+    "terminal": "Terminal"
   }
 }

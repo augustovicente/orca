@@ -22796,7 +22796,12 @@
     "toggleArguments": "Toggle Arguments",
     "argumentsTerminalHint": "Only applies to terminal (CLI) launches",
     "searchAgentModels": "Search {{agent}} models…",
-    "legacyModelCount": "{{total}} models"
+    "legacyModelCount": "{{total}} models",
+    "use": "Use",
+    "select": "Select agent",
+    "openIn": "Open in",
+    "chat": "Chat",
+    "terminal": "Terminal"
   },
   "automations": {
     "runFailures": {

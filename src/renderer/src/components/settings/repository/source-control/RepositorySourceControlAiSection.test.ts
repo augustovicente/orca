@@ -184,43 +184,13 @@ describe('RepositorySourceControlAiActionRows', () => {
       expect(cards).toHaveLength(2)
       expect(ensure).toHaveBeenCalledTimes(2)
       expect(detectAgents).toHaveBeenCalledTimes(1)
-      for (const card of cards) {
-        expect(card.textContent).toContain('Model')
-        expect(card.textContent).toContain('Permissions')
-        expect(card.textContent).toContain('Ask')
-        expect(card.querySelector('button[aria-label="saved"]')).not.toBeNull()
-        const controls = Array.from(
-          card.querySelectorAll<HTMLButtonElement>(
-            'button[role="combobox"].min-w-0, button[aria-haspopup="menu"]'
-          )
+      const triggers = () =>
+        cards.map((card) =>
+          card.querySelector<HTMLButtonElement>('button[aria-label="Select agent"]')!
         )
-        expect(controls.length).toBeGreaterThan(0)
-        expect(controls.every((control) => control.disabled)).toBe(true)
-        expect(card.querySelector('textarea[aria-label="Arguments"]')).toBeNull()
-      }
-      await act(async () => {
-        finish([...detected])
-      })
-      for (const card of cards) {
-        const controls = Array.from(
-          card.querySelectorAll<HTMLButtonElement>(
-            'button[role="combobox"].min-w-0, button[aria-haspopup="menu"]'
-          )
-        )
-        expect(controls.length).toBeGreaterThan(0)
-        expect(controls.every((control) => !control.disabled)).toBe(true)
-        expect(card.textContent).toContain('Model')
-        expect(card.textContent?.includes('Reasoning effort')).toBe(agent === 'codex')
-        expect(card.textContent).toContain('Permissions')
-        expect(
-          card.querySelector<HTMLTextAreaElement>('textarea[aria-label="Arguments"]')?.value
-        ).toBe(surface === 'chat' ? undefined : '--saved-cli')
-        expect(
-          Array.from(card.querySelectorAll('textarea')).some(
-            (field) => field.value === 'kept-template'
-          )
-        ).toBe(true)
-      }
+      expect(triggers().every((trigger) => trigger.disabled)).toBe(true)
+      await act(async () => finish([...detected]))
+      expect(triggers().every((trigger) => !trigger.disabled)).toBe(true)
       for (const experimentalNativeChat of [true, false]) {
         await act(() =>
           useAppStore.setState({
@@ -228,14 +198,11 @@ describe('RepositorySourceControlAiActionRows', () => {
           })
         )
         for (const card of cards) {
-          const input = card.querySelector<HTMLTextAreaElement>('textarea[aria-label="Arguments"]')
-          expect(input?.value).toBe(
-            surface === 'terminal'
-              ? '--saved-cli'
-              : surface === 'chat' || (experimentalNativeChat && agent !== 'opencode')
-                ? undefined
-                : '--saved-cli'
-          )
+          expect(
+            card.querySelector('button[aria-label="Select agent"]')?.textContent?.toLowerCase()
+          ).toContain(agent)
+          expect(card.querySelector('textarea[aria-label="Arguments"]')).toBeNull()
+          expect(card.querySelector('textarea')?.value).toBe('kept-template')
         }
       }
       expect(JSON.stringify(source.actions.fixCommitFailure)).toBe(originalRecipe)
@@ -327,14 +294,17 @@ it('keeps default and missing-agent editors disabled only until the host invento
       React.createElement(SourceControlActionAgentPicker, { agent, onPick })
     )
   const view = render(picker(null))
-  expect(view.getByRole('combobox').hasAttribute('disabled')).toBe(true)
+  expect(view.getByRole('button', { name: 'Select agent' }).hasAttribute('disabled')).toBe(true)
   view.rerender(picker('codex'))
-  expect(view.getByRole('combobox').hasAttribute('disabled')).toBe(true)
+  expect(view.getByRole('button', { name: 'Select agent' }).hasAttribute('disabled')).toBe(true)
   await act(async () => useAppStore.setState({ detectedAgentIds: ['claude'] }))
-  expect(view.getByRole('combobox').hasAttribute('disabled')).toBe(false)
+  expect(view.getByRole('button', { name: 'Select agent' }).hasAttribute('disabled')).toBe(false)
   expect(onPick).not.toHaveBeenCalled()
-  fireEvent.click(view.getByRole('combobox'))
-  const available = view.getAllByRole('option').find((row) => row.textContent?.includes('Claude'))
+  fireEvent.pointerDown(view.getByRole('button', { name: 'Select agent' }), {
+    button: 0,
+    ctrlKey: false
+  })
+  const available = view.getAllByRole('menuitem').find((row) => row.textContent?.includes('Claude'))
   expect(available).toBeDefined()
   fireEvent.click(available!)
   expect(onPick).toHaveBeenCalledWith('claude', {})
@@ -422,20 +392,9 @@ it.each([1, 10])(
       expect(
         deadlines().every((id) => cleared.mock.calls.some(([clearedId]) => clearedId === id))
       ).toBe(true)
-      const previews = () => view.queryAllByRole('button', { name: 'Codex permissions' })
+      const previews = () => view.queryAllByRole('button', { name: 'Select agent' })
       expect(previews()).toHaveLength(5 * sections)
       fireEvent.change(view.container.querySelector('textarea')!, { target: { value: 'edited' } })
-      fireEvent.change(view.container.querySelector('textarea[aria-label="Arguments"]')!, {
-        target: { value: '--edited' }
-      })
-      fireEvent.pointerDown(previews()[0], { button: 0, ctrlKey: false })
-      fireEvent.click(view.getByRole('menuitemradio', { name: /^Ask/ }))
-      expect(edit).toHaveBeenCalledWith(
-        'fixCommitFailure',
-        expect.objectContaining({ agentId: 'codex' }),
-        undefined,
-        null
-      )
       expect(gets()).toHaveLength(1)
       view.rerender(tree(1))
       const refresh = Promise.withResolvers<{ settings: typeof host }>()
@@ -453,7 +412,7 @@ it.each([1, 10])(
       await act(async () =>
         refresh.resolve({ settings: projectAgentLaunchSettings({ defaultTuiAgent: 'claude' }) })
       )
-      expect(previews()).toHaveLength(0)
+      expect(previews()).toHaveLength(5)
       rpc.mockImplementation((_target, method) =>
         method === 'settings.getAgentLaunch'
           ? new Promise(() => {})

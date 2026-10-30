@@ -23325,5 +23325,26 @@
       "needsPermission": "Агенту требуется разрешение",
       "statusStale": "Статус агента устарел"
     }
+  },
+  "agentPicker": {
+    "search": "Поиск агентов и настроек…",
+    "configure": "Настроить {{agent}}",
+    "arguments": "Аргументы",
+    "argumentsHint": "Применяется только при запуске CLI.",
+    "launchChat": "Запустить чат",
+    "launchTerminal": "Запустить терминал",
+    "setByArguments": "Задано аргументами",
+    "searchModels": "Поиск моделей",
+    "noModels": "Нет моделей по вашему запросу.",
+    "legacyModels": "Предыдущие модели",
+    "toggleArguments": "Показать или скрыть аргументы",
+    "argumentsTerminalHint": "Только для запуска в терминале (CLI)",
+    "searchAgentModels": "Поиск моделей {{agent}}…",
+    "legacyModelCount": "Моделей: {{total}}",
+    "use": "Использовать",
+    "select": "Выбрать агента",
+    "openIn": "Открыть в",
+    "chat": "Чат",
+    "terminal": "Терминал"
   }
 }
