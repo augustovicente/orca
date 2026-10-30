@@ -346,6 +346,8 @@ describe('orchestration worker automatic release', () => {
       return dispatchId
     }
 
+    const resting = () => false
+
     const keepChat = (keep: boolean): Promise<unknown> =>
       h.call('orchestration.workerKeepOpen', { sessionId: 's1', keep })
 
@@ -377,25 +379,36 @@ describe('orchestration worker automatic release', () => {
       setupWithFakeClock()
       const kept = claimAndCommitChatRelease(startSettledChatWorker())
       await expect(keepChat(true)).resolves.toEqual({ autoClose: { kept: true } })
-      expect(h.db.admitWorkerChatReleaseClose(kept)).toBe(false)
+      expect(h.db.admitWorkerChatReleaseClose(kept, resting)).toBe(false)
 
       const closing = claimAndCommitChatRelease(startSettledChatWorker())
-      expect(h.db.admitWorkerChatReleaseClose(closing)).toBe(true)
+      expect(h.db.admitWorkerChatReleaseClose(closing, resting)).toBe(true)
       await keepChat(true)
       expect(h.db.getWorkerTerminalResource(closing)?.release_state).toBe('releasing')
     })
 
-    it('calls off a claimed chat close when a turn starts before Stop is admitted', () => {
+    it('lets a turn begun before Stop call off an automatic chat close, but not an explicit one that joined it', async () => {
       setupWithFakeClock()
-      const resourceId = claimAndCommitChatRelease(startSettledChatWorker())
+      const inTurn = () => true
+      const automatic = claimAndCommitChatRelease(startSettledChatWorker())
+      expect(h.db.admitWorkerChatReleaseClose(automatic, inTurn)).toBe(false)
+      expect(h.db.getWorkerTerminalResource(automatic)?.release_state).toBe('not_requested')
+
+      const dispatchId = startSettledChatWorker()
+      const joined = claimAndCommitChatRelease(dispatchId)
+      h.db.requestWorkerTerminalRelease(dispatchId)
+      expect(h.db.admitWorkerChatReleaseClose(joined, inTurn)).toBe(true)
+    })
+
+    it('keeps a close that began final when the agent works again: its archive stays', () => {
+      setupWithFakeClock()
+      const dispatchId = startSettledChatWorker()
+      const resourceId = claimAndCommitChatRelease(dispatchId)
 
       h.db.suspendWorkerTerminalAutoRelease(chatPaneKey)
 
-      expect(h.db.admitWorkerChatReleaseClose(resourceId)).toBe(false)
-      expect(h.db.getWorkerTerminalResource(resourceId)).toMatchObject({
-        release_state: 'not_requested',
-        auto_release_at: null
-      })
+      expect(h.db.getWorkerTerminalResource(resourceId)?.release_state).toBe('releasing')
+      expect(h.db.getWorkerTerminalArchive(dispatchId)).toBeDefined()
     })
   })
 })

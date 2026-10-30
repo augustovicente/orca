@@ -60,29 +60,21 @@ describe('orchestration worker automatic release across turns and settings', () 
     )
   })
 
-  it('calls off a claimed close when a follow-up starts during its archive, then counts down afresh', async () => {
+  it('suspends instead of claiming an agent in a turn at its deadline, so nothing is archived', async () => {
     setupWithFakeClock()
-    const activity = new WorkerAutoReleaseActivity(() => h.db)
     const { dispatchId } = await h.startSettledWorker()
-    const read = vi.mocked(h.runtime.readTerminal)
-    const original = read.getMockImplementation()!
-    let finishArchive = (): void => {}
-    read.mockImplementationOnce(
-      (...args) => new Promise((resolve) => (finishArchive = () => resolve(original(...args))))
-    )
+    const inTurn = vi.spyOn(h.runtime, 'isWorkerAgentInTurn').mockReturnValue(true)
+    vi.mocked(h.runtime.readTerminal).mockClear()
+
     await vi.advanceTimersByTimeAsync(GRACE_MS)
-    await vi.waitFor(() => expect(read).toHaveBeenCalled())
 
-    activity.observePane(moved('done', 'working'))
-    activity.observePane(moved('working', 'done'))
-    finishArchive()
-    await vi.advanceTimersByTimeAsync(0)
-
-    expect(h.runtime.closeTerminal).not.toHaveBeenCalled()
+    expect(h.runtime.readTerminal).not.toHaveBeenCalled()
     expect(h.db.getWorkerTerminalResourceByOwner(dispatchId)).toMatchObject({
       release_state: 'not_requested',
-      auto_release_at: '2026-10-27 12:04:00'
+      auto_release_at: null
     })
+    inTurn.mockReturnValue(false)
+    new WorkerAutoReleaseActivity(() => h.db).observePane(moved('working', 'done'))
     await expectClosedAfterFreshGrace()
   })
 

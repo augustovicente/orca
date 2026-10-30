@@ -1,5 +1,6 @@
 import type { OrcaRuntimeService } from '../../../../orca-runtime'
 import { defineMethod } from '../../../core'
+import { OrchestrationError } from '../../../../orchestration/orchestration-error'
 import type { WorkerTerminalReleaseRuntime } from '../../../../orchestration/worker-terminal-release-runtime'
 import type { FederatedDispatchRow } from '../../../../orchestration/types'
 import { keptOpenStopRefusal } from '../../../../orchestration/db/worker-terminal/worker-terminal-user-keep'
@@ -71,14 +72,22 @@ function resolveWorkerPaneKey(
   return params.paneKey ?? (params.terminal ? runtime.getTerminalPaneKey(params.terminal) : null)
 }
 
-/** The worker's host refuses a kept worker too, but only after this side began stopping it; an
- *  unanswered check leaves that to the host. */
+/** Stop changes this side before the worker's host can refuse a kept worker, so the host is asked first;
+ *  without an answer nothing is stopped. Hosts that predate Keep open answer without `keptOpen`. */
 export async function refuseFederatedStopWhileKeptOpen(
   runtime: WorkerTerminalReleaseRuntime,
   federated: FederatedDispatchRow
 ): Promise<void> {
-  const shown = await callFederatedWorkerShow(runtime, federated).catch(() => null)
-  if (shown?.keptOpen === true) {
+  const shown = await callFederatedWorkerShow(runtime, federated).catch((error: unknown) => {
+    if (error instanceof OrchestrationError) {
+      throw error
+    }
+    throw new OrchestrationError(
+      'remote_runtime_unavailable',
+      `Could not check whether the user kept Dispatch ${federated.dispatch_id} open on ${federated.environment_name}, so it was not stopped. Retry worker-stop. (${error instanceof Error ? error.message : String(error)})`
+    )
+  })
+  if (shown.keptOpen === true) {
     throw keptOpenStopRefusal(federated.dispatch_id)
   }
 }

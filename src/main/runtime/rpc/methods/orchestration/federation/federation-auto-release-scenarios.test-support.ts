@@ -245,10 +245,11 @@ export function registerFederatedAutoReleaseScenarios(harness: AutoReleaseScenar
   it('lets a home worker-release that joins the timer override a working agent on the host', async () => {
     const dispatchId = await settleRemotely()
     const finishCapture = holdHostCapture()
-    vi.spyOn(harness.workerRuntime(), 'isWorkerAgentInTurn').mockReturnValue(true)
     vi.setSystemTime(Date.now() + GRACE_MS)
     const timer = getWorkerTerminalAutoReleaseScheduler(harness.workerRuntime()).releaseDue()
     await vi.waitFor(() => expect(harness.workerRuntime().readTerminal).toHaveBeenCalled())
+    // A follow-up starts after the deadline claimed the close.
+    vi.spyOn(harness.workerRuntime(), 'isWorkerAgentInTurn').mockReturnValue(true)
 
     const explicit = harness.dispatchHome({
       id: 'rpc_remote_release_during_capture',
@@ -270,10 +271,10 @@ export function registerFederatedAutoReleaseScenarios(harness: AutoReleaseScenar
 
   it('honours an explicit release recorded after the host committed its archive', async () => {
     const dispatchId = await settleRemotely()
-    vi.spyOn(harness.workerRuntime(), 'isWorkerAgentInTurn').mockReturnValue(true)
     const db = harness.workerDb()
     const commit = db.commitWorkerTerminalArchiveForRelease.bind(db)
     vi.spyOn(db, 'commitWorkerTerminalArchiveForRelease').mockImplementation((params) => {
+      vi.spyOn(harness.workerRuntime(), 'isWorkerAgentInTurn').mockReturnValue(true)
       const committed = commit(params)
       // An explicit release joins while the committed archive is being reopened.
       db.requestRemoteAttachmentTerminalRelease(dispatchId)

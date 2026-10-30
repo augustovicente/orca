@@ -57,7 +57,9 @@ export class WorkerTerminalAutoReleaseScheduler {
     try {
       const claimed = this.runtime
         .getOrchestrationDb()
-        .claimDueWorkerTerminalAutoReleases(Date.now())
+        .claimDueWorkerTerminalAutoReleases(Date.now(), (resource) =>
+          this.runtime.isWorkerAgentInTurn(resource)
+        )
       if (claimed > 0) {
         await reconcileRequestedWorkerTerminalReleases(this.runtime)
       }

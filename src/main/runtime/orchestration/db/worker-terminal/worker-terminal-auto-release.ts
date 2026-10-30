@@ -1,5 +1,6 @@
 import {
   liveWorkerTerminalAutoReleaseAt,
+  type WorkerTerminalResourceRow,
   WORKER_RELEASABLE_STATES,
   WORKER_TERMINAL_AUTO_RELEASE_LIVE_SQL
 } from '../../worker-terminal-ownership'
@@ -23,10 +24,6 @@ export const OWNER_RELEASABLE_SQL = `(
        AND a.state IN (${RELEASABLE_STATES_SQL})
   )
 )`
-
-// Claimed by the deadline and not yet admitted; the kept deadline is what marks it automatic.
-const AUTOMATIC_CLOSE_CLAIMED_SQL = `release_state IN ('requested', 'releasing')
-  AND auto_release_at IS NOT NULL AND auto_release_dispatch_id = owner_dispatch_id`
 
 // Armed for its owner and not yet kept, retained or released.
 const ARMED_SQL = `auto_release_dispatch_id = owner_dispatch_id AND ownership_state = 'owned'
@@ -53,7 +50,7 @@ export function armWorkerTerminalAutoReleaseStatement(
   }
 }
 
-/** A new turn: its countdown waits until it next rests, and an automatic close already claimed is called off. */
+/** The agent works again: its countdown waits until it next rests. A claimed close is final. */
 export function suspendWorkerTerminalAutoRelease(this: OrchestrationDb, paneKey: string): void {
   const { changes } = this.db
     .prepare(
@@ -61,17 +58,7 @@ export function suspendWorkerTerminalAutoRelease(this: OrchestrationDb, paneKey:
         WHERE pane_key = ? AND ${ARMED_SQL} AND auto_release_at IS NOT NULL`
     )
     .run(paneKey)
-  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the SELECT names exactly this one column.
-  const claimed = this.db
-    .prepare(
-      `SELECT id FROM worker_terminal_resources
-        WHERE pane_key = ? AND ownership_state = 'owned' AND ${AUTOMATIC_CLOSE_CLAIMED_SQL}`
-    )
-    .all(paneKey) as { id: string }[]
-  for (const { id } of claimed) {
-    this.deferWorkerTerminalAutoRelease(id)
-  }
-  if (changes > 0 || claimed.length > 0) {
+  if (changes > 0) {
     this.workerTerminalAutoReleaseListener?.()
   }
 }
@@ -94,23 +81,45 @@ export function restartWorkerTerminalAutoRelease(
 }
 
 /** The automatic counterpart of a release request: it never overrides retention, keep or transfer.
+ *  An agent in a turn when its deadline comes is suspended instead of claimed.
  *  The kept deadline marks the request automatic until an explicit request clears it. */
-export function claimDueWorkerTerminalAutoReleases(this: OrchestrationDb, nowMs: number): number {
+export function claimDueWorkerTerminalAutoReleases(
+  this: OrchestrationDb,
+  nowMs: number,
+  inTurn: (resource: WorkerTerminalResourceRow) => boolean = () => false
+): number {
   if (this.workerAutoReleaseEnabled?.() === false) {
     return 0
   }
-  return Number(
-    this.db
-      .prepare(
-        `UPDATE worker_terminal_resources
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: SELECT * over this table yields its row type.
+  const due = this.db
+    .prepare(
+      `SELECT * FROM worker_terminal_resources
+        WHERE ${WORKER_TERMINAL_AUTO_RELEASE_LIVE_SQL} AND auto_release_at <= ?
+          AND ${OWNER_RELEASABLE_SQL}`
+    )
+    .all(toSqliteUtcTimestamp(nowMs)) as WorkerTerminalResourceRow[]
+  let claimed = 0
+  for (const resource of due) {
+    if (inTurn(resource)) {
+      if (resource.pane_key) {
+        this.suspendWorkerTerminalAutoRelease(resource.pane_key)
+      }
+      continue
+    }
+    claimed += Number(
+      this.db
+        .prepare(
+          `UPDATE worker_terminal_resources
             SET release_state = 'requested', retained_reason = NULL,
                 release_requested_at = datetime('now'), release_error = NULL,
                 updated_at = datetime('now')
-          WHERE ${WORKER_TERMINAL_AUTO_RELEASE_LIVE_SQL} AND auto_release_at <= ?
-            AND ${OWNER_RELEASABLE_SQL}`
-      )
-      .run(toSqliteUtcTimestamp(nowMs)).changes
-  )
+          WHERE id = ? AND ${WORKER_TERMINAL_AUTO_RELEASE_LIVE_SQL} AND auto_release_at <= ?`
+        )
+        .run(resource.id, toSqliteUtcTimestamp(nowMs)).changes
+    )
+  }
+  return claimed
 }
 
 /** A claimed close found its agent working again: back to suspended, output archive dropped. */
@@ -123,7 +132,8 @@ export function deferWorkerTerminalAutoRelease(this: OrchestrationDb, resourceId
         `UPDATE worker_terminal_resources
             SET release_state = 'not_requested', auto_release_at = NULL, archive_source = NULL,
                 archive_status = NULL, release_requested_at = NULL, updated_at = datetime('now')
-          WHERE id = ? AND ownership_state = 'owned' AND ${AUTOMATIC_CLOSE_CLAIMED_SQL}`
+          WHERE id = ? AND ownership_state = 'owned' AND release_state IN ('requested', 'releasing')
+            AND auto_release_at IS NOT NULL AND auto_release_dispatch_id = owner_dispatch_id`
       )
       .run(resourceId)
     if (changes > 0 && resource) {
@@ -139,8 +149,22 @@ export function deferWorkerTerminalAutoRelease(this: OrchestrationDb, resourceId
 }
 
 /** The automatic chat close's last word, run in the session lane right before Stop: clearing the
- *  deadline ends Keep open's chance to cancel it. Explicit releases pass. */
-export function admitWorkerChatReleaseClose(this: OrchestrationDb, resourceId: string): boolean {
+ *  deadline ends Keep open's chance to cancel it. A turn begun meanwhile calls it off; judged from the
+ *  current row, so an explicit release that joined it passes. */
+export function admitWorkerChatReleaseClose(
+  this: OrchestrationDb,
+  resourceId: string,
+  inTurn: (resource: WorkerTerminalResourceRow) => boolean
+): boolean {
+  const current = this.getWorkerTerminalResource(resourceId)
+  if (
+    current?.auto_release_at &&
+    current.auto_release_dispatch_id === current.owner_dispatch_id &&
+    inTurn(current)
+  ) {
+    this.deferWorkerTerminalAutoRelease(resourceId)
+    return false
+  }
   const { changes } = this.db
     .prepare(
       `UPDATE worker_terminal_resources SET auto_release_at = NULL, updated_at = datetime('now')

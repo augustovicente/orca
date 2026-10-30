@@ -23,11 +23,12 @@ export function formatWorkerAutoCloseCountdown(closesAt: string, nowMs: number):
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
 }
 
-// Only a temporary worker is re-read, to follow its finish and follow-ups; its countdown ticks locally.
-// Kept and non-worker states wait for the client's next trigger or a Keep open / Allow Auto-Close reply.
+// A temporary worker is re-read to follow its finish and follow-ups; its countdown ticks locally. Kept,
+// unanswered and not-yet-temporary states are re-read rarely, so another client's change or a turned-on setting shows.
 const TEMPORARY_POLL_MS = 15_000
+const SETTLED_POLL_MS = 60_000
 
-/** Reads now, then again while the worker stays temporary, until the returned stop is called. */
+/** Reads now and again until the returned stop is called. */
 export function pollWorkerAutoClose(
   read: () => Promise<WorkerAutoCloseState | null>,
   onState: (state: WorkerAutoCloseState | null) => void
@@ -38,7 +39,7 @@ export function pollWorkerAutoClose(
     void read().then((state) => {
       if (!stopped) {
         onState(state)
-        timer = state && !state.kept ? setTimeout(poll, TEMPORARY_POLL_MS) : undefined
+        timer = setTimeout(poll, state && !state.kept ? TEMPORARY_POLL_MS : SETTLED_POLL_MS)
       }
     })
   }

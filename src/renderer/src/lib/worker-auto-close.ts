@@ -90,7 +90,7 @@ function workerActivity(state: AppState, paneKey: string): string | null {
 }
 
 /** The host's auto-close state for a shown pane this client knows is an orchestration worker, plus the
- *  clock its countdown ticks on. Read while `active` and the worker changes, and re-read only while temporary. */
+ *  clock its countdown ticks on. Read while `active`, again whenever its Dispatch or agent moves on. */
 export function useWorkerAutoClose(
   target: RuntimeClientTarget,
   subject: WorkerAutoCloseSubject,
@@ -107,7 +107,12 @@ export function useWorkerAutoClose(
   const [nowMs, setNowMs] = useState(() => Date.now())
 
   useEffect(() => {
-    if (!active || activity === null) {
+    if (activity === null) {
+      // No longer a worker here: drop what it last said so nothing keeps ticking on it.
+      publishWorkerAutoClose(key, null)
+      return
+    }
+    if (!active) {
       return
     }
     return pollWorkerAutoClose(
@@ -117,7 +122,8 @@ export function useWorkerAutoClose(
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- key covers target and subject by value.
   }, [key, active, activity])
 
-  const ticking = active && state !== null && !state.kept && state.closesAt !== null
+  const shown = activity === null ? null : state
+  const ticking = active && shown !== null && !shown.kept && shown.closesAt !== null
   useEffect(() => {
     if (!ticking) {
       return
@@ -135,7 +141,7 @@ export function useWorkerAutoClose(
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- key covers target and subject by value.
   }, [key])
 
-  return { state: activity === null ? null : state, nowMs, keepOpen }
+  return { state: shown, nowMs, keepOpen }
 }
 
 /** The strip's line; null when no strip shows (kept open, or nothing closes the worker). */

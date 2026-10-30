@@ -87,8 +87,7 @@ function useHostKeepsWorkersOpen(): boolean {
   )
 }
 
-/** The open tab's auto-close state from its host while connected, plus the clock its countdown ticks on.
- *  Read when the tab opens; re-read only while the worker is temporary. */
+/** The open tab's auto-close state from its host while connected, plus the clock its countdown ticks on. */
 export function useMobileWorkerAutoClose(
   client: RpcClient | null,
   connState: ConnectionState,
