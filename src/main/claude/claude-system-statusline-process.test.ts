@@ -302,7 +302,7 @@ async function fixture(realNative = false) {
       while (!messages.some((m) => m.phase === phase)) {
         const failure = messages.find((m) => m.phase === 'failed')
         if (failure) {
-          throw new Error(`Child failed before ${phase}: ${failure.error}; ${stderr}`)
+          throw new Error(`Child failed before ${phase}: ${String(failure.error)}; ${stderr}`)
         }
         const terminal = messages.find((m) => m.phase === 'done')
         if (terminal) {
