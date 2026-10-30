@@ -69,7 +69,10 @@ it.each(['local', 'relay'] as const)(
         if (!delayedUnknown) {
           throw new Error('Missing child relay event')
         }
-        expect(delayedUnknown.agentPresence?.session).toBeUndefined()
+        expect(delayedUnknown.agentPresence).toEqual({
+          agent: 'antigravity',
+          session: 'unknown-child'
+        })
         server.ingestRemote(delayedUnknown, 'host-1')
         expect(server.getStatusSnapshot()[0]?.agentType).toBe('codex')
       }
@@ -80,7 +83,10 @@ it.each(['local', 'relay'] as const)(
         agentType: 'antigravity',
         state: 'working'
       })
-      expect(server.getStatusSnapshot()[0]?.providerSession).toBeUndefined()
+      expect(server.getStatusSnapshot()[0]?.providerSession).toEqual({
+        key: 'conversation_id',
+        id: root
+      })
       expect(server.getStatusSnapshot()[0]).not.toHaveProperty('statusAdmissionSession')
       expect(JSON.stringify(forwarded)).not.toContain('statusAdmissionSession')
     } finally {

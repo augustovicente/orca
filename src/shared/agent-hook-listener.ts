@@ -1,6 +1,5 @@
 import { readHookAgentProcess } from './agent-process-presence'
-import { resolveAgentStatusIdentity } from './agent-status-identity'
-import { sameAgentStatusTerminalOwner } from './agent-status-terminal-owner'
+import { isInheritedHookStatus } from './agent-hook-presence-transition'
 import { normalizeAgentStatusPayload, type AgentMainAgentStatus } from './agent-status-types'
 import type { AgentHookSource } from './agent-hook-relay'
 import {
@@ -28,7 +27,10 @@ import {
 } from './agent-hook-listener/opencode-session-registry'
 import { claudeRowHasUnlistedLiveWork } from './agent-hook-listener/providers/claude-pane-hold-evidence'
 import { readString } from './agent-hook-listener/tool-input-preview'
-import { readPaneSessionContext } from './agent-hook-listener/pane-provider-session'
+import {
+  hasSeparateHookSessionAdmission,
+  readPaneSessionContext
+} from './agent-hook-listener/pane-provider-session'
 /** Canonical transport-agnostic normalization entry shared by main and relay listeners. */
 const CLAUDE_EXIT_SESSION_END_REASONS = new Set([
   'prompt_input_exit',
@@ -45,6 +47,7 @@ export function normalizeHookPayload(
   options: {
     deferCompactOwnershipToClient?: boolean
     previousOpenCodeMainAgent?: AgentMainAgentStatus
+    bindingStatusByPaneKey?: ReadonlyMap<string, AgentHookEventPayload>
     admitOpenCodeTui?: (
       identity: Pick<
         AgentHookEventPayload,
@@ -139,33 +142,23 @@ export function normalizeHookPayload(
   }
   const previousStatus = state.lastStatusByPaneKey.get(paneKey)
   const agentProcess = readHookAgentProcess(source, record.agentProcess)
-  const previousReceivedAt =
-    previousStatus &&
-    'receivedAt' in previousStatus &&
-    typeof previousStatus.receivedAt === 'number'
-      ? previousStatus.receivedAt
-      : previousStatus?.hostEvidenceObservedAt
-  // Reject before provider folds mutate the pane's prompt, tool and child caches.
+  const admissionStatus =
+    hasSeparateHookSessionAdmission(source) && options.bindingStatusByPaneKey
+      ? options.bindingStatusByPaneKey.get(paneKey)
+      : previousStatus
   if (
-    previousStatus &&
-    previousReceivedAt !== undefined &&
-    sameAgentStatusTerminalOwner(
-      { connectionId: previousStatus.connectionId ?? null, worktreeId: previousStatus.worktreeId },
-      { connectionId: null, worktreeId }
-    ) &&
-    resolveAgentStatusIdentity({
-      existing: {
-        agentType: previousStatus.payload.agentType,
-        state: previousStatus.payload.state,
-        updatedAt: previousReceivedAt,
-        restoredUnconfirmed: previousStatus.restoredUnconfirmed,
-        agentPresence: previousStatus.providerSessionOnly ? undefined : previousStatus.agentPresence
+    isInheritedHookStatus(
+      {
+        paneKey,
+        worktreeId,
+        connectionId: null,
+        providerSession: providerSession ?? undefined,
+        statusAdmissionSession,
+        agentPresence: agentProcess ? { agent: source, process: agentProcess } : undefined,
+        payload: { agentType: source, state: 'working', prompt: '' }
       },
-      incoming: source,
-      incomingProcess: agentProcess,
-      incomingSession: statusAdmissionSession ?? providerSession?.id,
-      now: Date.now()
-    }).inheritedFromActivePane
+      admissionStatus
+    )
   ) {
     return null
   }

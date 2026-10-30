@@ -175,7 +175,7 @@ it.each(['local', 'relay'] as const)(
         if (!delayedUnknown) {
           throw new Error('Missing relay child event')
         }
-        expect(delayedUnknown.agentPresence?.session).toBeUndefined()
+        expect(delayedUnknown.agentPresence).toEqual({ agent: 'hermes', session: 'unknown-child' })
         server.ingestRemote(delayedUnknown, 'host-1')
         expect(server.getStatusSnapshot()[0]?.agentType).toBe('codex')
       }
@@ -191,12 +191,21 @@ it.each(['local', 'relay'] as const)(
         tool_name: 'delegate_task'
       })
       expect(server.getStatusSnapshot()[0]).toMatchObject({ agentType: 'hermes', state: 'working' })
-      expect(server.getStatusSnapshot()[0]?.providerSession).toBeUndefined()
+      expectResume(server)
       // Existing warm-child status admission uses the same remembered parent, without binding its ID.
       await post('hermes', { hook_event_name: 'on_session_end', session_id: CHILD })
       expect(server.getStatusSnapshot()[0]?.state).toBe('done')
       await post('hermes', { hook_event_name: 'pre_llm_call', session_id: ROOT, platform: 'cli' })
       expectResume(server)
+      await post('hermes', { hook_event_name: 'on_session_end', session_id: CHILD })
+      await post('codex', {
+        hook_event_name: 'UserPromptSubmit',
+        session_id: 'nested',
+        prompt: 'review'
+      })
+      // Positive authority must replace a formerly substituted child before either admission gate.
+      await post('hermes', { hook_event_name: 'pre_llm_call', session_id: CHILD, platform: 'cli' })
+      expectResume(server, CHILD)
       expect(JSON.stringify(forwarded)).not.toContain('statusAdmissionSession')
     } finally {
       server.stop()

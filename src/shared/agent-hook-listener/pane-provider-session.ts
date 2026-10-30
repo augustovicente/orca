@@ -171,14 +171,19 @@ export function readHookSessionContext<T extends AgentHookEventPayload>(
   fromHook: boolean
 ) {
   const { statusAdmissionSession: _statusAdmissionSession, ...event } = incoming
+  // Relays use scoped session bytes only to compare this hook, never to initialize ownership.
+  const ownershipEvent =
+    fromHook && event.agentPresence && hasSeparateHookSessionAdmission(event.agentPresence.agent)
+      ? { ...event, agentPresence: { ...event.agentPresence, session: undefined } }
+      : event
   const rootEvent =
     fromHook &&
     ((event.payload.agentType === 'copilot' && event.toolAgentId) ||
       (event.payload.agentType === 'hermes' &&
         event.hookEventName !== undefined &&
         !isHermesRootSessionEvent(event.hookEventName)))
-      ? { ...event, providerSession: undefined }
-      : event
+      ? { ...ownershipEvent, providerSession: undefined }
+      : ownershipEvent
   return {
     event: rootEvent,
     statusAdmissionSession:
@@ -186,4 +191,35 @@ export function readHookSessionContext<T extends AgentHookEventPayload>(
         ? readHookStatusSession(incoming)
         : rootEvent.providerSession?.id
   }
+}
+
+export function retainHookRootContext(
+  incoming: AgentHookEventPayload,
+  previous: AgentHookEventPayload | undefined,
+  fromHook: boolean,
+  sameTerminalOwner: boolean,
+  returningProviderSession: AgentProviderSessionMetadata | undefined
+): AgentHookEventPayload {
+  const previousRoot =
+    previous &&
+    previous.payload.agentType === incoming.payload.agentType &&
+    ((incoming.payload.agentType === 'codex' && incoming.toolAgentId) ||
+      (fromHook &&
+        ['copilot', 'hermes', 'antigravity'].includes(incoming.payload.agentType ?? '') &&
+        sameTerminalOwner))
+      ? previous
+      : undefined
+  const providerSession =
+    !incoming.providerSession && (previousRoot?.providerSession ?? returningProviderSession)
+  const model =
+    incoming.payload.agentType === 'codex' && !incoming.payload.model
+      ? previousRoot?.payload.model
+      : undefined
+  return providerSession || model
+    ? {
+        ...incoming,
+        ...(providerSession ? { providerSession } : {}),
+        payload: model ? { ...incoming.payload, model } : incoming.payload
+      }
+    : incoming
 }

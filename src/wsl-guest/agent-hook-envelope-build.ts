@@ -19,16 +19,12 @@ export function buildRelayHookEnvelope(
     ...(event.hostEvidenceObservedAt !== undefined
       ? { evidenceAgeMs: Math.max(0, Date.now() - event.hostEvidenceObservedAt) }
       : {}),
-    agentPresence:
-      hasSeparateHookSessionAdmission(source) && event.agentPresence
-        ? {
-            ...event.agentPresence,
-            session:
-              event.statusAdmissionSession === event.agentPresence.session
-                ? event.agentPresence.session
-                : undefined
-          }
-        : event.agentPresence,
+    agentPresence: hasSeparateHookSessionAdmission(source)
+      ? {
+          agent: source,
+          session: event.statusAdmissionSession
+        }
+      : event.agentPresence,
     paneKey: event.paneKey,
     ...(event.hostTurnRevision ? { hostTurnRevision: event.hostTurnRevision } : {}),
     ...(event.launchToken ? { launchToken: event.launchToken } : {}),
