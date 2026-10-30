@@ -87,7 +87,7 @@ function Host() {
   )
   useTerminalKeyboardShortcuts({
     activeWorktreeId: ws,
-    keybindings: undefined,
+    keybindings: {},
     mobileEmulatorEnabled: false,
     terminalShortcutPolicy: 'orca-first',
     handleCloseAllFiles: vi.fn(),

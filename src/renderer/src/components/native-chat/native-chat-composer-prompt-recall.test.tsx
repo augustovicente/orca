@@ -342,6 +342,7 @@ it.each([
               rowRef={createRef()}
               onRefolded={() => {}}
               structuredAttachments
+              allowFileUriLinks={false}
             />
           </NativeChatTextAttachmentOpener.Provider>
         </TooltipProvider>

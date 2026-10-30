@@ -1,15 +1,16 @@
 // @vitest-environment happy-dom
+import { createElement } from 'react'
 import { EventEmitter } from 'node:events'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
-import { NativeChatTextAttachmentPreview } from './NativeChatTextAttachmentPreview'
-import { AgentSessionAttachmentStore } from '../../../../main/native-chat/agent-session-attachments/agent-session-attachment-store'
-import { createFilesystemHandlerContext } from '../../../../main/ipc/filesystem/filesystem-handler-context'
-import { registerFilesystemDownloadHandlers } from '../../../../main/ipc/filesystem/filesystem-download-handlers'
-import type { Store } from '../../../../main/persistence/loading-store/store'
+import { NativeChatTextAttachmentPreview } from '@/components/native-chat/NativeChatTextAttachmentPreview'
+import { AgentSessionAttachmentStore } from '../../src/main/native-chat/agent-session-attachments/agent-session-attachment-store'
+import { createFilesystemHandlerContext } from '../../src/main/ipc/filesystem/filesystem-handler-context'
+import { registerFilesystemDownloadHandlers } from '../../src/main/ipc/filesystem/filesystem-download-handlers'
+import type { Store } from '../../src/main/persistence/loading-store/store'
 
 const mocks = vi.hoisted(() => ({
   handlers: new Map<string, (...args: unknown[]) => Promise<unknown>>(),
@@ -91,11 +92,11 @@ it('saves zero-byte and invalid UTF8 committed files through the real native sin
       finish.mockClear()
       cancel.mockClear()
       const view = render(
-        <NativeChatTextAttachmentPreview
-          path={path}
-          target={{ kind: 'local' }}
-          onClose={() => {}}
-        />
+        createElement(NativeChatTextAttachmentPreview, {
+          path,
+          target: { kind: 'local' },
+          onClose: () => {}
+        })
       )
       await waitFor(() =>
         expect(screen.getByRole('button', { name: 'Save file' }).hasAttribute('disabled')).toBe(

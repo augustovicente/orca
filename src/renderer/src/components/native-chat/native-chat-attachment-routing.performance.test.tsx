@@ -30,7 +30,8 @@ vi.mock('./NativeChatTextAttachmentPreview', () => ({
 // STA-12852 owns incoming link-peek filter work; its preceding owner/index work still counts.
 let incomingHookDepth = 0,
   incomingSelectorDepth = 0,
-  repoFilterDepth = 0
+  repoFilterDepth = 0,
+  incomingRepoFilterVisits = 0
 const realGithubRepoHook = githubRepoHooks.useNativeChatGitHubRepo
 vi.spyOn(githubRepoHooks, 'useNativeChatGitHubRepo').mockImplementation((...args) => {
   incomingHookDepth++
@@ -57,13 +58,20 @@ const storeSpy = vi.spyOn(appStore, 'useAppStore').mockImplementation((selector)
 Object.assign(storeSpy, realStore)
 const useAppStore = appStore.useAppStore
 
-function instrumentRepoFilter<T>(rows: T[]): T[] {
+function instrumentRepoFilter<T extends object>(rows: readonly T[]): readonly T[] {
   Object.defineProperty(rows, 'filter', {
     configurable: true,
-    value(this: T[], predicate: (row: T, index: number, array: T[]) => unknown, thisArg?: unknown) {
+    value(
+      this: readonly T[],
+      predicate: (row: T, index: number, array: T[]) => unknown,
+      thisArg?: unknown
+    ) {
       return Array.prototype.filter.call(
         this,
         function (this: unknown, row: T, index: number, array: T[]) {
+          if (incomingSelectorDepth > 0 && Object.getOwnPropertyDescriptor(row, 'id')?.get) {
+            incomingRepoFilterVisits++
+          }
           repoFilterDepth++
           try {
             return predicate.call(this, row, index, array)
@@ -89,7 +97,6 @@ function ssh(
   generation: number
 ): AppState['sshStateByEnvironment'] extends Map<string, infer T> ? T : never {
   return {
-    targets: [],
     targetGenerations: new Map(),
     targetLabels: new Map(),
     removedTargetLabels: new Map(),
@@ -217,7 +224,7 @@ for (const mode of ['scope-only', 'with-probe', 'disabled'] as const) {
         // Shared immutable indexes plus addressed lookup, including cold catalogs, are additive.
         expect(visits).toBeLessThanOrEqual(12 * n)
         const baseline = contexts.map((context) => JSON.stringify(context))
-        const metrics = []
+        const metrics: { kind: string; visits: number; commits: number; renders: number }[] = []
         for (const kind of ['other-host', 'other-target', 'other-pin'] as const) {
           const state = useAppStore.getState()
           const patch =
@@ -463,15 +470,17 @@ for (const mode of ['scope-only', 'with-probe', 'disabled'] as const) {
         )
         const detected = Array.from({ length: n }, (_, index) =>
           meter(
-            worktreeFixture(
-              ws,
-              kind === 'detected-twins' && index < n - 1 ? '/other' : '/own',
-              unstamped
-                ? {}
-                : kind === 'detected-twins' && index < n - 1
-                  ? { hostId: `runtime:other-${index}` }
-                  : { hostId: 'ssh:ssh-1', runtimeOwnerEnvironmentId: 'owner-a' }
-            ),
+            detectedListingFixture([
+              worktreeFixture(
+                ws,
+                kind === 'detected-twins' && index < n - 1 ? '/other' : '/own',
+                unstamped
+                  ? {}
+                  : kind === 'detected-twins' && index < n - 1
+                    ? { hostId: `runtime:other-${index}` }
+                    : { hostId: 'ssh:ssh-1', runtimeOwnerEnvironmentId: 'owner-a' }
+              )
+            ]).worktrees[0]!,
             'runtimeOwnerEnvironmentId'
           )
         )
@@ -526,13 +535,16 @@ for (const mode of ['scope-only', 'with-probe', 'disabled'] as const) {
         operations = 0
         rawOperations = 0
         excludedOperations = 0
+        incomingRepoFilterVisits = 0
         ownerHook.mockClear()
         const view = mountScopes(n, mode, () => commits++, Probe)
         await act(async () => {})
         expect(ownerHook).toHaveBeenCalledTimes(n)
         const bound = 20 * n
         expect(rawOperations).toBe(operations + excludedOperations)
-        expect(excludedOperations).toBe(unstamped ? 3 * n * n : 0)
+        // Main memoizes repeated selector reads; each mounted owner filters this cold snapshot once.
+        expect(excludedOperations).toBe(unstamped ? n * n : 0)
+        expect(excludedOperations).toBe(incomingRepoFilterVisits)
         expect(operations).toBeLessThanOrEqual(bound)
         if (mode === 'with-probe') {
           expect(contexts).toHaveLength(n)
@@ -542,7 +554,15 @@ for (const mode of ['scope-only', 'with-probe', 'disabled'] as const) {
           )
         }
         const metrics = [
-          { event: 'cold', rawOperations, excludedOperations, operations, commits, renders }
+          {
+            event: 'cold',
+            rawOperations,
+            excludedOperations,
+            incomingRepoFilterVisits,
+            operations,
+            commits,
+            renders
+          }
         ]
         const check = async (
           event: string,
@@ -554,6 +574,7 @@ for (const mode of ['scope-only', 'with-probe', 'disabled'] as const) {
           operations = 0
           rawOperations = 0
           excludedOperations = 0
+          incomingRepoFilterVisits = 0
           commits = 0
           renders = 0
           if (patch.repos) {
@@ -561,6 +582,7 @@ for (const mode of ['scope-only', 'with-probe', 'disabled'] as const) {
           }
           await act(async () => useAppStore.setState(patch))
           expect(rawOperations).toBe(operations + excludedOperations)
+          expect(excludedOperations).toBe(incomingRepoFilterVisits)
           expect(operations).toBeLessThanOrEqual(limit)
           expect(commits).toBe(changed ? n : 0)
           expect(renders).toBe(changed && mode === 'with-probe' ? n : 0)
@@ -571,7 +593,15 @@ for (const mode of ['scope-only', 'with-probe', 'disabled'] as const) {
               )
             ).toBe(true)
           }
-          metrics.push({ event, rawOperations, excludedOperations, operations, commits, renders })
+          metrics.push({
+            event,
+            rawOperations,
+            excludedOperations,
+            incomingRepoFilterVisits,
+            operations,
+            commits,
+            renders
+          })
         }
         await check('known replacement', {
           worktreesByRepo: { ...useAppStore.getState().worktreesByRepo }
@@ -625,10 +655,12 @@ for (const mode of ['scope-only', 'with-probe', 'disabled'] as const) {
           }
         }
         if (!folderCase && kind !== 'detected-twins') {
-          const rival = worktreeFixture(ws, '/rival', {
-            hostId: 'ssh:ssh-1',
-            runtimeOwnerEnvironmentId: 'owner-b'
-          })
+          const rival = detectedListingFixture([
+            worktreeFixture(ws, '/rival', {
+              hostId: 'ssh:ssh-1',
+              runtimeOwnerEnvironmentId: 'owner-b'
+            })
+          ]).worktrees[0]!
           await check(
             'nonfirst rival',
             {
@@ -742,7 +774,6 @@ it('keeps mounted attachment scopes quiet and folder catalog work linear at N an
           [
             'other-host',
             {
-              targets: [],
               targetGenerations: new Map(),
               targetLabels: new Map(),
               removedTargetLabels: new Map(),

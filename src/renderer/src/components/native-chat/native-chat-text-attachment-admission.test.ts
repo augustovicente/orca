@@ -301,9 +301,9 @@ it.each(['epoch', 'pairing'] as const)(
     const { WebRuntimeConnectionTransport } =
       await import('../../web/web-runtime-connection-transport')
     const original = WebRuntimeConnectionTransport.prototype.waitForConnected
-    const waits = new WeakMap<WebRuntimeConnectionTransport, number>()
+    const waits = new WeakMap<InstanceType<typeof WebRuntimeConnectionTransport>, number>()
     vi.spyOn(WebRuntimeConnectionTransport.prototype, 'waitForConnected').mockImplementation(
-      function (this: WebRuntimeConnectionTransport, timeout) {
+      function (this: InstanceType<typeof WebRuntimeConnectionTransport>, timeout) {
         const count = (waits.get(this) ?? 0) + 1
         waits.set(this, count)
         return original.call(this, timeout).then(() => {
