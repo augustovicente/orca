@@ -46,6 +46,11 @@ export function useAppChromeLayout() {
         }
       })
     )
+  // The customer shell shows ClientHome until the selected client has a conversation open.
+  const hasOpenWorkspaceTab = useAppStore((s) => {
+    const worktreeId = s.activeWorktreeId
+    return worktreeId ? (s.unifiedTabsByWorktree[worktreeId]?.length ?? 0) > 0 : false
+  })
   const backgroundTerminalMountRequested = useSyncExternalStore(
     subscribeBackgroundTerminalWorktreeMountRequests,
     hasRequestedBackgroundTerminalWorktreeMount,
@@ -127,6 +132,11 @@ export function useAppChromeLayout() {
   return {
     activeView,
     activePendingCreationId,
+    clientHomeVisible:
+      editionSupports('customerShell') &&
+      activeView === 'terminal' &&
+      !creationLayoutActive &&
+      !hasOpenWorkspaceTab,
     activeTabCanExpand,
     collapsedSidebarHeaderWidth,
     creationLayoutActive,

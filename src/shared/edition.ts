@@ -36,6 +36,10 @@ export type EditionCapabilities = {
   shortcutsPane: boolean
   // Surface-pruning (W3) capabilities.
   terminalPane: boolean
+  /** Native chat panes live in the terminal workbench, so a chat-only edition still mounts it. */
+  chatSurface: boolean
+  /** Contadorca customer shell: client home, first-run wizard, no developer workspace. */
+  customerShell: boolean
   editorTab: boolean
   diffTab: boolean
   checksTab: boolean
@@ -81,6 +85,8 @@ const FULL_CAPABILITIES: EditionCapabilities = {
   notificationsPane: true,
   shortcutsPane: true,
   terminalPane: true,
+  chatSurface: true,
+  customerShell: false,
   editorTab: true,
   diffTab: true,
   checksTab: true,
@@ -124,6 +130,8 @@ const CONTADORCA_CAPABILITIES: EditionCapabilities = {
   skills: false,
   mobile: false,
   terminalPane: false,
+  chatSurface: true,
+  customerShell: true,
   editorTab: false,
   diffTab: false,
   checksTab: false,

@@ -31,6 +31,7 @@ import { canCloseTerminalPane, terminalPaneCloseLabel } from './terminal-pane-cl
 import { useAppStore } from '@/store'
 import { getKnownExecutionHostIdForWorktree } from '@/lib/worktree-runtime-owner'
 import { LOCAL_EXECUTION_HOST_ID } from '../../../../shared/execution-host'
+import { editionSupports } from '../../../../shared/edition'
 import { useWslHostStartCardReplacesPaneError } from './use-wsl-host-stopped-pane'
 
 export function TerminalPaneSurface({
@@ -123,6 +124,7 @@ export function TerminalPaneSurface({
     visibleTerminalError,
     worktreeId
   } = controller
+  const canSplitTerminal = editionSupports('terminalPane')
   // Why: an SSH, runtime, or not-yet-known host must not be described with this client's OS/shell.
   const paneOnClient = useAppStore(
     (state) => getKnownExecutionHostIdForWorktree(state, worktreeId) === LOCAL_EXECUTION_HOST_ID
@@ -280,6 +282,7 @@ export function TerminalPaneSurface({
         onPaste={() => void contextMenu.onPaste()}
         onSplitRight={contextMenu.onSplitRight}
         onSplitDown={contextMenu.onSplitDown}
+        canSplit={canSplitTerminal}
         keybindings={keybindings}
         onEqualizePaneSizes={contextMenu.onEqualizePaneSizes}
         onClosePane={contextMenu.onClosePane}
@@ -345,7 +348,7 @@ export function TerminalPaneSurface({
         worktreeId={worktreeId}
         cwd={cwd ?? ''}
         showAlwaysOnHeaders={isActive && terminalContentVisible}
-        showSplitButton={showSplitButton}
+        showSplitButton={showSplitButton && canSplitTerminal}
         isTabPinned={isTabPinned}
         paneCount={paneCount}
         activePaneId={activePane?.id}

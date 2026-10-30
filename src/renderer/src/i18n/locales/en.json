@@ -23112,7 +23112,47 @@
   },
   "contadorca": {
     "clientHome": {
-      "placeholder": "Espaço do cliente"
+      "clientsTitle": "Clientes",
+      "searchPlaceholder": "Buscar cliente",
+      "addClient": "Adicionar cliente",
+      "noClients": "Nenhum cliente cadastrado.",
+      "noSearchResults": "Nenhum cliente encontrado.",
+      "welcomeTitle": "Bem-vindo ao Contadorca",
+      "welcomeBody": "Adicione a pasta de um cliente para conversar com o assistente sobre os arquivos dele.",
+      "addClientFolder": "Adicionar pasta do cliente",
+      "selectClient": "Selecione um cliente na lista.",
+      "recentConversations": "Conversas recentes",
+      "newConversation": "Nova conversa",
+      "routinesTitle": "Rotinas do cliente",
+      "chatUnavailable": "Não foi possível abrir a conversa. Confira as configurações de chat.",
+      "quickActions": {
+        "importStatement": "Importar extrato",
+        "importStatementPrompt": "Importe o extrato bancário desta pasta e liste as movimentações encontradas para conferência.",
+        "reconcileBank": "Conciliar banco",
+        "reconcileBankPrompt": "Concilie as movimentações do extrato com os lançamentos deste cliente e mostre as divergências.",
+        "processInvoices": "Processar notas",
+        "processInvoicesPrompt": "Processe as notas fiscais desta pasta e organize os lançamentos por competência.",
+        "issueGuide": "Emitir guia",
+        "issueGuidePrompt": "Calcule e prepare a guia de impostos do período atual deste cliente.",
+        "organizeSpreadsheet": "Organizar planilha",
+        "organizeSpreadsheetPrompt": "Organize as planilhas desta pasta e aponte inconsistências nos lançamentos."
+      }
+    },
+    "firstRun": {
+      "boundaryTitle": "A configuração inicial falhou.",
+      "boundaryDescription": "Feche esta janela e continue pelo botão Adicionar cliente.",
+      "addFolderTitle": "Adicione a pasta de um cliente",
+      "addFolderBody": "Escolha a pasta onde ficam os arquivos do cliente. O assistente usa esses arquivos nas conversas.",
+      "connectTitle": "Conecte seu assistente",
+      "connectBody": "Entre com o OpenCode nas configurações de chat para o assistente responder às suas perguntas.",
+      "readyTitle": "Pronto",
+      "readyBody": "Sua pasta está adicionada. Comece uma conversa e peça o que precisar.",
+      "skip": "Pular",
+      "addFolderAction": "Adicionar pasta do cliente",
+      "continue": "Continuar",
+      "openChatSettings": "Abrir configurações de chat",
+      "finish": "Começar a usar",
+      "stepCounter": "Etapa {{current}} de {{total}}"
     }
   }
 }

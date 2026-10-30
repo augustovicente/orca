@@ -12,7 +12,7 @@ import { RightSidebarToggle, TitlebarMainStrip } from './TitlebarMainStrip'
 import type { AppChromeLayout } from './use-app-chrome-layout'
 import type { FloatingWorkspacePanelState } from './use-floating-workspace-panel'
 import { editionSupports, resolveTopLevelView } from '../../../shared/edition'
-import { ClientHomePlaceholder } from './contadorca/ClientHomePlaceholder'
+import { ClientHome } from './contadorca/ClientHome'
 // Skips the shell render each workspace switch causes; its props only change on toggle.
 const MemoFloatingTerminalToggleButton = memo(FloatingTerminalToggleButton)
 
@@ -83,7 +83,7 @@ function ActivePage({ layout }: { layout: AppChromeLayout }): React.JSX.Element 
       {activeView === 'activity' ? <ActivityPrototypePage /> : null}
       {activeView === 'space' ? <WorkspaceSpacePage /> : null}
       {activeView === 'mobile' ? <MobilePage /> : null}
-      {!terminalPaneEnabled && activeView === 'terminal' ? <ClientHomePlaceholder /> : null}
+      {activeView === 'terminal' && layout.clientHomeVisible ? <ClientHome /> : null}
       {terminalPaneEnabled &&
       activeView === 'terminal' &&
       creationLayoutActive &&
@@ -198,7 +198,9 @@ export function AppWorkspaceShell(props: {
                   </div>
                 )}
                 <div className="flex flex-1 min-w-0 min-h-0 flex-col">
-                  {layout.shouldMountTerminalWorkbench && editionSupports('terminalPane') ? (
+                  {layout.shouldMountTerminalWorkbench &&
+                  editionSupports('chatSurface') &&
+                  !layout.clientHomeVisible ? (
                     <TerminalWorkbenchContainer isVisible={layout.terminalWorkbenchVisible}>
                       <Suspense fallback={null}>
                         <RecoverableRenderErrorBoundary
