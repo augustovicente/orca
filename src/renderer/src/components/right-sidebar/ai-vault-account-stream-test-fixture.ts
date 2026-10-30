@@ -67,8 +67,31 @@ export function accountStreamFixture() {
   const refresh = vi.spyOn(usage, 'refreshIfStale').mockResolvedValue(usage.getState())
   vi.spyOn(usage, 'fetchInactiveClaudeAccountsOnOpen').mockResolvedValue(undefined)
   vi.spyOn(usage, 'fetchInactiveCodexAccountsOnOpen').mockResolvedValue(undefined)
-  const nativeClaude = vi.fn(() => emptyClaudeAccountsState())
-  const nativeCodex = vi.fn(() => emptyCodexAccountsState())
+  const nativeClaude = vi.fn(() => ({
+    ...emptyClaudeAccountsState(),
+    accounts: [
+      {
+        id: 'healthy-claude',
+        email: 'claude@example.com',
+        authMethod: 'unknown' as const,
+        createdAt: 1,
+        updatedAt: 1,
+        lastAuthenticatedAt: 1
+      }
+    ]
+  }))
+  const nativeCodex = vi.fn(() => ({
+    ...emptyCodexAccountsState(),
+    accounts: [
+      {
+        id: 'healthy-codex',
+        email: 'codex@example.com',
+        createdAt: 1,
+        updatedAt: 1,
+        lastAuthenticatedAt: 1
+      }
+    ]
+  }))
   const controller = new RuntimeAccountController()
   // The stream producer calls only these native list ports; no native disk IO is part of this contract.
   Reflect.apply(controller.setServices, controller, [

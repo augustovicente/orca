@@ -130,8 +130,8 @@ it('isolates real optional-registry failures in ready/data/usage while keeping s
     for (const frame of source.frames) {
       if (typeof frame === 'object' && frame !== null && 'snapshot' in frame) {
         const snapshot = decodeAccountsSnapshot(frame.snapshot)
-        expect(snapshot.claude.accounts).toEqual([])
-        expect(snapshot.codex.accounts).toEqual([])
+        expect(snapshot.claude.accounts.map((account) => account.id)).toEqual(['healthy-claude'])
+        expect(snapshot.codex.accounts.map((account) => account.id)).toEqual(['healthy-codex'])
         expect(snapshot.devin).toBeUndefined()
       }
     }
@@ -141,6 +141,7 @@ it('isolates real optional-registry failures in ready/data/usage while keeping s
   const beforeUsage = webUsage.mock.calls.length
   await act(async () => source.usage.publish())
   expect(webUsage.mock.calls.length).toBe(beforeUsage + 1)
+  expect(webUsage.mock.calls.at(-1)?.[0]).toMatchObject({ codex: { status: 'ok', updatedAt: 1 } })
   await expect(source.callStrict('accounts.list')).rejects.toThrow()
   await expect(source.callStrict('accounts.listData')).rejects.toThrow()
   expect(() => source.controller.getSnapshot()).toThrow()
