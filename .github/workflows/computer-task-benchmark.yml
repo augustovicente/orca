@@ -9,6 +9,11 @@ on:
       - 'native/computer-use-windows/**'
       - '.github/workflows/computer-task-benchmark.yml'
   workflow_dispatch:
+    inputs:
+      windows_probe:
+        description: Run only the isolated Windows provider experiments
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -28,7 +33,7 @@ env:
 
 jobs:
   contract:
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft != true
+    if: inputs.windows_probe != true && (github.event_name != 'pull_request' || github.event.pull_request.draft != true)
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -44,7 +49,7 @@ jobs:
       - run: python -m unittest discover -s config/benchmarks/computer-use -p 'test_*.py'
 
   linux:
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft != true
+    if: inputs.windows_probe != true && (github.event_name != 'pull_request' || github.event.pull_request.draft != true)
     runs-on: ubuntu-latest
     timeout-minutes: 40
     strategy:
@@ -101,7 +106,7 @@ jobs:
           if-no-files-found: warn
 
   windows:
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft != true
+    if: inputs.windows_probe != true && (github.event_name != 'pull_request' || github.event.pull_request.draft != true)
     runs-on: windows-latest
     timeout-minutes: 40
     strategy:
@@ -155,4 +160,34 @@ jobs:
         with:
           name: computer-task-windows-${{ matrix.target }}
           path: out/task-windows-${{ matrix.target }}
+          if-no-files-found: warn
+
+  windows-probe:
+    if: github.event_name == 'workflow_dispatch' && inputs.windows_probe == true
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      ORCA_COMPUTER_BENCH_ISOLATED: '1'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install Electron
+        run: |
+          npm install --no-save --no-package-lock --prefix "$env:RUNNER_TEMP\electron" "electron@$env:ELECTRON_VERSION"
+          node "$env:RUNNER_TEMP\electron\node_modules\electron\install.js"
+      - name: Run isolated provider experiments
+        run: |
+          $source = git rev-parse HEAD
+          python config/benchmarks/computer-use/windows_probe.py --source $source `
+            --electron "$env:RUNNER_TEMP\electron\node_modules\electron\dist\electron.exe" `
+            --out out/windows-probe
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: computer-windows-probe
+          path: out/windows-probe
           if-no-files-found: warn
