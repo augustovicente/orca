@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { WorkerAutoCloseState } from '../../../shared/worker-auto-close'
 
 const mocks = vi.hoisted(() => ({
-  worker: true as boolean
+  worker: Boolean(true)
 }))
 
 vi.mock('@/runtime/runtime-rpc-client', () => ({
