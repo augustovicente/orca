@@ -23162,5 +23162,9 @@
       "needsPermission": "Agent needs permission",
       "statusStale": "Agent status is stale"
     }
+  },
+  "wslDistroHold": {
+    "terminalStopped": "The WSL distro {{distro}} is stopped, so Orca didn't start this terminal. Start the distro, then try again.",
+    "terminalUnverifiable": "Orca couldn't check whether the WSL distro {{distro}} is running, so it didn't start this terminal. Start the distro, then try again."
   }
 }

@@ -22613,5 +22613,9 @@
       "needsPermission": "智能体需要授权",
       "statusStale": "智能体状态信息已过期"
     }
+  },
+  "wslDistroHold": {
+    "terminalStopped": "WSL 发行版 {{distro}} 已停止，因此 Orca 没有启动此终端。请启动该发行版后重试。",
+    "terminalUnverifiable": "Orca 无法确认 WSL 发行版 {{distro}} 是否正在运行，因此没有启动此终端。请启动该发行版后重试。"
   }
 }

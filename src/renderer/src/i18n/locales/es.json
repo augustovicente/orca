@@ -23300,5 +23300,9 @@
       "needsPermission": "El agente necesita permiso",
       "statusStale": "El estado del agente está desactualizado"
     }
+  },
+  "wslDistroHold": {
+    "terminalStopped": "La distribución WSL {{distro}} está detenida, así que Orca no inició esta terminal. Inicia la distribución y vuelve a intentarlo.",
+    "terminalUnverifiable": "Orca no pudo comprobar si la distribución WSL {{distro}} está en ejecución, así que no inició esta terminal. Inicia la distribución y vuelve a intentarlo."
   }
 }

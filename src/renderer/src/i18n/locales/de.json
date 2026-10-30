@@ -22761,5 +22761,9 @@
       "needsPermission": "Agent benötigt eine Genehmigung",
       "statusStale": "Agentenstatus ist veraltet"
     }
+  },
+  "wslDistroHold": {
+    "terminalStopped": "Die WSL-Distribution {{distro}} ist gestoppt, daher hat Orca dieses Terminal nicht gestartet. Starte die Distribution und versuche es dann erneut.",
+    "terminalUnverifiable": "Orca konnte nicht prüfen, ob die WSL-Distribution {{distro}} läuft, und hat dieses Terminal daher nicht gestartet. Starte die Distribution und versuche es dann erneut."
   }
 }

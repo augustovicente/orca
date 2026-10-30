@@ -22744,5 +22744,9 @@
       "needsPermission": "Ajan için izin gerekiyor",
       "statusStale": "Ajan durumu güncel değil"
     }
+  },
+  "wslDistroHold": {
+    "terminalStopped": "WSL dağıtımı {{distro}} durdurulduğu için Orca bu terminali başlatmadı. Dağıtımı başlatıp yeniden deneyin.",
+    "terminalUnverifiable": "Orca, WSL dağıtımı {{distro}} öğesinin çalışıp çalışmadığını denetleyemediği için bu terminali başlatmadı. Dağıtımı başlatıp yeniden deneyin."
   }
 }

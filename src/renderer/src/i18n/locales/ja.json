@@ -22612,5 +22612,9 @@
       "needsPermission": "Agent に許可が必要です",
       "statusStale": "Agent のステータスが古くなっています"
     }
+  },
+  "wslDistroHold": {
+    "terminalStopped": "WSL ディストリビューション {{distro}} が停止しているため、Orca はこのターミナルを起動しませんでした。ディストリビューションを起動してから、もう一度お試しください。",
+    "terminalUnverifiable": "WSL ディストリビューション {{distro}} が実行中か確認できなかったため、Orca はこのターミナルを起動しませんでした。ディストリビューションを起動してから、もう一度お試しください。"
   }
 }

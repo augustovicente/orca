@@ -22429,5 +22429,9 @@
       "needsPermission": "代理程式需要權限",
       "statusStale": "代理程式狀態資訊已過期"
     }
+  },
+  "wslDistroHold": {
+    "terminalStopped": "WSL 發行版 {{distro}} 已停止，因此 Orca 沒有啟動此終端機。請啟動該發行版後重試。",
+    "terminalUnverifiable": "Orca 無法確認 WSL 發行版 {{distro}} 是否正在執行，因此沒有啟動此終端機。請啟動該發行版後重試。"
   }
 }
