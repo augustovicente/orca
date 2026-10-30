@@ -135,34 +135,49 @@ function harness(realReceipts = false) {
   }
 }
 
-it('retries the same ordinary creation after capacity and waiter changes, without executing or batching reports', async () => {
-  const h = harness()
-  const a = h.insert('first'),
-    b = h.insert('second')
-  h.capacity(false)
-  h.bridge.deliverForHandle('consumer')
-  await h.idle()
-  expect(h.db.getMessageById(a.id)?.delivered_at).toBeNull()
-  expect(vi.mocked(h.host.send).mock.calls.map(([input]) => input.operationId)).toEqual([
-    ordinaryMailCreationId(a),
-    ordinaryMailCreationId(b)
-  ])
-  h.waiters.add({ typeFilter: undefined })
-  h.capacity(true)
-  h.bridge.onJournalActivity('session')
-  await h.idle()
-  expect(h.receipts.size).toBe(0)
-  h.waiters.clear()
-  h.bridge.onConsumerChange('consumer')
-  await vi.waitFor(() => expect(h.receipts.size).toBe(2))
-  expect(h.db.getMessageById(b.id)?.delivered_at).not.toBeNull()
-  const calls = vi.mocked(h.host.send).mock.calls.slice(-2)
-  expect(calls.map(([input]) => input.body.from?.orchestration?.messages)).toEqual([
-    [{ messageId: a.id, runId: a.run_id, from: 'worker' }],
-    [{ messageId: b.id, runId: b.run_id, from: 'worker' }]
-  ])
-  h.bridge.resetForDatabaseChange()
-})
+it.each([false, true])(
+  'retries ordinary creation across capacity/waiter changes with unavailable lineage=%s',
+  async (relationReadFails) => {
+    const h = harness()
+    const relationRead = vi.spyOn(h.db, 'getRun')
+    if (relationReadFails) {
+      relationRead.mockImplementation(() => {
+        throw new Error('lineage unavailable')
+      })
+    }
+    const a = h.insert('first'),
+      b = h.insert('second')
+    h.capacity(false)
+    h.bridge.deliverForHandle('consumer')
+    await h.idle()
+    expect(h.db.getMessageById(a.id)?.delivered_at).toBeNull()
+    expect(vi.mocked(h.host.send).mock.calls.map(([input]) => input.operationId)).toEqual([
+      ordinaryMailCreationId(a),
+      ordinaryMailCreationId(b)
+    ])
+    h.waiters.add({ typeFilter: undefined })
+    h.capacity(true)
+    h.bridge.onJournalActivity('session')
+    await h.idle()
+    expect(h.receipts.size).toBe(0)
+    h.waiters.clear()
+    h.bridge.onConsumerChange('consumer')
+    await vi.waitFor(() => expect(h.receipts.size).toBe(2))
+    expect(h.db.getMessageById(b.id)?.delivered_at).not.toBeNull()
+    const calls = vi.mocked(h.host.send).mock.calls.slice(-2)
+    expect(calls.map(([input]) => input.body.from?.orchestration?.messages)).toEqual([
+      [{ messageId: a.id, runId: a.run_id, from: 'worker' }],
+      [{ messageId: b.id, runId: b.run_id, from: 'worker' }]
+    ])
+    expect(relationRead).toHaveBeenCalledTimes(4)
+    expect(calls.map(([input]) => input.body.from?.senders[0].relation)).toEqual([
+      undefined,
+      undefined
+    ])
+    relationRead.mockRestore()
+    h.bridge.resetForDatabaseChange()
+  }
+)
 
 it.each([100, 1000])(
   'cold read-inclusive indexed recovery examines only N=%i undelivered recipient entries and no payload bytes',

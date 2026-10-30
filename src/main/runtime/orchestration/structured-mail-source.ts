@@ -3,6 +3,7 @@
 import type { AgentMessageSource } from '../../../shared/agent-session/agent-session-message-source'
 import type { AgentJournalMessageItem } from '../../../shared/agent-session-journal-types'
 import type { MessageRow, OrchestrationDb } from './db'
+import { agentMessageRelation } from './agent-message-relation'
 import { agentMessageSender, type SenderNameResolver } from './agent-message-sender'
 import type { OrchestrationCliCommand } from './cli-command'
 import { formatMessageForChat } from './formatter'
@@ -20,16 +21,27 @@ export function structuredMailSource(input: {
   senderName: SenderNameResolver
 }): AgentMessageSource {
   const message = input.message
+  const report = reportFact(message)
+  const sender = agentMessageSender(
+    message.from_handle,
+    input.db,
+    input.senderName,
+    report.kind === 'valid' ? report.dispatchId : undefined
+  )
+  const relation =
+    report.kind === 'invalid'
+      ? undefined
+      : agentMessageRelation({
+          db: input.db,
+          sender: sender.party,
+          recipient: input.mailboxHandle,
+          runId: message.run_id,
+          reportedDispatchId: report.kind === 'valid' ? report.dispatchId : undefined,
+          recipientDispatchId: input.dispatchId
+        })
   return {
     kind: 'agent',
-    senders: [
-      agentMessageSender(
-        message.from_handle,
-        input.db,
-        input.senderName,
-        reportedDispatchId([message], message.from_handle)
-      )
-    ],
+    senders: [{ ...sender, ...(relation ? { relation } : {}) }],
     orchestration: {
       message: 'mail-notice',
       mailbox: input.mailboxHandle,
@@ -39,30 +51,29 @@ export function structuredMailSource(input: {
   }
 }
 
-/** The dispatch a sender's own `worker_done` here reports: the task it just finished, whose
- *  dispatch that report already settled. */
-function reportedDispatchId(
-  batch: readonly MailSourceMessage[],
-  address: string
-): string | undefined {
-  for (const message of batch) {
-    if (message.from_handle !== address || message.type !== 'worker_done' || !message.payload) {
-      continue
-    }
+type ReportFact = { kind: 'mail' } | { kind: 'invalid' } | { kind: 'valid'; dispatchId: string }
+
+function reportFact(message: MailSourceMessage): ReportFact {
+  if (message.type !== 'worker_done') {
+    return { kind: 'mail' }
+  }
+  if (message.payload) {
     try {
       const payload: unknown = JSON.parse(message.payload)
-      const dispatchId =
-        typeof payload === 'object' && payload !== null && 'dispatchId' in payload
-          ? payload.dispatchId
-          : undefined
-      if (typeof dispatchId === 'string' && dispatchId.length > 0) {
-        return dispatchId
+      if (
+        typeof payload === 'object' &&
+        payload !== null &&
+        'dispatchId' in payload &&
+        typeof payload.dispatchId === 'string' &&
+        payload.dispatchId.length > 0
+      ) {
+        return { kind: 'valid', dispatchId: payload.dispatchId }
       }
     } catch {
-      // A payload that does not parse names no dispatch.
+      // Invalid evidence stays unknown; delivery and the other messages remain intact.
     }
   }
-  return undefined
+  return { kind: 'invalid' }
 }
 
 /** One canonical report is one ordinary attributed queue message. */

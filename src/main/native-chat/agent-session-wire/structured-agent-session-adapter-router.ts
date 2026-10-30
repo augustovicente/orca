@@ -149,9 +149,13 @@ export class StructuredAgentSessionAdapterRouter implements StructuredAgentSessi
   atRestCommands: StructuredAgentSessionAtRestCommands = {
     read: (record) =>
       this.agents.registration(record.provider)?.adapter.atRestCommands?.read(record),
-    settled: async (record, budgetMs) => {
+    snapshot: (record) =>
+      this.agents.registration(record.provider)?.adapter.atRestCommands?.snapshot?.(record) ?? {
+        commandsPending: false
+      },
+    settled: async (record, budgetMs, independent) => {
       const source = this.agents.registration(record.provider)?.adapter.atRestCommands
-      return source?.settled ? source.settled(record, budgetMs) : source?.read(record)
+      return source?.settled ? source.settled(record, budgetMs, independent) : source?.read(record)
     },
     onChange: (listener) => {
       const stops = this.adapters().flatMap((adapter) =>
@@ -167,6 +171,8 @@ export class StructuredAgentSessionAdapterRouter implements StructuredAgentSessi
   setOption: StructuredAgentSessionAdapter['setOption'] = (input) =>
     this.owner(input.sessionId).setOption(input)
 
+  canSetOptionWhileIdle: StructuredAgentSessionAdapter['canSetOptionWhileIdle'] = (input) =>
+    this.liveOwnerOrNull(input.sessionId)?.canSetOptionWhileIdle?.(input) === true
   readAppliedInputOptions: StructuredAgentSessionAdapter['readAppliedInputOptions'] = (input) =>
     this.liveOwnerOrNull(input.sessionId)?.readAppliedInputOptions?.(input) ?? null
 

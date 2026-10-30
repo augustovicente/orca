@@ -49,6 +49,11 @@ describe("a message's sender, read through its one reader", () => {
   ] as const)("reads a Dispatch's task and a whole mail message back whole", (orchestration) => {
     const source: AgentMessageSource = { ...FROM, orchestration }
     expect(readAgentMessageSource(structuredClone(source))).toEqual(source)
+    const parsed = readAgentMessageSource({
+      ...source,
+      senders: FROM.senders.map((sender) => ({ ...sender, relation: 'future' }))
+    })
+    expect(parsed).toEqual(source)
   })
 
   it('keeps an agent an agent when its orchestration kind is newer than this build', () => {

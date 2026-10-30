@@ -15,7 +15,7 @@ import { AgentSessionRecoveryCapsule } from '../../runtime/agent-session-recover
 import { StructuredAgentSessionHost } from './structured-agent-session-host'
 import {
   HOST_TEST_NOW as NOW,
-  HOST_TEST_SESSION as SESSION,
+  HOST_TEST_SESSION as DEFAULT_SESSION,
   HOST_TEST_THREAD as THREAD,
   hostTestAttachParams,
   hostTestMessage,
@@ -47,6 +47,7 @@ export function eventually(assertion: () => void | Promise<void>): Promise<void>
 export type QueuedMessageTestRig = Awaited<ReturnType<typeof createQueuedMessageTestRig>>
 
 export async function createQueuedMessageTestRig(options: QueuedMessageTestRigOptions = {}) {
+  const SESSION = options.sessionId ?? DEFAULT_SESSION
   const root = await mkdtemp(join(tmpdir(), 'orca-queued-messages-'))
   resetHostTestOperationIds()
   let store = await openTestAgentSessionRecordStore(root)
@@ -73,6 +74,12 @@ export async function createQueuedMessageTestRig(options: QueuedMessageTestRigOp
   let host = makeHost()
   const firstAttach = hostTestAttachParams(null, {
     ...(options.location ? { location: options.location } : {}),
+    envelope: {
+      sessionId: SESSION,
+      clientOperationId: hostTestOperationId(),
+      expectedRuntimeFence: null,
+      payloadFingerprint: ''
+    },
     ...(options.agent === 'claude'
       ? ({
           provider: 'claude',

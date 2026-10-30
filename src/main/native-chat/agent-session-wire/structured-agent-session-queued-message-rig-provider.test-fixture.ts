@@ -35,6 +35,7 @@ export type QueuedRigProviderOptions = {
 }
 
 export type QueuedMessageTestRigOptions = QueuedRigProviderOptions & {
+  sessionId?: string
   idleSweep?: { idleMs: number; intervalMs: number }
   now?: () => number
   /** Teardown records its restart offers, which `restartOffers` lists. */
