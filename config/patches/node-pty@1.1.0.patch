@@ -2170,8 +2170,6 @@ diff --git a/src/unixTerminal.ts b/src/unixTerminal.ts
    /**
     * Gets the name of the process.
     */
-     if (process.platform === 'darwin') {
-       const title = pty.process(this._fd);
 diff --git a/lib/unixTerminal.js b/lib/unixTerminal.js
 --- a/lib/unixTerminal.js
 +++ b/lib/unixTerminal.js

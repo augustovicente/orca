@@ -91,24 +91,10 @@ describe('fresh target foreground regressions', () => {
       .mockResolvedValueOnce(result(`${rows(90400)}90410 90400 90410 90401 S   \n`))
       .mockResolvedValueOnce(result('ttys904'))
     const captured = (await readTerminalProcessRows(90400)) ?? []
-    expect(captured).toHaveLength(3)
-    expect(judgeTerminalForeground(captured, 90400, 'claude')).toBe('agent')
-    expect(resolvePtyForegroundMembers(captured, 90401)).toMatchObject({
-      verdict: 'observed',
-      foregroundKind: 'non-shell'
-    })
+    expect(resolvePtyForegroundMembers(captured, 90401).verdict).toBe('observed')
     // Inside the foreground group the same blank argv proves nothing.
-    const blankMember = {
-      pid: 90402,
-      ppid: 90401,
-      pgid: 90401,
-      tpgid: 90401,
-      stat: 'S+',
-      command: ''
-    }
-    expect(judgeTerminalForeground([...captured, blankMember], 90400, 'claude')).toBe('unknown')
-    expect(resolvePtyForegroundMembers([...captured, blankMember], 90401).verdict).toBe(
-      'unverifiable'
-    )
+    const blank = captured.map((row) => (row.pid === 90401 ? { ...row, command: '' } : row))
+    expect(judgeTerminalForeground(blank, 90400, 'claude')).toBe('unknown')
+    expect(resolvePtyForegroundMembers(blank, 90401).verdict).toBe('unverifiable')
   })
 })

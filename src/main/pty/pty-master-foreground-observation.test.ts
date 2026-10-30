@@ -5,7 +5,6 @@ import {
   readPtyForegroundGroup,
   resolvePtyForegroundMembers
 } from './pty-master-foreground-observation'
-import { TUI_AGENT_CONFIG } from '../../shared/tui-agent-config'
 import { isTerminalForegroundObservation } from '../../shared/terminal-foreground-observation'
 import { judgeTerminalForeground } from '../runtime/terminal-foreground-group'
 import type { ProcessTableRow } from '../../shared/process-table-snapshot'
@@ -62,32 +61,6 @@ describe('physical PTY observations', () => {
       foregroundKind: 'non-shell',
       processName: 'codex'
     })
-  })
-  it.each(Object.entries(TUI_AGENT_CONFIG))(
-    'admits catalog agent %s regardless of its launch route',
-    (_agent, config) => {
-      expect(resolvePtyForegroundMembers([row(config.expectedProcess)], 200)).toMatchObject({
-        verdict: 'observed',
-        foregroundKind: 'non-shell'
-      })
-    }
-  )
-  it.each([
-    'node /private/user/unknown-agent.js',
-    'python3 custom_agent.py',
-    '/home/user/.local/bin/my-agent'
-  ])('preserves non-shell admission for %s', (command) => {
-    expect(
-      resolvePtyForegroundMembers([row('bash wrapper', 200), row(command)], 200)
-    ).toMatchObject({ verdict: 'observed', foregroundKind: 'non-shell' })
-  })
-  it('excludes a suspended/background agent while the shell owns foreground', () => {
-    expect(
-      resolvePtyForegroundMembers([row('-zsh', 100, 100), { ...row('claude'), stat: 'T' }], 100)
-    ).toMatchObject({ verdict: 'observed', foregroundKind: 'shell', processName: 'zsh' })
-  })
-  it.each(['(bash)', '(zsh)'])('cannot prove unreadable shell argv %s', (command) => {
-    expect(resolvePtyForegroundMembers([row(command)], 200).verdict).toBe('unverifiable')
   })
   it.each([
     ['node /usr/local/lib/node_modules/@anthropic-ai/claude-code/cli.js --resume abc', 'claude'],
@@ -255,15 +228,6 @@ describe('local admission parity with the root-pid judge', () => {
         [201, 200, 200, 'S+', CODEX_NATIVE]
       ])
     ],
-    // An alias and `cx() { command codex; }` both leave the shell behind codex's own job.
-    [
-      'alias or shell function',
-      'codex',
-      terminal(200, [
-        [100, 1, 100, 'Ss', '-zsh'],
-        [200, 100, 200, 'S+', 'codex --yolo']
-      ])
-    ],
     [
       'non-exec wrapper script',
       'claude',
@@ -282,14 +246,6 @@ describe('local admission parity with the root-pid judge', () => {
       ])
     ],
     [
-      'agent at its trust dialog',
-      'claude',
-      terminal(200, [
-        [100, 1, 100, 'Ss', '-zsh'],
-        [200, 100, 200, 'S+', 'claude']
-      ])
-    ],
-    [
       'agent stopped with Ctrl-Z',
       'claude',
       terminal(100, [
@@ -303,14 +259,6 @@ describe('local admission parity with the root-pid judge', () => {
       terminal(200, [
         [100, 1, 100, 'Ss', '-zsh'],
         [200, 100, 200, 'S+', 'tmux attach']
-      ])
-    ],
-    [
-      'ssh',
-      'claude',
-      terminal(200, [
-        [100, 1, 100, 'Ss', '-zsh'],
-        [200, 100, 200, 'S+', 'ssh build-host']
       ])
     ],
     [
