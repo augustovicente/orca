@@ -67,7 +67,7 @@ describe('Run and Dispatch mail for a pane whose PTY was replaced', () => {
     db.close()
   })
 
-  it('wakes a Run coordinator whose replacement PTY has no handle issued yet', async () => {
+  it('wakes a replaced Run coordinator once its exported handle arrives, never minting its own', async () => {
     vi.useFakeTimers()
     const db = new OrchestrationDb(':memory:')
     const harness = createRuntime(db)
@@ -77,14 +77,35 @@ describe('Run and Dispatch mail for a pane whose PTY was replaced', () => {
       coordinatorPaneKey: PANE_KEY
     })
     await replacePtyWithoutHandle(harness)
-
     await deliverWhileIdle(harness, db, `run:${run.id}`, run.id)
+    expect(pointerCount(harness.write)).toBe(0)
 
+    // The replacement's exported handle arrives in a later process census.
+    const controller = harness.runtime['ptyController']
+    harness.runtime.setPtyController(
+      controller && {
+        ...controller,
+        listProcesses: async () => [
+          {
+            id: PTY_ID,
+            worktreeId: WORKTREE_ID,
+            incarnationId: 'replacement',
+            terminalHandle: 'term_replacement_env',
+            cwd: '/tmp/mailbox',
+            title: 'Codex'
+          }
+        ]
+      }
+    )
+    await harness.runtime.listTerminals()
+    await vi.advanceTimersByTimeAsync(600)
+
+    expect(harness.runtime.getTerminalProcessIncarnation('term_replacement_env')).not.toBeNull()
     expect(pointerCount(harness.write)).toBe(1)
     db.close()
   })
 
-  it('wakes a headless Dispatch worker whose replacement PTY has no handle issued yet', async () => {
+  it('wakes a headless Dispatch worker once its replacement PTY handle is adopted', async () => {
     vi.useFakeTimers()
     const db = new OrchestrationDb(':memory:')
     const harness = createRuntime(db, { headless: true })
@@ -96,8 +117,11 @@ describe('Run and Dispatch mail for a pane whose PTY was replaced', () => {
     const task = db.createTask({ spec: 'worker', runId: run.id })
     const dispatch = createRootDispatch(db, task.id, TERMINAL_HANDLE, PANE_KEY)
     await replacePtyWithoutHandle(harness)
-
     await deliverWhileIdle(harness, db, `dispatch:${dispatch.id}`, run.id)
+    expect(pointerCount(harness.write)).toBe(0)
+
+    harness.runtime.registerPreAllocatedHandleForPty(PTY_ID, 'term_replacement_env')
+    await vi.advanceTimersByTimeAsync(600)
 
     expect(pointerCount(harness.write)).toBe(1)
     db.close()

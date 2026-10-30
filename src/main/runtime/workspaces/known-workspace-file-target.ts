@@ -18,6 +18,8 @@ import type { PtyIncarnationId } from '../../../shared/pty-incarnation'
 import { forgetPtySurface } from '../pty-recorded-surface-topology'
 
 export abstract class OrcaRuntimeWithResolveKnownWorkspaceFileTarget extends OrcaRuntimeWithPersistHeadlessTerminalTitle {
+  protected abstract deliverPendingMessagesForPty(ptyId: string): void
+
   protected abstract listResolvedWorktrees(
     ...args: Parameters<RuntimeWorkspaceCatalog['listResolvedWorktrees']>
   ): ReturnType<RuntimeWorkspaceCatalog['listResolvedWorktrees']>
@@ -196,9 +198,14 @@ export abstract class OrcaRuntimeWithResolveKnownWorkspaceFileTarget extends Orc
     } else {
       this.invalidatePtyIncarnationHandle(ptyId)
     }
+    const adopted = this.handleByPtyId.get(ptyId) !== handle
     this.handleByPtyId.set(ptyId, handle)
     for (const leaf of this.getLeavesForPty(ptyId)) {
       this.adoptPreAllocatedHandle(leaf)
+    }
+    // Mail waits for a PTY's handle; adopting it is that PTY's delivery edge.
+    if (adopted) {
+      this.deliverPendingMessagesForPty(ptyId)
     }
   }
 

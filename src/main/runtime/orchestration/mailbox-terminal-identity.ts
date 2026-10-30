@@ -13,11 +13,8 @@ export abstract class OrcaRuntimeWithMailboxTerminalIdentity extends OrcaRuntime
   /** The terminal orchestration points at its mail, whether or not a window pane shows it. */
   protected getOrchestrationMailboxTerminal(ptyId: string): OrchestrationMailboxTerminal | null {
     const pty = this.ptysById.get(ptyId)
-    // A replacement or restored PTY can precede its handle inventory; mail still has to reach it.
-    const handle = pty?.connected
-      ? (this.getTerminalHandleForPty(ptyId) ??
-        (this.getMailboxPaneKeysForPty(pty).length > 0 ? this.issuePtyHandle(pty) : undefined))
-      : undefined
+    // Never issue here: a PTY awaiting its handle inventory gets mail once the exported handle is adopted.
+    const handle = pty?.connected ? this.getTerminalHandleForPty(ptyId) : undefined
     return pty && handle ? this.buildOrchestrationMailboxTerminal(handle, pty) : null
   }
 
