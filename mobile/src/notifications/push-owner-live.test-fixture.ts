@@ -55,8 +55,10 @@ it('runs the actual current-owner, prepared sender and signed publisher against 
         )
       })
       const response = post(base, '/rpc', { host, method, params }).then(async (result) => {
+        const token = record(params ?? {}).token
+        const observation = token == null ? method : text(token)
         await post(base, '/event', {
-          name: `${firstUse ? 'first-observed' : 'observed'}:${host}:${record(params ?? {}).token ?? method}`,
+          name: `${firstUse ? 'first-observed' : 'observed'}:${host}:${observation}`,
           data: result
         })
         if (renewalPhase && method === 'notifications.registerPush') {
@@ -80,7 +82,7 @@ it('runs the actual current-owner, prepared sender and signed publisher against 
     if (String(url).startsWith(base)) {
       return nativeFetch(url, init)
     }
-    return nativeFetch(base + '/gateway', {
+    return nativeFetch(`${base}/gateway`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({

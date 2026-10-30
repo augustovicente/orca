@@ -36,7 +36,7 @@ async function setup() {
   const devices = new PushDeviceRegistryStore(f.db, f.clock)
   const key = nacl.sign.keyPair()
   const routeKey = Buffer.from(key.publicKey).toString('base64url')
-  for (const hostFingerprint of [A, B])
+  for (const hostFingerprint of [A, B]) {
     await devices.upsert({
       hostFingerprint,
       deviceId: 'phone',
@@ -45,6 +45,7 @@ async function setup() {
       apnsEnvironment: 'production',
       routeKey
     })
+  }
   const [maybeA] = await devices
     .findOwned(
       A,
@@ -95,7 +96,9 @@ describe('occurrence admission', () => {
     'waits for Postgres contention before committing %s without resending',
     async (outcome) => {
       const f = await setup()
-      if (outcome === 'dismissed') await f.store.defer(f.first)
+      if (outcome === 'dismissed') {
+        await f.store.defer(f.first)
+      }
       let attempted!: () => void
       const atAttempt = new Promise<void>((resolve) => (attempted = resolve))
       const contended = new DurablePushStore(
@@ -395,8 +398,9 @@ describe('occurrence admission', () => {
                 if (
                   sql.startsWith("UPDATE push_occurrence_claims SET state = 'sent'") &&
                   failures++ < 2
-                )
+                ) {
                   throw new Error('database temporarily unavailable')
+                }
                 return tx.query(sql, params)
               }
             })
@@ -450,12 +454,13 @@ describe('occurrence admission', () => {
         },
         f.clock
       )
-      for (let i = 0; i < count; i++)
+      for (let i = 0; i < count; i++) {
         await store.accept(A, f.a.registrationId, {
           ...f.alert,
           notificationSeq: i + 2,
           occurrence: String(i).padStart(43, 'o')
         })
+      }
       const transport = vi.fn(async (_request: ApnsRequest) => ({ status: 200, body: '' }))
       const worker = new DurablePushWorker(
         store,
@@ -464,7 +469,9 @@ describe('occurrence admission', () => {
       )
       try {
         // A device's ordered head allows25 deliveries per drain; each call is the production timer wake.
-        for (let wake = 0; wake < Math.ceil(count / 25); wake++) await worker.runDue()
+        for (let wake = 0; wake < Math.ceil(count / 25); wake++) {
+          await worker.runDue()
+        }
         samples.push({ count, queries, providers: transport.mock.calls.length })
         expect(transport).toHaveBeenCalledTimes(count)
         expect(await store.pendingCount(f.a.registrationId)).toBe(0)

@@ -34,8 +34,17 @@ const publicKeyB64 = Buffer.alloc(32, 1).toString('base64')
 const hostFingerprint = Buffer.from(sha256(Buffer.alloc(32, 1)))
   .toString('base64url')
   .slice(0, 16)
-const hosts = [{ id: 'host-1', publicKeyB64 }] as unknown as HostCatalogEntry[]
+function catalogHost(id: string, key: string): HostCatalogEntry {
+  const catalog = { id, name: id, endpoint: `ws://${id}`, publicKeyB64: key, lastConnected: 0 }
+  return {
+    ...catalog,
+    credentialStatus: 'ready',
+    profile: { ...catalog, deviceToken: `fixture-${id}` }
+  }
+}
+const hosts = [catalogHost('host-1', publicKeyB64)]
 const otherPublicKeyB64 = Buffer.alloc(32, 2).toString('base64')
+const otherHost = catalogHost('host-2', otherPublicKeyB64)
 const otherHostFingerprint = Buffer.from(sha256(Buffer.alloc(32, 2)))
   .toString('base64url')
   .slice(0, 16)
@@ -54,10 +63,7 @@ beforeEach(() => {
   storage.clear()
   storage.set('orca:pushServiceNotificationsEnabled', 'true')
   resetForegroundPushClaimsForTests()
-  vi.mocked(loadHostCatalog).mockResolvedValue([
-    ...hosts,
-    { id: 'host-2', publicKeyB64: otherPublicKeyB64 }
-  ] as unknown as HostCatalogEntry[])
+  vi.mocked(loadHostCatalog).mockResolvedValue([...hosts, otherHost])
 })
 
 describe('shouldSuppressForegroundPush', () => {
@@ -346,9 +352,7 @@ describe('admitted pushes during delayed route publication', () => {
     'presents the winning admitted copy after either sender is removed (%s)',
     async (removed) => {
       vi.mocked(loadHostCatalog).mockResolvedValue(
-        removed === hostFingerprint
-          ? ([{ id: 'host-2', publicKeyB64: otherPublicKeyB64 }] as HostCatalogEntry[])
-          : hosts
+        removed === hostFingerprint ? [otherHost] : hosts
       )
       const data = apnsData({
         hostFingerprint: removed,

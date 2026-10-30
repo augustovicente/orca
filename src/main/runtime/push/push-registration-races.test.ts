@@ -52,7 +52,7 @@ function harness() {
       setMobilePushOrigin: () => {},
       setMobilePushRegistrar: () => {},
       onNotificationDispatched: () => () => {}
-    } as never,
+    },
     runtimeRpc: {
       getE2EEKeypair: createPushHostKeypair,
       getDeviceRegistry: () => registry,

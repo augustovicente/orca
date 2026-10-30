@@ -95,6 +95,8 @@ it('bounds route requests independently of registration and refuses an oversized
       nacl.sign.detached(Buffer.from(pushRouteDeclarationContent(body)), key.secretKey)
     ).toString('base64url')
   }
-  for (let i = 0; i < 30; i++) expect((await harness.post('/v1/routes', signed)).status).toBe(400)
+  for (let i = 0; i < 30; i++) {
+    expect((await harness.post('/v1/routes', signed)).status).toBe(400)
+  }
   expect((await harness.post('/v1/routes', signed)).status).toBe(429)
 })

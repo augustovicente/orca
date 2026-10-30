@@ -49,16 +49,19 @@ function createFakeGateway(
   let issued = 0
   let pendingProof: string | null = null
 
-  const fetchImpl = (async (input: string, init?: RequestInit): Promise<Response> => {
-    const url = String(input)
-    const headers = new Headers(init?.headers)
-    const body: unknown = init?.body ? JSON.parse(String(init.body)) : undefined
+  const fetchImpl: typeof globalThis.fetch = async (input, init) => {
+    const request = new Request(input, init)
+    const url = request.url
+    const method = request.method
+    const headers = request.headers
+    const contents = await request.text()
+    const body: unknown = contents ? JSON.parse(contents) : undefined
     calls.push({
       url,
-      method: init?.method ?? 'GET',
+      method,
       authorization: headers.get('authorization'),
       body,
-      redirect: init?.redirect
+      redirect: init?.redirect ?? (input instanceof Request ? input.redirect : undefined)
     })
     if (url.endsWith('/v1/host/challenge')) {
       const built = buildPushChallengeFixture({
@@ -118,12 +121,12 @@ function createFakeGateway(
     // Why explicit: a catch-all 204 would report every delete as accepted and
     // leave the 404 branch of deleteDevice untested.
     const deleted = /\/v1\/devices\/([^/]+)$/.exec(url)
-    if (deleted && init?.method === 'DELETE') {
+    if (deleted && method === 'DELETE') {
       const registrationId = decodeURIComponent(deleted[1] ?? '')
       return new Response(null, { status: knownRegistrations.has(registrationId) ? 204 : 404 })
     }
-    throw new Error(`unexpected request: ${init?.method ?? 'GET'} ${url}`)
-  }) as unknown as typeof globalThis.fetch
+    throw new Error(`unexpected request: ${method} ${url}`)
+  }
 
   return {
     client: new PushGatewayClient({

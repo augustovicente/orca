@@ -225,9 +225,12 @@ export function createPushServer(
   const routeDestinations = new ClientIpRateLimiter({ now })
   app.post('/v1/routes', routeIps, limitBody, async (context) => {
     const body = PushRouteDeclarationSchema.safeParse(await context.req.json().catch(() => null))
-    if (!body.success) return context.json({ error: 'invalid_request' }, 400)
-    if (!routeDestinations.allow(pushDestination(body.data)))
+    if (!body.success) {
+      return context.json({ error: 'invalid_request' }, 400)
+    }
+    if (!routeDestinations.allow(pushDestination(body.data))) {
       return context.json({ error: 'rate_limited' }, 429)
+    }
     return (await declarePushRoutes(database, body.data, now()))
       ? context.json({ ok: true })
       : context.json({ error: 'invalid_declaration' }, 400)

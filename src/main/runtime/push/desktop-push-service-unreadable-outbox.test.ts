@@ -46,7 +46,7 @@ it('refuses registration until unreadable cleanup is recovered and settled on re
           setMobilePushOrigin: vi.fn(),
           setMobilePushRegistrar: vi.fn(),
           onNotificationDispatched: () => () => {}
-        } as never,
+        },
         runtimeRpc: {
           getE2EEKeypair: createPushHostKeypair,
           getDeviceRegistry: () => registry,

@@ -18,7 +18,9 @@ export async function reconcileQueuedDismissal(
   )
   if (notification.kind !== 'dismiss') {
     const covered = Number(dismissed?.notification_seq ?? -1) >= notification.notificationSeq
-    if (covered) fences.push(notification)
+    if (covered) {
+      fences.push(notification)
+    }
     return covered
   }
   await tx.query(

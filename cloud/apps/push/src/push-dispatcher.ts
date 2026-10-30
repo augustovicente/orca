@@ -25,7 +25,9 @@ export class PushDispatcher {
     const device = await this.options.devices.findById(delivery.registrationId)
     if (!device || device.dead) return { status: 'dead', reason: 'registration_unavailable' }
     const decision = admission ? await admission.acquire(device) : 'skipped'
-    if (decision === 'superseded' || decision === 'deferred') return { status: decision }
+    if (decision === 'superseded' || decision === 'deferred') {
+      return { status: decision }
+    }
     if (decision === 'admitted') {
       delivery.collapseId = collapseIdFor(delivery.orca, delivery.hostFingerprint, true)
     } else {

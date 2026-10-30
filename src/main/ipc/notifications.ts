@@ -23,7 +23,10 @@ import { deliverNativeNotification } from './native-notification-delivery'
 import { removeReadMacosNotifications } from './macos-notification-center'
 import { createNotificationDeliveryService } from '../notifications/notification-delivery-service'
 import { createAnnouncedNotificationRegistry } from '../notifications/announced-notification-registry'
-import { registerNotificationSoundHandlers } from './notification-sound-ipc'
+import {
+  registerNotificationSoundHandlers,
+  type NotificationSoundStore
+} from './notification-sound-ipc'
 import { openNotificationSystemSettings } from './notification-system-settings-link'
 import { isStructuredAttentionRead } from '../../shared/agent-session-attention'
 import { isAgentSessionExecutionLocation } from '../../shared/agent-session-record'
@@ -35,9 +38,25 @@ import {
   resetNotificationPermissionEvidence
 } from './notification-permission-probe'
 
+export type NotificationHandlerStore = NotificationSoundStore & {
+  getUI: () => Pick<ReturnType<Store['getUI']>, 'notificationPermissionRequested'>
+  updateUI: Store['updateUI']
+}
+
+export type NotificationHandlerRuntime = Pick<
+  OrcaRuntimeService,
+  | 'getForwardedNotificationEnvironments'
+  | 'onForwardedNotificationEnvironmentsChanged'
+  | 'refreshForwardedNotificationEnvironments'
+  | 'retireStructuredAttention'
+  | 'dismissMobileNotification'
+  | 'reconcileStructuredPromptAttention'
+  | 'dispatchMobileNotification'
+>
+
 export function registerNotificationHandlers(
-  store: Store,
-  runtime?: OrcaRuntimeService,
+  store: NotificationHandlerStore,
+  runtime?: NotificationHandlerRuntime,
   findSource?: typeof getForwardedPushSource
 ): void {
   ipcMain.removeHandler('notifications:getDesktopAwayState')

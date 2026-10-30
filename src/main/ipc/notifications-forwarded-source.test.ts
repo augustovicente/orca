@@ -7,6 +7,8 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { app } from 'electron'
 import {
   handleMock,
+  createNotificationStore,
+  createNotificationRuntime,
   getDispatchHandler,
   resetNotificationDispatchMocks
 } from './notifications-test-harness'
@@ -132,22 +134,16 @@ beforeEach(() => {
     recordLayoutFrame: () => {}
   })
   registerNotificationHandlers(
-    // SAFETY: these handlers read only this settings port; no persistence mutation is invoked.
-    {
-      getSettings: () => ({
-        notifications: {
-          enabled: false,
-          agentTaskComplete: true,
-          terminalBell: true,
-          mutedNotificationSourceIds: []
-        }
-      })
-    } as never,
-    // SAFETY: this fixture reaches only mobile fanout and registration of the existing environment observation callback.
-    {
+    createNotificationStore({
+      enabled: false,
+      agentTaskComplete: true,
+      terminalBell: true,
+      mutedNotificationSourceIds: []
+    }),
+    createNotificationRuntime({
       dispatchMobileNotification: mobile,
       onForwardedNotificationEnvironmentsChanged: () => () => {}
-    } as never,
+    }),
     (id, environment, context) =>
       findForwardedPushSource(pending, retained, id, environment, context)
   )

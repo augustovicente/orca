@@ -34,10 +34,14 @@ export function occurrenceAdmission(
   let identity: string[] | undefined
   return {
     async acquire(device) {
-      if (!n.origin || !n.occurrence || !device.routeKey) return 'skipped'
+      if (!n.origin || !n.occurrence || !device.routeKey) {
+        return 'skipped'
+      }
       const candidate = [pushDestination(device), n.origin, n.occurrence]
       return database.transaction(async (tx) => {
-        if (!(await tx.tryLockScope(claimKey(candidate)))) return 'deferred'
+        if (!(await tx.tryLockScope(claimKey(candidate)))) {
+          return 'deferred'
+        }
         const [declaration] = await tx.query(
           'SELECT hosts_json FROM push_route_declarations WHERE destination = ? AND route_key = ?',
           [candidate[0], device.routeKey]
@@ -45,21 +49,27 @@ export function occurrenceAdmission(
         if (
           !declaration ||
           !JSON.parse(String(declaration.hosts_json)).includes(queued.hostFingerprint)
-        )
+        ) {
           return 'skipped'
+        }
         const [row] = await tx.query(
           'SELECT * FROM push_occurrence_claims WHERE destination = ? AND origin = ? AND occurrence = ?',
           candidate
         )
-        if (row?.state === 'dismissed') return 'superseded'
+        if (row?.state === 'dismissed') {
+          return 'superseded'
+        }
         if (row && row.winner_route_key === device.routeKey) {
-          if (row.state === 'sent') return 'superseded'
+          if (row.state === 'sent') {
+            return 'superseded'
+          }
           if (
             row.state === 'inflight' &&
             Number(row.lease_until) > now() &&
             row.batch_id !== queued.id
-          )
+          ) {
             return 'deferred'
+          }
         }
         await tx.query(
           `INSERT INTO push_occurrence_claims(destination, origin, occurrence, state, batch_id, attempt, winner_host, winner_route_key, lease_until, created_at)
@@ -80,7 +90,9 @@ export function occurrenceAdmission(
     },
     async finalize(sent) {
       const admittedIdentity = identity
-      if (!admittedIdentity) return
+      if (!admittedIdentity) {
+        return
+      }
       for (let attempt = 0; ; attempt++) {
         try {
           await database.transaction(async (tx) => {
@@ -95,14 +107,18 @@ export function occurrenceAdmission(
           })
           return
         } catch (error) {
-          if (attempt === 3) throw error
+          if (attempt === 3) {
+            throw error
+          }
           await new Promise((resolve) => setTimeout(resolve, 25 * (attempt + 1)))
         }
       }
     },
     async renew() {
       const admittedIdentity = identity
-      if (!admittedIdentity) return
+      if (!admittedIdentity) {
+        return
+      }
       await database.transaction(async (tx) => {
         await tx.lockScope(claimKey(admittedIdentity))
         await tx.query(
@@ -120,12 +136,16 @@ export async function fenceDismissedOccurrences(
   notifications: PushNotification[],
   now: number
 ): Promise<void> {
-  if (!notifications.some((notification) => notification.origin && notification.occurrence)) return
+  if (!notifications.some((notification) => notification.origin && notification.occurrence)) {
+    return
+  }
   const [device] = await tx.query(
     'SELECT platform, token, apns_environment FROM push_devices WHERE registration_id = ?',
     [registrationId]
   )
-  if (!device) return
+  if (!device) {
+    return
+  }
   const destination = pushDestination({
     platform: String(device.platform),
     token: String(device.token),

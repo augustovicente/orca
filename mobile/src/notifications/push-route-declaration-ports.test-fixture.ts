@@ -1,3 +1,4 @@
+import type * as PushRoutePublication from './push-route-declaration'
 import type { MobilePushToken } from './push-token'
 import { afterEach, beforeEach, expect, vi } from 'vitest'
 import type { PushRouteDeclaration } from '../../../cloud/packages/push-contract/src/route-declaration'
@@ -125,7 +126,7 @@ export function requests(status = 200) {
 }
 
 export function createRouteDeclarationFixture() {
-  let publisher: typeof import('./push-route-declaration')
+  let publisher: typeof PushRoutePublication
   let stop: (() => void) | undefined
   beforeEach(async () => {
     vi.resetModules()

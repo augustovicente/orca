@@ -18,6 +18,8 @@ import {
 } from '../../src/main/runtime/runtime-mobile-notification-controller'
 import { registerNotificationHandlers } from '../../src/main/ipc/notifications'
 import {
+  createNotificationStore,
+  createNotificationRuntime,
   getAllWindowsMock,
   getDispatchHandler,
   handleMock,
@@ -78,7 +80,6 @@ function wire(controller: RuntimeMobileNotificationController): void {
   resetNotificationDispatchMocks()
   vi.mocked(powerMonitor.on).mockClear()
   let forwarded: ((ids: string[]) => void) | undefined
-  // SAFETY: notification IPC uses only these BrowserWindow observation/broadcast methods; no real window is constructed.
   getAllWindowsMock.mockReturnValue([
     {
       isDestroyed: () => false,
@@ -86,13 +87,12 @@ function wire(controller: RuntimeMobileNotificationController): void {
       isVisible: () => false,
       webContents: { send: (_channel: string, ids: string[]) => forwarded?.(ids) }
     }
-  ] as never)
+  ])
   registerNotificationHandlers(
-    // SAFETY: these notification handlers read only getSettings; unrelated store handlers are never invoked.
-    { getSettings: () => ({ notifications: NOTIFICATION_SETTINGS }) } as never,
-    // SAFETY: the production controller supplies every runtime operation reached by these notification handlers.
-    {
+    createNotificationStore(NOTIFICATION_SETTINGS),
+    createNotificationRuntime({
       dispatchMobileNotification: controller.dispatch.bind(controller),
+      dismissMobileNotification: controller.dismiss.bind(controller),
       retireStructuredAttention: controller.retireStructuredAttention.bind(controller),
       reconcileStructuredPromptAttention:
         controller.reconcileStructuredPromptAttention.bind(controller),
@@ -100,7 +100,7 @@ function wire(controller: RuntimeMobileNotificationController): void {
       onForwardedNotificationEnvironmentsChanged:
         controller.onForwardedEnvironmentsChanged.bind(controller),
       refreshForwardedNotificationEnvironments: () => controller.refreshForwardedEnvironments()
-    } as never
+    })
   )
   Object.assign(window.api.notifications, {
     getForwardedEnvironments: async () => ipc('notifications:getForwardedEnvironments'),
