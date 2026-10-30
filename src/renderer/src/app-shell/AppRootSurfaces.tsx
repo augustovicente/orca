@@ -36,6 +36,7 @@ import { translate } from '@/i18n/i18n'
 import { RecoverableRenderErrorBoundary } from '../components/error-boundaries/RecoverableRenderErrorBoundary'
 import NewWorkspaceComposerModal from '../components/NewWorkspaceComposerModal'
 import { CrashReportDialog } from '../components/crash-report/CrashReportDialog'
+import { ClientFirstRunWizard } from './contadorca/ClientFirstRunWizard'
 import { MarkdownTemplatePicker } from '../components/editor/MarkdownTemplatePicker'
 import RecentTabSwitcher from '../components/tab-bar/RecentTabSwitcher'
 import { SkillFreshnessUpdateDialog } from '../components/skills/SkillFreshnessUpdateDialog'
@@ -286,6 +287,18 @@ export const AppRootSurfaces = memo(function AppRootSurfaces(props: {
           <TelemetryFirstLaunchSurface />
         </OverlayBoundary>
       )}
+      {editionSupports('customerShell') ? (
+        <ModalBoundary
+          boundaryId="modal.contadorca-first-run"
+          title={translate('contadorca.firstRun.boundaryTitle', 'A configuração inicial falhou.')}
+          description={translate(
+            'contadorca.firstRun.boundaryDescription',
+            'Feche esta janela e continue pelo botão Adicionar cliente.'
+          )}
+        >
+          <ClientFirstRunWizard />
+        </ModalBoundary>
+      ) : null}
       <OverlayBoundary boundaryId="overlay.zoom" resetKey={activeView}>
         <ZoomOverlay />
       </OverlayBoundary>
