@@ -11,6 +11,7 @@ import {
   deferred,
   runtimeCommands
 } from './worktree-push-target-materialization.test-fixture'
+import { resolveCheckedOutBranchName } from './worktree-push-target-setup'
 import { readGitRemotePolicy } from '../../shared/git-worktree-admin'
 
 import { readFile } from 'node:fs/promises'
@@ -45,6 +46,16 @@ import type { HostWorktreeTarget } from '../../shared/worktree/host-qualified-id
 it('settles safe allocation and distinct joiner branches without annexing occupied state', async () => {
   const old = (await git(['rev-parse', 'HEAD'])).trim()
   const parent = (await git(['symbolic-ref', '--short', 'HEAD'])).trim()
+  await git(['tag', 'local-a'], a)
+  await git(['tag', 'local-b'], b)
+  for (const [path, branch] of [
+    [a, 'local-a'],
+    [b, 'local-b']
+  ]) {
+    expect(await resolveCheckedOutBranchName((args, cwd) => runner(args, { cwd }), path)).toBe(
+      branch
+    )
+  }
   for (const [key, value] of [
     ['remote', 'pr-contributor'],
     ['merge', 'refs/heads/main'],
@@ -571,6 +582,7 @@ it('exhausts all99 unsafe namespaces without writing', async () => {
 })
 
 it('uses annotated configured fallback through effective upstream, Pull and rename decisions', async () => {
+  await git(['tag', 'local-a'], a)
   await git(['remote', 'add', 'borrowed', url])
   await git(['fetch', '--no-tags', 'borrowed'])
   await git(['config', 'branch.local-a.remote', url], a)

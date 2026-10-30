@@ -144,6 +144,11 @@ listen with `orca.on('theme', …)`, to follow it.
    the same key.
 3. Review and enable it. Nothing runs before that.
 
+From a terminal (or a coding agent), `orca plugin dev load <dir>` does the same. A content-only
+plugin loads at once; anything that runs code fails with `approval_required`, which lists what it
+would be granted and the command to re-run with `--approve <fingerprint>`. `orca plugin logs
+<publisher.id>` prints its logs and `orca plugin dev unload <dir>` removes it.
+
 Orca watches development folders and reloads the plugin when its manifest or files change.
 Theme, syntax and translation edits show up as you save. Panels and workers are not bound to
 their files in development, so saving does not ask for approval again; adding a capability or
@@ -169,7 +174,16 @@ checks that listed images exist and fit. It warns when the manifest still declar
 `publisher`, and, in a Git repository, when that value is not the owner of the `origin` remote.
 Warnings do not fail the check. Run it in CI for the plugin and catalog repositories.
 
-## 4. Publish to a catalog
+## 4. List it in the Orca plugin directory
+
+1. `orca plugin validate .` passes, and the plugin is committed and pushed to the GitHub
+   repository whose owner matches `publisher`.
+2. Commit the new `version` in `orca-plugin.json`, then tag that commit and push the tag:
+   `git tag -a v1.2.0 -m v1.2.0 && git push origin v1.2.0`.
+3. Add the `orca-plugin` topic to the repository: `gh repo edit <owner>/<repo> --add-topic orca-plugin`.
+4. Check its listing at `https://www.onorca.dev/plugins/<owner>/<repo>`.
+
+## 5. Publish to a catalog
 
 A catalog is a Git repository with `orca-catalog.json` at its root that lists plugins and pins
 each release to an exact commit and file hash, so Orca refuses bytes the catalog did not vouch

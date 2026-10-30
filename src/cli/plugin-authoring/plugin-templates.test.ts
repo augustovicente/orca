@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -62,6 +62,19 @@ describe('orca plugin validate', () => {
     const report = await validatePluginTarget(dir)
     expect(report.valid).toBe(false)
     expect(report.errors.join('\n')).toContain('contributes.themes')
+  })
+
+  it('names a folder without a publisher the way Orca loads it', async () => {
+    const dir = join(await tempRoot(), 'nopub')
+    await createPluginFromTemplate({ dir, template: 'theme', publisher: 'acme' })
+    const manifestPath = join(dir, 'orca-plugin.json')
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
+    delete manifest.publisher
+    manifest.engines.orca = '>=1.4.246'
+    await writeFile(manifestPath, JSON.stringify(manifest))
+    const report = await validatePluginTarget(dir)
+    expect(report.errors).toEqual([])
+    expect(report.plugin?.pluginKey).toBe('local.nopub')
   })
 
   it('reports a missing panel entry', async () => {

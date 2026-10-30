@@ -2,7 +2,6 @@ import type { CommandHandler } from '../dispatch'
 import { createPluginFromTemplate, PluginCreateError } from '../plugin-authoring/plugin-create'
 import {
   inspectPluginFolder,
-  PLUGIN_INVALID_CODE,
   validatePluginTarget,
   type PluginInspection,
   type PluginValidationReport
@@ -17,6 +16,7 @@ import {
   resolveLocalPluginPath
 } from '../plugin-authoring/plugin-cli-output'
 import { RuntimeClientError } from '../runtime/types'
+import { PLUGIN_INVALID_CODE } from '../../shared/plugins/approval/plugin-cli-approval'
 
 function optionalString(flags: Map<string, string | boolean>, name: string): string | undefined {
   const value = flags.get(name)

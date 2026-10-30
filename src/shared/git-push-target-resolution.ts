@@ -158,18 +158,16 @@ export async function resolveConfiguredGitPushTarget(
     }
     return result
   })
-  const { stdout: branchStdout } = await runGit([
-    'symbolic-ref',
-    '--quiet',
-    '--short',
-    'HEAD'
-  ]).catch((error: unknown) => {
-    if (error instanceof Error && 'code' in error && error.code === 1) {
-      return { stdout: '' }
+  const { stdout: branchStdout } = await runGit(['symbolic-ref', '--quiet', 'HEAD']).catch(
+    (error: unknown) => {
+      if (error instanceof Error && 'code' in error && error.code === 1) {
+        return { stdout: '' }
+      }
+      throw error
     }
-    throw error
-  })
-  const branch = branchStdout.trim()
+  )
+  const branchRefName = branchStdout.trim()
+  const branch = branchRefName.startsWith('refs/heads/') ? branchRefName.slice(11) : null
   if (!branch) {
     return null
   }

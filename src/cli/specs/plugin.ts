@@ -1,5 +1,5 @@
 import type { CommandSpec } from '../args'
-import { LOCAL_COMMAND_FLAGS } from '../args'
+import { GLOBAL_FLAGS, LOCAL_COMMAND_FLAGS } from '../args'
 import { PLUGIN_TEMPLATE_NAMES } from '../plugin-authoring/plugin-template-names'
 
 const TEMPLATES = PLUGIN_TEMPLATE_NAMES.join('|')
@@ -52,5 +52,91 @@ export const PLUGIN_AUTHORING_COMMAND_SPECS: CommandSpec[] = [
       EXIT_CODES_NOTE
     ],
     examples: ['orca plugin inspect ./notes-editor --json']
+  }
+]
+
+const APPROVE_NOTE =
+  'Content-only plugins (themes, icons, syntaxes, translations) need no approval. Anything that runs code or acts in Orca fails with approval_required, which lists exactly what it would be granted, why, and the command to re-run with --approve <fingerprint>. The fingerprint is bound to that plugin, version, files and access; anything different needs a new one.'
+
+export const PLUGIN_RUNTIME_COMMAND_SPECS: CommandSpec[] = [
+  {
+    path: ['plugin', 'list'],
+    summary: 'List plugins on the Orca host with their status and access level',
+    usage: 'orca plugin list [--json]',
+    allowedFlags: [...GLOBAL_FLAGS],
+    notes: [
+      'Status is running, idle, pending (waiting for approval), disabled, errored or invalid; dev marks development folders.'
+    ],
+    examples: ['orca plugin list --json']
+  },
+  {
+    path: ['plugin', 'logs'],
+    summary: 'Print the recent log lines of a plugin',
+    usage: 'orca plugin logs <plugin-key> [--json]',
+    allowedFlags: [...GLOBAL_FLAGS, 'plugin'],
+    positionalArgs: ['plugin'],
+    notes: ['Shows the last lines a plugin worker printed and its activation errors.'],
+    examples: ['orca plugin logs acme.notes --json']
+  },
+  {
+    path: ['plugin', 'enable'],
+    summary: 'Enable a plugin; code and capabilities need --approve',
+    usage: 'orca plugin enable <plugin-key> [--approve <fingerprint>] [--json]',
+    allowedFlags: [...GLOBAL_FLAGS, 'plugin', 'approve'],
+    positionalArgs: ['plugin'],
+    notes: [
+      APPROVE_NOTE,
+      'Enabling a plugin that is already approved and running needs nothing; re-enabling a disabled plugin that runs code needs --approve again.',
+      EXIT_CODES_NOTE
+    ],
+    examples: ['orca plugin enable acme.dusk', 'orca plugin enable acme.notes --approve ap1-…']
+  },
+  {
+    path: ['plugin', 'disable'],
+    summary: 'Disable a plugin',
+    usage: 'orca plugin disable <plugin-key> [--json]',
+    allowedFlags: [...GLOBAL_FLAGS, 'plugin'],
+    positionalArgs: ['plugin'],
+    notes: ['Never needs approval.'],
+    examples: ['orca plugin disable acme.notes']
+  },
+  {
+    path: ['plugin', 'dev', 'load'],
+    summary: 'Load a plugin folder into Orca as a development plugin',
+    usage: 'orca plugin dev load <dir> [--approve <fingerprint>] [--json]',
+    allowedFlags: [...GLOBAL_FLAGS, 'dir', 'approve'],
+    positionalArgs: ['dir'],
+    notes: [
+      'Adds the folder to Settings → Plugins → Development folders on the Orca host; it overrides an installed plugin with the same key.',
+      'Orca reloads the plugin when its files change. For an approved panel, editor or worker, later code edits run without asking again; new access does not.',
+      APPROVE_NOTE,
+      'Without approval the folder stays loaded but nothing in it runs.',
+      'With --environment the folder is a path on that Orca server; pass it absolute.',
+      EXIT_CODES_NOTE
+    ],
+    examples: ['orca plugin dev load ./dusk-theme', 'orca plugin dev load ./notes-editor --json']
+  },
+  {
+    path: ['plugin', 'dev', 'reload'],
+    summary: 'Reload development plugins now, or one folder and re-check its approval',
+    usage: 'orca plugin dev reload [<dir>] [--approve <fingerprint>] [--json]',
+    allowedFlags: [...GLOBAL_FLAGS, 'dir', 'approve'],
+    positionalArgs: ['dir'],
+    notes: [
+      'Orca already reloads on file changes; use this when a change was missed (network or WSL folders) or after changing commands or shortcuts, which need a new approval.',
+      EXIT_CODES_NOTE
+    ],
+    examples: ['orca plugin dev reload', 'orca plugin dev reload ./notes-editor --json']
+  },
+  {
+    path: ['plugin', 'dev', 'unload'],
+    summary: 'Remove a development folder from Orca',
+    usage: 'orca plugin dev unload <dir|plugin-key> [--json]',
+    allowedFlags: [...GLOBAL_FLAGS, 'target'],
+    positionalArgs: ['target'],
+    notes: [
+      'Never needs approval. An installed plugin with the same key comes back, needing its own approval if access differs.'
+    ],
+    examples: ['orca plugin dev unload ./notes-editor', 'orca plugin dev unload acme.notes']
   }
 ]
