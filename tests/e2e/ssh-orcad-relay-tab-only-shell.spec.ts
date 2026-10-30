@@ -152,9 +152,10 @@ function observeRelayTabSelection(
         managedPhase: managed?.kind === 'setting-up' ? managed.phase : null,
         relayBridged: managed?.kind === 'relay' && managed.bridged === true,
         environmentId,
-        visibleRelevantHosts: state.visibleWorkspaceHostIds.filter(
-          (id) => id === 'local' || id === sshHostId || id === runtimeHostId
-        ),
+        visibleRelevantHosts:
+          state.visibleWorkspaceHostIds?.filter(
+            (id) => id === 'local' || id === sshHostId || id === runtimeHostId
+          ) ?? null,
         runtimeCatalogPresent: state.runtimeEnvironments.some(
           (entry) => entry.id === environmentId
         ),
