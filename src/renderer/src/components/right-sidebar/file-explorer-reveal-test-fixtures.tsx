@@ -2,7 +2,7 @@ import type * as Module0 from './file-explorer-dir-load-tracker'
 import type * as Module1 from './file-explorer-directory-listing'
 import type * as Module2 from './file-explorer-operation-owner'
 import { act, cleanup } from '@testing-library/react'
-import { afterEach, beforeEach, vi } from 'vitest'
+import { afterEach, beforeEach, vi, type Mock } from 'vitest'
 import { useAppStore } from '@/store'
 import {
   noteUserWorkspaceSwitch,
@@ -29,7 +29,9 @@ vi.mock('./file-explorer-dir-load-tracker', async (original) => {
     }
   }
 })
-const read = vi.hoisted(() => vi.fn())
+const read: Mock<typeof Module1.readFileExplorerDirectory> = vi.hoisted(() =>
+  vi.fn<typeof Module1.readFileExplorerDirectory>()
+)
 const owner = vi.hoisted(() => ({ kind: 'local' as const }))
 export const listing = (...names: string[]) => ({
   ...runtimeListing(...names),

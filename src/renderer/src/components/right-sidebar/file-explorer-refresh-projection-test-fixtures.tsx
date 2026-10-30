@@ -11,7 +11,7 @@ import type { useFileExplorerDirectoryLoads } from './use-file-explorer-director
 import type { DirCache } from './file-explorer-types'
 import type { DirEntry } from '../../../../shared/filesystem-entry-types'
 import { cleanup } from '@testing-library/react'
-import { afterEach, vi } from 'vitest'
+import { afterEach, vi, type Mock } from 'vitest'
 import { useAppStore } from '@/store'
 
 const childListingCacheWork = vi.hoisted(() => ({
@@ -152,7 +152,9 @@ vi.mock('./file-explorer-dir-load-state', async (original) => {
   }
 })
 
-const readDirectoryMock = vi.hoisted(() => vi.fn())
+const readDirectoryMock: Mock<typeof Module6.readFileExplorerDirectory> = vi.hoisted(() =>
+  vi.fn<typeof Module6.readFileExplorerDirectory>()
+)
 const structuralWork = vi.hoisted(() => ({
   passes: 0,
   changedCaches: 0,
