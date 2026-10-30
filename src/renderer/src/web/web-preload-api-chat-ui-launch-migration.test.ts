@@ -155,8 +155,8 @@ it.each([
           'openAgentTabsInChatByDefault'
         ]) {
           expect(settings).not.toHaveProperty(key)
-          if (key === 'experimentalNativeChat' && Object.hasOwn(stored, key)) {
-            expect(saved[key]).toBe(Reflect.get(stored, key))
+          if (key === 'experimentalNativeChat' && 'experimentalNativeChat' in stored) {
+            expect(saved[key]).toBe(stored.experimentalNativeChat)
           } else {
             expect(saved).not.toHaveProperty(key)
           }

@@ -1,3 +1,4 @@
+import type { PersistedState } from '../../../shared/persisted-state-types'
 import { Store } from '../loading-store/store'
 import { prepareLegacyProfileState } from '../profile-state/legacy-json/profile-state-legacy-import'
 import { LoadedCohortMigrationOperations } from '../loading-store/loaded-cohort-migrations'
@@ -11,6 +12,7 @@ import {
   testState,
   createStore,
   readDataFile,
+  readPersistedState,
   writeDataFile,
   writePersistedStateJson,
   dataFile
@@ -56,13 +58,13 @@ describe('Chat UI launch tip audience', () => {
     store.flush()
     const record = { version: 1, membership, basis }
     expect(readDataFile()).toHaveProperty('chatUiLaunchTipAudience', record)
-    expect(Object.hasOwn(readDataFile().settings, 'experimentalNativeChat')).toBe(
+    expect(Object.hasOwn(readPersistedState().settings, 'experimentalNativeChat')).toBe(
       Object.hasOwn(settings, 'experimentalNativeChat')
     )
-    if (Object.hasOwn(settings, 'experimentalNativeChat')) {
-      expect(readDataFile().settings).toHaveProperty(
+    if ('experimentalNativeChat' in settings) {
+      expect(readPersistedState().settings).toHaveProperty(
         'experimentalNativeChat',
-        Reflect.get(settings, 'experimentalNativeChat')
+        settings.experimentalNativeChat
       )
     }
     expect(store.getSettings()).not.toHaveProperty('experimentalNativeChat')
@@ -303,18 +305,16 @@ it.each([
     const store = createStore()
     const listener = vi.fn()
     store.onSettingsChanged(listener)
-    const check = (saved: object) => {
+    const check = (saved: PersistedState['settings']) => {
       expect(Object.hasOwn(saved, 'experimentalNativeChat')).toBe(
         Object.hasOwn(original, 'experimentalNativeChat')
       )
-      if (Object.hasOwn(original, 'experimentalNativeChat')) {
-        expect(Reflect.get(saved, 'experimentalNativeChat')).toEqual(
-          Reflect.get(original, 'experimentalNativeChat')
-        )
+      if ('experimentalNativeChat' in original) {
+        expect(saved).toHaveProperty('experimentalNativeChat', original.experimentalNativeChat)
       }
     }
     store.flush()
-    check(readDataFile().settings)
+    check(readPersistedState().settings)
     const updates = {
       agentDefaultSurface: 'terminal' as const,
       nativeChatProviders: { 'registered-agent': true },
@@ -324,7 +324,7 @@ it.each([
       'experimentalNativeChat'
     )
     store.flush()
-    check(readDataFile().settings)
+    check(readPersistedState().settings)
     const exported = JSON.parse(store.prepareProfileStateExport().json)
     check(exported.settings)
     for (const [delta, live] of listener.mock.calls) {
