@@ -110,8 +110,9 @@ it.each(['claude', 'codex'] as const)(
     }
     const flush = async (translator: { flush: () => void }) => {
       translator.flush()
-      for (const run of [...pending]) {
-        pending.delete(run)
+      const runs = Array.from(pending)
+      pending.clear()
+      for (const run of runs) {
         run()
       }
       expect(await sink.drained()).toEqual({ ok: true })

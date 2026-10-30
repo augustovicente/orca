@@ -191,8 +191,21 @@ it('sweeps an orphaned projection with the same indexed statements at N and 10N 
     const { database } = chatOf(size, `orphan-${size}`)
     database.transaction((db) => publishTestJournalEpoch(db, sessionId, 'older-writer'))
     const watched = watchJournalStatements(database)
+    const exec = vi.spyOn(database.db, 'exec')
     sweepJournalSavedState(database)
-    const statements = [...watched.statements]
+    const statements = [
+      ...watched.statements,
+      ...exec.mock.calls
+        .map(([sql]) => sql)
+        .filter((sql) => !/^(BEGIN|COMMIT|ROLLBACK|SAVEPOINT|RELEASE)\b/.test(sql))
+    ]
+    // One read of the per-chat state rows, then keyed deletes from the three projection tables.
+    expect(statements.map((sql) => sql.trim().split(/\s+/).slice(0, 3).join(' '))).toEqual([
+      'SELECT c.session_id FROM',
+      'DELETE FROM journal_items',
+      'DELETE FROM journal_entries',
+      'DELETE FROM journal_state'
+    ])
     for (const table of ['journal_state', 'journal_items', 'journal_entries']) {
       expect(database.db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get()?.n).toBe(0)
     }

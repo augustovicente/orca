@@ -2,9 +2,9 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it } from 'vitest'
-import {
-  type AgentJournalMessageItem,
-  type AgentSessionJournalIdentity
+import type {
+  AgentJournalMessageItem,
+  AgentSessionJournalIdentity
 } from '../../../shared/agent-session-journal-types'
 import { codexProviderHandle } from '../../../shared/agent-session-provider-handle-encoding'
 import {

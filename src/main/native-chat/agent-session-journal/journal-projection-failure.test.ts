@@ -175,6 +175,20 @@ it('backs off a failing repair on its own timer, then publishes once the cause c
   )
 })
 
+it('fails the per-commit check when saved state stops decoding, though a full replay still matches', async () => {
+  const initial = seedProjectionRows(database, [projectionEpochRow, status('kept')(2, 1_002)])
+  saveJournalState(database, initial)
+  const rig = rigFor(initial)
+  database.db.prepare("UPDATE journal_items SET item_json = '{' WHERE item_id = 'kept'").run()
+  vi.spyOn(console, 'warn').mockImplementation(() => {})
+  await expect(rig.writer.enqueue(status('next'))).rejects.toThrow(
+    'journal projection and contiguous tail differ from live state'
+  )
+  const loaded = restoreJournal(database.db, sessionId)
+  expect(loaded?.projectionThrough).toBe(0)
+  expect(loaded && encodeJournalState(loaded.state)).toStrictEqual(encodeJournalState(rig.state()))
+})
+
 it('leaves every live reducer value and the Stop handle unchanged after fold then failed COMMIT', async () => {
   const initial = seedProjectionRows(database, [
     projectionEpochRow,
