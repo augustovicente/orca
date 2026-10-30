@@ -9,7 +9,8 @@ import {
   flushCrewWork,
   installCrewSocketGlobals,
   latestCrewSocket,
-  publicKeyB64
+  publicKeyB64,
+  verifyCrewPrimary
 } from './web-runtime-crew.test-fixture'
 
 const args: CrewSubscriptionAttemptArgs = {
@@ -116,7 +117,34 @@ describe('opt-in browser API and actual renderer attempt boundary', () => {
     expect(observer).toHaveBeenCalledOnce()
   })
 
+  it('refuses an absent, unverified or unsupported primary without acquiring one', async () => {
+    const before = CrewSocket.sockets.length
+    expect(await subscribe(args, { onResponse: vi.fn() })).toMatchObject({
+      ok: false,
+      failure: { fact: { kind: 'source-retired' } }
+    })
+    expect(session.webRuntimeState.activeClient).toBeNull()
+    expect(CrewSocket.sockets).toHaveLength(before)
+    const client = session.getClientForEnvironment(environment)
+    expect(await subscribe(args, { onResponse: vi.fn() })).toMatchObject({ ok: false })
+    expect(CrewSocket.sockets).toHaveLength(before + 1)
+    await verifyCrewPrimary(client)
+    const snapshot = client.statusOwner!.read()
+    client.statusOwner!.acceptVerified({
+      id: 'status',
+      ok: true,
+      result: { ...snapshot.status!, capabilities: [] },
+      _meta: { runtimeId: 'rt' }
+    })
+    expect(await subscribe(args, { onResponse: vi.fn() })).toMatchObject({
+      ok: false,
+      failure: { fact: { kind: 'host-unsupported' } }
+    })
+    expect(CrewSocket.sockets).toHaveLength(before + 1)
+  })
+
   it('does not invoke before start or after pre-cancel and cancels immediate pending and retained actual handles', async () => {
+    await verifyCrewPrimary(session.getClientForEnvironment(environment))
     const actualSubscribe = vi.spyOn(api, 'subscribeCrewAttempt')
     const { createRuntimeCrewSubscriptionAttempt } =
       await import('../runtime/runtime-crew-subscribe')
@@ -155,6 +183,7 @@ describe('opt-in browser API and actual renderer attempt boundary', () => {
   it('maps a real returned auth verdict to one renderer Error with the safe message/code and same observed promise', async () => {
     const pairing = await import('../runtime/runtime-environment-pairing-refresh')
     const observer = vi.spyOn(pairing, 'observePairingRefusal')
+    await verifyCrewPrimary(session.getClientForEnvironment(environment))
     const { createWebRuntimeUnauthorizedError } = await import('./web-runtime-client-error')
     const { createRuntimeCrewSubscriptionAttempt } =
       await import('../runtime/runtime-crew-subscribe')
@@ -199,6 +228,7 @@ describe('opt-in browser API and actual renderer attempt boundary', () => {
   it.each(['before-result', 'after-result'] as const)(
     'keeps terminal %s ordering and frees the exact ID for re-entry',
     async (order) => {
+      await verifyCrewPrimary(session.getClientForEnvironment(environment))
       const onClose = vi.fn(),
         onResponse = vi.fn()
       const pending = subscribe(args, { onResponse, onClose })
@@ -249,6 +279,7 @@ describe('opt-in browser API and actual renderer attempt boundary', () => {
   it.each(['source', 'runtime', 'disconnect', 'remove'] as const)(
     'fences actual %s retirement and does not adopt successor source',
     async (change) => {
+      await verifyCrewPrimary(session.getClientForEnvironment(environment))
       const onResponse = vi.fn()
       const pending = subscribe(args, { onResponse })
       const socket = latestCrewSocket()
@@ -280,7 +311,8 @@ describe('opt-in browser API and actual renderer attempt boundary', () => {
     }
   )
 
-  it('rechecks queued source, accepts equal source publications/legacy null and refuses duplicate IDs without removing the original', async () => {
+  it('rechecks queued source, accepts equal source publications and refuses unverified null and refuses duplicate IDs without removing the original', async () => {
+    await verifyCrewPrimary(session.getClientForEnvironment(environment))
     const pending = subscribe(args, { onResponse: vi.fn() })
     session.webRuntimeState.activeEnvironment = { ...environment, updatedAt: 100 }
     expect(await subscribe(args, { onResponse: vi.fn() })).toMatchObject({
@@ -306,14 +338,21 @@ describe('opt-in browser API and actual renderer attempt boundary', () => {
       { ...args, expectedEnvironmentRuntimeId: null },
       { onResponse: vi.fn() }
     )
-    await ready()
-    expect(await legacy).toMatchObject({ ok: true })
+    const before = CrewSocket.sockets.length
+    expect(await legacy).toMatchObject({ ok: false, failure: { fact: { kind: 'source-retired' } } })
+    expect(CrewSocket.sockets).toHaveLength(before)
     await api.cancelSubscription({ subscriptionId: 'crew' })
   })
 
-  it.each([1, 10])(
-    'removes %i queued crew obligations before the real queue prerequisite settles, without late acquisition',
-    async (count) => {
+  it.each([
+    { count: 1, reject: false },
+    { count: 10, reject: false },
+    { count: 1, reject: true },
+    { count: 10, reject: true }
+  ])(
+    'removes $count queued crew obligations before prerequisite settlement (reject=$reject), without late acquisition',
+    async ({ count, reject }) => {
+      await verifyCrewPrimary(session.getClientForEnvironment(environment))
       const enqueue = vi.spyOn(session.runtimeCallQueuePool, 'enqueue')
       const held = Promise.withResolvers<void>()
       const blockers = Array.from({ length: 8 }, () =>
@@ -324,6 +363,7 @@ describe('opt-in browser API and actual renderer attempt boundary', () => {
         pending.push(subscribe(args, { onResponse: vi.fn() }))
         void api.cancelSubscription({ subscriptionId: 'crew' })
       }
+      const drained = Promise.allSettled(blockers)
       const results = await Promise.all(pending)
       expect(
         results.every((result) => !result.ok && result.failure.fact.kind === 'cancelled')
@@ -334,8 +374,15 @@ describe('opt-in browser API and actual renderer attempt boundary', () => {
         'queuedCallCount' in queueOwner ? queueOwner.queuedCallCount : undefined
       expect(queued).toBe(0)
       expect(CrewSocket.sockets).toHaveLength(1) // Only the unchanged primary exists.
-      held.resolve()
-      await Promise.all(blockers)
+      if (reject) {
+        held.reject(new Error('Held queue prerequisite rejected'))
+      } else {
+        held.resolve()
+      }
+      const settlements = await drained
+      expect(
+        settlements.every((result) => result.status === (reject ? 'rejected' : 'fulfilled'))
+      ).toBe(true)
       await flushCrewWork()
       expect(CrewSocket.sockets).toHaveLength(1)
       const queues: unknown = 'queues' in queueOwner ? queueOwner.queues : undefined

@@ -1,3 +1,4 @@
+import { REMOTE_RUNTIME_SHARED_CONTROL_CAPABILITY } from '../../../../shared/protocol-version'
 import {
   RuntimeEnvironmentSetupGuardError,
   runtimeEnvironmentSetupFailure,
@@ -11,7 +12,6 @@ import type { WebRuntimeSubscriptionHandle } from '../web-runtime-client'
 import type { PreloadApi } from '../../../../preload/api-types'
 import { getPreferredWebRuntimeConnection } from '../web-runtime-environment'
 import {
-  getClientForEnvironment,
   manuallyDisconnectedEnvironmentIds,
   resolveEnvironment,
   runtimeCallQueuePool,
@@ -91,8 +91,7 @@ export async function subscribeWebRuntimeCrewAttempt(
       if (
         active?.id !== environment.id ||
         (active.pairingRevision ?? active.createdAt) !== args.expectedEnvironmentPairingRevision ||
-        (args.expectedEnvironmentRuntimeId !== null &&
-          active.runtimeId !== args.expectedEnvironmentRuntimeId) ||
+        active.runtimeId !== args.expectedEnvironmentRuntimeId ||
         getPreferredWebRuntimeConnection(active).hostPublicKeyB64 !==
           getPreferredWebRuntimeConnection(environment).hostPublicKeyB64
       ) {
@@ -102,9 +101,38 @@ export async function subscribeWebRuntimeCrewAttempt(
       }
     }
     assertCurrent()
-    const client = getClientForEnvironment(environment)
+    const client = webRuntimeState.activeClient
+    const epoch = client?.connectionEpoch
+    const assertVerified = (): void => {
+      const snapshot = client?.statusOwner?.read()
+      if (
+        snapshot?.status &&
+        !snapshot.status.capabilities?.includes(REMOTE_RUNTIME_SHARED_CONTROL_CAPABILITY)
+      ) {
+        refuse('Shared control is unavailable on this server', { kind: 'host-unsupported' })
+      }
+      if (
+        !client ||
+        webRuntimeState.activeClientEnvironmentId !== environment.id ||
+        args.expectedEnvironmentRuntimeId === null ||
+        !snapshot ||
+        snapshot.retired ||
+        snapshot.verification !== 'verified' ||
+        snapshot.transport !== 'ready' ||
+        snapshot.pairingRevision !== args.expectedEnvironmentPairingRevision ||
+        snapshot.status?.runtimeId !== args.expectedEnvironmentRuntimeId ||
+        client.connectionEpoch !== epoch
+      ) {
+        refuse('The verified runtime session is unavailable', { kind: 'source-retired' })
+      }
+    }
+    assertVerified()
+    if (!client) {
+      return refuse('The verified runtime session is unavailable', { kind: 'source-retired' })
+    }
     const assertClient = (): void => {
       assertCurrent()
+      assertVerified()
       if (webRuntimeState.activeClient !== client) {
         refuse('The paired Orca server changed while the request was in progress.', {
           kind: 'source-retired'
@@ -122,6 +150,14 @@ export async function subscribeWebRuntimeCrewAttempt(
             onResponse: (response) => {
               try {
                 assertClient()
+                if (
+                  response._meta?.runtimeId != null &&
+                  response._meta.runtimeId !== args.expectedEnvironmentRuntimeId
+                ) {
+                  refuse('Runtime environment identity changed; refresh and try again', {
+                    kind: 'source-retired'
+                  })
+                }
               } catch (error) {
                 release()
                 record.controller.abort(error)
