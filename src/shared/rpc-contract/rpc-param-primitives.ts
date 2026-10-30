@@ -1,6 +1,22 @@
 import { z } from 'zod'
+import { hasUnsafeProviderSessionIdChars } from '../agent-session-resume'
 
 export const TerminalEnvParam = z.record(z.string(), z.string())
+
+export const TerminalEnvToDeleteParam = z.array(z.string().min(1).max(256)).max(32).optional()
+
+export const MAX_TRANSCRIPT_PATH_BYTES = 16 * 1024
+
+export const OmpResumeFilePath = z
+  .string()
+  .min(1)
+  .refine((value) => value === value.trim(), 'Invalid OMP resume path')
+  .refine(
+    (value) =>
+      !hasUnsafeProviderSessionIdChars(value) &&
+      new TextEncoder().encode(value).byteLength <= MAX_TRANSCRIPT_PATH_BYTES,
+    'Invalid OMP resume path'
+  )
 
 // Preserve legacy nonnumeric/nonfinite limits as absent. Zod v4 needs outer optional(): one hidden by pipe
 // still makes object keys required.

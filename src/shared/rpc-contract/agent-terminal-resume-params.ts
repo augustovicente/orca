@@ -1,3 +1,4 @@
+import { OmpResumeFilePath } from './rpc-param-primitives'
 import { ResumeProviderSessionParam } from './resume-provider-session-param'
 import { z } from 'zod'
 import { AGENT_PERMISSION_CHOICES } from '../tui-agent-permission-choice'
@@ -42,7 +43,7 @@ export const AgentTerminalResumeParam: z.ZodType<AgentTerminalResume> = z
         })
         .strict()
     ]),
-    ompResumeFilePath: z.string().min(1).max(32768).optional(),
+    ompResumeFilePath: OmpResumeFilePath.optional(),
     resumeInLaunchCwd: z.boolean().optional(),
     codexHome: z.string().min(1).max(32768).nullable().optional()
   })

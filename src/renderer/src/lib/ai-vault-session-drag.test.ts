@@ -10,7 +10,6 @@ import {
 } from './ai-vault-local-drag-data'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createGlobalSettingsFixture } from '../../../shared/global-settings-test-fixture'
-import { materializeAiVaultResumeForTest } from './ai-vault-resume-startup.test-fixture'
 import {
   buildAiVaultResumeForWorktree,
   type AiVaultResumeWorktreeArgs
@@ -96,19 +95,6 @@ function parentTransfer(change: Record<string, unknown>) {
   return transfer
 }
 
-function historyState(unrelatedEnv: Record<string, string>): AiVaultResumeWorktreeArgs['state'] {
-  return {
-    ...sourceState(),
-    settings: createGlobalSettingsFixture({
-      agentCmdOverrides: { claude: 'selected-claude', codex: 'unused-codex' },
-      agentDefaultArgs: { claude: '--model first', codex: '--model unused' },
-      agentDefaultEnv: { claude: { SELECTED: 'first' }, codex: unrelatedEnv },
-      agentPermissionDefault: 'ask',
-      agentPermissionOverrides: { claude: 'full-access', codex: 'own' }
-    })
-  }
-}
-
 function historyDrag(state: AiVaultResumeWorktreeArgs['state'], sessionId = 'session-1') {
   const args = { state, worktreeId: state.activeWorktreeId, session: { ...session, sessionId } }
   const transfer = drag(args)
@@ -118,13 +104,6 @@ function historyDrag(state: AiVaultResumeWorktreeArgs['state'], sessionId = 'ses
   expect(payload).not.toBeNull()
   const selected = payload ? readAiVaultLocalDragData(transfer, payload)?.normal : undefined
   return { serialized, privateSerialized, selected, args }
-}
-
-async function effectiveDragResume(drag: ReturnType<typeof historyDrag>) {
-  if (!drag.selected?.resume) {
-    throw new Error('Expected typed History drag')
-  }
-  return materializeAiVaultResumeForTest(drag.args, drag.selected)
 }
 
 describe('Session History session drag data', () => {
@@ -139,7 +118,7 @@ describe('Session History session drag data', () => {
       const state: AiVaultResumeWorktreeArgs['state'] & {
         activeWorkspaceExecutionHostId: 'local' | 'ssh:target'
       } = {
-        ...historyState(
+        ...sourceState(
           Object.fromEntries(
             Array.from({ length: size }, (_, index) => [`UNUSED_${index}`, 'unrelated-value'])
           )
@@ -188,7 +167,7 @@ describe('Session History session drag data', () => {
           )
         }
         samples.push(inputs)
-        expect((await effectiveDragResume(drags[0]!)).env).toEqual({ SELECTED: 'first' })
+        expect((await planPreferred(drags[0]?.selected ?? {})).env).toEqual({ SELECTED: 'first' })
       } finally {
         clone.mockRestore()
       }
@@ -197,7 +176,7 @@ describe('Session History session drag data', () => {
   })
 
   it('keeps the 9000-character unrelated env drag valid and selected changes effective', async () => {
-    const state = historyState({ UNUSED: 'x'.repeat(9000) })
+    const state = sourceState({ UNUSED: 'x'.repeat(9000) })
     const first = historyDrag(state)
     if (!state.settings) {
       throw new Error('Missing fixture settings')
@@ -207,10 +186,10 @@ describe('Session History session drag data', () => {
     state.settings.agentDefaultEnv!.claude = { SELECTED: 'second' }
     state.settings.agentPermissionOverrides = { claude: 'accept-edits' }
     const second = historyDrag(state)
-    const originalPlan = await effectiveDragResume(first)
-    const changedPlan = await effectiveDragResume(second)
+    const originalPlan = await planPreferred(first.selected ?? {})
+    const changedPlan = await planPreferred(second.selected ?? {})
     expect(originalPlan.command).toContain('selected-claude')
-    expect(originalPlan.command).toContain('first')
+    expect(originalPlan.command).toContain(`team'"'"'s model`)
     expect(originalPlan.command).toContain('--dangerously-skip-permissions')
     expect(originalPlan.env).toEqual({ SELECTED: 'first' })
     expect(changedPlan.command).toContain('changed-claude')
@@ -219,7 +198,7 @@ describe('Session History session drag data', () => {
     expect(changedPlan.command).not.toContain('--dangerously-skip-permissions')
     expect(changedPlan.env).toEqual({ SELECTED: 'second' })
     state.settings.agentPermissionOverrides = {}
-    const inherited = await effectiveDragResume(historyDrag(state))
+    const inherited = await planPreferred(historyDrag(state).selected ?? {})
     expect(inherited.command).toContain('default')
     expect(inherited.command).not.toContain('acceptEdits')
   })
@@ -353,7 +332,9 @@ vi.mock('@/runtime/web-runtime-session-environment', () => ({
 vi.mock('sonner', () => ({ toast: { error: mocks.error, success: vi.fn() } }))
 
 const wt = 'repo1::wt'
-function sourceState(): AiVaultResumeWorktreeArgs['state'] {
+function sourceState(
+  unrelatedEnv: Record<string, string> = {}
+): AiVaultResumeWorktreeArgs['state'] {
   return {
     activeRepoId: 'repo1',
     activeWorktreeId: 'folder:source',
@@ -377,8 +358,11 @@ function sourceState(): AiVaultResumeWorktreeArgs['state'] {
     },
     settings: createGlobalSettingsFixture({
       terminalWindowsShell: 'powershell.exe',
-      agentDefaultArgs: { claude: '--model "team\'s model"' },
-      agentDefaultEnv: { claude: { SELECTED: 'source' } }
+      agentCmdOverrides: { claude: 'selected-claude', codex: 'unused-codex' },
+      agentDefaultArgs: { claude: '--model "team\'s model"', codex: '--model unused' },
+      agentDefaultEnv: { claude: { SELECTED: 'first' }, codex: unrelatedEnv },
+      agentPermissionDefault: 'ask',
+      agentPermissionOverrides: { claude: 'full-access', codex: 'own' }
     })
   }
 }
@@ -508,7 +492,9 @@ async function drop(transfer: ReturnType<typeof drag>) {
   }
 }
 
-async function planPreferred(request: Parameters<typeof window.api.pty.spawn>[0]) {
+async function planPreferred(
+  request: Pick<Parameters<typeof window.api.pty.spawn>[0], 'launchAgent' | 'resume' | 'env'>
+) {
   try {
     return await resolveAgentTerminalCreateOptions(
       { id: 'wt', path: '/repo', repo: null, folderWorkspace: null, connectionId: null },

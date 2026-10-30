@@ -186,40 +186,6 @@ describe('structured AI Vault ownership', () => {
     ).rejects.toThrow('agent_session_conflict')
   })
 
-  const transcript = `/sessions/2026-10-26T12-00-00-000Z_${PROVIDER_SESSION}.jsonl`
-  it.each([
-    {
-      agent: 'opencode2',
-      owner: 'opencode',
-      nativeId: PROVIDER_SESSION,
-      target: { id: PROVIDER_SESSION }
-    },
-    {
-      agent: 'pi',
-      owner: 'pi',
-      nativeId: transcript,
-      target: { id: 'different-raw-id', transcriptPath: transcript }
-    },
-    {
-      agent: 'omp',
-      owner: 'omp',
-      nativeId: PROVIDER_SESSION,
-      target: { id: 'different-raw-id', transcriptPath: '/sessions/other.jsonl' },
-      ompResumeFilePath: transcript
-    }
-  ] as const)(
-    'refuses typed $agent file and alias targets',
-    async ({ agent, owner, nativeId, target, ...options }) => {
-      installOwnership({ handle: { agent: owner, transport: 'fixture', nativeId } })
-      await expect(
-        assertLegacyAiVaultResumeCommandAllowed(
-          { agent, providerSession: { key: 'session_id', ...target }, ...options },
-          async () => undefined
-        )
-      ).rejects.toThrow('agent_session_conflict')
-    }
-  )
-
   it('allows a resume command that names a different provider session', async () => {
     installOwnership()
 

@@ -1,3 +1,4 @@
+import { AgentLaunchAccountEnv } from '../agent-launch-account-env'
 import { ResumeProviderSessionParam } from './resume-provider-session-param'
 import { AgentTerminalResumeParam } from './agent-terminal-resume-params'
 import { z } from 'zod'
@@ -6,7 +7,8 @@ import {
   OptionalFiniteNumber,
   OptionalString,
   requiredString,
-  TerminalEnvParam
+  TerminalEnvParam,
+  TerminalEnvToDeleteParam
 } from './rpc-param-primitives'
 import { isTuiAgent } from '../tui-agent-config'
 import { SpawnIntentParam } from './agent-session-params'
@@ -206,7 +208,7 @@ export const TerminalCreateParams = z.object({
   command: OptionalString,
   startupCommandDelivery: z.enum(['fast', 'shell-ready']).optional(),
   env: TerminalEnvParam.optional(),
-  envToDelete: z.array(z.string().min(1).max(256)).max(32).optional(),
+  envToDelete: TerminalEnvToDeleteParam,
   launchConfig: z
     .object({
       agentCommand: z.string().optional(),
@@ -220,7 +222,7 @@ export const TerminalCreateParams = z.object({
     })
     .optional(),
   resume: AgentTerminalResumeParam.optional(),
-  accountEnv: z.record(z.string(), z.string()).optional(),
+  accountEnv: AgentLaunchAccountEnv.optional(),
   resumeProviderSession: ResumeProviderSessionParam.optional(),
   // Older hosts drop it and resume as before.
   resumeOrigin: z.literal('saved').optional(),

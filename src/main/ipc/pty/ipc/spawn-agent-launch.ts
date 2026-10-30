@@ -90,7 +90,9 @@ export async function planPaneAgentLaunch(ctx: PtyIpcSpawnState): Promise<void> 
     request && 'launch' in request && typeof request.launch === 'object'
       ? request.launch
       : undefined
-  const resume = args.resume === undefined ? undefined : AgentTerminalResumeParam.parse(args.resume)
+  const parsedResume =
+    args.resume === undefined ? undefined : AgentTerminalResumeParam.safeParse(args.resume)
+  const resume = parsedResume?.success ? parsedResume.data : undefined
   const providerSession = normalizeAgentProviderSession(
     resume?.providerSession ?? args.resumeProviderSession
   )
@@ -102,6 +104,7 @@ export async function planPaneAgentLaunch(ctx: PtyIpcSpawnState): Promise<void> 
     'suppressStartupUpdatePrompt' in request &&
     request.suppressStartupUpdatePrompt === true
   if (
+    parsedResume?.success === false ||
     !runtime ||
     !paneKey ||
     !pane ||

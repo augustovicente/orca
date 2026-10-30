@@ -2,6 +2,7 @@ import {
   ResumePlanNotDispatchedError,
   isAgentResumeNotDispatchedResponse
 } from '../../../shared/agent-terminal-resume-outcome'
+import * as paneAttachment from '../../agent-launch/agent-launch-pane-attachment'
 import { ptyIncarnationById, ptyOwnership } from './provider/ownership-state'
 import { createLaunchRaceRuntime } from '../pty-launch-race-test-fixture'
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
@@ -165,13 +166,29 @@ describe('a pane that starts its own agent launch', () => {
     resumeProviderSession: { key: 'session_id' as const, id: 'contract' }
   }
 
-  it('returns typed C1 refusal on its originating invocation after exact acquisition cleanup', async () => {
+  it('distinguishes invalid typed input from C1 refusal and cleans the exact acquisition', async () => {
     const providerSpawn = vi.fn(async () => ({ id: 'pty-agent' }))
     const runtime = register(providerSpawn, async () => {
       throw new ResumePlanNotDispatchedError('Could not build resume command for claude.')
     })
+    const acquisition = vi.spyOn(paneAttachment, 'trackRunningAgentLaunchPane')
+    onTestFinished(() => acquisition.mockRestore())
+    for (const resume of [
+      { recipe: { source: 'not-a-source' } },
+      { recipe: { source: 'saved' }, ompResumeFilePath: '/tmp/a\0.jsonl' }
+    ]) {
+      const error = await spawnPane(AI_BUTTON, { ...typedResume, resume }).catch((value) => value)
+      expect(error).toEqual(new Error('agent_launch_request_invalid'))
+      expect(error).not.toHaveProperty('data')
+      expect(error).not.toBeInstanceOf(ResumePlanNotDispatchedError)
+    }
+    expect(acquisition).not.toHaveBeenCalled()
+    expect(runtime.planAgentPaneLaunch).not.toHaveBeenCalled()
+    expect(isAgentLaunchRunningIn(worktreeId, { kind: 'pane', tabId, leafId })).toBe(false)
     const response = await spawnPane(AI_BUTTON, typedResume)
     expect(isAgentResumeNotDispatchedResponse(response)).toBe(true)
+    expect(acquisition).toHaveBeenCalledOnce()
+    expect(runtime.planAgentPaneLaunch).toHaveBeenCalledOnce()
     expect(providerSpawn).not.toHaveBeenCalled()
     expect(runtime.reportAgentLaunchPaneVerdict).not.toHaveBeenCalled()
     expect(isAgentLaunchRunningIn(worktreeId, { kind: 'pane', tabId, leafId })).toBe(false)

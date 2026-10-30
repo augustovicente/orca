@@ -1,12 +1,31 @@
-import { resolveTerminalHostOwnership } from './terminal-worktree-route'
-import { getExecutionHostIdForWorktree } from './worktree-runtime-owner'
-import { materializeAiVaultResumeForTest } from './ai-vault-resume-startup.test-fixture'
+import { getKnownExecutionHostIdForWorktree } from './worktree-runtime-owner'
+import { resolveAgentTerminalCreateOptions } from '../../../main/runtime/runtime-agent-terminal-startup'
+import { partialRuntimeStore } from '../../../main/runtime/runtime-store-partial-fixture'
 import { buildAiVaultCopiedSessionStartupForWorktree } from './ai-vault-session-fork-startup'
 import { describe, expect, it } from 'vitest'
 import type { AppState } from '@/store/types'
 import { createTestStore, makeTab } from '@/store/slices/store-test-helpers'
 import { buildAgentResumeStartupPlan } from './tui-agent-startup'
 import { buildAiVaultResumeStartupForWorktree } from './ai-vault-resume-command'
+
+const worktreeId = 'repo-1::/repo'
+
+async function planResume(
+  agent: 'opencode' | 'omp',
+  selected: ReturnType<typeof buildAiVaultResumeStartupForWorktree>
+) {
+  expect(selected.resume?.recipe.source).toBe('current-inputs')
+  return resolveAgentTerminalCreateOptions(
+    { id: worktreeId, path: '/repo', connectionId: null, repo: null, folderWorkspace: null },
+    {
+      resume: selected.resume,
+      cwd: selected.cwd,
+      startupAgent: agent,
+      launchRuntime: { platform: 'linux', pty: {} }
+    },
+    { store: partialRuntimeStore(), hostIdentity: 'local', toSessionOptions: () => undefined }
+  )
+}
 
 describe('AI Vault OMP cold resume', () => {
   it('preserves local OpenCode standalone mode and existing custom host settings', async () => {
@@ -24,21 +43,30 @@ describe('AI Vault OMP cold resume', () => {
         }
       }
     })
-    const args = {
-      state,
-      session: {
-        agent: 'opencode' as const,
-        sessionId: 'copy-session',
-        cwd: '/repo',
-        codexHome: null,
-        executionHostId: 'local'
-      }
-    }
-    const startup = buildAiVaultCopiedSessionStartupForWorktree(args, 'opencode2')
-    const effective = await materializeAiVaultResumeForTest(args, startup)
-    expect(effective.command).toContain("'--standalone'")
-    expect(effective.command).toContain("'--model' 'synthetic-model'")
-    expect(effective.env).toMatchObject({
+    const selected = buildAiVaultCopiedSessionStartupForWorktree(
+      {
+        state,
+        session: {
+          agent: 'opencode',
+          sessionId: 'copy-session',
+          cwd: '/repo',
+          codexHome: null,
+          executionHostId: 'local'
+        }
+      },
+      'opencode2'
+    )
+    expect(selected.agent).toBe('opencode')
+    const startup = await planResume('opencode', selected)
+    expect(startup.cwd).toBe('/repo')
+    expect(startup.resumeProviderSession).toEqual({ key: 'session_id', id: 'copy-session' })
+    expect(startup.launchConfig).toMatchObject({
+      agentArgs: "'--standalone' --model synthetic-model",
+      agentEnv: state.settings?.agentDefaultEnv?.opencode
+    })
+    expect(startup.command).toContain("'--standalone'")
+    expect(startup.command).toContain("'--model' 'synthetic-model'")
+    expect(startup.env).toMatchObject({
       OPENCODE_AUTH_CONTENT: 'synthetic-local-auth',
       HOME: '/host-home',
       OPENCODE_CONFIG_DIR: '/host-config'
@@ -47,11 +75,9 @@ describe('AI Vault OMP cold resume', () => {
 
   it('keeps the custom session store after the resumed process reports its id', async () => {
     const store = createTestStore()
-    const worktreeId = 'repo-1::/repo'
+    const rawPath = String.raw`\\wsl$\Ubuntu\custom\omp-sessions\project\session.jsonl`
     store.setState({
-      activeWorkspaceExecutionHostId: 'local',
       activeRepoId: 'repo-1',
-      activeWorktreeId: worktreeId,
       folderWorkspaces: [],
       projectGroups: [],
       projects: [{ id: 'repo-1', sourceRepoIds: ['repo-1'] }],
@@ -68,31 +94,21 @@ describe('AI Vault OMP cold resume', () => {
       }
     } as unknown as Partial<AppState>)
 
-    const args = {
+    expect(getKnownExecutionHostIdForWorktree(store.getState(), worktreeId)).toBe('local')
+    const selected = buildAiVaultResumeStartupForWorktree({
       state: store.getState(),
       worktreeId,
       session: {
-        agent: 'omp' as const,
-        executionHostId: 'local' as const,
+        agent: 'omp',
+        executionHostId: 'local',
         sessionId: 'omp-session-1',
-        filePath: String.raw`\\wsl$\Ubuntu\custom\omp-sessions\project\session.jsonl`,
+        filePath: rawPath,
         cwd: '/repo',
         codexHome: null
       }
-    }
-    expect(getExecutionHostIdForWorktree(args.state, worktreeId)).toBe('local')
-    expect(resolveTerminalHostOwnership(args.state, worktreeId, 'spawn')).toEqual({
-      kind: 'local-or-ssh',
-      runtimeEnvironmentId: null
     })
-    const selected = buildAiVaultResumeStartupForWorktree(args)
-    expect(selected).toMatchObject({
-      resume: {
-        recipe: { source: 'current-inputs' },
-        ompResumeFilePath: args.session.filePath
-      }
-    })
-    const startup = await materializeAiVaultResumeForTest(args, selected)
+    expect(selected.resume?.ompResumeFilePath).toBe(rawPath)
+    const startup = await planResume('omp', selected)
 
     expect(startup).toMatchObject({
       command: "omp '--model' 'custom' '--resume' '/custom/omp-sessions/project/session.jsonl'",
@@ -104,7 +120,7 @@ describe('AI Vault OMP cold resume', () => {
         agentEnv: { OMP_PROFILE: 'custom' },
         ompResumeFilePath: '/custom/omp-sessions/project/session.jsonl'
       },
-      providerSession: { key: 'session_id', id: 'omp-session-1' }
+      resumeProviderSession: { key: 'session_id', id: 'omp-session-1' }
     })
 
     store.getState().registerAgentLaunchConfig('tab-1:leaf-1', startup.launchConfig!, {
@@ -118,7 +134,7 @@ describe('AI Vault OMP cold resume', () => {
       .recordAgentProviderSession(
         'tab-1:leaf-1',
         'omp',
-        startup.providerSession!,
+        startup.resumeProviderSession!,
         { updatedAt: 10 },
         { tabId: 'tab-1', worktreeId },
         { launchToken: 'launch-1' }
@@ -131,7 +147,7 @@ describe('AI Vault OMP cold resume', () => {
         'OMP',
         { updatedAt: 20, stateStartedAt: 20 },
         { tabId: 'tab-1', worktreeId },
-        { providerSession: startup.providerSession, launchToken: 'launch-1' }
+        { providerSession: startup.resumeProviderSession, launchToken: 'launch-1' }
       )
     store.getState().captureAllSleepingAgentSessions('quit')
 

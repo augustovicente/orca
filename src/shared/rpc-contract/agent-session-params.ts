@@ -1,4 +1,9 @@
-import { TerminalEnvParam } from './rpc-param-primitives'
+import {
+  TerminalEnvParam,
+  TerminalEnvToDeleteParam,
+  OmpResumeFilePath,
+  MAX_TRANSCRIPT_PATH_BYTES
+} from './rpc-param-primitives'
 import { AgentTerminalResumeParam } from './agent-terminal-resume-params'
 import { z } from 'zod'
 import { isValidTerminalTabId } from '../terminal-tab-id'
@@ -17,9 +22,9 @@ import { isTuiAgent } from '../tui-agent-config'
 import { RESTORE_SPAWN_INTENTS } from '../host-spawn-admission'
 import { AgentLaunchAccountEnv } from '../agent-launch-account-env'
 
-export const MAX_WORKTREE_SELECTOR_LENGTH = 32_768
+export { OmpResumeFilePath, MAX_TRANSCRIPT_PATH_BYTES } from './rpc-param-primitives'
 
-export const MAX_TRANSCRIPT_PATH_BYTES = 16 * 1024
+export const MAX_WORKTREE_SELECTOR_LENGTH = 32_768
 
 export const MAX_PROMPT_BYTES = 256 * 1024
 
@@ -85,17 +90,6 @@ export const AgentArgs = z
   )
   .nullable()
 
-export const OmpResumeFilePath = z
-  .string()
-  .min(1)
-  .refine((value) => value === value.trim(), 'Invalid OMP resume path')
-  .refine(
-    (value) =>
-      !hasUnsafeProviderSessionIdChars(value) &&
-      Buffer.byteLength(value, 'utf8') <= MAX_TRANSCRIPT_PATH_BYTES,
-    'Invalid OMP resume path'
-  )
-
 export const ProviderSession = z
   .object({
     key: z.enum(['session_id', 'conversation_id']),
@@ -137,7 +131,7 @@ export const ExplicitEnsure = z
     resume: AgentTerminalResumeParam.optional(),
     cwd: z.string().optional(),
     env: TerminalEnvParam.optional(),
-    envToDelete: z.array(z.string()).optional(),
+    envToDelete: TerminalEnvToDeleteParam,
     resumeOrigin: z.literal('saved').optional(),
     worktree: WorktreeSelector,
     agent: z.enum(RESUMABLE_TUI_AGENTS),

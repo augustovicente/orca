@@ -40,24 +40,45 @@ async function runtimeWithWindowTab() {
 }
 
 describe("the window's new tab started by main, by caller", () => {
-  it("starts it for this host's own window over the desktop runtime IPC", async () => {
-    const { runtime, spawn } = await runtimeWithWindowTab()
-    handleMock.mockReset()
-    registerRuntimeHandlers(runtime)
-    const call = handleMock.mock.calls.find(([channel]) => channel === 'runtime:call')![1]
-    const mainFrame = {}
-    const event = {
-      sender: { id: 1, mainFrame, on: vi.fn(), once: vi.fn() },
-      senderFrame: mainFrame
+  it.each([
+    [undefined, true],
+    [{ CODEX_HOME: '/home/qa/.codex' }, true],
+    [{ PATH: '/bad' }, false]
+  ] as const)(
+    'validates account routing before a window tab starts: %j',
+    async (accountEnv, valid) => {
+      const { runtime, spawn } = await runtimeWithWindowTab()
+      handleMock.mockReset()
+      registerRuntimeHandlers(runtime)
+      const call = handleMock.mock.calls.find(([channel]) => channel === 'runtime:call')![1]
+      const mainFrame = {}
+      const event = {
+        sender: { id: 1, mainFrame, on: vi.fn(), once: vi.fn() },
+        senderFrame: mainFrame
+      }
+
+      const result = await call(event, {
+        method: 'terminal.create',
+        params: {
+          ...START,
+          ...(accountEnv ? { accountEnv } : {}),
+          env: { PATH: 'C:\\Windows\\System32' }
+        }
+      })
+
+      if (!valid) {
+        expect(result).toMatchObject({ ok: false, error: { code: 'invalid_argument' } })
+        expect(result.error).not.toHaveProperty('data')
+        expect(spawn).not.toHaveBeenCalled()
+        return
+      }
+
+      expect(result).toMatchObject({ ok: true, result: { terminal: { tabId: TAB_ID } } })
+      expect(spawn).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ tabId: TAB_ID, leafId: LEAF_ID, command: 'make dev' })
+      )
     }
-
-    const result = await call(event, { method: 'terminal.create', params: START })
-
-    expect(result).toMatchObject({ ok: true, result: { terminal: { tabId: TAB_ID } } })
-    expect(spawn).toHaveBeenCalledExactlyOnceWith(
-      expect.objectContaining({ tabId: TAB_ID, leafId: LEAF_ID, command: 'make dev' })
-    )
-  })
+  )
 
   it('refuses a paired caller, which never draws this host’s tabs', async () => {
     const { runtime, spawn } = await runtimeWithWindowTab()

@@ -112,7 +112,7 @@ describe('Session History rows owned by OpenCode, Grok, OMP and Pi chats', () =>
     }
   ])(
     'owns the $rowAgent row of a $handle.agent chat under the chat name and refuses preparing its resume',
-    ({ handle, rowAgent, sessionId, filePath }) => {
+    async ({ handle, rowAgent, sessionId, filePath }) => {
       // An unnamed chat's row keeps the CLI's title; once named, the row shows the chat's name.
       installOwnership({ handle })
       expect(ownedRow(rowAgent, sessionId, filePath)).toMatchObject({ title: 'First prompt' })
@@ -136,6 +136,20 @@ describe('Session History rows owned by OpenCode, Grok, OMP and Pi chats', () =>
           executionHostId: 'local'
         })
       ).toThrow('agent_session_conflict')
+      await expect(
+        assertLegacyAiVaultResumeCommandAllowed(
+          {
+            agent: rowAgent,
+            providerSession: {
+              key: 'session_id',
+              id: rowAgent === 'pi' || rowAgent === 'omp' ? OTHER_UUID : sessionId,
+              transcriptPath: rowAgent === 'omp' ? '/sessions/other.jsonl' : filePath
+            },
+            ...(rowAgent === 'omp' ? { ompResumeFilePath: filePath } : {})
+          },
+          async () => undefined
+        )
+      ).rejects.toThrow('agent_session_conflict')
     }
   )
 
