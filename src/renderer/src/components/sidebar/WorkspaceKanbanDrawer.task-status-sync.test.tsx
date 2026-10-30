@@ -323,7 +323,7 @@ describe('WorkspaceKanbanDrawer task status sync wiring', () => {
 
     expect(syncWorkspaceBoardTaskStatusesMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        worktreeIds: [item.id],
+        worktreeKeys: [getWorktreeHostIdentity(item)],
         targetStatus: { id: 'in-review', label: 'In review' },
         getSettingsForWorktree: expect.any(Function),
         getLatestWorkspaceStatus: expect.any(Function)
@@ -356,7 +356,7 @@ describe('WorkspaceKanbanDrawer task status sync wiring', () => {
 
     expect(syncWorkspaceBoardTaskStatusesMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        worktreeIds: [item.id],
+        worktreeKeys: [getWorktreeHostIdentity(item)],
         targetStatus: { id: 'in-review', label: 'In review' }
       })
     )
@@ -423,7 +423,7 @@ describe('WorkspaceKanbanDrawer task status sync wiring', () => {
 
     expect(syncWorkspaceBoardTaskStatusesMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        worktreeIds: [item.id],
+        worktreeKeys: [getWorktreeHostIdentity(item)],
         targetStatus: { id: 'in-review', label: 'In review' }
       })
     )

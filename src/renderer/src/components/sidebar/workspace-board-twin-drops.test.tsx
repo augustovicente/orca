@@ -36,9 +36,11 @@ const lane: Worktree[] = [onVmA, other, onVmB]
 const keyOf = getWorktreeHostIdentity
 
 let updateWorktreesMeta: ReturnType<typeof vi.fn<AppState['updateWorktreesMeta']>>
+const maybeSyncTaskStatuses = vi.fn()
 
 beforeEach(() => {
   updateWorktreesMeta = vi.fn<AppState['updateWorktreesMeta']>(() => Promise.resolve())
+  maybeSyncTaskStatuses.mockClear()
   useAppStore.setState({
     sortBy: 'manual',
     worktreesByRepo: { repo: lane },
@@ -69,7 +71,7 @@ function renderBoardActions() {
         ['todo', { items: lane }],
         ['done', { items: [] }]
       ]),
-      maybeSyncTaskStatuses: vi.fn(),
+      maybeSyncTaskStatuses,
       sortBy: 'manual',
       updateWorktreeMeta: vi.fn(),
       updateWorktreesMeta,
@@ -112,7 +114,7 @@ describe('board drops on one copy of a same-id pair', () => {
     expect(writes[0]!.updates.manualOrder).toBeGreaterThan(300)
   })
 
-  it('moves only the dragged copy to another lane', () => {
+  it('moves only the dragged copy to another lane and syncs only its task', () => {
     const actions = renderBoardActions()
 
     actions.current.dropPointerDraggedWorktreesInStatus({
@@ -125,6 +127,7 @@ describe('board drops on one copy of a same-id pair', () => {
     expect(writes.map((entry) => [entry.executionHostId, entry.updates.workspaceStatus])).toEqual([
       ['ssh:vm-a', 'done']
     ])
+    expect(maybeSyncTaskStatuses).toHaveBeenCalledWith([keyOf(onVmA)], 'done')
   })
 
   it('still refuses a bare-id drop that cannot name one copy', () => {

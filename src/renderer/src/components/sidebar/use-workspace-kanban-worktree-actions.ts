@@ -25,7 +25,8 @@ export function useWorkspaceKanbanWorktreeActions(args: {
   boardDragGroups: readonly WorktreeDragGroup[]
   laneFullWorktreeIds: ReadonlyMap<string, readonly string[]>
   laneViews: ReadonlyMap<string, LaneView>
-  maybeSyncTaskStatuses: (worktreeIds: readonly string[], status: WorkspaceStatus) => void
+  /** Host identities of the cards whose status changed. */
+  maybeSyncTaskStatuses: (worktreeKeys: readonly string[], status: WorkspaceStatus) => void
   sortBy: ReturnType<typeof useAppStore.getState>['sortBy']
   updateWorktreeMeta: ReturnType<typeof useAppStore.getState>['updateWorktreeMeta']
   updateWorktreesMeta: ReturnType<typeof useAppStore.getState>['updateWorktreesMeta']
@@ -68,32 +69,32 @@ export function useWorkspaceKanbanWorktreeActions(args: {
         { workspaceStatus: status },
         { executionHostId: current.hostId ?? 'local' }
       )
-      args.maybeSyncTaskStatuses([worktreeId], status)
+      args.maybeSyncTaskStatuses([getWorktreeHostIdentity(current)], status)
     },
     [args]
   )
   const moveWorktreesToStatus = useCallback(
     (worktreeIds: readonly string[], status: WorkspaceStatus) => {
       const updates: WorktreeMetaBatchUpdate[] = []
-      const changedIds: string[] = []
+      const changedKeys: string[] = []
       for (const worktreeId of worktreeIds) {
         const current = args.worktreeById.get(worktreeId)
         if (!current || getWorkspaceStatus(current, args.workspaceStatuses) === status) {
           continue
         }
-        changedIds.push(worktreeId)
+        changedKeys.push(getWorktreeHostIdentity(current))
         updates.push({
           worktreeId,
           updates: { workspaceStatus: status },
           executionHostId: current.hostId ?? 'local'
         })
       }
-      if (changedIds.length === 0) {
+      if (changedKeys.length === 0) {
         return
       }
       recordInteraction()
       void args.updateWorktreesMeta(updates)
-      args.maybeSyncTaskStatuses(changedIds, status)
+      args.maybeSyncTaskStatuses(changedKeys, status)
     },
     [args]
   )
@@ -167,10 +168,7 @@ export function useWorkspaceKanbanWorktreeActions(args: {
       }
       recordInteraction()
       void args.updateWorktreesMeta(changed)
-      args.maybeSyncTaskStatuses(
-        rows.map((row) => row.id),
-        drop.status
-      )
+      args.maybeSyncTaskStatuses(worktreeKeys, drop.status)
     },
     [args, shouldWriteDropManualOrder]
   )

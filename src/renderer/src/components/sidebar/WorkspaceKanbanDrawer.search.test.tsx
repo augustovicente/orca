@@ -317,7 +317,7 @@ describe('WorkspaceKanbanDrawer search', () => {
 
     expect(syncWorkspaceBoardTaskStatusesMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        worktreeIds: [omega.id],
+        worktreeKeys: [getWorktreeHostIdentity(omega)],
         targetStatus: { id: 'todo', label: 'Todo' }
       })
     )

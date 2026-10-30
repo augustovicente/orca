@@ -126,7 +126,7 @@ function WorkspaceKanbanDrawerContent({
     useWorkspaceKanbanColumnResize(workspaceBoardColumnWidth, setWorkspaceBoardColumnWidth)
   const maybeSyncWorkspaceBoardTaskStatuses = useWorkspaceBoardTaskStatusSync({
     enabled: syncTaskStatusFromWorkspaceBoard,
-    worktreesById: worktreeById,
+    worktreesByKey: worktreeByKey,
     workspaceStatuses: offeredStatuses
   })
   const {
