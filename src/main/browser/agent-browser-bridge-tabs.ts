@@ -53,6 +53,38 @@ export abstract class AgentBrowserBridgeTabs extends AgentBrowserBridgeState {
     }
   }
 
+  protected recordRefPage(browserPageId: string): void {
+    this.refPageByWorktree.set(
+      this.browserManager.getWorktreeIdForTab(browserPageId),
+      browserPageId
+    )
+  }
+
+  // Refs are numbered per page, so another page's ref would silently match an element here.
+  protected assertRefsFromPage(
+    browserPageId: string,
+    elements: readonly (string | undefined)[]
+  ): void {
+    const ref = elements.find((element) => element !== undefined && isSnapshotRef(element))
+    if (!ref) {
+      return
+    }
+    const snapshotPageId = this.refPageByWorktree.get(
+      this.browserManager.getWorktreeIdForTab(browserPageId)
+    )
+    if (!snapshotPageId || snapshotPageId === browserPageId) {
+      return
+    }
+    // The latest snapshot may have been a pinned look elsewhere, so the snapshot hint comes first.
+    const pinnedRetry = this.browserManager.getWebContentsIdByTabId().has(snapshotPageId)
+      ? `, or pass --page ${snapshotPageId} if ${ref} came from that page's snapshot`
+      : ''
+    throw new BrowserError(
+      'browser_stale_ref',
+      `The latest snapshot was of page ${snapshotPageId}, not the current tab (page ${browserPageId}), so ${ref} may point at the wrong element. Run snapshot to get refs for page ${browserPageId}${pinnedRetry}.`
+    )
+  }
+
   private isAgentUsingTab(webContentsId: number): boolean {
     const browserPageId = this.resolveTabIdSafe(webContentsId)
     return browserPageId !== null && this.browserManager.isAgentUsingPage(browserPageId)
@@ -295,4 +327,9 @@ export abstract class AgentBrowserBridgeTabs extends AgentBrowserBridgeState {
 
 function routingKeys(worktreeId: string | undefined): (string | undefined)[] {
   return worktreeId ? [undefined, worktreeId] : [undefined]
+}
+
+// agent-browser reads `@e3`, `ref=e3` and bare `e3` as snapshot refs.
+function isSnapshotRef(element: string): boolean {
+  return /^(?:@|ref=)?e\d+$/.test(element)
 }
