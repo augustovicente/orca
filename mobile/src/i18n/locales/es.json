@@ -283,7 +283,10 @@
       "compaction": "Contexto compactado",
       "contextCleared": "Contexto borrado",
       "plan": "Plan",
-      "stoppedManually": "Detenido manualmente"
+      "stoppedManually": "Detenido manualmente",
+      "permissionDenied": "{{agent}} denegó el permiso. Ver detalles.",
+      "safetyReview": "{{agent}} notificó una advertencia de revisión de seguridad. Ver detalles.",
+      "truncatedResponse": "Respuesta del proveedor truncada (tamaño original: {{bytes}} bytes)."
     },
     "orcaStop": {
       "canContinue": "Puedes continuar en esta conversación.",

@@ -279,7 +279,10 @@
       "compaction": "Bağlam sıkıştırıldı",
       "contextCleared": "Bağlam temizlendi",
       "plan": "Plan",
-      "stoppedManually": "Elle durduruldu"
+      "stoppedManually": "Elle durduruldu",
+      "permissionDenied": "{{agent}} izin vermedi. Ayrıntıları görüntüleyin.",
+      "safetyReview": "{{agent}} bir güvenlik incelemesi uyarısı bildirdi. Ayrıntıları görüntüleyin.",
+      "truncatedResponse": "Sağlayıcı yanıtı kısaltıldı (özgün boyut: {{bytes}} bayt)."
     },
     "orcaStop": {
       "canContinue": "Bu konuşmada devam edebilirsiniz.",

@@ -9,6 +9,7 @@ import { isAdmissibleAgentJournalItemBody } from '../../../../shared/agent-sessi
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { MessageRow } from './NativeChatMessageRow'
 import { NativeChatNoticeRow } from './NativeChatNoticeRow'
+import { nativeChatNoticeLook } from '../../../../shared/native-chat/native-chat-notice'
 import { useAppStore } from '@/store'
 import { i18n } from '@/i18n/i18n'
 import { agentSessionFailureWords } from '../../../../shared/agent-session-failure-words'
@@ -664,3 +665,104 @@ it('renders the localized unacknowledged goal pause through the existing Stop no
     )
   ).toBeInTheDocument()
 })
+
+// Protocol-shaped synthetic notices; no exact recorded review/denial capture is available.
+it.each([
+  [
+    'codex',
+    'notification:guardianWarning',
+    'warning',
+    'Codex reported a safety review warning. View details.',
+    'Codex a signalé un avertissement de sécurité. Voir les détails.'
+  ],
+  [
+    'claude',
+    'message:system:permission_denied',
+    'error',
+    'Claude denied permission. View details.',
+    'Claude a refusé la permission. Voir les détails.'
+  ]
+] as const)(
+  'compacts the declared %s notice while retaining every available diagnostic',
+  async (provider, kind, tone, heading, french) => {
+    const text = `${'安全 '.repeat(1500)}EXPLANATION_SENTINEL`
+    const head = `{"partial":"${'é'.repeat(4500)}PAYLOAD_SENTINEL`
+    renderStatus({
+      kind: 'status',
+      tone,
+      text,
+      providerFrame: {
+        provider,
+        kind,
+        payload: { head, byteLength: 99999, digest: 'synthetic', truncated: true }
+      }
+    })
+    const summary = screen.getByText(heading).closest('summary')!
+    const disclosure = summary.closest('details')!
+    expect(disclosure.open).toBe(false)
+    expect(summary).not.toHaveTextContent(/SENTINEL|99999/)
+    expect(disclosure.parentElement).not.toHaveClass('text-destructive', 'text-chat-warning')
+    fireEvent.click(summary)
+    expect(disclosure.open).toBe(true)
+    const detail = disclosure.querySelector('pre')!
+    expect(detail.textContent).toContain(text)
+    expect(detail.textContent).toContain(head)
+    expect(detail).toHaveTextContent('Provider response truncated (original size: 99999 bytes).')
+    expect(detail).toHaveClass(tone === 'error' ? 'text-destructive' : 'text-chat-warning')
+    expect(screen.queryByText('Show full output')).toBeNull()
+    await act(() => i18n.changeLanguage('fr'))
+    expect(summary).toHaveTextContent(french)
+    expect(detail).toHaveTextContent(
+      'Réponse du fournisseur tronquée (taille d’origine : 99999 octets).'
+    )
+    expect(disclosure.open).toBe(true)
+  }
+)
+
+it.each([
+  { provider: 'codex', kind: 'notification:warning' },
+  { provider: 'codex', kind: 'item/autoApprovalReview/completed' },
+  { provider: 'claude', kind: 'request:canUseTool' },
+  { provider: 'claude', kind: 'notification:guardianWarning' }
+])('does not infer settled permission state from other frame kinds (%j)', (frame) => {
+  expect(
+    nativeChatNoticeLook({
+      type: 'text',
+      text: 'Permission denied automatically',
+      tone: 'error',
+      providerFrame: {
+        ...frame,
+        payload: {
+          head: '{"status":"denied"}',
+          byteLength: 19,
+          digest: 'synthetic',
+          truncated: false
+        }
+      }
+    })
+  ).toEqual({ kind: 'line', tone: 'error' })
+})
+
+it.each([
+  { failure: { kind: 'usageLimitReached' } },
+  { presentation: 'orca-stop' },
+  { presentation: 'plan-document' },
+  { orcaStop: { cause: 'quit' } }
+] as const)(
+  'keeps special presentations and typed failures ahead of permission disclosure (%j)',
+  (special) => {
+    expect(
+      nativeChatNoticeLook({
+        type: 'text',
+        text: 'Existing behavior',
+        tone: 'error',
+        ...special,
+        providerFrame: {
+          provider: 'codex',
+          kind: 'notification:guardianWarning',
+          payload: { head: '{}', byteLength: 2, digest: 'synthetic', truncated: false }
+        }
+      }).kind
+    ).not.toBe('settled-permission')
+  }
+)

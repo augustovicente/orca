@@ -279,7 +279,10 @@
       "compaction": "上下文压缩",
       "contextCleared": "上下文已清除",
       "plan": "计划",
-      "stoppedManually": "已手动停止"
+      "stoppedManually": "已手动停止",
+      "permissionDenied": "{{agent}} 拒绝了权限。查看详情。",
+      "safetyReview": "{{agent}} 报告了安全审查警告。查看详情。",
+      "truncatedResponse": "提供方响应已截断（原始大小：{{bytes}} 字节）。"
     },
     "orcaStop": {
       "canContinue": "您可以在此对话中继续。",

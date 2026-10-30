@@ -2669,7 +2669,10 @@
       "stoppedManually": "Stopped manually",
       "compaction": "Context compacted",
       "contextCleared": "Context cleared",
-      "plan": "Plan"
+      "plan": "Plan",
+      "permissionDenied": "{{agent}} denied permission. View details.",
+      "safetyReview": "{{agent}} reported a safety review warning. View details.",
+      "truncatedResponse": "Provider response truncated (original size: {{bytes}} bytes)."
     },
     "nativeChatProse": {
       "attachedImage": "Attached image",

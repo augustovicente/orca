@@ -1,6 +1,6 @@
-import { useContext } from 'react'
-import { StyleSheet, Text, View } from 'react-native'
-import { AlertCircle, AlertTriangle, Info } from 'lucide-react-native'
+import { useContext, useId, useState } from 'react'
+import { Pressable, StyleSheet, Text, View } from 'react-native'
+import { AlertCircle, AlertTriangle, ChevronRight, Info } from 'lucide-react-native'
 import {
   nativeChatNoticeBlock,
   nativeChatNoticeLook,
@@ -29,6 +29,8 @@ import type { Translate } from '../../../i18n/mobile-i18n'
 import { useMobileTranslation } from '../../../i18n/use-mobile-translation'
 import { NATIVE_CHAT_STOPPED_BEFORE_START_PRESENTATION } from '../../../../../src/shared/native-chat/native-chat-stopped-before-start'
 import { MONO_SIZE, TEXT_SIZE, scaledType } from './mobile-native-chat-message-styles'
+import { MobileNativeChatOwnedScrollView } from '../../MobileNativeChatOwnedScrollView'
+import { toolStyles } from './mobile-native-chat-tool-styles'
 
 function toneColor(tone: NativeChatNoticeTone): string {
   return { warning: colors.statusAmber, error: colors.statusRed, notice: colors.textMuted }[tone]
@@ -69,6 +71,8 @@ export function MobileNativeChatNoticeRow({
 }): React.JSX.Element | null {
   useMobileColorScheme()
   const t = useMobileTranslation()
+  const [expanded, setExpanded] = useState(false)
+  const detailId = useId()
   const copy = nativeChatNoticeCopy(t)
   const names = useContext(MobileNativeChatNoticeContext)
   const notice = nativeChatNoticeBlock(blocks)
@@ -86,6 +90,71 @@ export function MobileNativeChatNoticeRow({
   }
   const look = nativeChatNoticeLook(notice)
   switch (look.kind) {
+    case 'settled-permission': {
+      const agent = names.agentName ?? look.agent
+      const summary =
+        look.decision === 'denied'
+          ? t('chat.notice.permissionDenied', '{{agent}} denied permission. View details.', {
+              agent
+            })
+          : t(
+              'chat.notice.safetyReview',
+              '{{agent}} reported a safety review warning. View details.',
+              {
+                agent
+              }
+            )
+      const payload = notice.providerFrame?.payload
+      return (
+        <View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={summary}
+            accessibilityState={{ expanded }}
+            onPress={() => setExpanded((open) => !open)}
+            style={styles.disclosure}
+          >
+            <ChevronRight
+              size={16 * fontScale}
+              color={colors.textMuted}
+              style={expanded && toolStyles.caretOpen}
+            />
+            <Text numberOfLines={1} style={[aside, styles.summary]}>
+              {summary}
+            </Text>
+          </Pressable>
+          {expanded ? (
+            <MobileNativeChatOwnedScrollView
+              rootIdentity={detailId}
+              positionKey="permission-notice"
+              style={[toolStyles.codeBox, toolStyles.codeScroll]}
+              nestedScrollEnabled
+              keyboardShouldPersistTaps="handled"
+            >
+              <Text
+                selectable={INLINE_TEXT_SELECTION}
+                style={[
+                  toolStyles.codeText,
+                  scaledType(MONO_SIZE, fontScale),
+                  { color: toneColor(look.tone) }
+                ]}
+              >
+                {notice.text}
+                {payload ? '\n\n' : ''}
+                {payload?.truncated
+                  ? `${t(
+                      'chat.notice.truncatedResponse',
+                      'Provider response truncated (original size: {{bytes}} bytes).',
+                      { bytes: payload.byteLength }
+                    )}\n`
+                  : ''}
+                {payload?.head}
+              </Text>
+            </MobileNativeChatOwnedScrollView>
+          ) : null}
+        </View>
+      )
+    }
     case 'divider': {
       const label = copy[look.label]
       return (
@@ -169,6 +238,15 @@ export function MobileNativeChatNoticeRow({
 }
 
 const styles = themedStyleSheet(() => ({
+  disclosure: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.sm
+  },
+  summary: {
+    flex: 1
+  },
   divider: {
     flexDirection: 'row',
     alignItems: 'center',

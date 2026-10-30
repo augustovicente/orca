@@ -279,7 +279,10 @@
       "compaction": "Kontext komprimiert",
       "contextCleared": "Kontext geleert",
       "plan": "Plan",
-      "stoppedManually": "Manuell gestoppt"
+      "stoppedManually": "Manuell gestoppt",
+      "permissionDenied": "{{agent}} hat die Berechtigung verweigert. Details anzeigen.",
+      "safetyReview": "{{agent}} hat eine Warnung zur Sicherheitsprüfung gemeldet. Details anzeigen.",
+      "truncatedResponse": "Anbieterantwort gekürzt (ursprüngliche Größe: {{bytes}} Bytes)."
     },
     "orcaStop": {
       "canContinue": "Die Unterhaltung kann fortgesetzt werden.",
