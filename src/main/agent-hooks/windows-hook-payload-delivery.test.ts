@@ -1,5 +1,10 @@
 // Real payload delivery catches conhost losing stdin and code-page corruption missed by shape assertions.
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  diagnosticInstall,
+  joinNativePreparation,
+  resetNativePreparationTrace
+} from './managed-hook-native-preparation.test-fixture'
 import { runProcess } from '@orca/process-host'
 import { createServer, type Server } from 'node:http'
 import { lstatSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
@@ -427,7 +432,10 @@ describe.skipIf(process.platform !== 'win32')('Windows managed hook payload deli
   let root = ''
   let server: Server | null = null
 
-  afterEach(() => {
+  beforeEach(() => resetNativePreparationTrace())
+
+  afterEach(async () => {
+    await joinNativePreparation(homedirMock())
     vi.unstubAllEnvs()
     bundledHook.path = null
     server?.close()
@@ -450,6 +458,7 @@ describe.skipIf(process.platform !== 'win32')('Windows managed hook payload deli
         vi.stubEnv(name, home)
       }
       vi.stubEnv('APPDATA', join(home, 'AppData', 'Roaming'))
+      vi.stubEnv('ORCA_USER_DATA_PATH', join(home, 'user-data'))
       for (const name of [
         'XDG_CONFIG_HOME',
         'KIRO_HOME',
@@ -463,7 +472,8 @@ describe.skipIf(process.platform !== 'win32')('Windows managed hook payload deli
       seedCmdAutoRunTarget(home)
       const scriptPath = join(home, '.orca', 'agent-hooks', provider.script)
       provider.seedStale?.(home, wrapWindowsHookCommand(scriptPath))
-      expect((await provider.install()).state).toBe('installed')
+      const status = await diagnosticInstall(provider.name, () => provider.install())
+      expect(status.state, JSON.stringify(status)).toBe('installed')
 
       const commands = provider.commands(home)
       expect(commands, 'exactly one managed registration').toHaveLength(1)

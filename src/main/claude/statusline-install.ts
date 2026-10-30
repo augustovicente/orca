@@ -25,36 +25,11 @@ import {
   selectedStatusLineDestination,
   existingStatusLineDestination,
   sameStatusLineDestination,
-  withClaudeSystemScope
+  withClaudeSystemScope,
+  requestClaudeSystemOperation,
+  type SystemOperation
 } from './statusline-ownership'
 import type { ClaudeManagedHookPlan } from './claude-managed-hook-events'
-
-type SystemOperation = { signal?: AbortSignal; shouldContinue?: () => boolean }
-const operations = new Map<string, AbortController>()
-
-function request(home: string, options: SystemOperation) {
-  operations.get(home)?.abort()
-  const controller = new AbortController()
-  operations.set(home, controller)
-  const signal = options.signal
-    ? AbortSignal.any([controller.signal, options.signal])
-    : controller.signal
-  const check = () => {
-    signal.throwIfAborted()
-    if (options.shouldContinue?.() === false) {
-      throw new Error('Claude hook installation was canceled')
-    }
-  }
-  return {
-    signal,
-    check,
-    finish: () => {
-      if (operations.get(home) === controller) {
-        operations.delete(home)
-      }
-    }
-  }
-}
 
 function parseCurrent(raw: string | null): HooksConfig {
   const config = raw === null ? {} : parseHooksJsonText(raw)
@@ -74,7 +49,7 @@ export async function installClaudeSystemHooks(
   options: SystemOperation = {}
 ) {
   const home = homedir()
-  const invocation = request(home, options)
+  const invocation = requestClaudeSystemOperation(home, options)
   const admission = AbortSignal.any([invocation.signal, AbortSignal.timeout(2000)])
   try {
     await withClaudeSystemScope(
@@ -82,7 +57,7 @@ export async function installClaudeSystemHooks(
       admission,
       async (ownership) => {
         let initial: { raw: string | null; config: HooksConfig } = { raw: null, config: {} }
-        await writeHooksJsonAsync(
+        const selectedPath = await writeHooksJsonAsync(
           path,
           {},
           {
@@ -102,17 +77,25 @@ export async function installClaudeSystemHooks(
           writeManagedScript(scriptPath, getManagedStatusLineScript('local'))
         }
         const command = getManagedStatusLineCommand(scriptPath)
-        const store = ownership()
+        const prepared: { store?: ReturnType<typeof ownership> } = {}
         let destination!: NativeHookDestination
         let priorManaged = false
         let journaled = false
         let publishedManaged = false
         let protectDeletion = false
         await writeHooksJsonAsync(
-          path,
+          selectedPath ?? path,
           {},
           {
             prepare: async (selected) => {
+              if (selectedPath === null) {
+                initial = await readSystemHookSettings(selected)
+                if (getStatusLineSlotState(initial.config) === 'user') {
+                  return
+                }
+              }
+              const store = ownership()
+              prepared.store = store
               destination = await readStatusLineEvidence(admission, async () => {
                 await store.read()
                 return await selectedStatusLineDestination(selected)
@@ -164,6 +147,10 @@ export async function installClaudeSystemHooks(
             beforePublish: async () => invocation.check()
           }
         )
+        const store = prepared.store
+        if (!store) {
+          return
+        }
         if (publishedManaged) {
           // Admitted publication and its receipt stay joined through real completion.
           const published = await selectedStatusLineDestination(destination.path)
@@ -199,7 +186,7 @@ export async function installClaudeSystemHooks(
 
 export async function removeClaudeSystemHooks(path: string, options: SystemOperation = {}) {
   const home = homedir()
-  const invocation = request(home, options)
+  const invocation = requestClaudeSystemOperation(home, options)
   const admission = AbortSignal.any([invocation.signal, AbortSignal.timeout(2000)])
   try {
     await withClaudeSystemScope(
@@ -208,11 +195,12 @@ export async function removeClaudeSystemHooks(path: string, options: SystemOpera
       async (ownership) => {
         const errors: string[] = []
         const targets = new Set([path, getConfigPath(CLAUDE_HOOK_SETTINGS)])
+        const selectedTargets = new Set<string>()
         // Event teardown is independent of optional callback authority at both known targets.
         for (const target of targets) {
           try {
             invocation.check()
-            await writeHooksJsonAsync(
+            const selected = await writeHooksJsonAsync(
               target,
               {},
               {
@@ -227,6 +215,9 @@ export async function removeClaudeSystemHooks(path: string, options: SystemOpera
                 beforePublish: async () => invocation.check()
               }
             )
+            if (selected) {
+              selectedTargets.add(selected)
+            }
           } catch (error) {
             errors.push(String(error))
           }
@@ -236,7 +227,7 @@ export async function removeClaudeSystemHooks(path: string, options: SystemOpera
           const destinations: NativeHookDestination[] = []
           await readStatusLineEvidence(admission, async () => {
             await store.read()
-            for (const target of targets) {
+            for (const target of selectedTargets) {
               try {
                 const selected = await existingStatusLineDestination(target)
                 if (selected) {

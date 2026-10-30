@@ -11,7 +11,7 @@ import {
   rename,
   rm
 } from 'node:fs/promises'
-import { dirname } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 
 export type NativeHookDestination = {
   path: string
@@ -28,18 +28,33 @@ export async function writeHooksJsonAsync(
     updateConfig?: (original: string | null) => Record<string, unknown> | null
     beforePublish?: (selectedPath: string) => Promise<void>
   }
-): Promise<void> {
+): Promise<string | null> {
   const link = await lstat(configPath).catch((error: unknown) => {
     if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
       return null
     }
     throw error
   })
-  const writePath = link?.isSymbolicLink() ? await realpath(configPath) : configPath
-  if (options?.updateConfig && options.prepare) {
-    await mkdir(dirname(writePath), { recursive: true })
-    await options.prepare?.(writePath)
+  let writePath: string
+  if (link) {
+    writePath = await realpath(configPath)
+  } else {
+    let parent = await realpath(dirname(configPath)).catch((error: unknown) => {
+      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+        return null
+      }
+      throw error
+    })
+    if (parent === null) {
+      if (options?.updateConfig && !options.prepare && options.updateConfig(null) === null) {
+        return null
+      }
+      await mkdir(dirname(configPath), { recursive: true })
+      parent = await realpath(dirname(configPath))
+    }
+    writePath = join(parent, basename(configPath))
   }
+  await options?.prepare?.(writePath)
   const original = await readFile(writePath, 'utf8').catch((error: unknown) => {
     if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
       return null
@@ -48,7 +63,7 @@ export async function writeHooksJsonAsync(
   })
   const next = options?.updateConfig ? options.updateConfig(original) : config
   if (next === null) {
-    return
+    return writePath
   }
   const serialized = options?.serialized ?? `${JSON.stringify(next, null, 2)}\n`
   const beforePublish = async () => {
@@ -62,7 +77,7 @@ export async function writeHooksJsonAsync(
     if (options?.privateMode && process.platform !== 'win32') {
       await chmod(writePath, 0o600)
     }
-    return
+    return writePath
   }
   await mkdir(dirname(writePath), { recursive: true })
   const mode = options?.privateMode
@@ -99,4 +114,5 @@ export async function writeHooksJsonAsync(
   } finally {
     await Promise.all([rm(tmp, { force: true }), rm(backupTmp, { force: true })])
   }
+  return writePath
 }

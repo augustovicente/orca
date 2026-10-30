@@ -206,7 +206,7 @@ export async function installManagedAgentHooks(
     })
     results.push(agent === 'claude' ? installing : await installing)
   }
-  return await Promise.all(results)
+  return await Promise.all(results.map((result) => Promise.resolve(result)))
 }
 
 export async function removeManagedAgentHooks(

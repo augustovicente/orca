@@ -12,6 +12,33 @@ import {
   type NativeHookDestination
 } from '../agent-hooks/hooks-json-write-async'
 
+export type SystemOperation = { signal?: AbortSignal; shouldContinue?: () => boolean }
+const operations = new Map<string, AbortController>()
+
+export function requestClaudeSystemOperation(home: string, options: SystemOperation) {
+  operations.get(home)?.abort()
+  const controller = new AbortController()
+  operations.set(home, controller)
+  const signal = options.signal
+    ? AbortSignal.any([controller.signal, options.signal])
+    : controller.signal
+  const check = () => {
+    signal.throwIfAborted()
+    if (options.shouldContinue?.() === false) {
+      throw new Error('Claude hook installation was canceled')
+    }
+  }
+  return {
+    signal,
+    check,
+    finish: () => {
+      if (operations.get(home) === controller) {
+        operations.delete(home)
+      }
+    }
+  }
+}
+
 export type StatusLineOwner = NativeHookDestination & { phase: 'managed' | 'own-change' }
 
 let evidenceChains = 0

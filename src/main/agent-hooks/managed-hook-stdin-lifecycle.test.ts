@@ -1,5 +1,10 @@
 // POSIX hooks drain before exit; Windows missing-context hooks may exit without owning stdin.
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  diagnosticInstall,
+  joinNativePreparation,
+  resetNativePreparationTrace
+} from './managed-hook-native-preparation.test-fixture'
 import type * as CodexHookHashLookup from '../codex/codex-hook-hash-lookup'
 import { runProcess, spawnProcess } from '@orca/process-host'
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
@@ -8,119 +13,13 @@ import { join } from 'node:path'
 import type { SFTPWrapper } from 'ssh2'
 import type * as osModule from 'node:os'
 import type * as NativeHookExecutableModule from './windows-native-hook-executable'
-import type * as OwnerIdentity from './managed-hook-owner-identity'
-import type * as LockRecords from './managed-hook-lock-records'
-import type * as ChildProcess from 'node:child_process'
 import { withClaudeSystemScope } from '../claude/statusline-ownership'
-
-const trace = vi.hoisted(
-  (): {
-    phases: { phase: string; started: number; elapsed?: number; error?: string }[]
-    probes: number
-    nativePlatform: NodeJS.Platform
-  } => ({ phases: [], probes: 0, nativePlatform: process.platform })
-)
-async function phase<T>(name: string, run: () => Promise<T>): Promise<T> {
-  const started = performance.now()
-  const row: (typeof trace.phases)[number] = { phase: name, started }
-  if (trace.phases.length < 64) {
-    trace.phases.push(row)
-  }
-  try {
-    return await run()
-  } catch (error) {
-    row.error = String(error)
-    throw error
-  } finally {
-    row.elapsed = performance.now() - started
-  }
-}
-vi.mock('./managed-hook-owner-identity', async (original) => {
-  const actual = await original<typeof OwnerIdentity>()
-  return {
-    ...actual,
-    readManagedHookHostIdentity: () => phase('host', () => actual.readManagedHookHostIdentity()),
-    readManagedHookProcessIdentity: (
-      ...args: Parameters<typeof actual.readManagedHookProcessIdentity>
-    ) =>
-      phase(args[0] === process.pid ? 'self' : 'other-owner', () =>
-        actual.readManagedHookProcessIdentity(...args)
-      )
-  }
-})
-vi.mock('./managed-hook-lock-records', async (original) => {
-  const actual = await original<typeof LockRecords>()
-  return {
-    ...actual,
-    cleanupManagedHookLockFiles: (...args: Parameters<typeof actual.cleanupManagedHookLockFiles>) =>
-      phase('shared-preparation-cleanup', () => actual.cleanupManagedHookLockFiles(...args))
-  }
-})
-vi.mock('node:child_process', async (original) => {
-  const { promisify } = await import('node:util')
-  const actual = await original<typeof ChildProcess>()
-  const asyncExec = promisify(actual.execFile)
-  const execFile = vi.fn<typeof actual.execFile>((...args) => {
-    trace.probes++
-    return actual.execFile(...args)
-  })
-  Object.defineProperty(execFile, promisify.custom, {
-    value: (...args: Parameters<typeof asyncExec>) => {
-      trace.probes++
-      return phase(`probe:${args[0].split(/[\\/]/).pop()}`, () => asyncExec(...args))
-    }
-  })
-  return { ...actual, execFile }
-})
-async function diagnosticInstall<T>(name: string, run: () => Promise<T>): Promise<T> {
-  const started = performance.now()
-  const probes = trace.probes
-  try {
-    const result = await run()
-    console.log(
-      'NATIVE_HOOK_INSTALL',
-      JSON.stringify({
-        name,
-        nativePlatform: trace.nativePlatform,
-        platform: process.platform,
-        elapsed: performance.now() - started,
-        probes: trace.probes - probes,
-        result,
-        phases: trace.phases.map((row) => ({
-          ...row,
-          pending: row.elapsed === undefined,
-          elapsed: row.elapsed ?? performance.now() - row.started
-        }))
-      })
-    )
-    return result
-  } catch (error) {
-    console.log(
-      'NATIVE_HOOK_INSTALL',
-      JSON.stringify({
-        name,
-        nativePlatform: trace.nativePlatform,
-        platform: process.platform,
-        elapsed: performance.now() - started,
-        probes: trace.probes - probes,
-        error: String(error),
-        phases: trace.phases.map((row) => ({
-          ...row,
-          pending: row.elapsed === undefined,
-          elapsed: row.elapsed ?? performance.now() - row.started
-        }))
-      })
-    )
-    throw error
-  }
-}
 
 let isolatedUserDataDir = ''
 let previousUserDataPath: string | undefined
 
 beforeEach(() => {
-  trace.phases = []
-  trace.probes = 0
+  resetNativePreparationTrace()
   vi.stubEnv('GROK_HOME', undefined)
   vi.stubEnv('KIMI_CODE_HOME', undefined)
   vi.stubEnv('COPILOT_HOME', undefined)
@@ -132,7 +31,8 @@ beforeEach(() => {
   process.env.ORCA_USER_DATA_PATH = isolatedUserDataDir
 })
 
-afterEach(() => {
+afterEach(async () => {
+  await joinNativePreparation(homedirMock())
   if (previousUserDataPath === undefined) {
     delete process.env.ORCA_USER_DATA_PATH
   } else {
@@ -377,14 +277,15 @@ async function generatePosixScripts(onlyAgent?: string): Promise<Map<string, str
 // Keep the platform override pinned across asynchronous installers.
 async function withPlatform<T>(platform: NodeJS.Platform, run: () => T | Promise<T>): Promise<T> {
   const original = Object.getOwnPropertyDescriptor(process, 'platform')
-  // Capture real ownership before the generated-script platform override.
-  await diagnosticInstall('real-ownership-before-platform-override', () =>
-    withClaudeSystemScope(homedirMock(), AbortSignal.timeout(2000), async () => {})
-  )
-  Object.defineProperty(process, 'platform', { configurable: true, value: platform })
   try {
+    // Capture real ownership before the generated-script platform override.
+    await diagnosticInstall('real-ownership-before-platform-override', () =>
+      withClaudeSystemScope(homedirMock(), AbortSignal.timeout(2000), async () => {})
+    )
+    Object.defineProperty(process, 'platform', { configurable: true, value: platform })
     return await run()
   } finally {
+    await joinNativePreparation(homedirMock())
     if (original) {
       Object.defineProperty(process, 'platform', original)
     }
@@ -475,6 +376,7 @@ describe('Windows managed hook stdin structure', () => {
         ).toBeLessThan(decoded.indexOf('[Console]::In.ReadToEnd()'))
       }
     } finally {
+      await joinNativePreparation(home)
       homedirMock.mockImplementation(() => process.env.HOME ?? tmpdir())
       if (previousGrokHome === undefined) {
         delete process.env.GROK_HOME
@@ -608,6 +510,7 @@ describe('Windows managed hook stdin structure', () => {
           expect(abandoned.exitCode, `${launcher.name} abandoned-stdin exit code`).toBe(0)
         }
       } finally {
+        await joinNativePreparation(home)
         homedirMock.mockImplementation(() => process.env.HOME ?? tmpdir())
         rmSync(home, { recursive: true, force: true })
       }
@@ -682,6 +585,7 @@ describe('Windows managed hook stdin structure', () => {
           }
         }
       } finally {
+        await joinNativePreparation(home)
         bundledHook.path = null
         homedirMock.mockImplementation(() => process.env.HOME ?? tmpdir())
         rmSync(home, { recursive: true, force: true })
