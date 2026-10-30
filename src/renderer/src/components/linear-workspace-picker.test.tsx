@@ -30,6 +30,10 @@ it('offers All and each workspace, and keeps the scope control for a single work
 
   rerender(<LinearWorkspacePicker workspaces={[second]} value="second" onChange={onChange} />)
   expect(trigger.textContent).toBe('Second workspace')
+  onChange.mockClear()
+  rerender(<LinearWorkspacePicker workspaces={[first]} value="second" onChange={onChange} />)
+  expect(trigger.textContent).toBe('Unavailable Linear workspace')
+  expect(onChange).not.toHaveBeenCalled()
   fireEvent.click(trigger)
   fireEvent.click(await screen.findByRole('option', { name: 'All Linear workspaces' }))
   expect(onChange).toHaveBeenLastCalledWith('all')

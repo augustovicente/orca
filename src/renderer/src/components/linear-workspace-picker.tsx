@@ -23,7 +23,15 @@ export function LinearWorkspacePicker({
         searchText: `${workspace.organizationName} ${workspace.displayName} ${workspace.id}`
       }))}
       selectedKey={value === 'all' ? null : (value ?? null)}
-      selectedLabel={selected?.organizationName}
+      selectedLabel={
+        value && value !== 'all'
+          ? (selected?.organizationName ??
+            translate(
+              'components.linearWorkspacePicker.unavailable',
+              'Unavailable Linear workspace'
+            ))
+          : undefined
+      }
       onChange={(workspaceId) => onChange(workspaceId ?? 'all')}
       label={translate('components.linearWorkspacePicker.label', 'Linear workspace')}
       allLabel={translate('components.linearWorkspacePicker.all', 'All Linear workspaces')}

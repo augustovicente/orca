@@ -20506,6 +20506,13 @@
     "JiraIssueWorkspace": {
       "pendingChange": "Another issue change is in progress."
     },
+    "linearWorkspacePicker": {
+      "search": "Search Linear workspaces",
+      "empty": "No workspaces found.",
+      "label": "Linear workspace",
+      "all": "All Linear workspaces",
+      "unavailable": "Unavailable Linear workspace"
+    },
     "jiraProjectPicker": {
       "search": "Search Jira projects",
       "empty": "No projects found.",

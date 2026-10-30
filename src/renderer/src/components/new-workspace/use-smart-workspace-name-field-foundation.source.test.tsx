@@ -82,6 +82,14 @@ function props(context?: TaskSourceContext): NormalizedWorkItemSourceSearchProps
   }
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((res) => {
+    resolve = res
+  })
+  return { promise, resolve }
+}
+
 describe('smart workspace explicit source connection', () => {
   afterEach(cleanup)
 
@@ -175,25 +183,19 @@ describe('smart workspace explicit source connection', () => {
         ? [first, second]
         : [first, second].filter((issue) => issue.workspaceId === options.workspaceId)
     )
+    const fieldProps = props(source)
     const { result, rerender, unmount } = renderHook(
       ({ context, query }) => {
-        const foundation = useWorkItemSourceFoundation({
-          ...props(context),
+        return useWorkItemSourceSearch({
+          ...fieldProps,
+          linearSourceContext: context,
+          value: query,
           defaultLinearWorkspaceId: 'all'
         })
-        useSmartWorkspaceSecondarySearches({
-          foundation,
-          shouldQueryLinear: foundation.linearAvailable,
-          linearQuery: query,
-          linearUrlIntent: null,
-          linearUrlIntentOwnsInput: false,
-          shouldQueryJira: false,
-          jiraSearchQuery: null
-        })
-        return foundation
       },
       { initialProps: { context: source, query: '' } }
     )
+    act(() => result.current.setMode('linear'))
     await waitFor(() =>
       expect(mocks.state.listLinearIssues).toHaveBeenCalledWith(
         { kind: 'list', filter: 'assigned', limit: 12 },
@@ -202,8 +204,13 @@ describe('smart workspace explicit source connection', () => {
     )
     rerender({ context: source, query: 'launch' })
     await waitFor(() => expect(result.current.linearIssues).toEqual([first, second]))
+    const pendingSecond = deferred<LinearIssue[]>()
+    mocks.state.searchLinearIssues.mockReturnValueOnce(pendingSecond.promise)
     act(() => result.current.setLinearWorkspaceId('second'))
-    await waitFor(() => expect(result.current.linearIssues).toEqual([second]))
+    expect(result.current.linearLoading).toBe(true)
+    expect(result.current.searchResultRows).toEqual([])
+    await act(async () => pendingSecond.resolve([second]))
+    expect(result.current.searchResultRows).toMatchObject([{ kind: 'linear', issue: second }])
     expect(mocks.state.searchLinearIssues).toHaveBeenLastCalledWith('launch', 12, {
       sourceContext: source,
       workspaceId: 'second'
@@ -213,7 +220,27 @@ describe('smart workspace explicit source connection', () => {
 
     act(() => result.current.setLinearWorkspaceId('all'))
     await waitFor(() => expect(result.current.linearIssues).toEqual([first, second]))
+    const pendingAll = deferred<LinearIssue[]>()
+    mocks.state.searchLinearIssues.mockReturnValueOnce(pendingAll.promise)
+    rerender({ context: source, query: 'launch later' })
+    await waitFor(() =>
+      expect(mocks.state.searchLinearIssues).toHaveBeenLastCalledWith('launch later', 12, {
+        sourceContext: source,
+        workspaceId: 'all'
+      })
+    )
+    expect(result.current.linearIssues).toEqual([first, second])
+    act(() => result.current.setLinearWorkspaceId('first'))
+    await waitFor(() => expect(result.current.linearIssues).toEqual([first]))
+    const replacementSecond = deferred<LinearIssue[]>()
+    mocks.state.searchLinearIssues.mockReturnValueOnce(replacementSecond.promise)
     act(() => result.current.setLinearWorkspaceId('second'))
+    expect(result.current.searchResultRows).toEqual([])
+    expect(result.current.linearLoading).toBe(true)
+    await act(async () => replacementSecond.resolve([second]))
+    await act(async () => pendingAll.resolve([first, second]))
+    expect(result.current.searchResultRows).toMatchObject([{ kind: 'linear', issue: second }])
+    expect(result.current.linearLoading).toBe(false)
     const otherHost: TaskSourceContext = { ...source, hostId: 'runtime:other-host' }
     rerender({ context: otherHost, query: 'launch' })
     await waitFor(() =>
