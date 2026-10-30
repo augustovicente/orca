@@ -73,7 +73,7 @@ export function MacosSupportNoticeDialog({
                 : cannotUpgrade
                   ? translate(
                       'macosSupport.omarchyDescription',
-                      'This Mac has reached Apple’s upgrade limit. You can keep using Orca on Omarchy, a Linux desktop.'
+                      'Apple doesn’t support macOS 13 on this Mac. Orca also runs on Omarchy, a Linux desktop.'
                     )
                   : translate(
                       'macosSupport.unknownDescription',

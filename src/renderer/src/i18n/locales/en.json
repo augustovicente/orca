@@ -23124,7 +23124,7 @@
     "description": "A future version of Orca will require macOS 13 or later.",
     "checking": "Checking whether this Mac can upgrade…",
     "upgradeDescription": "Your Mac can upgrade. Update macOS to keep receiving Orca updates.",
-    "omarchyDescription": "This Mac has reached Apple’s upgrade limit. You can keep using Orca on Omarchy, a Linux desktop.",
+    "omarchyDescription": "Apple doesn’t support macOS 13 on this Mac. Orca also runs on Omarchy, a Linux desktop.",
     "unknownDescription": "We couldn’t confirm an upgrade for this Mac. Apple’s compatibility guide can help.",
     "omarchyBackup": "Installing Omarchy replaces macOS. Back up your files first.",
     "whyTitle": "Why is this changing?",
