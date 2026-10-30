@@ -111,11 +111,7 @@ export const ORCHESTRATION_WORKER_START_METHODS = [
           orchestrationMutation,
           callerSession: orchestrationCaller
         })
-        return withRun(
-          withWorkerStartNext(
-            receipt && typeof receipt === 'object' ? { ...receipt, mode } : receipt
-          )
-        )
+        return withRun(receipt && typeof receipt === 'object' ? { ...receipt, mode } : receipt)
       }
       const receipt = await startLocalWorker({
         params: { ...params, timeoutMs: readinessTimeoutMs },

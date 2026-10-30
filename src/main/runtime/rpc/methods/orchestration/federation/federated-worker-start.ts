@@ -7,7 +7,8 @@ import {
   ORCHESTRATION_FEDERATION_CONTROL_MAIL_RUNTIME_CAPABILITY,
   ORCHESTRATION_FEDERATION_LIFECYCLE_SETTLEMENT_PROTOCOL_VERSION,
   ORCHESTRATION_FEDERATION_LIFECYCLE_SETTLEMENT_RUNTIME_CAPABILITY,
-  ORCHESTRATION_FEDERATION_RUNTIME_CAPABILITY
+  ORCHESTRATION_FEDERATION_RUNTIME_CAPABILITY,
+  ORCHESTRATION_WORKER_TURN_STOP_REPORTS_RUNTIME_CAPABILITY
 } from '../../../../../../shared/protocol-version'
 import { orchestrationMigrationData } from '../../../../../../shared/orchestration-rpc-contract'
 import type { OrcaRuntimeService } from '../../../../orca-runtime'
@@ -33,6 +34,7 @@ import {
   isKnownRemoteStartFailure
 } from './federated-worker-start-receipts'
 import { releaseRetriedWorkerTerminal } from '../worker/retried-worker-terminal-release'
+import { withWorkerStartNext } from '../receipt-next'
 
 export async function startFederatedWorker(args: {
   params: WorkerStartInput
@@ -231,7 +233,10 @@ export async function startFederatedWorker(args: {
       })
       const readyWorker = db.markWorkerDispatchReady(started.dispatch.id)
       runtime.ensureOrchestrationFederationRelay(runId)
-      return {
+      const reportsTurnStops = status.capabilities?.includes(
+        ORCHESTRATION_WORKER_TURN_STOP_REPORTS_RUNTIME_CAPABILITY
+      )
+      const ready = {
         runId,
         taskId: taskForRemote.id,
         dispatchId: started.dispatch.id,
@@ -244,6 +249,10 @@ export async function startFederatedWorker(args: {
         effects: remote.effects ?? [],
         residualResources: remote.residualResources ?? []
       }
+      return withWorkerStartNext(
+        ready,
+        reportsTurnStops ? undefined : { name: server.name, dispatchId: started.dispatch.id }
+      )
     }
     if (remote.state === 'outcome_unknown') {
       const worker = db.markWorkerStartUnknown(
