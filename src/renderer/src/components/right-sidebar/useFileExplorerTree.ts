@@ -217,14 +217,18 @@ export function useFileExplorerTree(
 
   const requestDir = useCallback(
     (dirPath: string) => {
-      if (!worktreePath || (!needsRead(dirPath) && !loadingDirPathsRef.current.has(dirPath))) {
-        return
+      if (
+        worktreePath &&
+        (needsRead(dirPath) ||
+          loadingDirPathsRef.current.has(dirPath) ||
+          dirCacheRef.current[dirPath]?.error !== undefined)
+      ) {
+        const depth = getDirectoryReadDepth(worktreePath, dirPath)
+        // A genuine request may retry a failure or supersede unfinished passive work.
+        void loadDir(dirPath, depth, { force: true, wakeWslDistro: true })
       }
-      const depth = getDirectoryReadDepth(worktreePath, dirPath)
-      // A real gesture supersedes an unfinished background read so its wake permission cannot be swallowed.
-      void loadDir(dirPath, depth, { force: true, wakeWslDistro: true })
     },
-    [loadDir, loadingDirPathsRef, needsRead, worktreePath]
+    [dirCacheRef, loadDir, loadingDirPathsRef, needsRead, worktreePath]
   )
 
   const refreshDir = useCallback(
@@ -261,8 +265,6 @@ export function useFileExplorerTree(
     [staleDirsRef]
   )
 
-  const rootCache = worktreePath ? dirCache[worktreePath] : undefined
-
   const resetAndLoad = useCallback(
     (options?: { wakeWslDistro?: boolean }) => {
       retireView()
@@ -292,7 +294,7 @@ export function useFileExplorerTree(
     setDirCache,
     sourceWorkspaceId,
     loadingDirPaths: visibleLoadingDirs,
-    rootCache,
+    rootCache: worktreePath ? dirCache[worktreePath] : undefined,
     rootError,
     loadDir,
     observeDirForReveal,

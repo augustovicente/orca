@@ -162,20 +162,23 @@ export function renderInteractionTree(owner: FileExplorerOperationOwner, storeNa
       observeElementOffset: vi.fn()
     })
     virtualizer.getTotalSize = () => count * 26
-    virtualizer.getVirtualItems = () =>
-      Array.from({ length: count }, (_, index) => {
-        const inline = input.inlineInputIndex >= 0 && index === input.inlineInputIndex
-        const rowIndex =
-          input.inlineInputIndex >= 0 && index > input.inlineInputIndex ? index - 1 : index
-        return {
-          index,
-          key: inline ? '__inline_input__' : projection.getRowAtIndex(rowIndex)!.path,
-          start: index * 26,
-          end: (index + 1) * 26,
-          size: 26,
-          lane: 0
-        }
-      })
+    virtualizer.getVirtualItems = Object.assign(
+      () =>
+        Array.from({ length: count }, (_, index) => {
+          const inline = input.inlineInputIndex >= 0 && index === input.inlineInputIndex
+          const rowIndex =
+            input.inlineInputIndex >= 0 && index > input.inlineInputIndex ? index - 1 : index
+          return {
+            index,
+            key: inline ? '__inline_input__' : projection.getRowAtIndex(rowIndex)!.path,
+            start: index * 26,
+            end: (index + 1) * 26,
+            size: 26,
+            lane: 0
+          }
+        }),
+      { updateDeps: virtualizer.getVirtualItems.updateDeps }
+    )
     virtualizer.measureElement = () => {}
     return (
       <FileExplorerVirtualRows

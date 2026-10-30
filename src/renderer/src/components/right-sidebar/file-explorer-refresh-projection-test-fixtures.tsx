@@ -1,5 +1,6 @@
 import { hasPropertyKey } from './file-explorer-expanded-refresh-test-support'
 import type * as Module0 from 'react'
+import { useCallback } from 'react'
 import type * as Module1 from './use-file-explorer-directory-loads'
 import type * as Module2 from './file-explorer-dir-load-tracker'
 import type * as Module3 from './file-explorer-stale-dir-cache'
@@ -12,6 +13,10 @@ import type { DirEntry } from '../../../../shared/filesystem-entry-types'
 import { cleanup } from '@testing-library/react'
 import { afterEach, vi } from 'vitest'
 import { useAppStore } from '@/store'
+
+const childListingCacheWork = vi.hoisted(() => ({
+  wrap: (cache: Record<string, DirCache>) => cache
+}))
 
 const lifetimeWork = vi.hoisted(() => ({
   owners: Array<ReturnType<typeof useFileExplorerDirectoryLoads>>(),
@@ -58,9 +63,17 @@ vi.mock('./use-file-explorer-directory-loads', async (original) => {
       ...args: Parameters<typeof actual.useFileExplorerDirectoryLoads>
     ) => {
       const owner = actual.useFileExplorerDirectoryLoads(...args)
+      const storeDirCache = owner.setDirCache
+      const setDirCache = useCallback<typeof storeDirCache>(
+        (update) =>
+          storeDirCache((prev) =>
+            childListingCacheWork.wrap(typeof update === 'function' ? update(prev) : update)
+          ),
+        [storeDirCache]
+      )
       lifetimeWork.owners[0] = owner
       lifetimeWork.loadingOwners.set(owner.updateLoadingDirPaths, owner)
-      return owner
+      return { ...owner, setDirCache }
     }
   }
 })
@@ -257,6 +270,7 @@ export function listing(...entries: DirEntry[]) {
 }
 
 afterEach(() => {
+  childListingCacheWork.wrap = (cache) => cache
   lifetimeWork.measuring = false
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
@@ -264,4 +278,4 @@ afterEach(() => {
   useAppStore.setState(initialAppState, true)
 })
 
-export { lifetimeWork, loadingWork, structuralWork, readDirectoryMock }
+export { lifetimeWork, loadingWork, structuralWork, readDirectoryMock, childListingCacheWork }

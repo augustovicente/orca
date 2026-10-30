@@ -95,8 +95,7 @@ export function useFileExplorerDirectoryLoads(
         updateLoadingDirPaths((prev) => clearFileExplorerDirsLoading(prev, [dirPath]))
       })
       token.started = true
-      const cache = dirCacheRef.current
-      const cached = cache[dirPath]
+      const cached = dirCacheRef.current[dirPath]
       const execution = (async (): Promise<ReadOutcome> => {
         try {
           setDirCache((prev) => withPendingFileExplorerDirCacheEntries(prev, [dirPath]))
@@ -105,7 +104,9 @@ export function useFileExplorerDirectoryLoads(
             wakeWslDistro: options.wakeWslDistro,
             paged: cached?.paged,
             minEntries: cached?.children.length,
-            ...(canFollowFolderLink(cache, dirPath, options.wakeWslDistro) ? FOLLOW_LINK : {})
+            ...(canFollowFolderLink(dirCacheRef.current, dirPath, options.wakeWslDistro)
+              ? FOLLOW_LINK
+              : {})
           })
           if (!tracker.isCurrent(token) || signal.aborted || (canCommit && !canCommit())) {
             return 'superseded'

@@ -19,6 +19,7 @@ import type {
   TreeNode
 } from './file-explorer-types'
 import { shouldIncludeFileExplorerEntry } from './file-explorer-entries'
+import { hasExactFileExplorerSymlink } from './file-explorer-child-listing'
 import {
   parentDirForWatchPath,
   resolveCachedDirPath,
@@ -158,7 +159,7 @@ export function canFollowFolderLink(
     gesture === true ||
     cache[dirPath]?.outsideProject === true ||
     parent?.outsideProject === true ||
-    parent?.children.some((child) => child.path === dirPath && child.isSymlink === true) === true
+    (parent !== undefined && hasExactFileExplorerSymlink(parent.children, dirPath))
   )
 }
 
