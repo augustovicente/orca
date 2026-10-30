@@ -214,7 +214,7 @@ function launchSupervisor(
   const launch = supervisedPosixLaunch(provider, { ...process.env, ...env }, options)
   const supervisor = spawn(launch.command, [...nodeArgs, ...launch.args], {
     env: launch.env,
-    stdio: ['pipe', 'pipe', stderr, ...(options.installedFallback ? ['ipc'] : [])],
+    stdio: ['pipe', 'pipe', stderr, ...(options.installedFallback ? ['ipc' as const] : [])],
     detached: true
   })
   recordedPids.add(supervisor.pid!)

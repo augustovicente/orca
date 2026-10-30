@@ -1,4 +1,4 @@
-import type { ChildProcess } from 'node:child_process'
+import type { ChildProcessHandle } from '@orca/process-host/process-spec'
 import { runCliFsReadsAsync } from '../../shared/cli-fs-reads'
 import { installedCliRuntimeDirectory } from '../../shared/cli-runtime-pairing-inputs'
 import { installedCliCandidates } from '../../shared/node-cli-command-resolution'
@@ -18,7 +18,7 @@ type InstalledLookupContext = {
 
 /** One ephemeral inventory; late filesystem completions cannot revive a closed launch. */
 export function attachSourceControlInstallFallback(
-  child: ChildProcess,
+  child: ChildProcessHandle,
   context: InstalledLookupContext
 ): void {
   let active = true
