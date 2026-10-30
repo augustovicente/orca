@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { ActivityIndicator, Pressable, Text, View } from 'react-native'
 import { MobileLoadErrorState } from '../components/MobileLoadErrorState'
 import { useNativeVerbs } from '../mobile-web-shell/bridge/use-native-verbs'
-import { translate } from '../i18n/mobile-i18n'
+import { useMobileTranslation } from '../i18n/use-mobile-translation'
 import { colors } from '../theme/mobile-theme'
 import type { MobileFileMedia } from './mobile-file-media'
 import { filePreviewStyles as styles } from './mobile-file-preview-styles'
@@ -12,6 +12,7 @@ type Props = { media: MobileFileMedia; title: string }
 type State = { status: 'idle' | 'opening' | 'opened' } | { status: 'error' }
 
 export function MobilePdfHandoff({ media, title }: Props) {
+  const t = useMobileTranslation()
   const verbs = useNativeVerbs()
   const [state, setState] = useState<State>({ status: 'idle' })
 
@@ -20,7 +21,7 @@ export function MobilePdfHandoff({ media, title }: Props) {
     return (
       <View style={styles.state}>
         <Text style={styles.stateText}>
-          {translate('files.pdfHandoff.updateApp', 'Update the app to open PDFs on this device.')}
+          {t('files.pdfHandoff.updateApp', 'Update the app to open PDFs on this device.')}
         </Text>
       </View>
     )
@@ -42,7 +43,7 @@ export function MobilePdfHandoff({ media, title }: Props) {
   if (state.status === 'error') {
     return (
       <MobileLoadErrorState
-        message={translate(
+        message={t(
           'files.pdfHandoff.openFailed',
           'This PDF could not be opened. Check the desktop connection and try again.'
         )}
@@ -54,9 +55,7 @@ export function MobilePdfHandoff({ media, title }: Props) {
     return (
       <View style={styles.state}>
         <ActivityIndicator color={colors.textSecondary} />
-        <Text style={styles.stateText}>
-          {translate('files.pdfHandoff.opening', 'Opening PDF…')}
-        </Text>
+        <Text style={styles.stateText}>{t('files.pdfHandoff.opening', 'Opening PDF…')}</Text>
       </View>
     )
   }
@@ -64,16 +63,16 @@ export function MobilePdfHandoff({ media, title }: Props) {
     <View style={styles.state}>
       {state.status === 'opened' ? (
         <Text style={styles.stateText}>
-          {translate('files.pdfHandoff.opened', 'Opened in your PDF viewer.')}
+          {t('files.pdfHandoff.opened', 'Opened in your PDF viewer.')}
         </Text>
       ) : null}
       <Pressable
         style={styles.pdfOpenButton}
         onPress={openPdf}
         accessibilityRole="button"
-        accessibilityLabel={translate('files.pdfHandoff.open', 'Open PDF')}
+        accessibilityLabel={t('files.pdfHandoff.open', 'Open PDF')}
       >
-        <Text style={styles.stateText}>{translate('files.pdfHandoff.open', 'Open PDF')}</Text>
+        <Text style={styles.stateText}>{t('files.pdfHandoff.open', 'Open PDF')}</Text>
       </Pressable>
     </View>
   )

@@ -24,10 +24,7 @@ const LAZY_LOCALE_LOADERS: Record<
     import('../../renderer/src/i18n/locales/pt.json').then((mod) => {
       if (ORCA_EDITION_ID === 'contadorca') {
         return {
-          default: mergeCopyOverlay(
-            mod.default as Record<string, unknown>,
-            copyOverlayPt as Record<string, unknown>
-          )
+          default: mergeCopyOverlay(mod.default, copyOverlayPt)
         }
       }
       return mod

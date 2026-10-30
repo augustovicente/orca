@@ -65,7 +65,7 @@ function loadLocaleCatalog(language: string): Promise<Record<string, unknown>> |
   const request = fetchLocaleCatalog(url)
     .then((catalog) => {
       if (language === 'pt' && ORCA_EDITION_ID === 'contadorca') {
-        return mergeCopyOverlay(catalog, copyOverlayPt as Record<string, unknown>)
+        return mergeCopyOverlay(catalog, copyOverlayPt)
       }
       return catalog
     })

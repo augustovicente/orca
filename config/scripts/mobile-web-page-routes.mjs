@@ -78,6 +78,11 @@ export const MOBILE_WEB_PAGE_ROUTES = [
     ],
     // Optional media.name preserves attachment on older shells by falling back to filename derived from type.
     // file.share covers the dock's PDF preview hop, which stays inside this document.
-    optionalGrants: ['externalNavigation', 'native.media.name', 'native.pdf.view', 'native.file.share']
+    optionalGrants: [
+      'externalNavigation',
+      'native.media.name',
+      'native.pdf.view',
+      'native.file.share'
+    ]
   }
 ]

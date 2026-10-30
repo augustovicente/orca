@@ -57,6 +57,7 @@ describe('edition-copy', () => {
   it('mergeCopyOverlay is one-level-deep and only overrides existing leaves', () => {
     const catalog = { ns: { a: 'old', nested: { b: 'deep' } } }
     const overlay = { ns: { a: 'new', missing: 'x', nested: { b: 'changed' } }, other: { z: '1' } }
+    // SAFETY: asserts on the exact literal shape constructed above.
     const merged = mergeCopyOverlay(catalog, overlay) as {
       ns: { a: string; missing?: string; nested: { b: string } }
       other?: unknown
@@ -71,6 +72,7 @@ describe('edition-copy', () => {
   it('mergeCopyOverlay preserves plural sibling keys', () => {
     const catalog = { ns: { item_one: '{{count}} item', item_other: '{{count}} items' } }
     const overlay = { ns: { item_one: '{{count}} coisa' } }
+    // SAFETY: asserts on the exact literal shape constructed above.
     const merged = mergeCopyOverlay(catalog, overlay) as {
       ns: { item_one: string; item_other: string }
     }

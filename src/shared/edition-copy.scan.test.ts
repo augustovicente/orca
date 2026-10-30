@@ -12,7 +12,7 @@ describe('edition-copy scan', () => {
           walk(v)
         }
       } else if (typeof o === 'string' && /orca/i.test(o)) {
-        samples.push(o as string)
+        samples.push(o)
       }
     }
     walk(ptCatalog)

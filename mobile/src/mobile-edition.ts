@@ -1,4 +1,4 @@
-import type { EditionCapabilities, EditionCapability, OrcaEdition } from '../../src/shared/edition'
+import type { EditionCapability, OrcaEdition } from '../../src/shared/edition'
 
 export type MobileEdition = OrcaEdition
 
@@ -17,59 +17,54 @@ export const ORCA_MOBILE_EDITION = MOBILE_ORCA_EDITION
 export const ORCA_EDITION = MOBILE_ORCA_EDITION
 export const ORCA_EDITION_ID = MOBILE_ORCA_EDITION
 
-const FULL_CAPABILITIES: EditionCapabilities = {
-  gitWorkflows: true,
-  sourceControl: true,
-  hostedReview: true,
-  taskProviders: true,
-  sshHosts: true,
-  wslHosts: true,
-  emulators: true,
-  agentPicker: true,
-  automations: true,
-  artifacts: true,
-  activity: true,
-  workspaceSpace: true,
-  onboarding: true,
-  computerUse: true,
-  browser: true,
-  skills: true,
-  mobile: true,
-  dictation: true,
-  experimental: true,
-  developerTools: true
-}
-
-const CONTADORCA_CAPABILITIES: EditionCapabilities = {
-  ...FULL_CAPABILITIES,
-  gitWorkflows: false,
-  sourceControl: false,
-  hostedReview: false,
-  taskProviders: false,
-  sshHosts: false,
-  wslHosts: false,
-  emulators: false,
-  agentPicker: false,
-  automations: false,
-  artifacts: false,
-  activity: false,
-  workspaceSpace: false,
-  onboarding: false,
-  dictation: false,
-  experimental: false,
-  developerTools: false
-}
-
-const CAPABILITIES_BY_EDITION: Record<MobileEdition, EditionCapabilities> = {
-  full: FULL_CAPABILITIES,
-  contadorca: CONTADORCA_CAPABILITIES
-}
+/**
+ * Only the surfaces the accounting edition removes are listed; every other capability stays
+ * available so new shared flags do not silently disappear from mobile.
+ */
+const CONTADORCA_HIDDEN: ReadonlySet<EditionCapability> = new Set<EditionCapability>([
+  'gitWorkflows',
+  'sourceControl',
+  'hostedReview',
+  'taskProviders',
+  'sshHosts',
+  'wslHosts',
+  'emulators',
+  'agentPicker',
+  'automations',
+  'artifacts',
+  'activity',
+  'workspaceSpace',
+  'onboarding',
+  'dictation',
+  'experimental',
+  'developerTools',
+  'terminalPane',
+  'editorTab',
+  'diffTab',
+  'checksTab',
+  'rightSidebar',
+  'statusBar',
+  'providerUsage',
+  'commandPalette',
+  'starNag',
+  'plugins',
+  'devPane',
+  'accountsPane',
+  'modelPicker',
+  'quickCommands',
+  'telemetry',
+  'ports',
+  'resourceUsage',
+  'contentInput',
+  'notificationsPane',
+  'shortcutsPane'
+])
 
 export function mobileEditionSupports(
   capability: EditionCapability,
   edition: unknown = MOBILE_ORCA_EDITION
 ): boolean {
-  return CAPABILITIES_BY_EDITION[resolveMobileEdition(edition)][capability]
+  return resolveMobileEdition(edition) === 'full' || !CONTADORCA_HIDDEN.has(capability)
 }
 
 export const editionSupports = mobileEditionSupports

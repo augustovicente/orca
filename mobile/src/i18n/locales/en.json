@@ -1585,7 +1585,8 @@
       "sent": "Sent",
       "deliveryUnconfirmed": "Delivery unconfirmed — check page before retrying",
       "dialogAnswerFailed": "That answer did not reach the page."
-    }
+    },
+    "openPdfExternally": "Open PDF externally"
   },
   "files": {
     "fileExplorerPanel": {
@@ -1675,6 +1676,13 @@
       "bytes": "{{size}} B",
       "kilobytes": "{{size}} KB",
       "megabytes": "{{size}} MB"
+    },
+    "pdfHandoff": {
+      "updateApp": "Update the app to open PDFs on this device.",
+      "openFailed": "This PDF could not be opened. Check the desktop connection and try again.",
+      "opening": "Opening PDF…",
+      "opened": "Opened in your PDF viewer.",
+      "open": "Open PDF"
     }
   },
   "session": {

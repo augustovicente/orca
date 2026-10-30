@@ -135,7 +135,6 @@ export const VOCABULARY_COPY_RULES = EDITION_COPY_RULES.filter((r) => r.kind ===
 
 function protect(text: string): { masked: string; spans: string[] } {
   const spans: string[] = []
-  // oxlint-disable-next-line no-control-regex
   const masked = text.replace(/`[^`]*`|https?:\/\/[^\s)]+|\borca-cli\b/gi, (match) => {
     const idx = spans.length
     spans.push(match)
@@ -200,6 +199,10 @@ export function createEditionCopyTransform(locale?: string): (value: string) => 
 }
 
 // Merge overlay over a fetched catalog. One level deep: only overrides existing leaf keys.
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
 export function mergeCopyOverlay(
   catalog: Record<string, unknown>,
   overlay: Record<string, unknown>
@@ -207,18 +210,10 @@ export function mergeCopyOverlay(
   const result: Record<string, unknown> = { ...catalog }
   for (const [ns, overlayValue] of Object.entries(overlay ?? {})) {
     const base = catalog?.[ns]
-    if (
-      base &&
-      typeof base === 'object' &&
-      !Array.isArray(base) &&
-      overlayValue &&
-      typeof overlayValue === 'object' &&
-      !Array.isArray(overlayValue)
-    ) {
-      const baseObj = base as Record<string, unknown>
-      const overlayObj = overlayValue as Record<string, unknown>
+    if (isRecord(base) && isRecord(overlayValue)) {
+      const baseObj = base
       const merged: Record<string, unknown> = { ...baseObj }
-      for (const [key, val] of Object.entries(overlayObj)) {
+      for (const [key, val] of Object.entries(overlayValue)) {
         if (Object.hasOwn(baseObj, key)) {
           const baseVal = baseObj[key]
           const isLeaf = baseVal !== null && typeof baseVal !== 'object'

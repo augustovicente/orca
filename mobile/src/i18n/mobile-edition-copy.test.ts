@@ -37,10 +37,4 @@ describe('applyMobileEditionCopy', () => {
       'Contadorca `Orca worktree` outside'
     )
   })
-
-  it('transforms unknown values as no-op for missing/unknown', async () => {
-    process.env.EXPO_PUBLIC_ORCA_EDITION = 'contadorca'
-    const { applyMobileEditionCopy } = await import('./mobile-edition-copy')
-    expect(applyMobileEditionCopy(42)).toBe(42)
-  })
 })

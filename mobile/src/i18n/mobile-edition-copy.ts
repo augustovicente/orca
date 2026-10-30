@@ -65,22 +65,9 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-export function applyMobileEditionCopy<T>(value: T): T {
+export function applyMobileEditionCopy(value: string): string {
   if (MOBILE_ORCA_EDITION !== 'contadorca') {
     return value
   }
-  if (typeof value === 'string') {
-    return transformString(value) as T
-  }
-  if (Array.isArray(value)) {
-    return value.map((item) => applyMobileEditionCopy(item)) as T
-  }
-  if (value !== null && typeof value === 'object') {
-    const result: Record<string, unknown> = {}
-    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
-      result[key] = applyMobileEditionCopy(entry)
-    }
-    return result as T
-  }
-  return value
+  return transformString(value)
 }
