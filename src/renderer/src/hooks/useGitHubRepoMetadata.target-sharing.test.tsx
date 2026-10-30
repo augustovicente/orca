@@ -13,6 +13,8 @@ import { useGitHubWorkItemDetails } from '@/components/github-item-dialog/load-i
 import { listAssignableUsers, listLabels } from '../../../main/github/issue-field-options'
 import { resolveGitHubRepoOperationOwner } from '@/lib/github-source-runtime-context'
 import { create } from 'zustand'
+import { createRepoUpdateActions } from '@/store/repos/repo-update'
+import type { RepoUpdate } from '@/store/repos/repo-state'
 import {
   createRuntimeStatusSlice,
   clearRuntimeEnvironmentConnectionGenerationsForTests
@@ -57,16 +59,49 @@ const metadataStore = create<
     repos: Repo[]
     settings: { activeRuntimeEnvironmentId: string }
     recordFeatureInteraction: () => void
+    projects: []
+    projectHostSetups: []
+    folderWorkspacePathStatuses: {}
   }
 >()((set, get) => ({
   ...createRuntimeStatusSlice(set, get),
   clientHostedBrowserCloseIntentsByEnvironment: {},
   clearClientHostedBrowserCloseIntents: () => {},
   unrelated: 0,
+  projects: [],
+  projectHostSetups: [],
+  folderWorkspacePathStatuses: {},
   repos: registeredRows(),
   settings: { activeRuntimeEnvironmentId: 'S' },
   recordFeatureInteraction: () => {}
 }))
+// oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: this partial store includes every field the production account update reads; persistence is the only substituted boundary.
+const repoActions = createRepoUpdateActions(
+  ...([metadataStore.setState, metadataStore.getState] as unknown as Parameters<
+    typeof createRepoUpdateActions
+  >)
+)
+function updatedRow(target: RuntimeClientTarget, updates: RepoUpdate) {
+  const host = target.kind === 'environment' ? `runtime:${target.environmentId}` : 'local'
+  const selected = metadataStore
+    .getState()
+    .repos.find((repo) => repo.id === 'shared' && repo.executionHostId === host)
+  if (!selected) {
+    throw new Error('missing persisted repo owner')
+  }
+  return { ...selected, ...updates }
+}
+function installRepoPersistence() {
+  Object.defineProperty(window, 'api', {
+    configurable: true,
+    value: {
+      repos: {
+        update: async ({ updates }: { updates: RepoUpdate }) =>
+          updatedRow({ kind: 'local' }, updates)
+      }
+    }
+  })
+}
 vi.mock('@/store', () => ({
   useAppStore: Object.assign(
     (select: (state: ReturnType<typeof metadataStore.getState>) => unknown) =>
@@ -128,6 +163,7 @@ it.each([10, 100])(
   'shares actual paginated gh lists at N=%i with host-owned account/source and separate render/I/O/selector counts',
   async (count) => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+    installRepoPersistence()
     metadataStore.setState({ unrelated: 0, repos: registeredRows() })
     requests.length = 0
     provider.exec.mockReset()
@@ -200,8 +236,11 @@ it.each([10, 100])(
       async (
         target: RuntimeClientTarget,
         method: string,
-        args: { ownerRepo?: GitHubOwnerRepo; number: number }
+        args: { ownerRepo?: GitHubOwnerRepo; number: number; updates: RepoUpdate }
       ) => {
+        if (method === 'repo.update') {
+          return { repo: updatedRow(target, args.updates) }
+        }
         expect(target).toEqual({ kind: 'environment', environmentId: 'S' })
         if (method === 'status.get') {
           calls.status++
@@ -336,29 +375,29 @@ it.each([10, 100])(
     // Numeric array reads observe the production resolver's actual scans, separately from selected-value evaluations/renders.
     expect(provider.rows).toBeGreaterThanOrEqual(2 * count * ROW_COUNT)
     expect(provider.rows).toBeLessThanOrEqual(provider.evaluations * ROW_COUNT * 2)
-    for (const unusedHost of ['local', 'runtime:unused']) {
-      await act(async () =>
-        metadataStore.setState((state) => ({
-          repos: state.repos.map((repo) =>
-            repo.executionHostId === unusedHost
-              ? { ...repo, ghAccount: { host, user: `unused-${count}` } }
-              : repo
+    for (const unusedHost of ['local', 'runtime:unused'] as const) {
+      await act(async () => {
+        expect(
+          await repoActions.updateRepo(
+            'shared',
+            { ghAccount: { host, user: `unused-${count}` } },
+            { hostId: unusedHost }
           )
-        }))
-      )
+        ).toBe(true)
+      })
       expect(renders).toEqual(before)
       expect(calls).toEqual(ioBefore)
       expect(requests).toHaveLength(4)
     }
-    await act(async () =>
-      metadataStore.setState((state) => ({
-        repos: state.repos.map((repo) =>
-          repo.executionHostId === 'runtime:S'
-            ? { ...repo, ghAccount: { host, user: 'B' }, issueSourcePreference: 'upstream' }
-            : repo
+    await act(async () => {
+      expect(
+        await repoActions.updateRepo(
+          'shared',
+          { ghAccount: { host, user: 'B' }, issueSourcePreference: 'upstream' },
+          { hostId: 'runtime:S' }
         )
-      }))
-    )
+      ).toBe(true)
+    })
     await loaded('B')
     expect(container.querySelector('output')?.textContent).toBe('B')
     expect(calls).toEqual({ labels: 2, users: 2, details: 2, status: 6 })
@@ -366,13 +405,15 @@ it.each([10, 100])(
     expect(requests).toHaveLength(8)
     expect(renders.get('0')).toBeGreaterThan(before.get('0')!)
     // Warm reopen and A re-entry reuse their own repository lists; B data never becomes A's list.
-    await act(async () =>
-      metadataStore.setState((state) => ({
-        repos: state.repos.map((repo) =>
-          repo.executionHostId === 'runtime:S' ? { ...row('runtime:S', 'A') } : repo
+    await act(async () => {
+      expect(
+        await repoActions.updateRepo(
+          'shared',
+          { ghAccount: { host: 'github.corp', user: 'A' }, issueSourcePreference: 'origin' },
+          { hostId: 'runtime:S' }
         )
-      }))
-    )
+      ).toBe(true)
+    })
     await loaded('A')
     expect(provider.exec).toHaveBeenCalledTimes(4)
     expect(requests).toHaveLength(8)
@@ -473,6 +514,7 @@ const pendingContext = {
 
 it('in-flight account A→B→A publishes only its own details/options and deduplicates the original A requests', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+  installRepoPersistence()
   metadataStore.setState({ repos: registeredRows() })
   const host = 'pending.corp'
   const repository = { owner: 'fork', repo: 'widgets', host }
@@ -486,19 +528,24 @@ it('in-flight account A→B→A publishes only its own details/options and dedup
   const pending: { account: string; method: string; resolve: (value: unknown) => void }[] = []
   provider.rpc
     .mockReset()
-    .mockImplementation(async (_target: RuntimeClientTarget, method: string) => {
-      if (method === 'status.get') {
-        return { runtimeId: 'S', capabilities: ['github.exact-work-item-target.v1'] }
+    .mockImplementation(
+      async (target: RuntimeClientTarget, method: string, args: { updates: RepoUpdate }) => {
+        if (method === 'repo.update') {
+          return { repo: updatedRow(target, args.updates) }
+        }
+        if (method === 'status.get') {
+          return { runtimeId: 'S', capabilities: ['github.exact-work-item-target.v1'] }
+        }
+        const account = resolveGitHubRepoOperationOwner(metadataStore.getState(), {
+          repoId: 'shared',
+          target: { kind: 'environment', environmentId: 'S' }
+        }).repo?.ghAccount?.user
+        if (!account) {
+          throw new Error('missing operation account')
+        }
+        return new Promise((resolve) => pending.push({ account, method, resolve }))
       }
-      const account = resolveGitHubRepoOperationOwner(metadataStore.getState(), {
-        repoId: 'shared',
-        target: { kind: 'environment', environmentId: 'S' }
-      }).repo?.ghAccount?.user
-      if (!account) {
-        throw new Error('missing operation account')
-      }
-      return new Promise((resolve) => pending.push({ account, method, resolve }))
-    })
+    )
   const container = document.createElement('div')
   const root = createRoot(container)
   roots.push(root)
@@ -537,15 +584,15 @@ it('in-flight account A→B→A publishes only its own details/options and dedup
   )
   expect(pending.filter((entry) => entry.account === 'A')).toHaveLength(2)
   const change = async (user: string) =>
-    act(async () =>
-      metadataStore.setState((state) => ({
-        repos: state.repos.map((repo) =>
-          repo.executionHostId === 'runtime:S'
-            ? { ...repo, ghAccount: { host: 'github.corp', user } }
-            : repo
+    act(async () => {
+      expect(
+        await repoActions.updateRepo(
+          'shared',
+          { ghAccount: { host: 'github.corp', user } },
+          { hostId: 'runtime:S' }
         )
-      }))
-    )
+      ).toBe(true)
+    })
   await change('B')
   expect(container.textContent).toBe('pending:')
   expect(pending.filter((entry) => entry.account === 'B')).toHaveLength(2)
