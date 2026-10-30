@@ -42,7 +42,6 @@ import {
   OrcadPeerDesktopsParamsSchema
 } from '../orcad-peer-desktops-contract'
 import { OrcadTerminalCensusParamsSchema } from '../orcad-terminal-census'
-import { pluginConsentRequestSchema } from '../plugins/approval/plugin-consent-request'
 import {
   AccountsUnsubscribeParams,
   AddClaudeFromConfigDirParams,
@@ -497,8 +496,12 @@ import {
 import { WorkerStartParams } from './orchestration-worker-start-params'
 import { WorkerDispatchParams as WorkerDispatchParamsOfOrchestrationWorkerStopParams } from './orchestration-worker-stop-params'
 import {
+  PluginDevLoadParams,
+  PluginDevUnloadParams,
+  PluginGetLogsParams,
   PluginInvokeCommandParams,
   PluginReadPanelEntryParams,
+  PluginRpcConsentParams,
   PluginSetEnabledParams,
   PluginsPanelActionParams
 } from './plugins-params'
@@ -1299,11 +1302,15 @@ export const RPC_PARAMS_BY_METHOD = {
   'pairing.getEndpoints': PairingGetEndpointsParamsSchema,
   'pairing.provisionRelay': PairingProvisionRelayParamsSchema,
   'pairing.registerDeviceKey': RegisterDeviceKeyParamsSchema,
-  'plugins.consent': pluginConsentRequestSchema,
+  'plugins.consent': PluginRpcConsentParams,
+  'plugins.devLoad': PluginDevLoadParams,
+  'plugins.devUnload': PluginDevUnloadParams,
+  'plugins.getLogs': PluginGetLogsParams,
   'plugins.invokeCommand': PluginInvokeCommandParams,
   'plugins.list': null,
   'plugins.panelAction': PluginsPanelActionParams,
   'plugins.readPanelEntry': PluginReadPanelEntryParams,
+  'plugins.refresh': null,
   'plugins.setEnabled': PluginSetEnabledParams,
   'preflight.check': PreflightCheck,
   'preflight.detectAgents': PreflightProjectAgentDetection,
