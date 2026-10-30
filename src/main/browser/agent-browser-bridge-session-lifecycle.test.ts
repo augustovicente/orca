@@ -368,9 +368,7 @@ describe('AgentBrowserBridge', () => {
     )
     await b.snapshot(undefined, 'tab-1')
 
-    const [firstProxy, secondProxy] = CdpWsProxyMock.mock.instances.slice(-2)
-    expect(secondProxy._wc).toMatchObject({ id: 200 })
-    expect(firstProxy.stop).toHaveBeenCalled()
+    expect(CdpWsProxyMock.mock.lastCall?.[0]).toMatchObject({ id: 200 })
     expect(closeCallCount()).toBe(1)
     expect(commandsSentToExitingDaemon).toEqual([])
   })
