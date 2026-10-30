@@ -72,9 +72,7 @@ import {
   startStructuredAgentLaunch,
   retryStructuredAgentSessionLaunch
 } from '../structured-agent-session-launch'
-import { trackStructuredLaunchConfirmationDeadline } from './launch/structured-agent-session-launch-prompt-outcome'
-import { holdStructuredAgentSessionLaunchOption } from '../structured-agent-session-launch-options'
-import * as sessionClient from '@/runtime/structured-agent-session-client'
+import { assertProvisionalSelectionLifetime } from './structured-agent-session-provisional-selection-lifetime.test-fixture'
 import { layoutApplyTestTransport } from '@/runtime/layout-apply-test-transport.test-fixture'
 import { openStructuredAgentSessionProvisionalTab } from '../structured-agent-session-launch-surface'
 import { markStructuredAgentSessionLaunchPublished } from './launch/structured-agent-session-launch-publication'
@@ -307,48 +305,15 @@ describe('a provisional structured chat tab', () => {
     }
   )
 
-  it('normalizes deadline uncertainty on own success with held picks before join, Retry and close', async () => {
+  it('joins pending launch before uncertainty, then normalizes own success with held picks, Retry and close', async () => {
     const { launch, chat } = openChat('chat', undefined, '', true)
-    await main.settle()
-    const pending = getStructuredLaunchStateBySessionId(chat.entityId)!
-    pending.intent.createMessageSupport = true
-    let finishOption!: (reply: unknown) => void
-    const optionCall = vi.spyOn(sessionClient, 'callStructuredAgentSession').mockReturnValueOnce(
-      new Promise((resolve) => {
-        finishOption = resolve
-      })
-    )
-    const pick = holdStructuredAgentSessionLaunchOption(chat.entityId, 'model', 'picked')
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
-    trackStructuredLaunchConfirmationDeadline(pending, pending.promise)
-    await vi.advanceTimersByTimeAsync(30_000)
-    expect(pending.visibilityUnknown).toBe(true)
-    expect(pending.callers.outcome).toBe('unknown')
-    vi.useRealTimers()
-    accept({ sessionId: chat.entityId, fence: 1 })
-    await launch.settlement
-    expect(getStructuredLaunchStateBySessionId(chat.entityId)).toBe(pending)
-    expect(pending.selection.held).toEqual({ model: 'picked' })
-    expect(pending.hostListed).toBeUndefined()
-    expect(pending.visibilityUnknown).toBe(false)
-    expect(retryStructuredAgentSessionLaunch('wt-1', chat.entityId)).toBe(false)
-    const joined = startStructuredAgentLaunch('wt-1', 'claude', {
-      requestId: 'after-success',
-      prompt: 'hand-off context',
-      promptDelivery: 'draft',
-      resumeFrom: { providerSessionId: 'prior-chat' }
+    await assertProvisionalSelectionLifetime({
+      launch,
+      chat,
+      main,
+      accept,
+      launchCall: mocks.launch
     })
-    expect(joined.joined).toBe(true)
-    await joined.launchResult
-    expect(mocks.launch).toHaveBeenCalledOnce()
-    useAppStore.getState().closeUnifiedTab(chat.id)
-    await main.settle()
-    expect(
-      readNativeChatComposerDraft(structuredAgentSessionDraftScopeKey(chat.entityId)).text
-    ).toBe('hand-off context')
-    finishOption({ ok: true, value: { options: { model: 'picked' } } })
-    await pick
-    optionCall.mockRestore()
   })
 
   it.each(['cancel', 'abort', 'close', 'reloaded-close', 'silent'] as const)(
