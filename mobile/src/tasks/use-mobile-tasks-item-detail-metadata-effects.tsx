@@ -1,3 +1,5 @@
+import { withGitHubTargetOperation } from './github-work-item-operation'
+import { requireGitHubTaskTarget } from './github-task-identity'
 import type { ListAndDetailEffectsModel } from './use-mobile-tasks-list-and-detail-effects'
 import { useEffect } from './mobile-tasks-dependencies'
 import {
@@ -40,12 +42,34 @@ export function useMobileTasksItemDetailMetadataEffects(model: ListAndDetailEffe
     }
 
     let stale = false
+    const loadRepositoryList = async <T,>(
+      send: (
+        selected: typeof client,
+        exact: {
+          ownerRepo?: import('../../../src/shared/github/pull-request-types').GitHubOwnerRepo
+        },
+        options: import('../transport/rpc-client').SendRequestOptions
+      ) => Promise<T>
+    ) => {
+      const target = requireGitHubTaskTarget(actionItem.source)
+      return withGitHubTargetOperation({
+        client,
+        params: { repo: `id:${actionItem.source.repoId}` },
+        ownerRepo: target.repository,
+        send
+      })
+    }
     if (actionItem.source.type === 'issue' || actionItem.source.type === 'pr') {
       setItemAvailableLabels([])
       setItemLabelsError('')
       setItemLabelsLoading(true)
-      void githubRepoLabelListRead
-        .request(client, { repo: `id:${actionItem.source.repoId}` }, { timeoutMs: 30_000 })
+      void loadRepositoryList((selected, exact, options) =>
+        githubRepoLabelListRead.request(
+          selected,
+          { repo: `id:${actionItem.source.repoId}`, ...exact },
+          options
+        )
+      )
         .then((response) => {
           if (stale) {
             return
@@ -71,8 +95,13 @@ export function useMobileTasksItemDetailMetadataEffects(model: ListAndDetailEffe
     setItemAssignableUsers([])
     setItemAssignableUsersError('')
     setItemAssignableUsersLoading(true)
-    void githubAssignableUserListRead
-      .request(client, { repo: `id:${actionItem.source.repoId}` }, { timeoutMs: 30_000 })
+    void loadRepositoryList((selected, exact, options) =>
+      githubAssignableUserListRead.request(
+        selected,
+        { repo: `id:${actionItem.source.repoId}`, ...exact },
+        options
+      )
+    )
       .then((response) => {
         if (stale) {
           return

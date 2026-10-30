@@ -12,6 +12,22 @@ import {
   sealMobileE2EEV2Frame
 } from '../../../src/shared/mobile-e2ee-v2-framing'
 
+vi.mock('./direct-e2ee-framing-policy', async () => {
+  const { createPairedE2EEFramingPolicy } =
+    await import('../../../src/shared/paired-e2ee-framing-policy')
+  return {
+    createDirectE2EEFramingPolicy: (key: string) =>
+      createPairedE2EEFramingPolicy(key, {
+        hydrate: async () => {},
+        isLatched: () => true,
+        latch: () => {}
+      })
+  }
+})
+vi.mock('./mobile-runtime-capability-negotiation', () => ({
+  negotiateMobileRuntimeCapabilities: (args: { onReady: () => void }) => args.onReady()
+}))
+
 vi.mock('expo-crypto', () => ({
   getRandomBytes: (length: number) => new Uint8Array(length).fill(9)
 }))
@@ -24,17 +40,21 @@ import {
   MobileE2EEV2PhysicalChannel,
   type MobileE2EEV2Socket
 } from './mobile-e2ee-v2-physical-channel'
+import { connect } from './rpc-client'
 import { MobileRelayE2eeLink } from './mobile-relay-e2ee-link'
 import { connectMobileRelayForPairing } from './mobile-relay-physical-client'
 
 const desktop = nacl.box.keyPair.fromSecretKey(new Uint8Array(32).fill(1))
 const client = nacl.box.keyPair.fromSecretKey(new Uint8Array(32).fill(2))
 
-function setup(decodeBinary: (raw: unknown) => Promise<Uint8Array | null>) {
+function setup(
+  decodeBinary: (raw: unknown) => Promise<Uint8Array | null>,
+  transport: 'direct' | 'relay' = 'relay'
+) {
   const session = MobileE2EEV2ClientSession.create({
     desktopPublicKeyB64: Buffer.from(desktop.publicKey).toString('base64'),
-    transport: 'relay',
-    relayHostId: 'AbCdEf0123_-xyZ9',
+    transport,
+    ...(transport === 'relay' ? { relayHostId: 'AbCdEf0123_-xyZ9' } : {}),
     clientNonce: new Uint8Array(32).fill(3),
     clientKeyPair: client
   })
@@ -438,6 +458,18 @@ describe('relay inbound payload disposal', () => {
         socket.receive(Buffer.from(response).toString('base64'))
         await expect(reply).resolves.toMatchObject({ ok: true, result: { path: 'relay' } })
       }
+      // A frame already admitted to this encrypted session cannot migrate to its successor.
+      const sendText = (text: string) =>
+        transport instanceof MobileRelayE2eeLink
+          ? transport.sendText(text)
+          : transport.sendRequest('github.updateIssue', { body: text })
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] })
+      socket.bufferedAmount = 9 * 1024 * 1024
+      const beforeParked = socket.sent.length
+      const parked = sendText('old-resource')
+      const settledParked = Promise.resolve(parked).catch(() => undefined)
+      await Promise.resolve()
+      expect(socket.sent).toHaveLength(beforeParked)
       let release = (_buffer: ArrayBuffer): void => {}
       const blocked = new Promise<ArrayBuffer>((resolve) => {
         release = resolve
@@ -453,12 +485,143 @@ describe('relay inbound payload disposal', () => {
         } else {
           socket.onclose?.({ code: 1006 })
         }
+        socket.bufferedAmount = 0
+        vi.runOnlyPendingTimers()
+        await settledParked
+        expect(socket.sent).toHaveLength(beforeParked)
         await collectInboundPayloads()
         expect(refs.filter((ref) => ref.deref() !== undefined)).toHaveLength(0)
       } finally {
         release(new ArrayBuffer(0))
         await nextInboundTurn()
         transport.close()
+        vi.useRealTimers()
+      }
+    }
+  )
+})
+
+describe('direct v2 original-socket queue ownership', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+    vi.useRealTimers()
+  })
+  it.each(['close', 'failure', 'live'] as const)(
+    'a guarded admitted frame handles %s without draining onto a successor',
+    async (mode) => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] })
+      const sockets: RetentionSocket[] = []
+      class DirectSocket extends RetentionSocket {
+        static OPEN = 1
+        static CONNECTING = 0
+        constructor() {
+          super()
+          sockets.push(this)
+        }
+      }
+      vi.stubGlobal('WebSocket', DirectSocket)
+      const ctx = setup(async () => null, 'direct')
+      vi.spyOn(MobileE2EEV2ClientSession, 'create').mockReturnValueOnce(ctx.session)
+      const client = connect(
+        'ws://desktop.invalid',
+        'valid-token',
+        Buffer.from(desktop.publicKey).toString('base64')
+      )
+      const socket = sockets[0]
+      try {
+        socket.onopen?.()
+        socket.receive(JSON.stringify(ctx.ready))
+        await nextInboundTurn()
+        socket.receive(
+          Buffer.from(
+            serverFrame(
+              new TextEncoder().encode(
+                JSON.stringify({
+                  type: 'e2ee_authenticated',
+                  v: 2,
+                  transcriptHashB64: ctx.session.transcriptHashB64
+                })
+              ),
+              'text',
+              0n,
+              ctx.schedule
+            )
+          ).toString('base64')
+        )
+        await nextInboundTurn()
+        expect(client.getState()).toBe('connected')
+        socket.bufferedAmount = 9 * 1024 * 1024
+        const before = socket.sent.length
+        const pending = client.sendRequest(
+          'github.updateIssue',
+          {
+            ownerRepo: { owner: 'fork', repo: 'widgets' },
+            number: 93,
+            updates: { state: 'closed' }
+          },
+          {
+            beforeSend: () => {
+              expect(client.getState()).toBe('connected')
+            }
+          }
+        )
+        const outcome = pending.catch((error: unknown) => error)
+        await nextInboundTurn()
+        expect(socket.sent).toHaveLength(before)
+        if (mode === 'close') {
+          client.close()
+        }
+        if (mode === 'failure') {
+          socket.readyState = 3
+          socket.onclose?.({ code: 1006 })
+        }
+        socket.bufferedAmount = 0
+        await vi.advanceTimersByTimeAsync(20)
+        if (mode === 'live') {
+          expect(socket.sent).toHaveLength(before + 1)
+          const raw = socket.sent.at(-1)
+          if (typeof raw !== 'string') {
+            throw new Error('expected text request')
+          }
+          const request = JSON.parse(
+            new TextDecoder().decode(
+              openMobileE2EEV2Frame({
+                frame: Buffer.from(raw, 'base64'),
+                key: ctx.schedule.mobileToDesktopKey,
+                sessionId: ctx.schedule.sessionId,
+                direction: 'mobile-to-desktop',
+                payloadKind: 'text',
+                expectedCounter: 1n
+              })!
+            )
+          )
+          expect(request).toMatchObject({
+            method: 'github.updateIssue',
+            params: { ownerRepo: { owner: 'fork' } }
+          })
+          socket.receive(
+            Buffer.from(
+              serverFrame(
+                new TextEncoder().encode(
+                  JSON.stringify({ id: request.id, ok: true, result: { ok: true } })
+                ),
+                'text',
+                1n,
+                ctx.schedule
+              )
+            ).toString('base64')
+          )
+          await nextInboundTurn()
+          await expect(pending).resolves.toMatchObject({ ok: true })
+        } else {
+          expect(socket.sent).toHaveLength(before)
+          expect(await outcome).toBeInstanceOf(Error)
+          expect(sockets).toHaveLength(1)
+        }
+      } finally {
+        client.close()
+        expect(vi.getTimerCount()).toBe(0)
       }
     }
   )

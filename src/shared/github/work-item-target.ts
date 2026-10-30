@@ -55,3 +55,29 @@ export function requireGitHubWorkItemTargetDetails(
   }
   return details
 }
+
+export const GITHUB_EXACT_OPERATION_UNSUPPORTED =
+  'Update Orca on the executing server to edit this item or load its repository options.'
+
+export function githubWorkItemTargetKey(target: GitHubWorkItemTarget): string {
+  return [githubRepoIdentityKey(target.repository), target.type, target.number].join('\0')
+}
+
+export function parseGitHubItemRepository(url: string): GitHubOwnerRepo | null {
+  try {
+    const parsed = new URL(url)
+    const parts = parsed.pathname.split('/').filter(Boolean)
+    return ['https:', 'http:'].includes(parsed.protocol) && parts.length >= 2
+      ? { host: parsed.host, owner: parts[0], repo: parts[1] }
+      : null
+  } catch {
+    return null
+  }
+}
+
+export function resolveGitHubWorkItemTarget(
+  item: Pick<GitHubWorkItem, 'url' | 'prRepo' | 'type' | 'number'>
+): GitHubWorkItemTarget | null {
+  const repository = item.prRepo ?? parseGitHubItemRepository(item.url)
+  return repository ? { repository, type: item.type, number: item.number } : null
+}

@@ -1,9 +1,9 @@
-import { GITHUB_EXACT_WORK_ITEM_TARGET_RUNTIME_CAPABILITY } from '../../../shared/source-control-runtime-capabilities'
+import { callGitHubTargetOperation } from './github-work-item-target-request'
 import { requireGitHubWorkItemTargetDetails } from '../../../shared/github/work-item-target'
 import type { GitHubWorkItem, GitHubWorkItemDetails } from '../../../shared/github/work-item-types'
 import type { TaskSourceContext } from '../../../shared/task-source-context'
 import type { GitHubOwnerRepo } from '../../../shared/github/pull-request-types'
-import { callRuntimeRpc, runtimeEnvironmentSupportsCapability } from '@/runtime/runtime-rpc-client'
+import { callRuntimeRpc } from '@/runtime/runtime-rpc-client'
 import {
   getGitHubRuntimeRepoId,
   getGitHubSourceRuntimeHost,
@@ -100,33 +100,28 @@ export async function lookupGitHubWorkItemDetailsForSource(
 ): Promise<GitHubWorkItemDetails | null> {
   const sourceContext = args.sourceContext
   const runtimeHost = getGitHubSourceRuntimeHost(sourceContext)
-  const supportsExact =
-    !args.ownerRepo ||
-    !runtimeHost ||
-    (await runtimeEnvironmentSupportsCapability(
-      runtimeHost.environmentId,
-      GITHUB_EXACT_WORK_ITEM_TARGET_RUNTIME_CAPABILITY
-    ).catch(() => false))
-  const result = runtimeHost
-    ? await callRuntimeRpc<GitHubWorkItemDetails | null>(
-        { kind: 'environment', environmentId: runtimeHost.environmentId },
-        'github.workItemDetails',
-        {
-          repo: getGitHubRuntimeRepoId(sourceContext, args.repoId),
-          number: args.number,
-          type: args.type,
-          ...(supportsExact && args.ownerRepo ? { ownerRepo: args.ownerRepo } : {})
-        },
-        { timeoutMs: 30_000 }
-      )
-    : await window.api.gh.workItemDetails({
+  const result = await callGitHubTargetOperation<GitHubWorkItemDetails | null>({
+    target: runtimeHost
+      ? { kind: 'environment', environmentId: runtimeHost.environmentId }
+      : { kind: 'local' },
+    ownerRepo: args.ownerRepo,
+    read: true,
+    method: 'github.workItemDetails',
+    params: {
+      repo: getGitHubRuntimeRepoId(sourceContext, args.repoId),
+      number: args.number,
+      type: args.type
+    },
+    local: (exact) =>
+      window.api.gh.workItemDetails({
         repoPath: args.repoPath,
         repoId: args.repoId,
         sourceContext,
         number: args.number,
         type: args.type,
-        ...(args.ownerRepo ? { ownerRepo: args.ownerRepo } : {})
+        ...exact
       })
+  })
   if (args.ownerRepo) {
     return requireGitHubWorkItemTargetDetails(result, {
       repository: args.ownerRepo,

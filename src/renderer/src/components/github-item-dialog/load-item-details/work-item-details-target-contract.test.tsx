@@ -1,9 +1,22 @@
+import type * as GitRunner from '../../../../../main/git/runner'
+import type { PRComment } from '../../../../../shared/github/comment-types'
 // @vitest-environment happy-dom
+import PullRequestPage from '@/components/pull-request-page/page/surface'
+import GitHubItemDialog from '../open-dialog/github-item-dialog'
+import type { GitHubWorkItemDetails } from '../../../../../shared/github/work-item-types'
+import { patchCachedWorkItemBody } from './work-item-details-cache'
 import { listLabels } from '../../../../../main/github/issue-field-options'
 import { useRepoLabels } from '@/hooks/useGitHubRepoMetadata'
 import { GitHubWorkItemTargetContext } from './github-work-item-target-context'
 import { updateIssue } from '../../../../../main/github/issue-update'
-import { runIssueUpdate } from '@/components/github/github-work-item-edit-mutations'
+import { updatePullRequestBySlug } from '../../../../../main/github/project-view/pull-request-mutation'
+import { updateIssueBySlug } from '../../../../../main/github/project-view/mutations'
+import { listLabelsBySlug } from '../../../../../main/github/project-view/repository-field-options'
+import { getWorkItemWithRepository } from '../../../../../main/github/client/fetch/get-work-item'
+import {
+  runWorkItemBodyUpdate,
+  runIssueUpdate
+} from '@/components/github/github-work-item-edit-mutations'
 import React, { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -12,22 +25,73 @@ import type { GitHubWorkItem } from '../../../../../shared/github/work-item-type
 import { WorkItemDetails } from '../../../../../shared/rpc-contract/github-repo-work-item-params'
 import { getWorkItemDetails } from '../../../../../main/github/work-item-details'
 import { _resetOriginGitHubApiRepositoryCache } from '../../../../../main/github/github-api-repository'
-import { useGitHubItemDialogDetails } from './use-github-item-dialog-details'
+import { useGitHubWorkItemDetails } from './use-github-work-item-details'
 import {
   getWorkItemDetailsCacheKey,
   touchWorkItemDetailsCache,
   workItemDetailsCache
 } from './work-item-details-cache'
 
+type Published = {
+  onCommentAdded: (comment: PRComment) => void
+  body: string
+  details: GitHubWorkItemDetails | null
+  detailsCacheKey: string | null
+  appendOptimisticComment: (comment: PRComment) => void
+}
+const published = vi.hoisted(() => new Map<string, Published>())
+vi.mock('@/store/selectors', () => ({ useAllWorktrees: () => [] }))
+vi.mock('@/lib/github-work-item-workspace-attachment', () => ({
+  findGithubPrWorkspaceAttachment: () => null,
+  findGithubIssueWorkspaceAttachment: () => null
+}))
+vi.mock('@/lib/worktree-activation', () => ({ activateAndRevealWorktree: vi.fn() }))
+vi.mock('@/components/pull-request-page/page/header', () => ({ PullRequestPageHeader: () => null }))
+vi.mock('../open-dialog/github-item-dialog-pr-header', () => ({
+  GitHubItemDialogPRHeader: () => null
+}))
+vi.mock('../open-dialog/github-item-dialog-issue-header', () => ({
+  GitHubItemDialogIssueHeader: () => null
+}))
+vi.mock('../open-dialog/github-item-dialog-issue-body', () => ({
+  GitHubItemDialogIssueBody: () => null
+}))
+vi.mock('../edit-item-fields/gh-edit-section', () => ({ GHEditSection: () => null }))
+vi.mock('@/components/pull-request-page/edit/section', () => ({ GHEditSection: () => null }))
+vi.mock('@/components/pull-request-page/page/tabs-shell', () => ({
+  PullRequestPageTabs: (props: Published) => {
+    published.set('page', props)
+    return <div>{props.body}</div>
+  }
+}))
+vi.mock('../open-dialog/github-item-dialog-pr-tabs', () => ({
+  GitHubItemDialogPRTabs: (props: Published) => {
+    published.set('dialog', {
+      ...props,
+      body: props.details?.body ?? '',
+      appendOptimisticComment: props.onCommentAdded
+    })
+    return <div>{props.body}</div>
+  }
+}))
+
 const io = vi.hoisted(() => ({
   gh: vi.fn(),
   host: 'github.com',
   capable: true,
   rpc: vi.fn(),
-  setViewed: vi.fn()
+  setViewed: vi.fn(),
+  preference: 'upstream' as 'upstream' | 'origin',
+  upstreamIsIssue: false,
+  recordInteraction: vi.fn()
+}))
+vi.mock('../../../../../main/git/runner', async (original) => ({
+  ...(await original<typeof GitRunner>()),
+  ghExecFileAsync: io.gh
 }))
 vi.mock('../../../../../main/github/gh-utils', () => ({
   ghExecFileAsync: io.gh,
+  classifyGhError: () => ({ type: 'not_found', message: 'Not found' }),
   acquire: vi.fn(),
   release: vi.fn(),
   ghRepoExecOptions: (context: object) => context,
@@ -44,7 +108,8 @@ vi.mock('../../../../../main/github/github-enterprise-repository', () => ({
     repo: 'widgets',
     host: io.host
   }),
-  isGitHubHostAuthenticated: async () => true
+  isGitHubHostAuthenticated: async () => true,
+  isGitHubHostAuthenticatedForGlobalCli: async () => true
 }))
 vi.mock('../../../../../main/git/remote-name-listing', () => ({
   shouldProbeGitRemote: async () => true
@@ -60,7 +125,10 @@ vi.mock('../../../../../main/github/client', async () => ({
   ...(await import('../../../../../main/github/client/fetch/get-pr-comments'))
 }))
 vi.mock('@/store', () => {
-  const state = { repos: [{ id: 'clone', path: '/clone', issueSourcePreference: 'upstream' }] }
+  const state = {
+    repos: [{ id: 'clone', path: '/clone', issueSourcePreference: 'upstream' }],
+    recordFeatureInteraction: io.recordInteraction
+  }
   return {
     useAppStore: Object.assign((select: (value: typeof state) => unknown) => select(state), {
       getState: () => state
@@ -99,7 +167,7 @@ function Metadata({ enabled }: { enabled: boolean }) {
   labels = useRepoLabels(enabled ? '/clone' : null, enabled ? 'clone' : null)
   return null
 }
-let view: ReturnType<typeof useGitHubItemDialogDetails>
+let view: ReturnType<typeof useGitHubWorkItemDetails>
 let root: ReturnType<typeof createRoot>
 function Probe({
   opened,
@@ -110,7 +178,7 @@ function Probe({
   sourceContext?: TaskSourceContext
   metadataEnabled?: boolean
 }) {
-  view = useGitHubItemDialogDetails({
+  view = useGitHubWorkItemDetails({
     workItem: opened,
     repoPath: '/clone',
     effectiveRepoId: 'clone',
@@ -128,6 +196,8 @@ beforeEach(() => {
   _resetOriginGitHubApiRepositoryCache()
   workItemDetailsCache.clear()
   io.capable = true
+  io.preference = 'upstream'
+  io.upstreamIsIssue = false
   io.rpc.mockReset()
   io.gh.mockReset().mockImplementation(async (args: string[]) => {
     const owner =
@@ -140,7 +210,17 @@ beforeEach(() => {
     if (args.some((a) => a.endsWith('/labels'))) {
       return { stdout: `${owner}-label` }
     }
+    if (args[0] === 'issue' && args[1] === 'view') {
+      return response({
+        ...item(owner),
+        type: 'issue',
+        url: `https://${io.host}/${owner}/widgets/issues/93`
+      })
+    }
     if (args[0] === 'pr') {
+      if (io.upstreamIsIssue && owner === 'upstream') {
+        throw new Error('Not found')
+      }
       {
         return response(item(owner))
       }
@@ -249,7 +329,7 @@ beforeEach(() => {
             parsed.type,
             null,
             {},
-            'upstream',
+            io.preference,
             parsed.ownerRepo
           )
         },
@@ -265,6 +345,9 @@ beforeEach(() => {
             'upstream',
             args.ownerRepo
           ),
+        updatePullRequestBySlug,
+        updateIssueBySlug,
+        listLabelsBySlug,
         notifyWorkItemMutated: vi.fn().mockResolvedValue(true),
         setPRFileViewed: io.setViewed
       }
@@ -348,7 +431,7 @@ it.each(['github.com', 'github.corp'])(
   }
 )
 
-it('rechecks legacy resolution for metadata and reports one details error after the server changes source', async () => {
+it('retains accepted legacy details and exact viewed actions when generic metadata is unsupported', async () => {
   io.host = 'github.com'
   io.capable = false
   const opened = item('fork')
@@ -360,17 +443,334 @@ it('rechecks legacy resolution for metadata and reports one details error after 
     hostId: 'runtime:paired'
   }
   const fork = await getWorkItemDetails('/clone', 93, 'pr', null, {}, 'upstream', opened.prRepo)
-  io.rpc.mockResolvedValue(fork)
-  await act(async () =>
-    root.render(<Probe opened={opened} sourceContext={sourceContext} metadataEnabled={false} />)
-  )
+  io.rpc.mockImplementation(async (_target, method) => {
+    if (method === 'status.get') {
+      return { runtimeId: 'a', capabilities: [] }
+    }
+    if (method === 'github.workItemDetails') {
+      return fork
+    }
+    if (method === 'github.setPRFileViewed') {
+      return true
+    }
+    throw new Error(`Unexpected targetless dispatch: ${method}`)
+  })
+  await act(async () => root.render(<Probe opened={opened} sourceContext={sourceContext} />))
   expect(view.details?.body).toBe('fork body')
-  io.rpc.mockResolvedValue(await getWorkItemDetails('/clone', 93, 'pr'))
-  await act(async () =>
-    root.render(<Probe opened={opened} sourceContext={sourceContext} metadataEnabled />)
-  )
-  expect(view.details).toBeNull()
-  expect(view.error).toContain('fork/widgets#93')
+  expect(view.error).toBeNull()
+  expect(labels.error).toContain('Update Orca')
   expect(labels.data).toEqual([])
-  expect(io.rpc.mock.calls.every(([, method]) => method === 'github.workItemDetails')).toBe(true)
+  await act(async () => {
+    expect(await view.handlePRFileViewedChange('fork.ts', true)).toBe(true)
+  })
+  expect(
+    io.rpc.mock.calls.filter(([, method]) => method === 'github.workItemDetails')
+  ).toHaveLength(1)
+  expect(io.rpc.mock.calls.some(([, method]) => method === 'github.listLabels')).toBe(false)
+  expect(view.details?.pullRequestId).toBe('PR_fork')
+})
+
+it('shares accepted content, appends and originating-key optimistic comments across desktop consumers', async () => {
+  io.host = 'github.com'
+  const views: ReturnType<typeof useGitHubWorkItemDetails>[] = []
+  // Stable selected row avoids a test-only render trigger.
+  const opened = item('fork')
+  function Pair() {
+    views[0] = useGitHubWorkItemDetails({
+      workItem: opened,
+      repoPath: '/clone',
+      effectiveRepoId: 'clone'
+    })
+    views[1] = useGitHubWorkItemDetails({
+      workItem: opened,
+      repoPath: '/clone',
+      effectiveRepoId: 'clone'
+    })
+    return null
+  }
+  await act(async () => root.render(<Pair />))
+  expect(views[0].detailsCacheKey).toBe(views[1].detailsCacheKey)
+  await act(async () =>
+    views[0].appendOptimisticComment({ id: 500, body: 'posted', author: 'me', createdAt: '' })
+  )
+  expect(views[1].details?.comments.at(-1)?.body).toBe('posted')
+  expect(io.recordInteraction).toHaveBeenCalledWith('github-tasks')
+})
+
+it('the actual old PR resolver fallback cannot authorize a generic writer', async () => {
+  io.host = 'github.com'
+  io.upstreamIsIssue = true
+  const fork = await getWorkItemDetails('/clone', 93, 'pr', null, {}, 'upstream')
+  expect(fork?.item.url).toContain('/fork/widgets/pull/93')
+  io.gh.mockClear()
+  // This is the old generic writer boundary: it independently resolves upstream.
+  await updateIssue('/clone', 93, { body: 'unsafe' }, null, {}, 'upstream')
+  expect(io.gh.mock.calls.some(([args]) => args.includes('repos/upstream/widgets/issues/93'))).toBe(
+    true
+  )
+  io.gh.mockClear()
+  io.rpc.mockImplementation(async (_target, method) => {
+    if (method === 'status.get') {
+      return { runtimeId: 'a', capabilities: [] }
+    }
+    throw new Error('An unsupported generic write must not reach the old transport')
+  })
+  await expect(
+    runIssueUpdate({
+      repoPath: '/clone',
+      repoId: 'clone',
+      sourceContext: {
+        kind: 'task-source',
+        provider: 'github',
+        projectId: 'p',
+        hostId: 'runtime:paired',
+        repoId: 'remote-clone'
+      },
+      projectOrigin: undefined,
+      issueRepo: item('fork').prRepo,
+      type: 'pr',
+      number: 93,
+      updates: { body: 'safe refusal' }
+    })
+  ).rejects.toThrow('Update Orca')
+  expect(io.gh).not.toHaveBeenCalled()
+})
+
+it('publishes through the actual Tasks PR page and Project dialog using one accepted cache owner', async () => {
+  io.host = 'github.com'
+  const opened = item('fork')
+  const projectOrigin = {
+    owner: 'fork',
+    repo: 'widgets',
+    host: 'github.com',
+    number: 93,
+    type: 'pr' as const,
+    projectId: 'p',
+    projectItemId: 'row',
+    cacheKey: 'p'
+  }
+  await act(async () =>
+    root.render(
+      <>
+        <PullRequestPage workItem={opened} repoPath="/clone" onUse={() => {}} onClose={() => {}} />
+        <GitHubItemDialog
+          workItem={opened}
+          repoPath="/clone"
+          projectOrigin={projectOrigin}
+          onUse={() => {}}
+          onClose={() => {}}
+        />
+      </>
+    )
+  )
+  const page = published.get('page')!
+  const dialog = published.get('dialog')!
+  expect(page.detailsCacheKey).toBe(dialog.detailsCacheKey)
+  for (const consumer of [page, dialog]) {
+    expect(consumer.details).toMatchObject({
+      body: 'fork body',
+      pullRequestId: 'PR_fork',
+      headSha: 'fork-head',
+      files: [{ path: 'fork.ts' }],
+      checks: [{ name: 'fork check' }],
+      comments: [{ body: 'fork conversation' }]
+    })
+  }
+  await act(async () =>
+    page.appendOptimisticComment({
+      id: 501,
+      body: 'published comment',
+      author: 'me',
+      createdAt: ''
+    })
+  )
+  expect(published.get('dialog')?.details?.comments.at(-1)?.body).toBe('published comment')
+  await act(async () => patchCachedWorkItemBody(page.detailsCacheKey!, 'saved body'))
+  expect(published.get('page')?.body).toBe('saved body')
+  expect(published.get('dialog')?.body).toBe('saved body')
+})
+
+it('a matching issue read cannot authorize a later legacy write after source preference flips', async () => {
+  io.host = 'github.com'
+  const accepted = await getWorkItemWithRepository('/clone', 93, 'issue', null, {}, 'upstream')
+  expect(accepted.item?.url).toContain('/upstream/widgets/issues/93')
+  io.gh.mockClear()
+  await updateIssue('/clone', 93, { body: 'would hit a different issue' }, null, {}, 'origin')
+  expect(io.gh.mock.calls.some(([args]) => args.includes('repos/fork/widgets/issues/93'))).toBe(
+    true
+  )
+  io.gh.mockClear()
+  io.rpc.mockImplementation(async (_target, method) => {
+    if (method === 'status.get') {
+      return { runtimeId: 'a', capabilities: [] }
+    }
+    throw new Error('unsupported operation was dispatched')
+  })
+  await expect(
+    runIssueUpdate({
+      repoPath: '/clone',
+      repoId: 'clone',
+      sourceContext: {
+        kind: 'task-source',
+        provider: 'github',
+        projectId: 'p',
+        hostId: 'runtime:original',
+        repoId: 'remote-clone'
+      },
+      projectOrigin: undefined,
+      issueRepo: { owner: 'upstream', repo: 'widgets' },
+      number: 93,
+      updates: { body: 'edit' }
+    })
+  ).rejects.toThrow('Update Orca')
+  expect(io.rpc.mock.calls.map(([, method]) => method)).toEqual(['status.get'])
+  expect(io.gh).not.toHaveBeenCalled()
+})
+
+it.each([false, true])(
+  'keeps exact body, Project fields and slug options on their original runtime and ambient host credentials; capable=%s',
+  async (capable) => {
+    io.host = 'github.corp'
+    io.capable = capable
+    const opened = item('fork')
+    const sourceContext: TaskSourceContext = {
+      kind: 'task-source',
+      provider: 'github',
+      projectId: 'p',
+      repoId: 'remote-clone',
+      hostId: 'runtime:original'
+    }
+    const projectOrigin = {
+      owner: 'fork',
+      repo: 'widgets',
+      host: io.host,
+      number: 93,
+      type: 'pr' as const,
+      projectId: 'p',
+      projectItemId: 'row',
+      cacheKey: 'p'
+    }
+    io.rpc.mockImplementation(async (target, method, args) => {
+      expect(target).toEqual({ kind: 'environment', environmentId: 'original' })
+      if (method === 'github.project.updatePullRequestBySlug') {
+        return updatePullRequestBySlug(args)
+      }
+      if (method === 'github.project.updateIssueBySlug') {
+        return updateIssueBySlug(args)
+      }
+      if (method === 'github.project.listLabelsBySlug') {
+        return listLabelsBySlug(args)
+      }
+      throw new Error(`exact operations must not preflight: ${method}`)
+    })
+    await runWorkItemBodyUpdate({
+      item: opened,
+      repoPath: '/clone',
+      sourceContext,
+      projectOrigin: undefined,
+      body: 'exact body',
+      parsedSlug: opened.prRepo!
+    })
+    await runIssueUpdate({
+      repoPath: '/clone',
+      repoId: 'clone',
+      sourceContext,
+      projectOrigin,
+      number: 93,
+      updates: { body: 'Project field' }
+    })
+    const options = await io.rpc(
+      { kind: 'environment', environmentId: 'original' },
+      'github.project.listLabelsBySlug',
+      projectOrigin
+    )
+    expect(options).toMatchObject({ ok: true, labels: ['fork-label'] })
+    expect(io.gh.mock.calls.some(([args]) => args.includes('repos/fork/widgets/pulls/93'))).toBe(
+      true
+    )
+    expect(io.gh.mock.calls.some(([args]) => args.includes('repos/fork/widgets/issues/93'))).toBe(
+      true
+    )
+    for (const [, execution] of io.gh.mock.calls) {
+      expect(execution.host).toBe(io.host)
+      expect(execution).not.toHaveProperty('cwd')
+      expect(execution).not.toHaveProperty('ghAccount')
+    }
+    io.gh.mockRejectedValueOnce({ stderr: 'HTTP 403: permission denied', stdout: '' })
+    await expect(
+      runWorkItemBodyUpdate({
+        item: opened,
+        repoPath: '/clone',
+        sourceContext,
+        projectOrigin: undefined,
+        body: 'denied',
+        parsedSlug: opened.prRepo!
+      })
+    ).rejects.toThrow()
+    io.gh.mockRejectedValueOnce({ stderr: 'HTTP 403: permission denied', stdout: '' })
+    await expect(
+      runIssueUpdate({
+        repoPath: '/clone',
+        repoId: 'clone',
+        sourceContext,
+        projectOrigin,
+        number: 93,
+        updates: { body: 'denied' }
+      })
+    ).rejects.toThrow()
+    io.gh.mockRejectedValueOnce({ stderr: 'HTTP 403: permission denied', stdout: '' })
+    expect(await listLabelsBySlug(projectOrigin)).toMatchObject({ ok: false })
+  }
+)
+
+it('shared pending work and invalidation settle only their originating resource through a late same-number switch', async () => {
+  io.host = 'github.com'
+  const a = item('fork')
+  const b = item('upstream')
+  const fullA = await getWorkItemDetails('/clone', 93, 'pr', null, {}, 'upstream', a.prRepo)
+  const fullB = await getWorkItemDetails('/clone', 93, 'pr', null, {}, 'upstream', b.prRepo)
+  const pending: ((value: GitHubWorkItemDetails | null) => void)[] = []
+  const sourceContext: TaskSourceContext = {
+    kind: 'task-source',
+    provider: 'github',
+    projectId: 'p',
+    hostId: 'runtime:paired',
+    repoId: 'remote-clone'
+  }
+  io.rpc.mockImplementation(async (_target, method) => {
+    if (method === 'status.get') {
+      return { runtimeId: 'a', capabilities: [] }
+    }
+    if (method === 'github.workItemDetails') {
+      return new Promise((resolve) => pending.push(resolve))
+    }
+    throw new Error(`unexpected ${method}`)
+  })
+  await act(async () =>
+    root.render(<Probe opened={a} sourceContext={sourceContext} metadataEnabled={false} />)
+  )
+  const aKey = view.detailsCacheKey!
+  const oldAppend = view.appendOptimisticComment
+  await act(async () => view.invalidateCurrentDetailsCache())
+  expect(pending).toHaveLength(2)
+  await act(async () =>
+    root.render(<Probe opened={b} sourceContext={sourceContext} metadataEnabled={false} />)
+  )
+  const bKey = view.detailsCacheKey!
+  expect(bKey).not.toBe(aKey)
+  expect(view.details).toBeNull()
+  await act(async () => pending[0](fullA))
+  expect(view.details).toBeNull()
+  expect(workItemDetailsCache.get(bKey)?.pending).toBeDefined()
+  await act(async () => {
+    pending[1](fullA)
+    pending[2](fullB)
+  })
+  await act(async () =>
+    oldAppend({ id: 901, body: 'originating A comment', author: 'me', createdAt: '' })
+  )
+  expect(view.details).toMatchObject({ body: 'upstream body', pullRequestId: 'PR_upstream' })
+  expect(view.details?.comments.some((comment) => comment.id === 901)).toBe(false)
+  expect(workItemDetailsCache.get(aKey)?.details?.pullRequestId).toBe('PR_fork')
+  expect(workItemDetailsCache.get(bKey)?.pending).toBeUndefined()
 })

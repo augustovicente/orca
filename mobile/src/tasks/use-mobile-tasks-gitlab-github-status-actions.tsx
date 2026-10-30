@@ -1,3 +1,6 @@
+import { useGitHubTaskPublication } from './github-task-identity'
+import { withGitHubTargetOperation } from './github-work-item-operation'
+import { githubTaskKey, sameGitHubTask, requireGitHubTaskTarget } from './github-task-identity'
 import type { ProjectFileMergeActionsModel } from './use-mobile-tasks-project-file-merge-actions'
 import { useCallback } from './mobile-tasks-dependencies'
 import type { TaskItem } from './mobile-tasks-legacy-foundation'
@@ -8,6 +11,7 @@ import {
 } from './mobile-task-item-state-operations'
 
 export function useMobileTasksGitlabGithubStatusActions(model: ProjectFileMergeActionsModel) {
+  const claimPublication = useGitHubTaskPublication(model)
   const {
     client,
     detailPayload,
@@ -61,7 +65,7 @@ export function useMobileTasksGitlabGithubStatusActions(model: ProjectFileMergeA
         setMutatingStatus(false)
       }
     },
-    [client, loadTasks, mutatingStatus]
+    [claimPublication, client, loadTasks, mutatingStatus]
   )
 
   const updateGitHubIssueMetadata = useCallback(
@@ -81,21 +85,25 @@ export function useMobileTasksGitlabGithubStatusActions(model: ProjectFileMergeA
       }
       setMutatingStatus(true)
       setError('')
+      const isCurrent = claimPublication(item)
       try {
-        const reply = await githubIssueUpdate.request(
+        const target = requireGitHubTaskTarget(item.source)
+        const params = { repo: `id:${item.source.repoId}`, number: item.source.number, updates }
+        const reply = await withGitHubTargetOperation({
           client,
-          {
-            repo: `id:${item.source.repoId}`,
-            number: item.source.number,
-            updates
-          },
-          { timeoutMs: 30_000 }
-        )
+          params,
+          ownerRepo: target.repository,
+          send: (selected, exact, options) =>
+            githubIssueUpdate.request(selected, { ...params, ...exact }, options)
+        })
         const result = githubIssueUpdate.interpret(reply)
         if (result.ok === false) {
           throw new Error(result.error ?? 'Failed to update GitHub issue')
         }
 
+        if (!isCurrent()) {
+          return
+        }
         const nextLabels = [
           ...new Set([
             ...(detailPayload?.provider === 'github'
@@ -121,7 +129,7 @@ export function useMobileTasksGitlabGithubStatusActions(model: ProjectFileMergeA
             : undefined
         const nextTitle = updates.title?.trim()
         setActionItem((current) =>
-          current?.provider === 'github' && current.source.id === item.source.id
+          sameGitHubTask(current, item)
             ? {
                 ...current,
                 ...(nextTitle ? { title: nextTitle } : {}),
@@ -135,7 +143,7 @@ export function useMobileTasksGitlabGithubStatusActions(model: ProjectFileMergeA
         )
         setItems((current) =>
           current.map((candidate) =>
-            candidate.provider === 'github' && candidate.source.id === item.source.id
+            sameGitHubTask(candidate, item)
               ? {
                   ...candidate,
                   ...(nextTitle ? { title: nextTitle } : {}),
@@ -149,7 +157,7 @@ export function useMobileTasksGitlabGithubStatusActions(model: ProjectFileMergeA
           )
         )
         setDetailPayload((current) =>
-          current?.provider === 'github'
+          current?.provider === 'github' && current.targetKey === githubTaskKey(item.source)
             ? {
                 ...current,
                 labels: nextLabels,
@@ -164,12 +172,17 @@ export function useMobileTasksGitlabGithubStatusActions(model: ProjectFileMergeA
         setItemRemoveAssigneesDraft('')
         await loadTasks({ silent: true })
       } catch (err) {
+        if (!isCurrent()) {
+          return
+        }
         setError(err instanceof Error ? err.message : 'Failed to update GitHub issue')
       } finally {
-        setMutatingStatus(false)
+        if (isCurrent()) {
+          setMutatingStatus(false)
+        }
       }
     },
-    [client, detailPayload, loadTasks, mutatingStatus]
+    [claimPublication, client, detailPayload, loadTasks, mutatingStatus]
   )
   return Object.assign(model, { toggleGitLabStatus, updateGitHubIssueMetadata })
 }

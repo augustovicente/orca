@@ -1,8 +1,8 @@
 import { getTaskSourceCacheScope } from '../../../shared/task-source-context'
 import { getGitHubRuntimeRepoId } from '@/lib/github-source-runtime-context'
-import { supportsGitHubWorkItemTarget } from '@/lib/github-work-item-target-request'
+import { callGitHubTargetOperation } from '@/lib/github-work-item-target-request'
+import { useGitHubOperationScope } from './useGitHubOperationScope'
 import { useGitHubWorkItemTarget } from '@/components/github-item-dialog/load-item-details/github-work-item-target-context'
-import { callRuntimeRpc } from '@/runtime/runtime-rpc-client'
 import type { RuntimeClientTarget } from '../../../shared/runtime-client-target'
 import type {
   GitHubAssignableUser,
@@ -33,9 +33,10 @@ export function useRepoLabels(
     ? (getGitHubRuntimeRepoId(bound?.sourceContext, repoId) ?? repoPath ?? '')
     : (repoId ?? repoPath ?? '')
   const ownerRepo = options?.ownerRepo ?? bound?.resource.repository
+  const operationScope = useGitHubOperationScope(target, repoId, repoPath)
   const repositoryKey = ownerRepo
-    ? `${repoSelector}::${githubRepoIdentityKey(ownerRepo)}::${bound?.sourceContext ? getTaskSourceCacheScope(bound.sourceContext) : ''}::${bound ? `${bound.resource.type}/${bound.resource.number}` : ''}`
-    : repoSelector
+    ? `${repoSelector}::${githubRepoIdentityKey(ownerRepo)}::${bound?.sourceContext ? getTaskSourceCacheScope(bound.sourceContext) : ''}::${operationScope}`
+    : `${repoSelector}::${operationScope}`
   const cacheKey =
     repoPath || repoId
       ? runtimeEnvironmentId
@@ -48,32 +49,20 @@ export function useRepoLabels(
     store: ghLabelStore,
     errorFallback: 'Failed to load labels',
     load: async () => {
-      if (!bound && ownerRepo && !(await supportsGitHubWorkItemTarget(target))) {
-        throw new Error(
-          'Unable to load repository metadata from this server. Try again or open the item on GitHub.'
-        )
-      }
-      const exactArgs = bound
-        ? await bound.prepare().catch((error: unknown) => {
-            bound.reportError(error instanceof Error ? error.message : '')
-            throw error
-          })
-        : ownerRepo
-          ? { ownerRepo }
-          : {}
-      return runtimeEnvironmentId
-        ? callRuntimeRpc<string[]>(
-            { kind: 'environment', environmentId: runtimeEnvironmentId },
-            'github.listLabels',
-            { repo: repoSelector, ...exactArgs },
-            { timeoutMs: 15_000 }
-          )
-        : window.api.gh.listLabels({
+      return callGitHubTargetOperation<string[]>({
+        target,
+        ownerRepo,
+        method: 'github.listLabels',
+        params: { repo: repoSelector },
+        timeoutMs: 15_000,
+        local: (exact) =>
+          window.api.gh.listLabels({
             repoPath: repoPath ?? '',
             repoId: repoId ?? undefined,
             ...(bound?.sourceContext ? { sourceContext: bound.sourceContext } : {}),
-            ...exactArgs
+            ...exact
           })
+      })
     }
   })
   return {
@@ -96,9 +85,10 @@ export function useRepoAssignees(
     ? (getGitHubRuntimeRepoId(bound?.sourceContext, repoId) ?? repoPath ?? '')
     : (repoId ?? repoPath ?? '')
   const ownerRepo = options?.ownerRepo ?? bound?.resource.repository
+  const operationScope = useGitHubOperationScope(target, repoId, repoPath)
   const repositoryKey = ownerRepo
-    ? `${repoSelector}::${githubRepoIdentityKey(ownerRepo)}::${bound?.sourceContext ? getTaskSourceCacheScope(bound.sourceContext) : ''}::${bound ? `${bound.resource.type}/${bound.resource.number}` : ''}`
-    : repoSelector
+    ? `${repoSelector}::${githubRepoIdentityKey(ownerRepo)}::${bound?.sourceContext ? getTaskSourceCacheScope(bound.sourceContext) : ''}::${operationScope}`
+    : `${repoSelector}::${operationScope}`
   const cacheKey =
     repoPath || repoId
       ? runtimeEnvironmentId
@@ -111,32 +101,20 @@ export function useRepoAssignees(
     store: ghAssigneeStore,
     errorFallback: 'Failed to load assignees',
     load: async () => {
-      if (!bound && ownerRepo && !(await supportsGitHubWorkItemTarget(target))) {
-        throw new Error(
-          'Unable to load repository metadata from this server. Try again or open the item on GitHub.'
-        )
-      }
-      const exactArgs = bound
-        ? await bound.prepare().catch((error: unknown) => {
-            bound.reportError(error instanceof Error ? error.message : '')
-            throw error
-          })
-        : ownerRepo
-          ? { ownerRepo }
-          : {}
-      return runtimeEnvironmentId
-        ? callRuntimeRpc<GitHubAssignableUser[]>(
-            { kind: 'environment', environmentId: runtimeEnvironmentId },
-            'github.listAssignableUsers',
-            { repo: repoSelector, ...exactArgs },
-            { timeoutMs: 15_000 }
-          )
-        : window.api.gh.listAssignableUsers({
+      return callGitHubTargetOperation<GitHubAssignableUser[]>({
+        target,
+        ownerRepo,
+        method: 'github.listAssignableUsers',
+        params: { repo: repoSelector },
+        timeoutMs: 15_000,
+        local: (exact) =>
+          window.api.gh.listAssignableUsers({
             repoPath: repoPath ?? '',
             repoId: repoId ?? undefined,
             ...(bound?.sourceContext ? { sourceContext: bound.sourceContext } : {}),
-            ...exactArgs
+            ...exact
           })
+      })
     }
   })
   return {

@@ -348,6 +348,7 @@ export function ConversationTab({
             itemType={item.type}
             prRepo={prRepo}
             mentionOptions={mentionOptions}
+            mentionError={repoAssignees.error}
             onCommentAdded={onCommentAdded}
           />
         )}

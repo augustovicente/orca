@@ -23,7 +23,7 @@ import {
   patchCachedPRChecks,
   patchCachedPRReviewRequests,
   patchCachedWorkItemBody
-} from '../cache/work-item-details'
+} from '@/components/github-item-dialog/load-item-details/work-item-details-cache'
 import { ConversationTab } from '../conversation/tab'
 import { ChecksTab } from '../checks/tab'
 import { PRFilesCombinedDiffViewer } from '../files/combined-diff-viewer'
@@ -120,6 +120,7 @@ export function PullRequestPageTabs({
       <div className="min-h-0 flex-1 overflow-y-auto scrollbar-sleek">
         <TabsContent value="conversation" className="mt-0">
           <ConversationTab
+            key={detailsCacheKey}
             item={displayWorkItem ?? workItem}
             repoPath={repoPath}
             repoId={effectiveRepoId}

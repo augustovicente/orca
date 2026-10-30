@@ -1,61 +1,75 @@
 import { isWebClientLocation } from './web-client-location'
 import { GITHUB_EXACT_WORK_ITEM_TARGET_RUNTIME_CAPABILITY } from '../../../shared/source-control-runtime-capabilities'
-import {
-  requireGitHubWorkItemTargetDetails,
-  type GitHubWorkItemTarget
-} from '../../../shared/github/work-item-target'
+import { GITHUB_EXACT_OPERATION_UNSUPPORTED } from '../../../shared/github/work-item-target'
+import type { GitHubOwnerRepo } from '../../../shared/github/pull-request-types'
 import type { RuntimeClientTarget } from '../../../shared/runtime-client-target'
-import type { TaskSourceContext } from '../../../shared/task-source-context'
-import { callRuntimeRpc, runtimeEnvironmentSupportsCapability } from '@/runtime/runtime-rpc-client'
-import type { GitHubWorkItemDetails } from '../../../shared/github/work-item-types'
-import { getGitHubRuntimeRepoId } from './github-source-runtime-context'
+import type { RuntimeStatus } from '../../../shared/runtime-types'
+import { callRuntimeRpc } from '@/runtime/runtime-rpc-client'
+import {
+  captureRuntimeEnvironmentRequestRevision,
+  getRuntimeEnvironmentRevision
+} from '@/runtime/runtime-environment-revision'
+import { getRuntimeEnvironmentConnectionGeneration } from '@/store/slices/runtime-status-connection-generation'
+import { RUNTIME_CONNECTION_CHANGED_MESSAGE } from '@/web/web-runtime-request-registry'
 
-export async function supportsGitHubWorkItemTarget(target: RuntimeClientTarget): Promise<boolean> {
-  if (target.kind === 'local' && !isWebClientLocation()) {
-    return true
-  }
-  return target.kind === 'environment'
-    ? await runtimeEnvironmentSupportsCapability(
-        target.environmentId,
-        GITHUB_EXACT_WORK_ITEM_TARGET_RUNTIME_CAPABILITY
-      ).catch(() => false)
-    : (await window.api.runtime.getStatus().catch(() => null))?.capabilities?.includes(
-        GITHUB_EXACT_WORK_ITEM_TARGET_RUNTIME_CAPABILITY
-      ) === true
-}
-
-export async function prepareGitHubWorkItemTargetRequest(args: {
+// Capture before the probe and carry the same authority through the actual queued dispatch.
+export async function callGitHubTargetOperation<TResult>(args: {
   target: RuntimeClientTarget
-  resource: GitHubWorkItemTarget
-  repoPath: string | null
-  repoId: string
-  sourceContext?: TaskSourceContext | null
-}) {
-  const supported = await supportsGitHubWorkItemTarget(args.target)
-  if (supported) {
-    const { owner, repo, host } = args.resource.repository
-    return { ownerRepo: { owner, repo, ...(host ? { host } : {}) } }
+  ownerRepo?: GitHubOwnerRepo | null
+  method: string
+  params: Record<string, unknown>
+  local: (exact: { ownerRepo?: GitHubOwnerRepo }) => Promise<TResult>
+  read?: boolean
+  timeoutMs?: number
+}): Promise<TResult> {
+  let target = args.target
+  if (target.kind === 'local' && isWebClientLocation()) {
+    const { requireActiveEnvironment } = await import('@/web/preload-api/web-runtime-session')
+    target = { kind: 'environment', environmentId: requireActiveEnvironment().id }
   }
-  // A legacy operation is safe only when its ordinary resolution proves the opened identity.
-  const params = { number: args.resource.number, type: args.resource.type }
-  const details = await (
-    args.target.kind === 'environment'
-      ? callRuntimeRpc<GitHubWorkItemDetails | null>(
-          args.target,
-          'github.workItemDetails',
-          {
-            repo: getGitHubRuntimeRepoId(args.sourceContext, args.repoId),
-            ...params
-          },
-          { timeoutMs: 30_000 }
-        )
-      : window.api.gh.workItemDetails({
-          repoPath: args.repoPath ?? '',
-          repoId: args.repoId,
-          sourceContext: args.sourceContext,
-          ...params
-        })
-  ).catch(() => null)
-  requireGitHubWorkItemTargetDetails(details, args.resource)
-  return {}
+  if (target.kind === 'local') {
+    return args.local(args.ownerRepo ? { ownerRepo: args.ownerRepo } : {})
+  }
+  const environmentId = target.environmentId
+  const revision = captureRuntimeEnvironmentRequestRevision(environmentId)
+  const generation = getRuntimeEnvironmentConnectionGeneration(environmentId)
+  const assertCurrent = () => {
+    if (
+      getRuntimeEnvironmentRevision(environmentId) !== revision ||
+      getRuntimeEnvironmentConnectionGeneration(environmentId) !== generation
+    ) {
+      throw new Error(RUNTIME_CONNECTION_CHANGED_MESSAGE)
+    }
+  }
+  const status = args.ownerRepo
+    ? await callRuntimeRpc<RuntimeStatus>(target, 'status.get', undefined, {
+        timeoutMs: 15_000,
+        expectedEnvironmentPairingRevision: revision,
+        beforeSend: assertCurrent
+      })
+    : null
+  assertCurrent()
+  const supported =
+    status?.capabilities?.includes(GITHUB_EXACT_WORK_ITEM_TARGET_RUNTIME_CAPABILITY) === true
+  if (args.ownerRepo && !supported && !args.read) {
+    throw new Error(GITHUB_EXACT_OPERATION_UNSUPPORTED)
+  }
+  const result = await callRuntimeRpc<TResult>(
+    target,
+    args.method,
+    {
+      ...args.params,
+      ...(supported && args.ownerRepo ? { ownerRepo: args.ownerRepo } : {})
+    },
+    {
+      timeoutMs: args.timeoutMs ?? 30_000,
+      expectedEnvironmentPairingRevision: revision,
+      expectedEnvironmentRuntimeId: status?.runtimeId,
+      beforeSend: assertCurrent
+    }
+  )
+  if (args.read) {
+    assertCurrent()
+  }
+  return result
 }

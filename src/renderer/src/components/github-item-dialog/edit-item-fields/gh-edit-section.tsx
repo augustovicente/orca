@@ -1,4 +1,3 @@
-import { useGitHubWorkItemTarget } from '../load-item-details/github-work-item-target-context'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '@/store'
@@ -72,20 +71,8 @@ function GHEditSectionItem({
   const ownerTarget = useAppStore(
     useShallow((s) => getGitHubRepoRoutingTarget(s, item.repoId ?? null, sourceContext))
   )
-  const bound = useGitHubWorkItemTarget()
   const { isPending, run: runMutation } = useImmediateMutation()
-  const run: typeof runMutation = useCallback(
-    (key, options) =>
-      runMutation(key, {
-        ...options,
-        onError: (message) => {
-          if (!bound?.reportError(message)) {
-            options.onError?.(message)
-          }
-        }
-      }),
-    [bound, runMutation]
-  )
+  const run = runMutation
   // Patch Project rows too; patchWorkItem updates only workItemsCache, leaving projectViewCache stale.
   const patchProjectRowIfNeeded = useCallback(
     (patch: Parameters<typeof patchProjectRowContent>[2]) => {

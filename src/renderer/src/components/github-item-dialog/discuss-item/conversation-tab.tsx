@@ -1,4 +1,3 @@
-import { useGitHubWorkItemTarget } from '../load-item-details/github-work-item-target-context'
 import React, { useCallback, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
@@ -150,7 +149,6 @@ export function ConversationTab({
       : Boolean(projectOrigin || canUseRepoMutationContext)
   const bodyChanged = resolvedBodyDraft !== body
 
-  const bound = useGitHubWorkItemTarget()
   const handleSaveBody = useCallback(async (): Promise<void> => {
     if (bodySaving || !bodyChanged) {
       setBodyEditing(false)
@@ -173,9 +171,6 @@ export function ConversationTab({
         translate('auto.components.GitHubItemDialog.5221548274', 'Description updated.')
       )
     } catch (err) {
-      if (err instanceof Error && bound?.reportError(err.message)) {
-        return
-      }
       toast.error(
         err instanceof Error
           ? err.message
@@ -188,7 +183,6 @@ export function ConversationTab({
       setBodySaving(false)
     }
   }, [
-    bound,
     bodyChanged,
     resolvedBodyDraft,
     bodySaving,

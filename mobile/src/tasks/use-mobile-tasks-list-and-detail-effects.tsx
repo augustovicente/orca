@@ -1,3 +1,4 @@
+import { githubTaskKey } from './github-task-identity'
 import type { ProjectLoadingActionsModel } from './use-mobile-tasks-project-loading-actions'
 import {
   View,
@@ -15,6 +16,7 @@ import {
 export function useMobileTasksListAndDetailEffects(model: ProjectLoadingActionsModel) {
   const {
     actionItem,
+    setMutatingStatus,
     activeGitHubProject,
     activeGitHubProjectViewId,
     appliedGithubProjectSearch,
@@ -283,6 +285,34 @@ export function useMobileTasksListAndDetailEffects(model: ProjectLoadingActionsM
     }
   }, [client, linearMetadataItem, tasksSupported])
 
+  const actionIdentity =
+    actionItem?.provider === 'github' ? githubTaskKey(actionItem.source) : actionItem?.key
+  useEffect(() => {
+    setMutatingStatus(false)
+  }, [actionIdentity, client, connState, setMutatingStatus])
+
+  const fileRevision =
+    model.detailPayload?.provider === 'github'
+      ? [
+          model.detailPayload.targetKey,
+          model.detailPayload.headSha,
+          model.detailPayload.baseSha
+        ].join('\0')
+      : null
+  useEffect(() => {
+    setExpandedPrFilePath(null)
+    setPrFileContents({})
+    setPrFileLoadingPath(null)
+  }, [
+    actionIdentity,
+    client,
+    connState,
+    fileRevision,
+    setExpandedPrFilePath,
+    setPrFileContents,
+    setPrFileLoadingPath
+  ])
+
   useEffect(() => {
     if (!actionItem) {
       setItemTitleDraft('')
@@ -316,7 +346,13 @@ export function useMobileTasksListAndDetailEffects(model: ProjectLoadingActionsM
     setPrFileCommentDrafts({})
     setExpandedResolvedCommentGroups(new Set())
   }, [actionItem])
-  return Object.assign(model, { refreshGitHubProject, setTaskCopyFeedbackRootRef })
+  const detailPayload =
+    model.detailPayload?.provider === 'github' &&
+    (actionItem?.provider !== 'github' ||
+      model.detailPayload.targetKey !== githubTaskKey(actionItem.source))
+      ? null
+      : model.detailPayload
+  return Object.assign(model, { detailPayload, refreshGitHubProject, setTaskCopyFeedbackRootRef })
 }
 
 export type ListAndDetailEffectsModel = ReturnType<typeof useMobileTasksListAndDetailEffects>

@@ -26,6 +26,7 @@ export type WorkItemDetailsCacheEntry = {
   pending?: Promise<GitHubWorkItemDetails | null>
   error?: string
 }
+export const optimisticWorkItemComments = new Map<string, PRComment[]>()
 export const workItemDetailsCache = new Map<string, WorkItemDetailsCacheEntry>()
 
 // Replace entry identity on every write so useSyncExternalStore snapshots stay stable between notifications.
@@ -72,6 +73,7 @@ export function touchWorkItemDetailsCache(key: string, entry: WorkItemDetailsCac
       break
     }
     workItemDetailsCache.delete(oldest)
+    optimisticWorkItemComments.delete(oldest)
   }
   notifyWorkItemDetailsCache()
 }
@@ -237,10 +239,6 @@ export function getAcceptedWorkItemDetails({
     return null
   }
   if (!cachedDetails) {
-    // Show pre-fetch optimistic comments in a minimal shell while full details load.
-    if (opt.length > 0 && workItem) {
-      return { item: workItem, body: '', comments: [...opt] }
-    }
     return null
   }
   if (opt.length === 0) {

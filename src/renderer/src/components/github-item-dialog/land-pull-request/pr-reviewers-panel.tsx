@@ -1,4 +1,3 @@
-import { useGitHubWorkItemTarget } from '../load-item-details/github-work-item-target-context'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { LoaderCircle, Pencil } from 'lucide-react'
@@ -39,7 +38,6 @@ export function PRReviewersPanel({
   projectOrigin?: GitHubItemDialogProjectOrigin
   onReviewersRequested: (reviewRequests: GitHubAssignableUser[]) => void
 }): React.JSX.Element {
-  const bound = useGitHubWorkItemTarget()
   const [open, setOpen] = useState(false)
   const [reviewerInput, setReviewerInput] = useState('')
   const [activeReviewerCursor, setActiveReviewerCursor] = useState({
@@ -131,21 +129,19 @@ export function PRReviewersPanel({
     () => resolvePullRequestRepo(item, projectOrigin),
     [item, projectOrigin]
   )
-  const boundRepo = Boolean(bound && (repoPath || ownerTarget.kind === 'environment'))
   const reviewerMetadataBySlug = useRepoAssigneesBySlug(
-    open && !boundRepo && reviewRepo ? reviewRepo.owner : null,
-    open && !boundRepo && reviewRepo ? reviewRepo.repo : null,
+    open && reviewRepo ? reviewRepo.owner : null,
+    open && reviewRepo ? reviewRepo.repo : null,
     reviewerSeedUsers.map((user) => user.login),
     ownerTarget,
     reviewRepo?.host
   )
   const reviewerMetadataByPath = useRepoAssignees(
-    open && (boundRepo || !reviewRepo) ? repoPath : null,
-    open && (boundRepo || !reviewRepo) ? item.repoId : null,
+    open && !reviewRepo ? repoPath : null,
+    open && !reviewRepo ? item.repoId : null,
     { target: ownerTarget, ownerRepo: reviewRepo }
   )
-  const reviewerMetadata =
-    !boundRepo && reviewRepo ? reviewerMetadataBySlug : reviewerMetadataByPath
+  const reviewerMetadata = reviewRepo ? reviewerMetadataBySlug : reviewerMetadataByPath
   const displayItem = { ...item, reviewRequests: localReviewRequests }
   const reviewers = getGitHubPRReviewerRows(displayItem)
   const authorLogin = item.author?.toLowerCase() ?? null

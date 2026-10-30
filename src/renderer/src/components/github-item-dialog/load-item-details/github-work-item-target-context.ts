@@ -1,5 +1,5 @@
 import { useAppStore } from '@/store'
-import { prepareGitHubWorkItemTargetRequest } from '@/lib/github-work-item-target-request'
+import { useGitHubOperationScope } from '@/hooks/useGitHubOperationScope'
 import {
   canUseGitHubRepoContext,
   getGitHubRepoRoutingTarget
@@ -11,26 +11,16 @@ import {
 import { getTaskSourceCacheScope } from '../../../../../shared/task-source-context'
 import type { GitHubWorkItem } from '../../../../../shared/github/work-item-types'
 import type { GitHubItemDialogProjectOrigin } from './github-item-dialog-types'
-import {
-  getWorkItemDetailsCacheKey,
-  invalidateWorkItemDetailsCacheForKey,
-  touchWorkItemDetailsCache
-} from './work-item-details-cache'
+import { getWorkItemDetailsCacheKey } from './work-item-details-cache'
 import type { TaskSourceContext } from '../../../../../shared/task-source-context'
 import type { RuntimeClientTarget } from '../../../../../shared/runtime-client-target'
 import { createContext, useContext, useMemo } from 'react'
-import {
-  GitHubWorkItemTargetError,
-  type GitHubWorkItemTarget
-} from '../../../../../shared/github/work-item-target'
-import type { GitHubOwnerRepo } from '../../../../../shared/github/pull-request-types'
+import type { GitHubWorkItemTarget } from '../../../../../shared/github/work-item-target'
 
 export const GitHubWorkItemTargetContext = createContext<{
   resource: GitHubWorkItemTarget
   target: RuntimeClientTarget
   sourceContext?: TaskSourceContext | null
-  prepare: () => Promise<{ ownerRepo?: GitHubOwnerRepo }>
-  reportError: (message: string) => boolean
 } | null>(null)
 
 export function useGitHubWorkItemTarget() {
@@ -75,6 +65,8 @@ export function useGitHubItemTargetIdentity({
         : null,
     [workItem, repository]
   )
+  const target = getGitHubRepoRoutingTarget(useAppStore.getState(), effectiveRepoId, sourceContext)
+  const operationScope = useGitHubOperationScope(target, effectiveRepoId, repoPath)
   const detailsCacheKey = useMemo(() => {
     if (!workItem || !effectiveRepoId || !canUseDetailsRepoContext) {
       return null
@@ -85,7 +77,9 @@ export function useGitHubItemTargetIdentity({
       issueSourcePreference,
       sourceContext,
       sourceCacheScope:
-        sourceContext?.provider === 'github' ? getTaskSourceCacheScope(sourceContext) : null,
+        sourceContext?.provider === 'github'
+          ? `${getTaskSourceCacheScope(sourceContext)}::${operationScope}`
+          : operationScope,
       type: workItem.type,
       number: workItem.number,
       ownerRepo: repository
@@ -97,7 +91,8 @@ export function useGitHubItemTargetIdentity({
     sourceContext,
     workItem,
     issueSourcePreference,
-    repository
+    repository,
+    operationScope
   ])
 
   return { resource, detailsCacheKey, canUseDetailsRepoContext }
@@ -106,15 +101,11 @@ export function useGitHubItemTargetIdentity({
 export function useGitHubItemTargetContext({
   resource,
   effectiveRepoId,
-  repoPath,
-  sourceContext,
-  detailsCacheKey
+  sourceContext
 }: {
   resource: GitHubWorkItemTarget | null
   effectiveRepoId: string | null
-  repoPath: string | null
   sourceContext?: TaskSourceContext | null
-  detailsCacheKey: string | null
 }) {
   return useMemo(() => {
     if (!resource || !effectiveRepoId) {
@@ -128,29 +119,7 @@ export function useGitHubItemTargetContext({
     return {
       resource,
       target,
-      sourceContext,
-      prepare: () =>
-        prepareGitHubWorkItemTargetRequest({
-          resource,
-          target,
-          repoPath,
-          repoId: effectiveRepoId,
-          sourceContext
-        }),
-      reportError: (message: string) => {
-        if (message !== new GitHubWorkItemTargetError(resource).message) {
-          return false
-        }
-        if (detailsCacheKey) {
-          invalidateWorkItemDetailsCacheForKey(detailsCacheKey)
-          touchWorkItemDetailsCache(detailsCacheKey, {
-            details: null,
-            fetchedAt: 0,
-            error: message
-          })
-        }
-        return true
-      }
+      sourceContext
     }
-  }, [resource, effectiveRepoId, repoPath, sourceContext, detailsCacheKey])
+  }, [resource, effectiveRepoId, sourceContext])
 }

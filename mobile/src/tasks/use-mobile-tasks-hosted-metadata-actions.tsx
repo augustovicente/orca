@@ -1,3 +1,5 @@
+import { useGitHubTaskPublication } from './github-task-identity'
+import { githubTaskKey, sameGitHubTask, requireGitHubTaskTarget } from './github-task-identity'
 import type { GitlabGithubStatusActionsModel } from './use-mobile-tasks-gitlab-github-status-actions'
 import { useCallback } from './mobile-tasks-dependencies'
 import type { TaskItem } from './mobile-tasks-legacy-foundation'
@@ -7,7 +9,28 @@ import {
   gitlabMergeRequestUpdate
 } from './mobile-task-item-state-operations'
 
-export function useMobileTasksHostedMetadataActions(model: GitlabGithubStatusActionsModel) {
+export type useMobileTasksHostedMetadataActionsInput = Pick<
+  GitlabGithubStatusActionsModel,
+  | 'actionItem'
+  | 'detailPayload'
+  | 'client'
+  | 'loadTasks'
+  | 'mutatingStatus'
+  | 'setActionItem'
+  | 'setDetailPayload'
+  | 'setError'
+  | 'setItemAddAssigneesDraft'
+  | 'setItemAddLabelsDraft'
+  | 'setItemRemoveAssigneesDraft'
+  | 'setItemRemoveLabelsDraft'
+  | 'setItems'
+  | 'setMutatingStatus'
+>
+
+export function useMobileTasksHostedMetadataActions<
+  Model extends useMobileTasksHostedMetadataActionsInput
+>(model: Model) {
+  const claimPublication = useGitHubTaskPublication(model)
   const {
     client,
     detailPayload,
@@ -37,12 +60,14 @@ export function useMobileTasksHostedMetadataActions(model: GitlabGithubStatusAct
       }
       setMutatingStatus(true)
       setError('')
+      const isCurrent = claimPublication(item)
       try {
         const reply = await githubPullRequestUpdate.request(
           client,
           {
             repo: `id:${item.source.repoId}`,
             prNumber: item.source.number,
+            prRepo: requireGitHubTaskTarget(item.source).repository,
             updates: {
               ...(nextTitle !== undefined ? { title: nextTitle } : {}),
               ...(updates.body !== undefined ? { body: updates.body } : {})
@@ -54,9 +79,12 @@ export function useMobileTasksHostedMetadataActions(model: GitlabGithubStatusAct
         if (result.ok === false) {
           throw new Error(result.error ?? 'Failed to update GitHub pull request')
         }
+        if (!isCurrent()) {
+          return
+        }
         if (nextTitle !== undefined) {
           setActionItem((current) =>
-            current?.provider === 'github' && current.source.id === item.source.id
+            sameGitHubTask(current, item)
               ? {
                   ...current,
                   title: nextTitle,
@@ -66,7 +94,7 @@ export function useMobileTasksHostedMetadataActions(model: GitlabGithubStatusAct
           )
           setItems((current) =>
             current.map((candidate) =>
-              candidate.provider === 'github' && candidate.source.id === item.source.id
+              sameGitHubTask(candidate, item)
                 ? {
                     ...candidate,
                     title: nextTitle,
@@ -78,17 +106,24 @@ export function useMobileTasksHostedMetadataActions(model: GitlabGithubStatusAct
         }
         if (updates.body !== undefined) {
           setDetailPayload((current) =>
-            current?.provider === 'github' ? { ...current, body: updates.body ?? '' } : current
+            current?.provider === 'github' && current.targetKey === githubTaskKey(item.source)
+              ? { ...current, body: updates.body ?? '' }
+              : current
           )
         }
         await loadTasks({ silent: true })
       } catch (err) {
+        if (!isCurrent()) {
+          return
+        }
         setError(err instanceof Error ? err.message : 'Failed to update GitHub pull request')
       } finally {
-        setMutatingStatus(false)
+        if (isCurrent()) {
+          setMutatingStatus(false)
+        }
       }
     },
-    [client, loadTasks, mutatingStatus]
+    [claimPublication, client, loadTasks, mutatingStatus]
   )
 
   const updateGitLabIssueMetadata = useCallback(
@@ -218,9 +253,10 @@ export function useMobileTasksHostedMetadataActions(model: GitlabGithubStatusAct
         setMutatingStatus(false)
       }
     },
-    [client, detailPayload, loadTasks, mutatingStatus]
+    [claimPublication, client, detailPayload, loadTasks, mutatingStatus]
   )
   return Object.assign(model, { updateGitHubPullRequestMetadata, updateGitLabIssueMetadata })
 }
 
-export type HostedMetadataActionsModel = ReturnType<typeof useMobileTasksHostedMetadataActions>
+export type HostedMetadataActionsModel = GitlabGithubStatusActionsModel &
+  ReturnType<typeof useMobileTasksHostedMetadataActions>

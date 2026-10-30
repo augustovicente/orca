@@ -15,7 +15,7 @@ import { GitHubItemDialogIssueHeader } from './github-item-dialog-issue-header'
 import { GitHubItemDialogPRHeader } from './github-item-dialog-pr-header'
 import { GitHubItemDialogPRTabs } from './github-item-dialog-pr-tabs'
 import { GHEditSection } from '../edit-item-fields/gh-edit-section'
-import { useGitHubItemDialogDetails } from '../load-item-details/use-github-item-dialog-details'
+import { useGitHubWorkItemDetails } from '../load-item-details/use-github-work-item-details'
 import { useGitHubItemDialogLinkCopy } from './use-github-item-dialog-link-copy'
 
 export default function GitHubItemDialog(props: GitHubItemDialogProps): React.JSX.Element {
@@ -110,7 +110,7 @@ function GitHubItemDialogItem({
     handlePRFileViewedChange,
     pendingViewedPaths,
     isIssuePage
-  } = useGitHubItemDialogDetails({
+  } = useGitHubWorkItemDetails({
     workItem,
     repoPath,
     effectiveRepoId,

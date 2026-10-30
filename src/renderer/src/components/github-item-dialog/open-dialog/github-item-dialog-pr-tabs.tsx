@@ -114,6 +114,7 @@ export function GitHubItemDialogPRTabs({
       <div className="min-h-0 flex-1 overflow-y-auto scrollbar-sleek">
         <TabsContent value="conversation" className="mt-0">
           <ConversationTab
+            key={detailsCacheKey}
             item={displayWorkItem ?? workItem}
             repoPath={repoPath}
             repoId={effectiveRepoId}

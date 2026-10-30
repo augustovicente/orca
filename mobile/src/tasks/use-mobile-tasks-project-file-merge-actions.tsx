@@ -1,3 +1,6 @@
+import { useGitHubTaskPublication } from './github-task-identity'
+import { requireGitHubTaskTarget, sameGitHubTask } from './github-task-identity'
+import { withGitHubTargetOperation } from './github-work-item-operation'
 import type { ProjectReviewCheckActionsModel } from './use-mobile-tasks-project-review-check-actions'
 import { useCallback } from './mobile-tasks-dependencies'
 import {
@@ -16,7 +19,38 @@ import {
 } from './mobile-task-item-state-operations'
 import { githubReviewCommentWrite } from './mobile-task-item-comment-operations'
 
-export function useMobileTasksProjectFileMergeActions(model: ProjectReviewCheckActionsModel) {
+export type ProjectFileMergeActionsInput = Pick<
+  ProjectReviewCheckActionsModel,
+  | 'actionItem'
+  | 'detailPayload'
+  | 'activeGitHubProjectHost'
+  | 'client'
+  | 'expandedPrFilePath'
+  | 'findProjectRowRepo'
+  | 'loadTasks'
+  | 'mutatingStatus'
+  | 'prFileCommentDrafts'
+  | 'prFileContents'
+  | 'projectMutating'
+  | 'projectRowDetail'
+  | 'setActionItem'
+  | 'setError'
+  | 'setExpandedPrFilePath'
+  | 'setGithubProjectTable'
+  | 'setMutatingStatus'
+  | 'setPrFileCommentDrafts'
+  | 'setPrFileContents'
+  | 'setPrFileLoadingPath'
+  | 'setProjectMutating'
+  | 'setProjectRowDetail'
+  | 'setProjectRowDetailError'
+  | 'setProjectRowItem'
+>
+
+export function useMobileTasksProjectFileMergeActions<Model extends ProjectFileMergeActionsInput>(
+  model: Model
+) {
+  const claimPublication = useGitHubTaskPublication(model)
   const {
     activeGitHubProjectHost,
     client,
@@ -246,35 +280,56 @@ export function useMobileTasksProjectFileMergeActions(model: ProjectReviewCheckA
       setMutatingStatus(true)
       setError('')
       const nextState = item.source.state === 'closed' ? 'open' : 'closed'
+      const isCurrent = claimPublication(item)
       try {
         const updated =
           item.source.type === 'issue'
             ? githubIssueUpdate.interpret(
-                await githubIssueUpdate.request(client, {
-                  repo: `id:${item.source.repoId}`,
-                  number: item.source.number,
-                  updates: { state: nextState }
+                await withGitHubTargetOperation({
+                  client,
+                  params: { repo: `id:${item.source.repoId}` },
+                  ownerRepo: requireGitHubTaskTarget(item.source).repository,
+                  send: (selected, exact, options) =>
+                    githubIssueUpdate.request(
+                      selected,
+                      {
+                        repo: `id:${item.source.repoId}`,
+                        number: item.source.number,
+                        updates: { state: nextState },
+                        ...exact
+                      },
+                      options
+                    )
                 })
               )
             : githubPullRequestStateUpdate.interpret(
                 await githubPullRequestStateUpdate.request(client, {
                   repo: `id:${item.source.repoId}`,
                   prNumber: item.source.number,
+                  prRepo: requireGitHubTaskTarget(item.source).repository,
                   updates: { state: nextState }
                 })
               )
         if (updated.ok === false) {
           throw new Error(updated.error ?? 'Failed to update GitHub status')
         }
-        setActionItem(null)
+        if (!isCurrent()) {
+          return
+        }
+        setActionItem((current) => (sameGitHubTask(current, item) ? null : current))
         await loadTasks({ silent: true })
       } catch (err) {
+        if (!isCurrent()) {
+          return
+        }
         setError(err instanceof Error ? err.message : 'Failed to update status')
       } finally {
-        setMutatingStatus(false)
+        if (isCurrent()) {
+          setMutatingStatus(false)
+        }
       }
     },
-    [client, loadTasks, mutatingStatus]
+    [claimPublication, client, loadTasks, mutatingStatus]
   )
   return Object.assign(model, {
     toggleProjectGitHubFileExpansion,
@@ -284,4 +339,5 @@ export function useMobileTasksProjectFileMergeActions(model: ProjectReviewCheckA
   })
 }
 
-export type ProjectFileMergeActionsModel = ReturnType<typeof useMobileTasksProjectFileMergeActions>
+export type ProjectFileMergeActionsModel = ProjectReviewCheckActionsModel &
+  ReturnType<typeof useMobileTasksProjectFileMergeActions>

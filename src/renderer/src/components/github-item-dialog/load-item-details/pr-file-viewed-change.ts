@@ -1,3 +1,4 @@
+import { useCallback, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { setPRFileViewedForRepo } from '@/components/github/github-work-item-comment-mutations'
 import { resolvePullRequestRepo } from '@/components/github/github-work-item-identity'
@@ -10,6 +11,7 @@ import { patchCachedPRFileViewedState } from './work-item-details-cache'
 
 export async function syncPRFileViewedState(args: {
   canUseDetailsRepoContext: boolean
+  effectiveRepoId?: string | null
   pullRequestId: string | undefined
   workItem: GitHubWorkItem | null
   detailsCacheKey: string | null
@@ -48,7 +50,7 @@ export async function syncPRFileViewedState(args: {
     : undefined
   try {
     const ok = await setPRFileViewedForRepo({
-      repoId: workItem.repoId,
+      repoId: args.effectiveRepoId ?? workItem.repoId,
       repoPath: repoPath ?? '',
       sourceContext,
       prNumber: workItem.number,
@@ -91,4 +93,28 @@ export async function syncPRFileViewedState(args: {
       return next
     })
   }
+}
+
+export function usePRFileViewedPending(detailsCacheKey: string | null) {
+  const currentKeyRef = useRef(detailsCacheKey)
+  currentKeyRef.current = detailsCacheKey
+  const [viewedPending, setViewedPending] = useState<{ key: string | null; paths: Set<string> }>(
+    () => ({ key: detailsCacheKey, paths: new Set() })
+  )
+  const pendingViewedPaths =
+    viewedPending.key === detailsCacheKey ? viewedPending.paths : new Set<string>()
+  const setPendingViewedPaths = useCallback(
+    (update: (paths: Set<string>) => Set<string>) => {
+      if (currentKeyRef.current !== detailsCacheKey) {
+        return
+      }
+      setViewedPending((previous) => ({
+        key: detailsCacheKey,
+        paths: update(previous.key === detailsCacheKey ? previous.paths : new Set())
+      }))
+    },
+    [detailsCacheKey]
+  )
+
+  return { pendingViewedPaths, setPendingViewedPaths }
 }

@@ -15,6 +15,7 @@ export function MentionTextarea({
   className,
   wrapperClassName,
   mentionOptions,
+  mentionError,
   textareaRef
 }: {
   value: string
@@ -24,6 +25,7 @@ export function MentionTextarea({
   rows: number
   className?: string
   wrapperClassName?: string
+  mentionError?: string | null
   mentionOptions: MentionOption[]
   textareaRef: React.RefObject<HTMLTextAreaElement | null>
 }): React.JSX.Element {
@@ -34,7 +36,7 @@ export function MentionTextarea({
     () => (mentionQuery ? filterGitHubMentionOptions(mentionOptions, mentionQuery.query) : []),
     [mentionOptions, mentionQuery]
   )
-  const showSuggestions = mentionQuery !== null && suggestions.length > 0
+  const showSuggestions = mentionQuery !== null && (suggestions.length > 0 || Boolean(mentionError))
 
   const syncMentionQuery = useCallback((textarea: HTMLTextAreaElement): void => {
     const nextQuery = findMentionQuery(textarea.value, textarea.selectionStart)
@@ -72,6 +74,9 @@ export function MentionTextarea({
           role="listbox"
           className="absolute right-0 bottom-[calc(100%+6px)] left-0 z-50 max-h-64 overflow-y-auto rounded-md border border-border/70 bg-popover p-1 text-popover-foreground shadow-lg scrollbar-sleek"
         >
+          {mentionError && (
+            <div className="px-2 py-1.5 text-[12px] text-destructive">{mentionError}</div>
+          )}
           {suggestions.map((option, index) => (
             <button
               key={option.login}

@@ -1,6 +1,6 @@
 import { getGitHubMutationTarget } from './github-work-item-mutation-target'
 export { getGitHubMutationTarget } from './github-work-item-mutation-target'
-import { prepareGitHubWorkItemTargetRequest } from '@/lib/github-work-item-target-request'
+import { callGitHubTargetOperation } from '@/lib/github-work-item-target-request'
 import { useAppStore } from '@/store'
 import { callRuntimeRpc } from '@/runtime/runtime-rpc-client'
 import {
@@ -31,7 +31,7 @@ export async function runIssueUpdate(args: {
   updates: Parameters<typeof window.api.gh.updateIssue>[0]['updates']
 }): Promise<void> {
   const issueRepo = args.projectOrigin
-  if (issueRepo && !args.repoPath && !getGitHubSourceRuntimeHost(args.sourceContext)) {
+  if (issueRepo) {
     const target =
       args.sourceContext?.provider === 'github'
         ? taskSourceRuntimeTarget(args.sourceContext)
@@ -69,43 +69,34 @@ export async function runIssueUpdate(args: {
     )
     return
   }
-  const target = getGitHubRepoRoutingTarget(useAppStore.getState(), args.repoId, args.sourceContext)
-  const runtimeHost = target.kind === 'environment' ? target : null
+  if (!args.issueRepo) {
+    throw new Error('Unable to identify this GitHub item. Open it again from Tasks.')
+  }
+  const runtimeHost = getGitHubSourceRuntimeHost(args.sourceContext)
   if (!args.repoPath && !runtimeHost) {
     throw new Error('No repo context available for this edit.')
   }
-  const repository = args.projectOrigin ?? args.issueRepo
-  const exactArgs = repository
-    ? await prepareGitHubWorkItemTargetRequest({
-        target: runtimeHost
-          ? { kind: 'environment', environmentId: runtimeHost.environmentId }
-          : { kind: 'local' },
-        resource: { repository, number: args.number, type: args.type ?? 'issue' },
-        repoPath: args.repoPath,
-        repoId: args.repoId ?? '',
-        sourceContext: args.sourceContext
-      })
-    : {}
-  const res = runtimeHost
-    ? await callRuntimeRpc<Awaited<ReturnType<typeof window.api.gh.updateIssue>>>(
-        { kind: 'environment', environmentId: runtimeHost.environmentId },
-        'github.updateIssue',
-        {
-          repo: getGitHubRuntimeRepoId(args.sourceContext, args.repoId ?? ''),
-          number: args.number,
-          updates: args.updates,
-          ...exactArgs
-        },
-        { timeoutMs: 30_000 }
-      )
-    : await window.api.gh.updateIssue({
+  const res = await callGitHubTargetOperation({
+    target: runtimeHost
+      ? { kind: 'environment', environmentId: runtimeHost.environmentId }
+      : { kind: 'local' },
+    ownerRepo: args.issueRepo,
+    method: 'github.updateIssue',
+    params: {
+      repo: getGitHubRuntimeRepoId(args.sourceContext, args.repoId ?? ''),
+      number: args.number,
+      updates: args.updates
+    },
+    local: (exact) =>
+      window.api.gh.updateIssue({
         repoPath: args.repoPath ?? '',
         repoId: args.repoId ?? undefined,
         sourceContext: args.sourceContext,
         number: args.number,
         updates: args.updates,
-        ...exactArgs
+        ...exact
       })
+  })
   if (!res.ok) {
     throw new Error(codeHostErrorText(res))
   }
@@ -135,19 +126,6 @@ export async function runWorkItemBodyUpdate(args: {
     const targetSlug = resolvePullRequestRepo(args.item, args.projectOrigin) ?? args.parsedSlug
     if (!targetSlug) {
       throw new Error('No GitHub repository context available for this pull request.')
-    }
-    if (args.repoPath || getGitHubSourceRuntimeHost(args.sourceContext)) {
-      await runIssueUpdate({
-        repoPath: args.repoPath,
-        repoId: args.item.repoId,
-        sourceContext: args.sourceContext,
-        projectOrigin: args.projectOrigin,
-        issueRepo: targetSlug,
-        type: 'pr',
-        number: args.item.number,
-        updates: { body: args.body }
-      })
-      return
     }
     const target =
       args.sourceContext?.provider === 'github'
