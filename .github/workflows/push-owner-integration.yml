@@ -61,6 +61,7 @@ jobs:
       - id: root-deps
         uses: ./.github/actions/install-node-dependencies
         with:
+          cache-pnpm-store: false
           native-runtime: none
           node-version: '24'
           cache-dependency-path: |
