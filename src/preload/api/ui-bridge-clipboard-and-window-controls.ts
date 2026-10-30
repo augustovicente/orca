@@ -12,6 +12,10 @@ import type { TerminalSurfaceCloseTarget } from '../../shared/terminal-surface-c
 import type { ClipboardImageThumbnail } from '../../shared/clipboard-image'
 import type { ReadClipboardTextOptions } from '../../shared/clipboard-text'
 import type { PreloadApi } from '../api-types'
+import {
+  WINDOW_REPRESENTED_WORKSPACE_CHANNEL,
+  type WindowRepresentedWorkspace
+} from '../../shared/window-represented-workspace'
 
 export const uiClipboardAndWindowControlsApi = {
   onOpenDiffFromMobile: (
@@ -155,6 +159,9 @@ export const uiClipboardAndWindowControlsApi = {
   },
   setShortcutRecorderFocused: (focused: boolean): void => {
     ipcRenderer.send('ui:setShortcutRecorderFocused', focused)
+  },
+  setRepresentedWorkspace: (workspace: WindowRepresentedWorkspace): void => {
+    ipcRenderer.send(WINDOW_REPRESENTED_WORKSPACE_CHANNEL, workspace)
   },
   onRichMarkdownContextCommand: (
     callback: (payload: RichMarkdownContextMenuCommandPayload) => void
