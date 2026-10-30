@@ -30,7 +30,11 @@ Do not generalize these results to every application on a platform.
 - Strict selectors require a unique matching role and label. References are fresh
   before the task and after every step. There is no label-only or role-only fallback.
 - Completion requires exact independent final state, including unchanged decoy text
-  and exactly one click/submit. Raw text is never cleaned. API errors, missing final
+  and exactly one click/submit. Submission handlers capture the submitted text;
+  Increment handlers capture the selected color at click time. Submit tasks require
+  the marker in the submission, and choose-and-click requires Blue at the click.
+  Final text/color alone cannot prove those events carried the intended values.
+  Raw text is never cleaned. API errors, missing final
   observations and observed interference remain separate from task completion.
 - The observer starts before provider initialization and initial selector snapshot,
   and stays active through all steps, reads, shutdown and settling. No sentinel
