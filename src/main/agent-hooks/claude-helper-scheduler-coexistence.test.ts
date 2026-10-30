@@ -56,7 +56,7 @@ it.each(['desktop', 'relay'])(
       receivedAt: Date.now(),
       stateStartedAt: Date.now(),
       providerSession: { key: 'session_id', id: 'claude', transcriptPath: '/claude.jsonl' },
-      payload: { agentType: 'claude', state: 'working' }
+      payload: { agentType: 'claude', state: 'working', prompt: '' }
     }
     state.claudeSubagentRosterByPaneKey.set(
       PANE,
@@ -70,7 +70,7 @@ it.each(['desktop', 'relay'])(
     const muse: EnrichedAgentHookEventPayload = {
       ...row,
       providerSession: { key: 'session_id', id: 'muse', transcriptPath: '/muse.jsonl' },
-      payload: { agentType: 'muse', state: 'working' }
+      payload: { agentType: 'muse', state: 'working', prompt: '' }
     }
     try {
       if (kind === 'desktop') {

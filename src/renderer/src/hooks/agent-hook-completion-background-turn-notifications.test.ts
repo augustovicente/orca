@@ -245,7 +245,11 @@ describe('Claude background-turn completion notifications', () => {
       },
       ptyIdsByTabId: { 'tab-1': ['pty-1'] },
       terminalLayoutsByTabId: {
-        'tab-1': { root: { type: 'leaf', leafId: LEAF_ID }, activeLeafId: LEAF_ID }
+        'tab-1': {
+          root: { type: 'leaf', leafId: LEAF_ID },
+          activeLeafId: LEAF_ID,
+          expandedLeafId: null
+        }
       }
     })
     const dir = await mkdtemp(join(tmpdir(), 'helper-consumers-'))
@@ -267,16 +271,19 @@ describe('Claude background-turn completion notifications', () => {
     const apply = (event: AgentHookEventPayload) => {
       current = event
       seedLegacyAgentStatusForTests(state, event)
-      store
-        .getState()
-        .setAgentStatus(
-          PANE_KEY,
-          event.payload,
-          'Claude',
-          { updatedAt: Date.now(), stateStartedAt: Date.now() },
-          { tabId: 'tab-1', worktreeId: WORKTREE_ID },
-          { providerSession: event.providerSession }
-        )
+      store.getState().setAgentStatus(
+        PANE_KEY,
+        event.payload,
+        'Claude',
+        {
+          updatedAt: Date.now(),
+          stateStartedAt: Date.now(),
+          turnEndedAt: event.turnEndedAt,
+          turnEndDisposition: event.turnEndDisposition
+        },
+        { tabId: 'tab-1', worktreeId: WORKTREE_ID },
+        { providerSession: event.providerSession }
+      )
       observeAgentHookCompletionForNotification({
         paneKey: PANE_KEY,
         worktreeId: WORKTREE_ID,
@@ -313,6 +320,10 @@ describe('Claude background-turn completion notifications', () => {
         apply(event)
       }
       const before = store.getState().agentStatusByPaneKey[PANE_KEY]!
+      const beforeEvent = current!
+      expect(beforeEvent.payload.turnCompletedAt).toBe(Date.parse(kill.timestamp) - 1_000)
+      expect(before.turnEndedAt).toBeUndefined()
+      expect(before.turnEndDisposition).toBeUndefined()
       expect(before.subagents?.[0]?.id).toBe('a123')
       poller.schedule(current!)
       vi.advanceTimersByTime(HOOK_DONE_QUIET_MS)
@@ -325,7 +336,11 @@ describe('Claude background-turn completion notifications', () => {
       expect(after.state).toBe('done')
       expect(after.subagents ?? []).toEqual([])
       expect(after.mainAgent).toEqual(before.mainAgent)
-      expect(after.turnCompletedAt).toBe(before.turnCompletedAt)
+      expect(current?.hookEventName).toBe('SubagentStop')
+      expect(current?.toolAgentId).toBe('a123')
+      expect(current?.payload.turnCompletedAt).toBe(beforeEvent.payload.turnCompletedAt)
+      expect(after.turnEndedAt).toBeUndefined()
+      expect(after.turnEndDisposition).toBeUndefined()
       expect(dispatchTerminalNotification).toHaveBeenCalledTimes(1)
       expect(
         buildRunningAgentChildRowModels(after, {

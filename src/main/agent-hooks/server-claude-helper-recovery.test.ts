@@ -400,7 +400,13 @@ it('caps future spool cutoffs and keeps HTTP cutoff provenance private', async (
 it.each(['relay-spool', 'desktop-spool'])(
   'bounds actual admitted trigger and activation at N/10N on %s',
   async (kind) => {
-    const measurements = []
+    const measurements: {
+      N: number
+      captures: number
+      activations: number
+      reads: number
+      parentBytes: number
+    }[] = []
     for (const N of [10, 100]) {
       const read = vi.spyOn(cursor, 'readClaudeTranscriptChunk')
       const capture = vi.spyOn(ClaudeHelperKillPoller.prototype, 'schedule')
@@ -602,7 +608,7 @@ it('reentrant mirror and OSC writes cannot borrow local hook admission', async (
     )
     p.desktop.ingestTerminalStatus({
       paneKey: other,
-      payload: { agentType: 'claude', state: 'working' }
+      payload: { agentType: 'claude', state: 'working', prompt: '' }
     })
   })
   await p.post({ hook_event_name: 'UserPromptSubmit', prompt: 'another real turn' })

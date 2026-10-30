@@ -320,7 +320,7 @@ describe('forward transcript reading', () => {
     const line = `${JSON.stringify({ type: 'system', subtype: 'agents_killed', timestamp: stamp(1), text: 'é' })}\n`
     await writeFile(path, line)
     const cursor = createClaudeTranscriptCursor(path)
-    const records = []
+    const records: Record<string, unknown>[] = []
     for (let i = 0; i < 50; i++) {
       const result = await readClaudeTranscriptChunk(cursor, 7)
       records.push(...(result?.records ?? []))
