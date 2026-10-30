@@ -72,6 +72,7 @@ export function journalClaudeResult(
     writeClaudeTerminalFailure(sink, endedTurnIdentity, usageLimit)
   }
   const alreadyShown = authenticationFailures.resultAlreadyShown(message)
+  let transientFailure: ReturnType<typeof claudeTransientFailure>
   if (
     settlesTurn &&
     !commandEnd &&
@@ -81,20 +82,21 @@ export function journalClaudeResult(
     message.is_error === true &&
     !alreadyShown
   ) {
-    const category =
+    transientFailure =
       claudeTransientFailure(message) ??
       (message.api_error_status == null && message.api_error == null && message.error == null
         ? turn.transientFailure
         : undefined)
-    if (category) {
-      sink.noteTransientFailure?.(endedTurnIdentity, category)
-    }
   }
   if (settlesTurn) {
     turn.suppressReopenOnFailure(message.is_error === true)
     corrections.abandon()
     streamedText.finish({ completedAt: observedAt })
-    context.settle(message, commandEnd ?? claudeTurnEndForResult(message, observedAt, leftToStop))
+    context.settle(
+      message,
+      commandEnd ?? claudeTurnEndForResult(message, observedAt, leftToStop),
+      transientFailure
+    )
     streamedBlocks.clear()
     streamedText.settle()
   }

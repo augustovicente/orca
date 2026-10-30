@@ -45,7 +45,7 @@ export function upsertJournalItem(
     state.itemExecutionOwners.set(itemId, fences.executionOwner)
   }
   if (!existing) {
-    state.items.set(itemId, next)
+    state.items.set(itemId, state.stoppedTurns.observe(next))
     state.itemFences.set(itemId, fences.ownerFence ?? fences.fence)
     state.tombstones.delete(itemId)
     return
@@ -56,7 +56,7 @@ export function upsertJournalItem(
     existing.body.role === 'user' &&
     parseAgentJournalItemKey(itemId)?.provider === 'orca'
   const { sequenceIndex: _revisedAt, ...revised } = next
-  state.items.set(itemId, {
+  const revisedItem = {
     ...revised,
     // Host bookkeeping without explicit producer must retain subagent linkage.
     ...(namesAgentJournalProducer(next) ? {} : agentJournalLinkageFields(existing)),
@@ -66,7 +66,8 @@ export function upsertJournalItem(
     ...(existing.sequenceIndex !== undefined ? { sequenceIndex: existing.sequenceIndex } : {}),
     observedAt: existing.observedAt,
     turnScope: existing.turnScope ?? next.turnScope
-  })
+  }
+  state.items.set(itemId, state.stoppedTurns.observe(revisedItem, existing))
   state.tombstones.delete(itemId)
 }
 
@@ -95,6 +96,7 @@ export function removeJournalItem(
       state.removedTurnIds.add(turnId)
     }
   }
+  state.stoppedTurns.remove(itemId, existing)
   state.tombstones.set(itemId, revision)
   state.items.delete(itemId)
   state.turnEndedSequences.delete(itemId)

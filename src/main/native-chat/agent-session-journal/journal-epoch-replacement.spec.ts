@@ -1,6 +1,6 @@
 import { AGENT_JOURNAL_THREAD_SCOPE } from '../../../shared/agent-session-journal-types'
 
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -15,7 +15,6 @@ import type { AgentSessionJournal } from './journal-store'
 import { readJournalSessionEpoch } from './journal-row-table'
 import {
   createTrackedJournalOpener,
-  openTestJournalHostDatabase,
   readTestJournalRows
 } from './journal-host-database-test-support'
 import { codexProviderHandle } from '../../../shared/agent-session-provider-handle-encoding'
@@ -38,7 +37,7 @@ export function registerJournalEpochReplacementTests(): void {
   let root: string
   let clock = 1_000
   let database: JournalHostDatabase
-  const journals = createTrackedJournalOpener()
+  const journals = createTrackedJournalOpener({ scoped: true })
 
   function now(): number {
     clock += 1
@@ -76,17 +75,15 @@ export function registerJournalEpochReplacementTests(): void {
   }
 
   beforeEach(async () => {
-    root = await mkdtemp(join(tmpdir(), 'orca-journal-replace-'))
+    root = journals.ownRoot(await mkdtemp(join(tmpdir(), 'orca-journal-replace-')))
     clock = 1_000
-    database = openTestJournalHostDatabase(root)
+    database = journals.database(root)
   })
 
   afterEach(async () => {
-    try {
-      database.close()
-    } catch {}
-    await journals.closeAll()
-    await rm(root, { recursive: true, force: true })
+    root = undefined!
+    database = undefined!
+    await journals.dispose()
   })
 
   describe('journal epoch replacement', () => {

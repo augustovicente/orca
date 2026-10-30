@@ -1,4 +1,4 @@
-import { continueCodexAfterTransientFailure } from './codex-structured-provider-retry'
+import { continueCodexWithDrainedEvents } from './codex-structured-provider-retry'
 import { projectCodexSessionOptions } from './codex-structured-service-tier'
 import * as codexRewind from './codex-structured-rewind'
 import type { AgentSessionBackgroundTaskState } from '../../shared/agent-session-wire'
@@ -20,13 +20,12 @@ import {
   readLiveCodexSessionOptions
 } from './codex-structured-session-options'
 import { prepareCodexMessageDispatch } from './codex-structured-message-options'
-import {
-  CodexAcquisitionRegistry,
-  requireLiveCodexSession,
-  type CodexAcquisitionAttempt,
-  type CodexSession,
-  type CodexStructuredSessionAdapterDeps,
-  type CodexStructuredSessionEvent
+import { CodexAcquisitionRegistry, requireLiveCodexSession } from './codex-structured-session-state'
+import type {
+  CodexAcquisitionAttempt,
+  CodexSession,
+  CodexStructuredSessionAdapterDeps,
+  CodexStructuredSessionEvent
 } from './codex-structured-session-state'
 import {
   deliverCodexServerRequest,
@@ -230,12 +229,7 @@ export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdap
 
   continueAfterTransientFailure: NonNullable<
     StructuredAgentSessionAdapter['continueAfterTransientFailure']
-  > = (input) =>
-    continueCodexAfterTransientFailure(
-      this.session(input.sessionId),
-      input,
-      this.deps.requestTimeoutMs
-    )
+  > = continueCodexWithDrainedEvents.bind(this)
 
   async dispatch(
     input: Parameters<StructuredAgentSessionAdapter['dispatch']>[0]

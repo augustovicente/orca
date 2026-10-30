@@ -90,6 +90,7 @@ export class CodexJournalTurnBoundaries {
           threadId: event.threadId,
           turnId,
           state: 'running',
+          liveStart: true,
           startedAt
         })
     if (admission.accepted) {
@@ -137,6 +138,7 @@ export class CodexJournalTurnBoundaries {
       sessionId: input.sessionId,
       threadId: input.threadId,
       turnId: input.turnId,
+      attributionOnly: true,
       state: settledRevision?.state ?? 'running',
       ...revision
     })
@@ -150,18 +152,12 @@ export class CodexJournalTurnBoundaries {
     return admission
   }
 
-  noteTransientFailure(event: TurnBoundaryEvent, category: AgentSessionTransientFailure): void {
-    const turnId = readCodexTurnId(event.params)
-    if (turnId && this.ownsRecord(event.threadId, turnId)) {
-      this.deps.sink.noteTransientFailure?.(
-        codexTurnLifecycleIdentity(event.sessionId, turnId),
-        category
-      )
-    }
-  }
-
   /** Only turn/completed ends a live turn, including failures preceded by an error frame. */
-  complete(event: TurnBoundaryEvent): CodexJournalTranslationAdmission {
+  complete(
+    event: TurnBoundaryEvent,
+    transient?: AgentSessionTransientFailure,
+    onAdmitted?: () => void
+  ): CodexJournalTranslationAdmission {
     const suppressionAdmission = this.deps.flushSuppression()
     if (!suppressionAdmission.accepted) {
       return suppressionAdmission
@@ -212,7 +208,16 @@ export class CodexJournalTurnBoundaries {
       pendingPrompts: this.deps.pendingPrompts,
       ...(this.deps.clearPromptTurn ? { clearPromptTurn: this.deps.clearPromptTurn } : {}),
       attributionFor: this.deps.attributionFor,
-      commandEnd
+      commandEnd,
+      ...(transient && turnLifecycle && event.threadId === this.deps.primaryThreadId()
+        ? {
+            transientTerminal: {
+              identity: codexTurnLifecycleIdentity(event.sessionId, turnId),
+              category: transient
+            }
+          }
+        : {}),
+      onAdmitted
     })
     if (admission.accepted) {
       if (turnLifecycle) {

@@ -214,13 +214,13 @@ export function createCodexJournalTranslator(
         return CODEX_JOURNAL_ADMITTED
       }
       const transient = transientFailures.observe(event.method, event.params)
-      if (transient && event.threadId === primaryThreadId) {
-        turnBoundaries.noteTransientFailure(event, transient)
+      if (event.method === 'turn/started') {
+        return turnBoundaries.start(event)
       }
-      if (event.method === 'turn/started' || event.method === 'turn/completed') {
-        return event.method === 'turn/started'
-          ? turnBoundaries.start(event)
-          : turnBoundaries.complete(event)
+      if (event.method === 'turn/completed') {
+        return turnBoundaries.complete(event, transient, () =>
+          transientFailures.acknowledge(event.params)
+        )
       }
       const compaction = compactions.handle(event)
       if (compaction) {

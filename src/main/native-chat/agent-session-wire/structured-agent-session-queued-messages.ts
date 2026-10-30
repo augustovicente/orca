@@ -59,7 +59,7 @@ export function structuredQueueHold(input: StructuredQueueGateInput): Structured
   if (input.work.hasActionablePrompt()) {
     return 'prompt'
   }
-  return input.work.hasTurnOrSend() ? 'working' : null
+  return input.work.working() ? 'working' : null
 }
 
 /** Publish the drain’s live pick; backlog itself never gates a lone draft. */
@@ -68,7 +68,7 @@ export function nextStructuredQueuedMessage(
 ): QueuedMessageRow | null {
   const next = oldestActionableQueuedMessage(input.journal, true)
   // Check cheap working state before the prompt scan on every streamed frame.
-  if (next === null || input.work.hasTurnOrSend()) {
+  if (next === null || input.work.working()) {
     return null
   }
   return structuredQueueHold(input) === null ? next : null
@@ -216,7 +216,7 @@ export class StructuredAgentSessionQueuedMessageDrain {
     try {
       if (
         oldestActionableQueuedMessage(journal, true) === null ||
-        this.deps.currentWork(sessionId)?.hasTurnOrSend() !== false
+        this.deps.currentWork(sessionId)?.working() !== false
       ) {
         return
       }

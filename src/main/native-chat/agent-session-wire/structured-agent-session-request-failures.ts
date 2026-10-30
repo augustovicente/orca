@@ -1,11 +1,11 @@
-import {
-  structuredAgentSessionProviderRetryPending,
-  structuredAgentSessionStoppedFailure
-} from './structured-agent-session-provider-retry'
-import { latestNativeChatTurnSinceRequest } from '../../../shared/native-chat/native-chat-orca-stop-cut'
-import type { AgentJournalSnapshot } from '../../../shared/agent-session-journal-types'
+import type {
+  Baseline,
+  CompletionMark,
+  AccountedRequest
+} from './structured-agent-session-request-failure-observation'
+import { observeRequestFailures } from './structured-agent-session-request-failure-observation'
+import { structuredAgentSessionProviderRetryCompletion } from './structured-agent-session-provider-retry'
 import { agentTurnVerdict } from '../../../shared/agent-turn-outcome'
-import { isAgentSessionContextClear } from '../../../shared/agent-session-context-clear'
 import { agentJournalSubmissionKey } from '../../../shared/agent-session-journal-item-key'
 import { isRootAgentJournalItem } from '../../../shared/agent-session-journal-producer'
 import {
@@ -17,8 +17,12 @@ import {
   isStructuredAgentSessionCommandEntry
 } from '../../../shared/structured-agent-session-command-entry'
 import { classifyDispatchRejection } from '../../../shared/structured-agent-session-dispatch-rejection'
+import type {
+  ProviderRetryCompletion,
+  ProviderRetryDisposition
+} from './structured-agent-session-provider-retry'
+import type { AgentJournalSnapshot } from '../../../shared/agent-session-journal-types'
 import type { AgentSessionJournal } from '../agent-session-journal/journal-store'
-import type { JournalRow } from '../agent-session-journal/journal-row-schema'
 import type { StructuredAgentSessionHostSession } from './structured-agent-session-host-types'
 import type { StructuredAgentSessionAdapter } from './structured-agent-session-adapter'
 import type { AgentSessionFailureWordsContext } from '../../../shared/agent-session-failure-words'
@@ -33,14 +37,6 @@ export type StructuredAgentSessionRequestFailure = {
   death?: NonNullable<StructuredAgentSessionHostSession['lastEndedChild']> &
     AgentSessionFailureWordsContext
   read: () => Promise<AgentJournalSnapshot | null>
-}
-
-type Baseline = ReturnType<AgentSessionJournal['cursor']> & {
-  sessionId: string
-  journal: AgentSessionJournal
-  floor: number
-  marks: Map<string, string>
-  ended: StructuredAgentSessionHostSession['lastEndedChild']
 }
 
 /** Live request edges use the journal's fold before the latest-only publications can coalesce. */
@@ -61,86 +57,11 @@ export class StructuredAgentSessionRequestFailures {
   }
   clear = (): void => this.baselines.clear()
 
-  observe = (
-    sessionId: string,
-    journal: AgentSessionJournal,
-    rows?: readonly JournalRow[]
-  ): void => {
-    const cursor = journal.cursor()
-    let baseline = this.baselines.get(sessionId)
-    const items = new Set<string>()
-    const submissions = new Set<string>()
-    let cleared = false
-    for (const row of rows ?? []) {
-      if (row.kind === 'dispatch' || row.kind === 'submission') {
-        submissions.add(row.clientMessageId)
-      }
-      const mutations = row.kind === 'lifecycle-batch' ? row.mutations : [row]
-      for (const mutation of mutations) {
-        if (mutation.kind !== 'item' && mutation.kind !== 'tombstone') {
-          continue
-        }
-        const id = journal.canonicalItemId(mutation.itemId)
-        items.add(id)
-        const scope = journal.item(id)?.turnScope
-        if (scope?.kind === 'turn') {
-          items.add(scope.turnItemId)
-        }
-        if (isAgentSessionContextClear(journal.itemBody(id) ?? undefined)) {
-          cleared = true
-        }
-      }
-    }
-    const replaced =
-      !rows ||
-      !baseline ||
-      baseline.journal !== journal ||
-      baseline.epoch !== cursor.epoch ||
-      cursor.sequence < baseline.sequence
-    const historical = replaced || cleared
-    if (historical) {
-      // Context clear retires marks, while captured reads still belong to the held journal.
-      baseline = Object.assign(replaced ? {} : (baseline ?? {}), {
-        ...cursor,
-        sessionId,
-        journal,
-        floor: journal.context.floor()?.sequence ?? 0,
-        marks: new Map(),
-        ended: this.deps.sessions.get(sessionId)?.lastEndedChild
-      })
-      this.baselines.set(sessionId, baseline)
-      journal.visitItems((id) => items.add(id))
-      for (const submission of journal.submissions()) {
-        submissions.add(submission.clientMessageId)
-      }
-    }
-    if (!baseline) {
-      return
-    }
-    baseline.sequence = cursor.sequence
-    for (const id of items) {
-      this.account(sessionId, baseline, this.request(baseline, 'turn', id), historical)
-    }
-    for (const id of submissions) {
-      this.account(sessionId, baseline, this.request(baseline, 'refused-send', id), historical)
-    }
-  }
+  observe = observeRequestFailures.bind(this)
 
   generationEnded = (sessionId: string): void => {
     const baseline = this.baselines.get(sessionId)
     const session = this.deps.sessions.get(sessionId)
-    if (baseline && session) {
-      const snapshot = session.journal.snapshot()
-      const latest = latestNativeChatTurnSinceRequest(snapshot.items, snapshot.submissions)
-      if (latest) {
-        this.account(
-          sessionId,
-          baseline,
-          this.request(baseline, 'turn', latest.turnItem.itemId),
-          false
-        )
-      }
-    }
     const ended = session?.lastEndedChild
     if (!baseline || !session || baseline.journal !== session.journal || baseline.ended === ended) {
       return
@@ -162,11 +83,7 @@ export class StructuredAgentSessionRequestFailures {
     kind: StructuredAgentSessionRequestFailure['kind'],
     id: string,
     died = false
-  ): {
-    kind: StructuredAgentSessionRequestFailure['kind']
-    id: string
-    mark: string
-  } | null {
+  ): AccountedRequest | null {
     const { journal } = baseline
     const item = journal.item(kind === 'turn' ? id : agentJournalSubmissionKey(id))
     if (!item || item.sequence <= baseline.floor || !isRootAgentJournalItem(item)) {
@@ -192,7 +109,9 @@ export class StructuredAgentSessionRequestFailures {
         : {
             kind,
             id: item.itemId,
-            mark: failed ? 'failure' : submission.dispatchState
+            mark: failed ? 'failure' : submission.dispatchState,
+            edge: `${submission.dispatchState}:${submission.fence}:${submission.providerItemId ?? ''}`,
+            created: submission.submittedSequence
           }
     }
     const turn = readAgentJournalTurn(item.body)
@@ -211,38 +130,126 @@ export class StructuredAgentSessionRequestFailures {
     return {
       kind,
       id,
-      mark:
-        structuredAgentSessionStoppedFailure(journal) === id
-          ? 'interrupted'
-          : verdict === 'failure' && structuredAgentSessionProviderRetryPending(journal)
-            ? 'running'
-            : verdict === 'interruption' && !unexpected
-              ? turn.state
-              : (verdict ?? turn.state)
+      mark: verdict === 'interruption' && !unexpected ? turn.state : (verdict ?? turn.state),
+      edge: JSON.stringify([
+        unexpected && verdict === 'interruption'
+          ? ended?.endedAt.sequence
+          : journal.turnEndedSequence(id),
+        turn.turnId,
+        turn.providerTurnId,
+        journal.itemFence(id),
+        unexpected && verdict === 'interruption' ? 'interrupted' : turn.state,
+        unexpected && verdict === 'interruption'
+          ? 'interruption'
+          : readAgentJournalTurnOutcome(turn)
+      ]),
+      created: item.sequence
+    }
+  }
+
+  private prune(baseline: Baseline, key: string): void {
+    baseline.marks.delete(key)
+    if (
+      baseline.deferred &&
+      `${baseline.deferred.request.kind}:${baseline.deferred.request.id}` === key
+    ) {
+      baseline.deferred = undefined
+    }
+  }
+
+  private consume(baseline: Baseline, disposition: 'consumed' | 'historical'): void {
+    const slot = baseline.deferred
+    if (!slot) {
+      return
+    }
+    const key = `${slot.request.kind}:${slot.request.id}`
+    const mark = baseline.marks.get(key)
+    if (mark?.edge === slot.request.edge) {
+      mark.disposition = disposition
+    }
+    baseline.deferred = undefined
+  }
+
+  /** B hands off its exact completion before losing the execution identity, including row-free exits. */
+  settleRecovery = (
+    sessionId: string,
+    journal: AgentSessionJournal,
+    completion: ProviderRetryCompletion,
+    disposition: ProviderRetryDisposition
+  ): void => {
+    const baseline = this.baselines.get(sessionId)
+    if (!baseline || baseline.journal !== journal || baseline.epoch !== journal.epoch) {
+      return
+    }
+    if (disposition === 'abandon' || disposition === 'consume') {
+      if (baseline.deferred?.owner === completion.owner) {
+        this.consume(baseline, disposition === 'consume' ? 'consumed' : 'historical')
+      }
+      // A terminal may have committed in retry's observer before the accounting observer runs.
+      const request = this.request(baseline, 'turn', completion.itemId)
+      if (request && baseline.marks.get(`turn:${request.id}`)?.edge !== request.edge) {
+        baseline.marks.set(`turn:${request.id}`, {
+          edge: request.edge,
+          created: request.created,
+          disposition: disposition === 'consume' ? 'consumed' : 'historical'
+        })
+      }
+      return
+    }
+    // Retry observes a committed terminal before normal accounting in this same tick.
+    this.account(sessionId, baseline, this.request(baseline, 'turn', completion.itemId), false)
+    const slot = baseline.deferred
+    if (!slot || slot.owner !== completion.owner) {
+      return
+    }
+    baseline.deferred = undefined
+    const final = this.request(baseline, slot.request.kind, slot.request.id)
+    if (final) {
+      this.account(sessionId, baseline, final, false, true)
     }
   }
 
   private account(
     sessionId: string,
     baseline: Baseline,
-    request: ReturnType<StructuredAgentSessionRequestFailures['request']>,
-    historical: boolean
+    request: AccountedRequest | null,
+    historical: boolean,
+    release = false
   ): void {
     if (!request) {
       return
     }
     const key = `${request.kind}:${request.id}`
     const previous = baseline.marks.get(key)
-    baseline.marks.set(key, request.mark)
-    const outcome = request.mark
-    if (
-      historical ||
-      previous === 'failure' ||
-      previous === 'interruption' ||
-      (outcome !== 'failure' && outcome !== 'interruption')
-    ) {
+    const incarnation = previous?.created === request.created
+    if (request.kind === 'turn' && previous && !incarnation) {
+      historical = true
+    }
+    const same = incarnation && previous?.edge === request.edge
+    if (same && !(release && previous.disposition === 'deferred')) {
       return
     }
+    if (baseline.deferred?.request.id === request.id && !same) {
+      baseline.deferred = undefined
+    }
+    const outcome = request.mark
+    const mark: CompletionMark = {
+      edge: request.edge,
+      created: request.created,
+      disposition: historical ? 'historical' : 'observed'
+    }
+    baseline.marks.set(key, mark)
+    if (historical || (outcome !== 'failure' && outcome !== 'interruption')) {
+      return
+    }
+    const recovery = !release && structuredAgentSessionProviderRetryCompletion(baseline.journal)
+    if (outcome === 'failure' && recovery && recovery.itemId === request.id) {
+      this.consume(baseline, 'consumed')
+      mark.disposition = 'deferred'
+      baseline.deferred = { owner: recovery.owner, request }
+      return
+    }
+    mark.disposition = 'reported'
     const { journal, epoch } = baseline
     const session = this.deps.sessions.get(sessionId)
     const child = session?.child

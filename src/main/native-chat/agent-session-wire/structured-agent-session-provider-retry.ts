@@ -1,298 +1,261 @@
-import { agentJournalItemKey } from '../../../shared/agent-session-journal-item-key'
-import type { AgentSessionExecutionOptions } from '../../../shared/agent-session-execution-options'
-import type { AgentJournalItemIdentity } from '../../../shared/agent-session-journal-types'
-import { latestNativeChatTurnSinceRequest } from '../../../shared/native-chat/native-chat-orca-stop-cut'
+import type {
+  ContinueInput,
+  Retry,
+  ProviderRetryDisposition,
+  ProviderRetryCompletion,
+  ProducerTransition
+} from './structured-agent-session-provider-retry-types'
 import {
-  agentSessionProviderRetryDelay,
-  type AgentSessionTransientFailure
-} from '../../../shared/agent-session-provider-retry-policy'
+  acceptProviderRetry,
+  reconcileProviderRetry,
+  observeProviderRetry
+} from './structured-agent-session-provider-retry-observation'
+import { agentJournalItemKey } from '../../../shared/agent-session-journal-item-key'
+import { agentSessionProviderRetryDelay } from '../../../shared/agent-session-provider-retry-policy'
 import type { AgentSessionJournal } from '../agent-session-journal/journal-store'
 import type { JournalRow } from '../agent-session-journal/journal-row-schema'
 import type { StructuredAgentSessionAdapter } from './structured-agent-session-adapter'
 import type { StructuredAgentSessionHostSession } from './structured-agent-session-host-types'
 
-const failures = new WeakMap<AgentSessionJournal, Map<string, AgentSessionTransientFailure>>()
-const pending = new WeakMap<object, { waiting: () => boolean; retire: () => void }>()
+export {
+  structuredAgentSessionProviderRetryPending,
+  structuredAgentSessionProviderRetryStop,
+  structuredAgentSessionProviderRetryCompletion,
+  finishAbortedStructuredAgentSessionProviderRetry,
+  retireStructuredAgentSessionProviderRetry,
+  stageStructuredAgentSessionProviderTransition
+} from './structured-agent-session-provider-retry-view'
 
-/** Facts are handed over before writes; only committed terminal rows can arm a retry. */
-export function noteStructuredAgentSessionTransientFailure(
-  journal: AgentSessionJournal,
-  identity: AgentJournalItemIdentity,
-  category: AgentSessionTransientFailure
-): void {
-  let facts = failures.get(journal)
-  if (!facts) {
-    failures.set(journal, (facts = new Map()))
-  }
-  facts.set(agentJournalItemKey(identity), category)
-}
+export type {
+  ProviderRetryCompletion,
+  ProviderRetryDisposition
+} from './structured-agent-session-provider-retry-types'
 
-export function structuredAgentSessionProviderRetryPending(journal: object): boolean {
-  return pending.get(journal)?.waiting() ?? false
-}
-
-export function retireStructuredAgentSessionProviderRetry(journal: object): void {
-  pending.get(journal)?.retire()
-}
-
-export function structuredAgentSessionStoppedFailure(
-  journal: Partial<Pick<AgentSessionJournal, 'snapshot' | 'stopMarks' | 'turnEndedSequence'>>
-): string | null {
-  if (!journal.snapshot || !journal.stopMarks || !journal.turnEndedSequence) {
-    return null
-  }
-  const stop = journal.stopMarks.latest()
-  if (stop?.event.reason !== 'user-stop') {
-    return null
-  }
-  const snapshot = journal.snapshot()
-  const latest = latestNativeChatTurnSinceRequest(snapshot.items, snapshot.submissions)
-  if (latest?.verdict !== 'failure') {
-    return null
-  }
-  const endedAt = journal.turnEndedSequence(latest.turnItem.itemId)
-  return endedAt !== undefined && stop.sequence > endedAt ? latest.turnItem.itemId : null
-}
-
-type Retry = {
-  journal: AgentSessionJournal
-  epoch: string
-  fence: number
-  child: StructuredAgentSessionHostSession['child']
-  failedTurnItemId: string
-  failedAtSequence: number
-  rootClientMessageId: string
-  options?: AgentSessionExecutionOptions
-  attempt: number
-  category: AgentSessionTransientFailure
-  phase: 'waiting' | 'starting' | 'running'
-  startedTurnRef?: string
-  timer?: ReturnType<typeof setTimeout>
-  abort: AbortController
-}
+// Non-owning access for journal consumers; the host alone owns candidate/attempt lifetime.
 
 export class StructuredAgentSessionProviderRetry {
   private readonly retries = new Map<string, Retry>()
-
   constructor(
     private readonly deps: {
-      continueTurn: NonNullable<StructuredAgentSessionAdapter['continueAfterTransientFailure']>
+      continueTurn: (
+        input: Omit<ContinueInput, 'admitFreshInput'> & {
+          isCurrent: () => boolean
+          onWritten: () => void
+          onAborted: () => void
+        }
+      ) => ReturnType<NonNullable<StructuredAgentSessionAdapter['continueAfterTransientFailure']>>
       session: (id: string) => StructuredAgentSessionHostSession | undefined
       fence: (id: string) => number | null
       serialize: <T>(id: string, task: () => Promise<T>) => Promise<T>
       owesWork: (id: string) => boolean
+      disposed: () => boolean
       publish: (id: string) => void
+      settleCompletion: (
+        id: string,
+        journal: AgentSessionJournal,
+        completion: ProviderRetryCompletion,
+        disposition: ProviderRetryDisposition
+      ) => void
     }
   ) {}
 
-  retire(id: string): void {
+  retire(id: string, disposition: ProviderRetryDisposition = 'release'): boolean {
     const retry = this.retries.get(id)
-    const journal = retry?.journal ?? this.deps.session(id)?.journal
-    if (journal) {
-      failures.delete(journal)
-    }
     if (!retry) {
-      return
+      return false
     }
-    clearTimeout(retry.timer)
-    retry.abort.abort()
-    this.retries.delete(id)
-    pending.delete(retry.journal)
+    try {
+      if (retry.currentResult) {
+        this.deps.settleCompletion(
+          id,
+          retry.journal,
+          { owner: retry, itemId: retry.currentResult.itemId },
+          disposition
+        )
+      }
+    } finally {
+      clearTimeout(retry.timer)
+      retry.abort.abort()
+      this.retries.delete(id)
+    }
+    return true
   }
-
   dispose(): void {
     for (const id of this.retries.keys()) {
-      this.retire(id)
+      this.retire(id, 'abandon')
     }
   }
-
   private current(id: string, retry: Retry): boolean {
     return (
+      !this.deps.disposed() &&
       this.retries.get(id) === retry &&
+      this.deps.session(id)?.journal === retry.journal &&
       this.deps.session(id)?.child === retry.child &&
       this.deps.fence(id) === retry.fence &&
       retry.journal.epoch === retry.epoch &&
-      !retry.child?.close
+      !retry.child.close
     )
   }
-
-  observe(id: string, journal: AgentSessionJournal, rows: readonly JournalRow[] = []): void {
-    const previous = this.retries.get(id)
-    if (previous && !this.current(id, previous)) {
+  private stage(
+    id: string,
+    journal: AgentSessionJournal,
+    transition: ProducerTransition
+  ): () => void {
+    let retry = this.retries.get(id)
+    if (retry && !this.current(id, retry)) {
       this.retire(id)
+      retry = undefined
     }
+    const child = this.deps.session(id)?.child
+    const fence = this.deps.fence(id)
     if (
-      rows.some(
-        (row) =>
-          row.kind === 'submission' ||
-          row.kind === 'epoch' ||
-          (row.kind === 'tombstone' && row.stopEvent !== undefined)
-      )
+      this.deps.disposed() ||
+      this.deps.session(id)?.journal !== journal ||
+      !child ||
+      child.close ||
+      fence === null
     ) {
-      this.retire(id)
+      return () => {}
     }
-    for (const row of rows) {
-      const mutations = row.kind === 'lifecycle-batch' ? row.mutations : [row]
-      for (const mutation of mutations) {
-        if (mutation.kind !== 'item' || mutation.body.kind !== 'turn') {
-          continue
+    if (!retry && !transition.transientTerminal) {
+      return () => {}
+    }
+    if (!retry) {
+      retry = {
+        journal,
+        epoch: journal.epoch,
+        fence,
+        child,
+        attempt: 0,
+        phase: 'candidate',
+        written: false,
+        abort: new AbortController()
+      }
+      this.retries.set(id, retry)
+    }
+    const identity = transition.turnLifecycle?.identity ?? transition.transientTerminal?.identity
+    if (!identity) {
+      return () => {}
+    }
+    const offered = {
+      itemId: agentJournalItemKey(identity),
+      category: transition.transientTerminal?.category,
+      state: transition.turnLifecycle?.state
+    }
+    retry.offered = offered
+    const owner = retry
+    return () => {
+      if (owner.offered === offered) {
+        owner.offered = undefined
+        if (!owner.currentResult && this.retries.get(id) === owner) {
+          this.retire(id)
         }
-        const retry = this.retries.get(id)
-        if (retry?.startedTurnRef === mutation.body.turnId) {
-          retry.phase = 'running'
-        }
-        if (mutation.body.state === 'running') {
-          continue
-        }
-        const category = failures.get(journal)?.get(mutation.itemId)
-        failures.get(journal)?.delete(mutation.itemId)
-        this.ended(id, journal, mutation.itemId, row.seq, category)
       }
     }
   }
-
-  private ended(
-    id: string,
-    journal: AgentSessionJournal,
-    itemId: string,
-    sequence: number,
-    category?: AgentSessionTransientFailure
-  ): void {
-    const previous = this.retries.get(id)
-    if (previous?.failedTurnItemId === itemId) {
+  observe(id: string, journal: AgentSessionJournal, rows: readonly JournalRow[] = []): void {
+    return observeProviderRetry.call(this, id, journal, rows)
+  }
+  private disposeResult(id: string, retry: Retry, disposition: ProviderRetryDisposition): void {
+    const result = retry.currentResult
+    if (result) {
+      this.deps.settleCompletion(
+        id,
+        retry.journal,
+        { owner: retry, itemId: result.itemId },
+        disposition
+      )
+    }
+  }
+  private reconcile(id: string, retry: Retry, returned: string): void {
+    return reconcileProviderRetry.call(this, id, retry, returned)
+  }
+  private accept(id: string, retry: Retry): void {
+    return acceptProviderRetry.call(this, id, retry)
+  }
+  private schedule(id: string, retry: Retry): void {
+    const terminal = retry.currentResult
+    if (!terminal || !this.current(id, retry)) {
       return
     }
-    // A very fast provider may finish before its start reply; reconcile after acceptance.
-    if (previous?.phase === 'starting' && !previous.startedTurnRef) {
-      if (category) {
-        failures.get(journal)?.set(itemId, category)
-      }
+    const turn = retry.journal.itemBody(terminal.itemId)
+    const delay = agentSessionProviderRetryDelay(retry.attempt + 1)
+    if (
+      !terminal.category ||
+      turn?.kind !== 'turn' ||
+      turn.outcome !== 'failure' ||
+      delay === null
+    ) {
+      this.retire(id)
       return
     }
-    const snapshot = journal.snapshot()
-    const latest = latestNativeChatTurnSinceRequest(snapshot.items, snapshot.submissions)
-    if (latest?.turnItem.itemId !== itemId) {
-      return
-    }
-    const turn = latest.turnItem.body
-    if (turn.kind !== 'turn') {
-      return
-    }
-    const chain = previous?.startedTurnRef === turn.turnId ? previous : undefined
-    if (!category || latest.verdict !== 'failure') {
-      if (chain) {
-        this.retire(id)
-      }
-      return
-    }
-    const root = chain
-      ? undefined
-      : snapshot.submissions.find(
-          (submission) =>
-            submission.dispatchState === 'accepted' &&
-            submission.answeredInTurn?.via !== 'steer' &&
-            turn.userItemId !== undefined &&
-            journal.canonicalItemId(turn.userItemId) ===
-              journal.canonicalItemId(
-                agentJournalItemKey({
-                  provider: 'orca',
-                  clientMessageId: submission.clientMessageId
-                })
-              )
-        )
-    if (!chain && !root) {
-      return
-    }
-    const attempt = chain ? chain.attempt + 1 : 1
-    const delay = agentSessionProviderRetryDelay(attempt)
-    this.retire(id)
-    const session = this.deps.session(id)
-    const fence = this.deps.fence(id)
-    if (delay === null || !session?.child || fence === null) {
-      return
-    }
-    const retry: Retry = {
-      journal,
-      epoch: journal.epoch,
-      fence,
-      child: session.child,
-      failedTurnItemId: itemId,
-      failedAtSequence: sequence,
-      rootClientMessageId: chain?.rootClientMessageId ?? root!.clientMessageId,
-      options: chain?.options ?? root?.options,
-      attempt,
-      category,
-      phase: 'waiting',
-      abort: new AbortController()
-    }
-    this.retries.set(id, retry)
-    pending.set(journal, {
-      waiting: () => this.current(id, retry) && retry.phase !== 'running',
-      retire: () => this.retire(id)
-    })
+    retry.attempt++
+    terminal.role = 'predecessor'
+    retry.phase = 'waiting'
+    retry.written = false
+    retry.startedTurnRef = undefined
     retry.timer = setTimeout(() => {
-      void this.deps
-        .serialize(id, () => this.fire(id, retry))
-        .catch(() => {
-          if (this.retries.get(id) === retry) {
-            this.retire(id)
-            this.deps.publish(id)
-          }
-        })
+      void this.fire(id, retry).catch(() => {
+        if (this.retries.get(id) === retry) {
+          this.retire(id)
+          this.deps.publish(id)
+        }
+      })
     }, delay)
     retry.timer.unref?.()
   }
-
   private async fire(id: string, retry: Retry): Promise<void> {
-    const snapshot = retry.journal.snapshot()
-    const latest = latestNativeChatTurnSinceRequest(snapshot.items, snapshot.submissions)
-    if (
-      !this.current(id, retry) ||
-      this.deps.owesWork(id) ||
-      latest?.turnItem.itemId !== retry.failedTurnItemId ||
-      (retry.journal.stopMarks.latest()?.sequence ?? 0) > retry.failedAtSequence
-    ) {
-      if (this.retries.get(id) === retry) {
-        this.retire(id)
+    const claimed = await this.deps.serialize(id, async () => {
+      if (!this.current(id, retry)) {
+        if (this.retries.get(id) === retry) {
+          this.retire(id)
+        }
+        return false
       }
-      this.deps.publish(id)
+      if (this.deps.owesWork(id)) {
+        this.retire(id)
+        this.deps.publish(id)
+        return false
+      }
+      clearTimeout(retry.timer)
+      retry.timer = undefined
+      retry.phase = 'starting'
+      return true
+    })
+    if (!claimed) {
       return
     }
-    retry.phase = 'starting'
+    // Provider preparation, RPC, open and replay waits never own mutation ordering.
     const outcome = await this.deps.continueTurn({
       sessionId: id,
       fence: retry.fence,
       options: retry.options,
-      signal: retry.abort.signal
+      signal: retry.abort.signal,
+      isCurrent: () =>
+        this.current(id, retry) && !retry.abort.signal.aborted && !this.deps.owesWork(id),
+      onWritten: () => {
+        retry.written = true
+      },
+      onAborted: () => retry.abort.abort()
     })
-    if (!this.current(id, retry)) {
-      return
-    }
-    if (outcome.state !== 'started') {
-      this.retire(id)
-    } else {
-      retry.startedTurnRef = outcome.providerTurnRef
-      if (retry.journal.runningTurn()?.turnId === outcome.providerTurnRef) {
-        retry.phase = 'running'
+    await this.deps.serialize(id, async () => {
+      if (!this.current(id, retry)) {
+        if (this.retries.get(id) === retry) {
+          this.retire(id)
+        }
+        return
       }
-      const ended = retry.journal
-        .snapshot()
-        .items.find(
-          (item) =>
-            item.body.kind === 'turn' &&
-            item.body.turnId === outcome.providerTurnRef &&
-            item.body.state !== 'running'
-        )
-      if (ended) {
-        this.ended(
-          id,
-          retry.journal,
-          ended.itemId,
-          retry.journal.turnEndedSequence(ended.itemId) ?? ended.sequence,
-          failures.get(retry.journal)?.get(ended.itemId)
-        )
+      if (outcome.state !== 'started') {
+        // Stop's early abort may settle first; retain its captured write disposition until acceptance.
+        retry.phase = 'settled'
+        if (!retry.abort.signal.aborted) {
+          this.retire(id)
+        }
+      } else {
+        retry.startedTurnRef = outcome.providerTurnRef
+        this.reconcile(id, retry, outcome.providerTurnRef)
       }
-    }
-    this.deps.publish(id)
+      this.deps.publish(id)
+    })
   }
 }

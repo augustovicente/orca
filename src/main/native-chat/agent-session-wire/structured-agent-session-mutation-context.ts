@@ -94,7 +94,9 @@ export function runStructuredAgentSessionMutation<TValue>(
       run: async (ctx) => {
         const result = await plan.run(ctx)
         if (result.ok && plan.conversationWrite) {
-          retireStructuredAgentSessionProviderRetry(ctx.journal)
+          if (retireStructuredAgentSessionProviderRetry(ctx.journal)) {
+            context.publishWorkChanged(envelope.sessionId)
+          }
         }
         return result
       }

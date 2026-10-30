@@ -1,4 +1,5 @@
 import type { JournalRow } from '../agent-session-journal/journal-row-schema'
+import type { JournalAppliedSubmission } from '../agent-session-journal/journal-reducer'
 import type { AgentSessionJournal } from '../agent-session-journal/journal-store'
 import type { StructuredAgentSessionHostSession } from './structured-agent-session-host-types'
 import type { StructuredAgentSessionLogger } from './structured-agent-session-logger'
@@ -16,7 +17,8 @@ export class StructuredAgentSessionConversations extends Map<
       observe?: (
         sessionId: string,
         journal: AgentSessionJournal,
-        rows?: readonly JournalRow[]
+        rows?: readonly JournalRow[],
+        applied?: readonly JournalAppliedSubmission[]
       ) => void
       forget?: (sessionId: string) => void
       deliver: (sessionId: string, journal: AgentSessionJournal) => void
@@ -34,12 +36,12 @@ export class StructuredAgentSessionConversations extends Map<
   override set(sessionId: string, session: StructuredAgentSessionHostSession): this {
     const { journal } = session
     let queued = false
-    journal.observeCommits((rows) => {
+    journal.observeCommits((rows, applied) => {
       if (this.get(sessionId)?.journal !== journal) {
         return
       }
       try {
-        this.delivery.observe?.(sessionId, journal, rows)
+        this.delivery.observe?.(sessionId, journal, rows, applied)
       } catch (error) {
         this.delivery.logger.warn('observing committed requests failed', {
           scope: 'request-outcomes',

@@ -1,10 +1,40 @@
-// Share mutation admission/planning/publication. Conversation writes need no child lease;
-// provider-only effects start their child before admission, sends start through delivery.
-
+import { finishAbortedStructuredAgentSessionProviderRetry } from './structured-agent-session-provider-retry'
 import { latestNativeChatUsageLimitCut } from '../../../shared/native-chat/native-chat-usage-limit-cut'
 import { refuse } from '../../../shared/agent-session-wire'
 import { contextStructuredAgentSessionCurrentWork } from './structured-agent-session-current-work'
 import { shouldQueueStructuredAgentSessionSend } from './structured-agent-session-queued-messages'
+import { refuseThreadGoalUnsupported, threadGoalPlan } from './structured-agent-session-thread-goal'
+import {
+  mutateStructuredAgentSession,
+  runStructuredAgentSessionMutation
+} from './structured-agent-session-mutation-context'
+import {
+  openForProviderWrite,
+  openForWrite,
+  sendPreparation,
+  structuredAgentSessionSendBlock
+} from './structured-agent-session-send-preparation'
+import {
+  cancelPlan,
+  promptPlan,
+  sendPlan,
+  setOptionPlan
+} from './structured-agent-session-mutation-plans'
+import { agentSessionMutationAdmitsNow } from './structured-agent-session-mutation-admits-now'
+import { runQueueableStructuredAgentSessionSend } from './structured-agent-session-queued-send'
+import { cancelStructuredAgentSessionPrompt } from './structured-agent-session-prompt-cancel'
+import { mutateWithChatStop } from './structured-agent-session-chat-stop'
+import {
+  runWithReadyStructuredAgentSessionOperation,
+  openWithReadyStructuredAgentSessionChild,
+  runAfterRewindStart
+} from './structured-agent-session-ready-operation'
+import {
+  readStructuredAgentSessionOptions,
+  IN_PROCESS_OPTIONS_READER,
+  recordStructuredAgentSessionOptionIntent
+} from './structured-agent-session-options-read'
+import { settleStructuredAgentSessionLateDispatch } from './structured-agent-session-late-dispatch'
 import type { AgentJournalMessageItem } from '../../../shared/agent-session-journal-types'
 import type {
   AgentSessionCancelResult,
@@ -19,43 +49,15 @@ import type {
   AgentSessionThreadGoalResult
 } from '../../../shared/agent-session-thread-goal-wire'
 import type { AgentSessionPromptRequest } from './structured-agent-session-turns-prompt'
-import { refuseThreadGoalUnsupported, threadGoalPlan } from './structured-agent-session-thread-goal'
-import {
-  mutateStructuredAgentSession,
-  runStructuredAgentSessionMutation,
-  type StructuredAgentSessionMutationContext
-} from './structured-agent-session-mutation-context'
-import {
-  openForProviderWrite,
-  openForWrite,
-  sendPreparation,
-  structuredAgentSessionSendBlock
-} from './structured-agent-session-send-preparation'
-import {
-  cancelPlan,
-  promptPlan,
-  sendPlan,
-  setOptionPlan,
-  type MutationPlan
-} from './structured-agent-session-mutation-plans'
-import { agentSessionMutationAdmitsNow } from './structured-agent-session-mutation-admits-now'
-import { runQueueableStructuredAgentSessionSend } from './structured-agent-session-queued-send'
-import { cancelStructuredAgentSessionPrompt } from './structured-agent-session-prompt-cancel'
-import { mutateWithChatStop } from './structured-agent-session-chat-stop'
-import {
-  runWithReadyStructuredAgentSessionOperation,
-  openWithReadyStructuredAgentSessionChild,
-  runAfterRewindStart
-} from './structured-agent-session-ready-operation'
-export type { StructuredAgentSessionMutationContext } from './structured-agent-session-mutation-context'
+import type { StructuredAgentSessionMutationContext } from './structured-agent-session-mutation-context'
+import type { MutationPlan } from './structured-agent-session-mutation-plans'
 import type { StructuredAgentSessionCaller } from './structured-agent-session-host-types'
-import {
-  readStructuredAgentSessionOptions,
-  IN_PROCESS_OPTIONS_READER,
-  recordStructuredAgentSessionOptionIntent,
-  type StructuredAgentSessionOptionsReader
-} from './structured-agent-session-options-read'
-import { settleStructuredAgentSessionLateDispatch } from './structured-agent-session-late-dispatch'
+import type { StructuredAgentSessionOptionsReader } from './structured-agent-session-options-read'
+
+// Share mutation admission/planning/publication. Conversation writes need no child lease;
+// provider-only effects start their child before admission, sends start through delivery.
+
+export type { StructuredAgentSessionMutationContext } from './structured-agent-session-mutation-context'
 
 export function sendStructuredAgentSessionTurn(
   context: StructuredAgentSessionMutationContext,
@@ -180,6 +182,13 @@ export function cancelStructuredAgentSessionTurn(
           { stop, interrupt: () => plan.run(ctx) }
         )
       : stop().then(({ outcome }) => outcome)
+  ).finally(() =>
+    context.serialize(params.envelope.sessionId, async () => {
+      const journal = context.sessions.get(params.envelope.sessionId)?.journal
+      if (journal && finishAbortedStructuredAgentSessionProviderRetry(journal)) {
+        context.publishWorkChanged(params.envelope.sessionId)
+      }
+    })
   )
 }
 

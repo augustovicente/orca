@@ -201,6 +201,7 @@ export type StructuredAgentSessionAdapter = StructuredAgentSessionAdapterStop & 
     onExecutionSnapshot?: () => void
   }): Promise<AgentSessionDispatchOutcome>
   continueAfterTransientFailure?(input: {
+    admitFreshInput: StructuredAgentSessionAdmitFreshInput
     sessionId: string
     fence: number
     options?: AgentSessionExecutionOptions

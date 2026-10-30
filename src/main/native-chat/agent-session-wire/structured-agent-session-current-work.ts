@@ -1,7 +1,4 @@
-import {
-  structuredAgentSessionProviderRetryPending,
-  structuredAgentSessionStoppedFailure
-} from './structured-agent-session-provider-retry'
+import { structuredAgentSessionProviderRetryPending } from './structured-agent-session-provider-retry'
 import type { AgentSessionConversationView } from '../../../shared/agent-session-conversation-view'
 import { isHistoricalProviderTimelineItem } from '../agent-session-timeline/provider-timeline-history'
 import { currentRequestsProjection } from './agent-session-current-requests'
@@ -152,7 +149,7 @@ export class StructuredAgentSessionCurrentWork {
     const sends = this.unansweredSends().map(
       (submission) => `${submission.clientMessageId}:${this.holds(submission) ? 1 : 0}`
     )
-    return `${this.viewKey()}|${this.working() ? 1 : 0}|${sends.join(',')}`
+    return `${this.viewKey()}|${this.workingIncludingRetry() ? 1 : 0}|${sends.join(',')}`
   }
 
   /** Unanswered sends the child no longer holds read uncertain until their later echo/refusal. */
@@ -283,12 +280,12 @@ export class StructuredAgentSessionCurrentWork {
     return this.journal.submissions().some((submission) => this.owesSend(submission))
   }
 
-  hasTurnOrSend(): boolean {
+  working(): boolean {
     return this.activeTurnId() !== null || this.owesAnySend()
   }
 
-  working(): boolean {
-    return this.hasTurnOrSend() || structuredAgentSessionProviderRetryPending(this.journal)
+  workingIncludingRetry(): boolean {
+    return this.working() || structuredAgentSessionProviderRetryPending(this.journal)
   }
 
   /** Project interrupted turns immediately from observed/replaced-runtime death, before settlement persists. */
@@ -307,10 +304,6 @@ export class StructuredAgentSessionCurrentWork {
 
   /** Hide ended-generation work; publish interruption or owner uncertainty without implying completion. */
   publishedLatestTurn(latest: AgentSessionLatestTurn | null): AgentSessionLatestTurn | null {
-    if (latest && structuredAgentSessionStoppedFailure(this.journal) === latest.itemId) {
-      const { outcome: _outcome, ...turn } = latest.turn
-      return { ...latest, turn: { ...turn, state: 'interrupted' } }
-    }
     if (latest?.turn.state !== 'running' || this.isCurrentItem(latest.itemId)) {
       return latest
     }

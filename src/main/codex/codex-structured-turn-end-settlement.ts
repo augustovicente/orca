@@ -221,7 +221,6 @@ export class CodexTransientTurnFailures {
       return undefined
     }
     const previous = this.retries.get(key)
-    this.retries.delete(key)
     if (readCodexTurnStatus(params) !== 'failed') {
       return undefined
     }
@@ -231,6 +230,10 @@ export class CodexTransientTurnFailures {
         ? previous.category
         : undefined)
     )
+  }
+
+  acknowledge(params: unknown): void {
+    this.retries.delete(JSON.stringify([readCodexThreadId(params), readCodexTurnId(params)]))
   }
 
   clear(): void {

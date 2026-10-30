@@ -1,7 +1,6 @@
 import { AGENT_JOURNAL_THREAD_SCOPE } from '../../../shared/agent-session-journal-types'
-
-import { cp, rm } from 'node:fs/promises'
-import { afterEach, expect, it, vi } from 'vitest'
+import { cp } from 'node:fs/promises'
+import { expect, it, vi } from 'vitest'
 import type { AgentSessionOwnerProbe } from '../../../shared/agent-session-lease-adjudication'
 import { readAgentJournalTurn } from '../../../shared/agent-session-turn-record'
 import { openTestAgentSessionRecordStore } from '../../runtime/agent-session-record-store-test-harness'
@@ -12,7 +11,9 @@ import {
   CALLER,
   envelope,
   hostTestState,
-  replaceHostTestState
+  replaceHostTestState,
+  registerScopedHostTestOwnership,
+  ownHostTestProfile
 } from './structured-agent-session-host-test-harness'
 import {
   HOST_TEST_NOW as NOW,
@@ -28,13 +29,7 @@ function eventually(assertion: () => unknown): Promise<unknown> {
   return vi.waitFor(assertion, { timeout: 10_000 })
 }
 
-const relaunchedRoots: string[] = []
-
-afterEach(async () => {
-  await Promise.all(
-    relaunchedRoots.splice(0).map((dir) => rm(dir, { recursive: true, force: true }))
-  )
-})
+registerScopedHostTestOwnership()
 
 async function relaunchAfterCrashMidTurn(
   probe: AgentSessionOwnerProbe,
@@ -55,12 +50,13 @@ async function relaunchAfterCrashMidTurn(
   // Empty renewal drains preceding record writes before copying crash state.
   await dying.store.renewLeases([])
   const relaunched = `${dying.root}-relaunched`
-  relaunchedRoots.push(relaunched)
+  const ownership = ownHostTestProfile(relaunched)
   await cp(dying.root, relaunched, {
     recursive: true,
     filter: (source) => !source.includes('.lock')
   })
-  const store = await openTestAgentSessionRecordStore(relaunched)
+  ownership.database()
+  const store = ownership.store(await openTestAgentSessionRecordStore(relaunched))
   const acquire = vi.fn(async () => {
     throw new Error('claude: command not found')
   })
@@ -75,6 +71,7 @@ async function relaunchAfterCrashMidTurn(
     probeOwner: async () => probe,
     now: () => NOW
   })
+  ownership.host(host)
   if (reconcile) {
     await host.reconcileRestartLeases()
   }

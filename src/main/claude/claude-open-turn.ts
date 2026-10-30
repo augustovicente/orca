@@ -170,7 +170,11 @@ export class ClaudeOpenTurn {
   }
 
   /** Settle activity and context facts in the same turn revision. */
-  settle(end: ClaudeTurnEnd, contextUsage?: AgentSessionContextUsage): void {
+  settle(
+    end: ClaudeTurnEnd,
+    contextUsage?: AgentSessionContextUsage,
+    transientFailure?: AgentSessionTransientFailure
+  ): void {
     const quotaEnd =
       this.current !== null &&
       end.outcome === undefined &&
@@ -183,7 +187,7 @@ export class ClaudeOpenTurn {
     // End suppressed work even when no turn is open.
     this.deps.endOpenWork(end.completedAt)
     if (this.current) {
-      this.publish(this.current, end, contextUsage, quotaEnd)
+      this.publish(this.current, end, contextUsage, quotaEnd, transientFailure)
       this.current = null
     }
     this.deps.sink.setActivity?.(null)
@@ -206,7 +210,8 @@ export class ClaudeOpenTurn {
     turn: ClaudeCurrentTurn,
     end?: ClaudeTurnEnd,
     contextUsage?: AgentSessionContextUsage,
-    quotaEnd = false
+    quotaEnd = false,
+    transientFailure?: AgentSessionTransientFailure
   ): void {
     const item = claudeTurnLifecycleItem(turn, end)
     const write = { lifecycle: item.body, ...(contextUsage ? { contextUsage } : {}) }
@@ -215,7 +220,18 @@ export class ClaudeOpenTurn {
     }
     writeAgentJournalTurnRow(this.deps.sink, { identity: item.identity }, write, {
       publish: false,
-      options: { ...item.options, lifecycle: true }
+      ...(!turn.command
+        ? {
+            turnLifecycle: {
+              identity: item.identity,
+              state: end ? ('end' as const) : ('start' as const)
+            }
+          }
+        : {}),
+      options: { ...item.options, lifecycle: true },
+      ...(transientFailure
+        ? { transientTerminal: { identity: item.identity, category: transientFailure } }
+        : {})
     })
     // Separate keys preserve a queued start publication when the end arrives.
     this.deps.sink.publish({ coalescingKey: item.publishCoalescingKey })

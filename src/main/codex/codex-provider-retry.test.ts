@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { expect, it, vi } from 'vitest'
+import { expect, it } from 'vitest'
 import { CodexTransientTurnFailures } from './codex-structured-turn-end-settlement'
 import { createCodexJournalTranslator } from './codex-structured-journal-translation'
 import { readCodexThreadId, readCodexTurnId } from './codex-structured-thread-facts'
@@ -11,6 +11,7 @@ import {
   fakeCodex,
   identityFor
 } from './codex-structured-session-adapter-fixture'
+import type { StructuredAgentSessionTransition } from '../native-chat/agent-session-wire/structured-agent-session-transition'
 
 const frames: { case: string; method: string; params: Record<string, unknown> }[] = readFileSync(
   join(__dirname, '__fixtures__/codex-app-server-turn-endings.jsonl'),
@@ -50,7 +51,7 @@ it('does not attach retry eligibility to the recorded compact command failure', 
   )!
   const failedId = readCodexTurnId(failed.params)
   const thread = readCodexThreadId(failed.params)!
-  const noteTransientFailure = vi.fn()
+  const transitions: StructuredAgentSessionTransition[] = []
   const translator = createCodexJournalTranslator({
     sessionId: 'session-1',
     primaryThreadId: () => thread,
@@ -58,7 +59,10 @@ it('does not attach retry eligibility to the recorded compact command failure', 
       appendItem: () => {},
       appendTombstone: () => {},
       publish: () => {},
-      noteTransientFailure
+      tryAppendTransition: (transition) => {
+        transitions.push(transition)
+        return { accepted: true }
+      }
     }
   })
   for (const frame of recorded) {
@@ -79,7 +83,7 @@ it('does not attach retry eligibility to the recorded compact command failure', 
       params: frame.params
     })
   }
-  expect(noteTransientFailure).not.toHaveBeenCalled()
+  expect(transitions.every((transition) => transition.transientTerminal === undefined)).toBe(true)
 })
 
 it('starts a hidden Codex continuation with empty input and captured root options', async () => {
@@ -97,6 +101,7 @@ it('starts a hidden Codex continuation with empty input and captured root option
         sessionId: 'session-1',
         fence: 7,
         options: { model: 'gpt-live', effort: 'medium' },
+        admitFreshInput: async (enqueue) => enqueue('ask', false),
         signal: new AbortController().signal
       })
     ).toEqual({ state: 'started', providerTurnRef: 'retry-1' })

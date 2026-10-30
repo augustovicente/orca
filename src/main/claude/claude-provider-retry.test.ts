@@ -38,6 +38,7 @@ it('accepts a fresh hidden Claude replay without a user message body', async () 
     const result = await adapter.continueAfterTransientFailure({
       sessionId: 'session-1',
       fence: 7,
+      admitFreshInput: async (enqueue) => enqueue('ask', false),
       signal: new AbortController().signal
     })
     expect(result).toMatchObject({ state: 'started' })

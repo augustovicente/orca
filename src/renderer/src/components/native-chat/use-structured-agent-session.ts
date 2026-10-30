@@ -132,7 +132,7 @@ export function useStructuredAgentSession(args: StructuredAgentSessionViewArgs) 
     queuedMessageIds,
     queue,
     historyLoaded: transportEnabled && state.status === 'ready',
-    isWorking: transportState.isWorking,
+    isWorking: transportState.actualWorking,
     stopping: stopControl.stopping,
     sendOptions
   })
@@ -181,9 +181,10 @@ export function useStructuredAgentSession(args: StructuredAgentSessionViewArgs) 
     mutate,
     send
   })
+  const actualWorking = transportState.actualWorking || transportState.queueSendsNext
   const transcriptPending = useMemo(
-    () => pendingSendsOutsideQueuedCards(pending, queuedMessageIds, isWorking),
-    [isWorking, pending, queuedMessageIds]
+    () => pendingSendsOutsideQueuedCards(pending, queuedMessageIds, actualWorking),
+    [actualWorking, pending, queuedMessageIds]
   )
   const contextClear = useNativeChatContextClearFloor(state.epoch, journalItems)
   // Project since the latest /clear and add a notice only for cut turns without an explaining row.
@@ -207,7 +208,7 @@ export function useStructuredAgentSession(args: StructuredAgentSessionViewArgs) 
     ...transportState,
     enabled: queueCapability === 'supported' && transportState.fence !== null,
     hasPendingPrompt: prompts.length > 0,
-    isWorking,
+    isWorking: actualWorking,
     // Hidden from the transcript, a queue send on its way reads as sending among the cards.
     sending: pending,
     composerScopeKey: args.composerScopeKey,

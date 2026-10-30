@@ -111,7 +111,7 @@ export function sendQueuedStructuredAgentMessage(
           : invalid('This queued message was already sent.')
       }
       // Commands cannot steer; enforce idle-only Send even for older clients.
-      if (row.body.command && work.hasTurnOrSend()) {
+      if (row.body.command && work.working()) {
         return invalid("A command can't be sent while the agent is working.")
       }
       const submissionId = operationId

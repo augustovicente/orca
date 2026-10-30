@@ -1,7 +1,4 @@
-import {
-  structuredAgentSessionProviderRetryPending,
-  structuredAgentSessionStoppedFailure
-} from './structured-agent-session-provider-retry'
+import { structuredAgentSessionProviderRetryPending } from './structured-agent-session-provider-retry'
 import { agentJournalSubmissionKey } from '../../../shared/agent-session-journal-item-key'
 import { isRootAgentJournalItem } from '../../../shared/agent-session-journal-producer'
 import { isStructuredAgentSessionCommandEntry } from '../../../shared/structured-agent-session-command-entry'
@@ -148,14 +145,6 @@ export class StructuredAgentSessionJournalProjections {
           ...projection.state,
           owesWork: true,
           summary: { ...summary, status: 'working' }
-        }
-      } else if (structuredAgentSessionStoppedFailure(journal)) {
-        projection.state = {
-          ...projection.state,
-          latestRequest: projection.state.latestRequest
-            ? { ...projection.state.latestRequest, outcome: 'interruption' }
-            : null,
-          summary: { ...projection.state.summary, turnOutcome: 'interruption' }
         }
       }
       this.byJournal.set(journal, projection)

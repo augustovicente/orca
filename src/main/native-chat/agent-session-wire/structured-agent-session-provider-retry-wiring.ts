@@ -1,25 +1,73 @@
-import type { StructuredAgentSessionEventRecovery } from './structured-agent-session-event-recovery'
-import type { StructuredAgentSessionConversationLifetime } from './structured-agent-session-conversation-lifetime'
 import { StructuredAgentSessionProviderRetry } from './structured-agent-session-provider-retry'
 import { structuredAgentSessionConversationFence } from './structured-agent-session-provider-child'
 import { hostStructuredAgentSessionCurrentWork } from './structured-agent-session-host-current-work'
+import { structuredAgentSessionImmediatePermission } from './structured-agent-session-launch-permission'
+import {
+  StructuredAgentSessionInputNotAdmitted,
+  admitStructuredAgentSessionInput
+} from './structured-agent-session-input-admission'
+import type { StructuredAgentSessionEventRecovery } from './structured-agent-session-event-recovery'
+import type { StructuredAgentSessionConversationLifetime } from './structured-agent-session-conversation-lifetime'
 import type { StructuredAgentSessionMutationContext } from './structured-agent-session-mutation-context'
 
 export function createProviderRetry(
-  context: () => StructuredAgentSessionMutationContext
+  context: () => StructuredAgentSessionMutationContext,
+  disposed: () => boolean,
+  settleCompletion: ConstructorParameters<
+    typeof StructuredAgentSessionProviderRetry
+  >[0]['settleCompletion']
 ): StructuredAgentSessionProviderRetry {
   return new StructuredAgentSessionProviderRetry({
+    disposed,
+    settleCompletion,
     continueTurn: async (input) => {
       const ctx = context()
       const wait = ctx.acquireAborts.begin(input.sessionId, true)
+      wait.signal.addEventListener('abort', input.onAborted, { once: true })
       try {
         return (
           (await ctx.deps.adapter.continueAfterTransientFailure?.({
             ...input,
+            admitFreshInput: (enqueue, signal) =>
+              admitStructuredAgentSessionInput({
+                serialize: (task) => ctx.serialize(input.sessionId, task),
+                validate: () => {
+                  if (!input.isCurrent() || signal?.aborted || wait.signal.aborted) {
+                    throw new StructuredAgentSessionInputNotAdmitted()
+                  }
+                },
+                permission: () => {
+                  const record = ctx.deps.store.getRecord(input.sessionId)
+                  const mode = record && structuredAgentSessionImmediatePermission(ctx.deps, record)
+                  const child = ctx.sessions.get(input.sessionId)?.child
+                  // Providers with per-turn policy use their ordinary compiler's prepare/acquire result.
+                  if (!mode || !child) {
+                    throw new StructuredAgentSessionInputNotAdmitted()
+                  }
+                  const acquisition = ctx.deps.adapter.permissionModeRequiresAcquisition?.(
+                    input.sessionId,
+                    mode
+                  )
+                  if (acquisition === undefined && mode !== child.permissionMode) {
+                    throw new StructuredAgentSessionInputNotAdmitted()
+                  }
+                  return mode
+                },
+                inheritRunning: () => false,
+                enqueue: (...args) => {
+                  const admission = enqueue(...args)
+                  if (admission.kind === 'sent') {
+                    input.onWritten()
+                  }
+                  return admission
+                },
+                signal: AbortSignal.any([input.signal, wait.signal, ...(signal ? [signal] : [])])
+              }),
             signal: AbortSignal.any([input.signal, wait.signal])
           })) ?? { state: 'refused' }
         )
       } finally {
+        wait.signal.removeEventListener('abort', input.onAborted)
         wait.end()
       }
     },

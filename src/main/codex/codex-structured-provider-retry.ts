@@ -1,6 +1,7 @@
-import { agentSessionExecutionOptionsRecord } from '../../shared/agent-session-execution-options'
 import { waitForPromiseWithSignal } from '../../shared/abort-signal-reason'
+import type { CodexStructuredSessionAdapter } from './codex-structured-session-adapter'
 import type { StructuredAgentSessionAdapter } from '../native-chat/agent-session-wire/structured-agent-session-adapter'
+import { agentSessionExecutionOptionsRecord } from '../../shared/agent-session-execution-options'
 import { StructuredAgentSessionInputNotAdmitted } from '../native-chat/agent-session-wire/structured-agent-session-input-admission'
 import { isCodexAppServerRequestError } from './app-server/codex-app-server-request-error'
 import { codexTurnRequestOptions } from './codex-structured-service-tier'
@@ -27,7 +28,7 @@ export async function continueCodexAfterTransientFailure(
     const answer = await waitForPromiseWithSignal(
       admitCodexTurnPermission(
         session,
-        undefined,
+        input.admitFreshInput,
         (permission) => {
           input.signal.throwIfAborted()
           return {
@@ -69,5 +70,30 @@ export async function continueCodexAfterTransientFailure(
           ? 'refused'
           : 'unknown'
     }
+  }
+}
+
+export async function continueCodexWithDrainedEvents(
+  this: CodexStructuredSessionAdapter,
+  input: Parameters<NonNullable<StructuredAgentSessionAdapter['continueAfterTransientFailure']>>[0]
+): ReturnType<NonNullable<StructuredAgentSessionAdapter['continueAfterTransientFailure']>> {
+  const session = this['session'](input.sessionId)
+  const outcome = await continueCodexAfterTransientFailure(
+    session,
+    input,
+    this['deps'].requestTimeoutMs
+  )
+  try {
+    await waitForPromiseWithSignal(
+      this['notificationRetries'].drained(input.sessionId, session.connection),
+      input.signal
+    )
+    const written = await waitForPromiseWithSignal(
+      session.events?.written?.() ?? Promise.resolve({ ok: true }),
+      input.signal
+    )
+    return written.ok && !session.ended ? outcome : { state: 'unknown' }
+  } catch {
+    return { state: 'unknown' }
   }
 }

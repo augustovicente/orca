@@ -37,9 +37,13 @@ import {
 let rig: QueuedMessageTestRig | undefined
 
 afterEach(async () => {
-  await rig?.dispose()
+  const owned = rig
   rig = undefined
-  vi.restoreAllMocks()
+  try {
+    await owned?.dispose()
+  } finally {
+    vi.restoreAllMocks()
+  }
 })
 
 const APPROVAL_ID = agentJournalItemKey(APPROVAL)
@@ -94,6 +98,7 @@ async function hydration(current: QueuedMessageTestRig) {
 
 async function deadGenerationWithFailedSettlement(location?: typeof FOLDER) {
   rig = await createQueuedMessageTestRig({
+    scopedOwnership: true,
     restartable: true,
     ...(location ? { location } : {})
   })
@@ -142,7 +147,7 @@ describe("a dead generation's leftovers, its settlement refused and its lease re
 
 describe('a close Orca asked for, its settlement refused', () => {
   it('tells a watching client the turn and prompt are over, with no row to carry it', async () => {
-    rig = await createQueuedMessageTestRig({ restartable: true })
+    rig = await createQueuedMessageTestRig({ scopedOwnership: true, restartable: true })
     const current = rig
     await current.workingSend()
     await leaveUnfinishedWork(current, { prompt: true })
@@ -181,7 +186,7 @@ describe('a waiting card when the generation ahead of it ends', () => {
     ['an exit of its own, its settlement refused', 'unexpected-exit' as const],
     ['a close Orca asked for', 'requested-close' as const]
   ])('drains after %s, with no journal write in between', async (_name, cause) => {
-    rig = await createQueuedMessageTestRig({ restartable: true })
+    rig = await createQueuedMessageTestRig({ scopedOwnership: true, restartable: true })
     const current = rig
     await current.workingSend()
     await leaveUnfinishedWork(current)
@@ -222,7 +227,7 @@ describe('a waiting card when the generation ahead of it ends', () => {
 
 describe('a live owner', () => {
   it('publishes its running turn and its prompt exactly as before', async () => {
-    rig = await createQueuedMessageTestRig({ restartable: true })
+    rig = await createQueuedMessageTestRig({ scopedOwnership: true, restartable: true })
     const current = rig
     await current.workingSend()
     await leaveUnfinishedWork(current, { prompt: true })

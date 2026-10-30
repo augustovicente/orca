@@ -1,4 +1,3 @@
-import { retireStructuredAgentSessionProviderRetry } from './structured-agent-session-provider-retry'
 // Command receipts prove acceptance; other plans use ledger rows and journal replay.
 
 import type { AgentChildWorkEvidence } from '../../../shared/agent-status-child-work-evidence'
@@ -312,7 +311,6 @@ export function setOptionPlan(params: {
     run: async (ctx) => {
       const options = { ...ctx.persistedOptions, [params.key]: params.value }
       await ctx.persistOptions(options)
-      retireStructuredAgentSessionProviderRetry(ctx.journal)
       ctx.publish()
       return { ok: true, value: { ...params, options } }
     },

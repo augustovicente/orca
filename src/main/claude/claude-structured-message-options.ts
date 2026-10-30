@@ -1,24 +1,26 @@
+import { StructuredAgentSessionInputNotAdmitted } from '../native-chat/agent-session-wire/structured-agent-session-input-admission'
 import { withTimeout } from '../../shared/promise-timeout-fallback'
-import { retireWaiter, type waitForReplay } from './claude-structured-dispatch-waiters'
+import { retireWaiter } from './claude-structured-dispatch-waiters'
 import { claudeStartedUnechoedSend } from './claude-command-lifecycle'
 import { claudeExecutionObservations } from './claude-structured-execution-observations'
 import { dispatchClaudeTurn } from './claude-structured-dispatch'
-import type { StructuredAgentSessionAdapter } from '../native-chat/agent-session-wire/structured-agent-session-adapter'
-import type { AgentSessionExecutionOptions } from '../../shared/agent-session-execution-options'
 import { AgentSessionOptionRejectedError } from '../native-chat/agent-session-wire/structured-agent-session-option-error'
 import {
   createStructuredAgentSessionLogger,
-  neverThrowingStructuredAgentSessionLogger,
-  type StructuredAgentSessionLogger
+  neverThrowingStructuredAgentSessionLogger
 } from '../native-chat/agent-session-wire/structured-agent-session-logger'
 import { listedModels } from './claude-structured-model-catalog'
 import { setClaudeStructuredOption } from './claude-structured-options'
-import type { ClaudeSession } from './structured/claude-structured-session-state'
 import {
   isAbortSignalReason,
   throwIfSignalAborted,
   waitForPromiseWithSignal
 } from '../../shared/abort-signal-reason'
+import type { waitForReplay } from './claude-structured-dispatch-waiters'
+import type { StructuredAgentSessionAdapter } from '../native-chat/agent-session-wire/structured-agent-session-adapter'
+import type { AgentSessionExecutionOptions } from '../../shared/agent-session-execution-options'
+import type { StructuredAgentSessionLogger } from '../native-chat/agent-session-wire/structured-agent-session-logger'
+import type { ClaudeSession } from './structured/claude-structured-session-state'
 
 const defaultLogger = createStructuredAgentSessionLogger()
 
@@ -156,6 +158,16 @@ export async function continueClaudeAfterTransientFailure(
             blocks: [{ type: 'text', text: 'Please continue.' }]
           },
           signal: input.signal,
+          admitWrite: async (write) => {
+            const admission = await input.admitFreshInput(
+              () => ({ kind: 'sent', response: write() }),
+              input.signal
+            )
+            if (admission.kind !== 'sent') {
+              throw new StructuredAgentSessionInputNotAdmitted()
+            }
+            await admission.response
+          },
           onReplay: (value) => {
             replay = value
           }
@@ -176,9 +188,15 @@ export async function continueClaudeAfterTransientFailure(
     const uuid = replay
       ? await waitForPromiseWithSignal(withTimeout(replay.promise, timeoutMs, null), input.signal)
       : null
-    return uuid ? { state: 'started', providerTurnRef: uuid } : { state: 'unknown' }
-  } catch {
-    return { state: 'unknown' }
+    const written = await waitForPromiseWithSignal(
+      session.events?.written?.() ?? Promise.resolve({ ok: true }),
+      input.signal
+    )
+    return uuid && written.ok ? { state: 'started', providerTurnRef: uuid } : { state: 'unknown' }
+  } catch (error) {
+    return {
+      state: error instanceof StructuredAgentSessionInputNotAdmitted ? 'refused' : 'unknown'
+    }
   } finally {
     if (replay && !replay.waiter.settledUuid) {
       retireWaiter(session, replay.waiter)
