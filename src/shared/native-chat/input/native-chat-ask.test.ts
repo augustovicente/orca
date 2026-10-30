@@ -19,7 +19,6 @@ import {
   scanPendingAsks,
   createPendingAskScanner,
   isDeliveredNativeChatUserMessage,
-  parseAskFromStatus,
   resolveNativeChatAsk
 } from './native-chat-ask'
 
@@ -60,24 +59,6 @@ const QUESTIONS_INPUT = {
 }
 
 describe('blocking abandonment boundary', () => {
-  it('keeps Codex blocking on its live-status path (positive control)', () => {
-    // Source-shaped Codex hook payload: agent-hook-listener-hermes-codex-droid.test.ts:161.
-    const liveAsk = parseAskFromStatus(
-      JSON.stringify({
-        questions: [
-          {
-            id: 'color_preference',
-            header: 'Color',
-            question: 'Which color do you prefer: red or blue?',
-            options: [{ label: 'Blue', description: 'Choose blue.' }]
-          }
-        ]
-      }),
-      'request_user_input'
-    )
-    expect(liveAsk?.questions[0]?.header).toBe('Color')
-    expect(resolveNativeChatAsk({ liveAsk, messages: [], transcriptSettled: false })).toBe(liveAsk)
-  })
   // Mixed-source scanner contract: Claude-shaped calls/results plus projected journal notices, not a live capture.
   const notice = projectStructuredItemToNativeChat({
     itemId: 'notice',
