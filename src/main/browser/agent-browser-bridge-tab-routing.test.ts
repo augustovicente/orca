@@ -381,6 +381,43 @@ describe('AgentBrowserBridge', () => {
     expect(clickSessions).toEqual(['orca-tab-tab-a', 'orca-tab-tab-b'])
   })
 
+  it('binds unpinned refs to the page an exec batch snapshotted', async () => {
+    const tabs = new Map([
+      ['tab-a', 1],
+      ['tab-b', 2]
+    ])
+    const worktrees = new Map([
+      ['tab-a', 'wt-1'],
+      ['tab-b', 'wt-1']
+    ])
+    webContentsFromIdMock.mockImplementation((id: number) => mockWebContents(id))
+    const b = new AgentBrowserBridge(mockBrowserManager(tabs, worktrees))
+    b.setActiveTab(1, 'wt-1')
+    const clickSessions: string[] = []
+    answerAgentBrowserCommands(execFileMock, stdinWrites, (command, cb, args) => {
+      if (command[0] === 'click') {
+        clickSessions.push(args[args.indexOf('--session') + 1])
+      }
+      if (command[0] === 'batch') {
+        const steps = [
+          { command: ['snapshot', '-i'], success: true, result: { snapshot: '' } },
+          { command: ['get', 'title'], success: true, result: { title: 'B' } }
+        ]
+        cb(null, JSON.stringify(steps), '')
+        return
+      }
+      const data = command[0] === 'snapshot' ? { snapshot: '' } : {}
+      cb(null, JSON.stringify({ success: true, data }), '')
+    })
+
+    await b.snapshot('wt-1')
+    await b.tabSwitch(undefined, 'wt-1', 'tab-b')
+    await b.exec('batch "snapshot -i" "get title"', 'wt-1')
+    await b.click('@e2', 'wt-1')
+
+    expect(clickSessions).toEqual(['orca-tab-tab-b'])
+  })
+
   it('queues tabSwitch behind in-flight commands on the current session', async () => {
     const tabs = new Map([
       ['tab-a', 1],

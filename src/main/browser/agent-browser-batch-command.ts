@@ -54,6 +54,13 @@ function withoutLifecycle(data: unknown): unknown {
 
 /** Every snapshot form (plain, --full, --delta) answers with `snapshot`; annotated screenshots with `annotations`. */
 export function agentBrowserResultMintsRefs(data: unknown): boolean {
+  if (Array.isArray(data)) {
+    // An `exec batch` reply mints refs through any snapshot step that ran.
+    return data.some(
+      (step: AgentBrowserBatchEntry & { success?: boolean }) =>
+        step?.success === true && agentBrowserResultMintsRefs(step.result)
+    )
+  }
   if (!data || typeof data !== 'object') {
     return false
   }
