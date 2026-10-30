@@ -658,7 +658,7 @@ module.exports = {
   // silently downgrading to ad-hoc artifacts that look shippable in CI logs.
   forceCodeSigning: isMacRelease,
   dmg: {
-    artifactName: 'orca-macos-${arch}.${ext}'
+    artifactName: 'contadorca-macos-${arch}.${ext}'
   },
   linux: {
     // shared-mime-info already maps md/markdown: advertise handler only, leaving mimeapps.list defaults intact.
