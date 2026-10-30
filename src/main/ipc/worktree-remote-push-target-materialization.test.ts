@@ -9,7 +9,9 @@ import {
   target,
   git,
   deferred,
-  runtimeCommands
+  runtimeCommands,
+  exec,
+  env
 } from './worktree-push-target-materialization.test-fixture'
 import { resolveCheckedOutBranchName } from './worktree-push-target-setup'
 import { readGitRemotePolicy } from '../../shared/git-worktree-admin'
@@ -307,10 +309,13 @@ it.each([
   'follow-tags',
   'follow-tags-safe',
   'user-named',
-  'inference-read-failure'
+  'inference-read-failure',
+  'native-inference-read-failure'
 ])(
   'executes generic %s endpoints with one table per native context and preserves native tracking when named',
-  async (mode) => {
+  async (row) => {
+    const nativeControl = row === 'native-inference-read-failure'
+    const mode = nativeControl ? 'inference-read-failure' : row
     const literal = mode.includes('rewrite') ? 'git@literal.test:contributor/orca.git' : url
     const named = ![
       'suppressed-rewrite',
@@ -399,22 +404,41 @@ it.each([
         }
       }
     }
-    runner.mockClear()
-    expect((await resolveConfiguredGitPushTarget((args) => runner(args, { cwd: a })))?.remote).toBe(
-      named ? 'borrowed' : literal
-    )
-    expect(runner.mock.calls.filter(([args]) => args.includes('-v'))).toHaveLength(
-      ['user-named', 'inference-read-failure'].includes(mode) ? 0 : 3
-    )
-    expect(runner.mock.calls.some(([args]) => args.includes('get-url'))).toBe(false)
-    await gitPush(a)
-    if (mode === 'inference-read-failure') {
-      expect(runner.mock.calls.findLast(([args]) => args[0] === 'push')?.[0]).toEqual([
-        'push',
-        '--set-upstream',
-        literal,
-        'HEAD:topic'
-      ])
+    if (nativeControl) {
+      const binary = (await exec('sh', ['-c', 'command -v git'], { cwd: a, env })).stdout.trim()
+      const args = ['push', '--set-upstream', literal, 'HEAD:topic']
+      console.info('native literal inference-read-failure control', {
+        binary,
+        version: (await git(['--version'], a)).trim(),
+        cwd: a,
+        args,
+        branchRemote: (await git(['config', 'branch.local-a.remote'], a)).trim(),
+        branchMerge: (await git(['config', 'branch.local-a.merge'], a)).trim(),
+        borrowedUrl: (await git(['config', 'remote.borrowed.url'], a)).trim(),
+        borrowedFetch: (await git(['config', '--get-all', 'remote.borrowed.fetch'], a)).trim(),
+        protectedRef,
+        protectedOid: (await git(['rev-parse', protectedRef], a)).trim(),
+        headOid: (await git(['rev-parse', 'HEAD'], a)).trim()
+      })
+      await git(args, a)
+    } else {
+      runner.mockClear()
+      expect(
+        (await resolveConfiguredGitPushTarget((args) => runner(args, { cwd: a })))?.remote
+      ).toBe(named ? 'borrowed' : literal)
+      expect(runner.mock.calls.filter(([args]) => args.includes('-v'))).toHaveLength(
+        ['user-named', 'inference-read-failure'].includes(mode) ? 0 : 3
+      )
+      expect(runner.mock.calls.some(([args]) => args.includes('get-url'))).toBe(false)
+      await gitPush(a)
+      if (mode === 'inference-read-failure') {
+        expect(runner.mock.calls.findLast(([args]) => args[0] === 'push')?.[0]).toEqual([
+          'push',
+          '--set-upstream',
+          literal,
+          'HEAD:topic'
+        ])
+      }
     }
     const head = (await git(['rev-parse', 'HEAD'], a)).trim()
     expect((await git(['rev-parse', 'topic'], fork)).trim()).toBe(head)
