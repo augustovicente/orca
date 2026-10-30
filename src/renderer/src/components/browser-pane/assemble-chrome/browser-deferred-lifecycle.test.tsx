@@ -41,7 +41,10 @@ vi.mock('@/lib/worktree-runtime-owner', () => ({
 vi.mock('@/components/contextual-tours/use-contextual-tour', () => ({
   useContextualTour: () => {}
 }))
-vi.mock('../host-guest/webview-registry', () => ({ destroyPersistentWebview: mocks.destroy }))
+vi.mock('../host-guest/webview-registry', () => ({
+  destroyPersistentWebview: mocks.destroy,
+  webviewRegistry: new Map()
+}))
 vi.mock('./BrowserMobileDriverOverlay', () => ({ BrowserMobileDriverOverlay: () => null }))
 vi.mock('./browser-page-pane', () => ({
   BrowserPagePane: ({ browserTab, isActive }: { browserTab: BrowserPage; isActive: boolean }) => (
@@ -284,7 +287,8 @@ describe('deferred browser lifecycle through the overlay and SSH gate', () => {
   })
 
   it('guards all pages, including inactive tabs, when SSH routing is enabled', async () => {
-    mocks.executionHostId = 'ssh:target-a'
+    // A target no earlier test verified, so enabling routing starts from a cold route.
+    mocks.executionHostId = 'ssh:target-b'
     mocks.state!.settings.browserSshWorkspaceRoutingEnabled = false
     const view = render(surface())
     selectPage('a-2')

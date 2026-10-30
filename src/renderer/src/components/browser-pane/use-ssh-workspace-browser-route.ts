@@ -38,14 +38,14 @@ export function classifySshWorkspaceBrowserRouteError(
 }
 
 // A remounted gate starts from its last verified partition instead of destroying guests already on it.
-const verifiedRoutes = new Map<string, { targetId: string; partition: string }>()
+const verifiedPartitionByRoute = new Map<string, string>()
 
 function verifiedRouteState(
   routeKey: string,
   targetId: string,
   expectedSshTargetGeneration: number | undefined
 ): SshWorkspaceBrowserRouteState | null {
-  const partition = verifiedRoutes.get(routeKey)?.partition
+  const partition = verifiedPartitionByRoute.get(routeKey)
   return partition
     ? {
         kind: 'ready',
@@ -123,12 +123,6 @@ export function useSshWorkspaceBrowserRoute(
 
   useEffect(() => {
     if (!targetId) {
-      // Unrouted mounts create local-egress guests; only a fresh preparing pass may destroy them later.
-      for (const [key, route] of verifiedRoutes) {
-        if (route.targetId === sshTargetId) {
-          verifiedRoutes.delete(key)
-        }
-      }
       setState({ kind: 'unrouted' })
       return
     }
@@ -153,7 +147,7 @@ export function useSshWorkspaceBrowserRoute(
       })
       .then((result) => {
         if (!cancelled) {
-          verifiedRoutes.set(routeKey, { targetId, partition: result.partition })
+          verifiedPartitionByRoute.set(routeKey, result.partition)
           setState({
             kind: 'ready',
             partition: result.partition,
@@ -163,7 +157,7 @@ export function useSshWorkspaceBrowserRoute(
         }
       })
       .catch((error: unknown) => {
-        verifiedRoutes.delete(routeKey)
+        verifiedPartitionByRoute.delete(routeKey)
         if (!cancelled) {
           const message = error instanceof Error ? error.message : String(error)
           setState({
@@ -177,7 +171,6 @@ export function useSshWorkspaceBrowserRoute(
       cancelled = true
     }
   }, [
-    sshTargetId,
     targetId,
     expectedSshTargetGeneration,
     browserProfileId,
