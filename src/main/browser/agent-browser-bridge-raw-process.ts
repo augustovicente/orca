@@ -77,6 +77,11 @@ export abstract class AgentBrowserBridgeRawProcess extends AgentBrowserBridgeExe
             if (stdout) {
               try {
                 const parsed = parseAgentBrowserJsonOutput(stdout)
+                // A batch exits 1 when any step failed; its reply carries each step's outcome.
+                if (parsed.success) {
+                  resolve(stdout)
+                  return
+                }
                 if (parsed.error) {
                   const code = classifyErrorCode(parsed.error)
                   reject(
@@ -105,9 +110,10 @@ export abstract class AgentBrowserBridgeRawProcess extends AgentBrowserBridgeExe
       if (session) {
         session.activeProcess = child
       }
-      if (execOptions?.stdinText !== undefined && child?.stdin) {
+      if (child?.stdin) {
         child.stdin.on('error', () => {})
-        child.stdin.end(execOptions.stdinText)
+        // A command that reads stdin, like bare `batch`, would otherwise wait out the exec timeout.
+        child.stdin.end(execOptions?.stdinText)
       }
     })
   }

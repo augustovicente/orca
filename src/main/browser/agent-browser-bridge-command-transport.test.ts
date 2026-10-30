@@ -210,6 +210,29 @@ describe('AgentBrowserBridge', () => {
     await expect(bridge.click('@e2')).resolves.toEqual({ clicked: '@e2' })
   })
 
+  it('returns every step of a passthrough batch, including one that failed', async () => {
+    // Real agent-browser 0.39.4 reply; it exits 1 because a step failed.
+    const reply =
+      '[{"command":["get","title"],"error":null,"result":{"title":"Login","lifecycle":{"reused":true}},"success":true},{"command":["click","@e999"],"error":"Unknown ref: e999","result":null,"success":false}]'
+    answerAgentBrowserCommands(execFileMock, stdinWrites, (command, cb) =>
+      command[0] === 'batch' ? cb(new Error('Command failed'), reply, '') : cb(null, '{}', '')
+    )
+    await expect(bridge.exec('batch "get title" "click @e999"')).resolves.toEqual([
+      { command: ['get', 'title'], error: null, result: { title: 'Login' }, success: true },
+      { command: ['click', '@e999'], error: 'Unknown ref: e999', result: null, success: false }
+    ])
+  })
+
+  it('ends stdin for passthrough commands so a bare batch does not wait for input', async () => {
+    // Real agent-browser 0.39.4 reply to a batch whose stdin closed empty.
+    const reply =
+      '{"error":"Invalid JSON input: EOF while parsing a value at line 1 column 0.","success":false}'
+    answerAgentBrowserCommands(execFileMock, stdinWrites, (command, cb) =>
+      command[0] === 'batch' ? cb(new Error('Command failed'), reply, '') : cb(null, '{}', '')
+    )
+    await expect(bridge.exec('batch')).rejects.toThrow('Invalid JSON input')
+  })
+
   // agent-browser 0.39.2+ wording when it cannot re-resolve a ref by role and name.
   it.each([
     'Stale ref for role=button name=Approve cannot be recovered: several elements now match. Run snapshot again and use a fresh ref.',

@@ -168,8 +168,13 @@ export function answerAgentBrowserCommands(
         kill: vi.fn(),
         stdin: {
           on: vi.fn(),
-          end: (text: string) => {
-            stdinWrites.push(text)
+          end: (text?: string) => {
+            if (text !== undefined) {
+              stdinWrites.push(text)
+            } else if (!args.includes('batch')) {
+              // Commands outside a batch were answered from argv at spawn.
+              return
+            }
             answer(agentBrowserCommandOf(args, text), cb, args, child)
           }
         }

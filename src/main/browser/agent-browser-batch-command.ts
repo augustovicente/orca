@@ -9,12 +9,23 @@ export function agentBrowserBatchInput(command: readonly string[]): string {
 
 export type AgentBrowserEnvelope = { success?: boolean; data?: unknown; error?: string }
 
+type AgentBrowserBatchEntry = { result?: unknown }
+
 /** Parses --json output; a one-command batch reply becomes the single-command envelope. */
 export function parseAgentBrowserJsonOutput(stdout: string): AgentBrowserEnvelope {
   const parsed = JSON.parse(stdout)
-  // Orca batches one command; a longer array is a passthrough `exec batch` reply.
-  if (!Array.isArray(parsed) || parsed.length !== 1) {
+  if (!Array.isArray(parsed)) {
     return withoutDaemonLifecycle(parsed)
+  }
+  // Orca batches one command; a longer array is a passthrough `exec batch` reply whose steps report their own failures.
+  if (parsed.length !== 1) {
+    return {
+      success: true,
+      data: parsed.map((entry: AgentBrowserBatchEntry) => ({
+        ...entry,
+        result: withoutLifecycle(entry?.result)
+      }))
+    }
   }
   const [entry] = parsed
   return withoutDaemonLifecycle({
@@ -24,14 +35,18 @@ export function parseAgentBrowserJsonOutput(stdout: string): AgentBrowserEnvelop
   })
 }
 
-// agent-browser 0.31+ adds its daemon's launch bookkeeping to every reply; it is not page data.
 function withoutDaemonLifecycle(envelope: AgentBrowserEnvelope): AgentBrowserEnvelope {
-  const data = envelope?.data
+  const data = withoutLifecycle(envelope?.data)
+  return data === envelope?.data ? envelope : { ...envelope, data }
+}
+
+// agent-browser 0.31+ adds its daemon's launch bookkeeping to every reply; it is not page data.
+function withoutLifecycle(data: unknown): unknown {
   if (!data || typeof data !== 'object' || Array.isArray(data) || !('lifecycle' in data)) {
-    return envelope
+    return data
   }
   const { lifecycle: _lifecycle, ...rest } = data
-  return { ...envelope, data: rest }
+  return rest
 }
 
 /** Every snapshot form (plain, --full, --delta) answers with `snapshot`; annotated screenshots with `annotations`. */
