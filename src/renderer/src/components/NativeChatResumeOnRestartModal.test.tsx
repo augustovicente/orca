@@ -63,6 +63,10 @@ vi.mock('sonner', async () =>
   (await import('./native-chat-resume-sonner-mock.test-support')).resumeSonnerMock()
 )
 
+const actual = await vi.importActual<typeof ActivationModule>(
+  '@/lib/activate-ai-vault-structured-session'
+)
+
 const { mount, button, offerIds, toasts, fakeHost, runStatus, calls } = createResumeModalFixture(
   rpc,
   statusStream
@@ -580,9 +584,6 @@ it('lists a chat the resume could not carry on when the dialog reopens, with wha
   ])
   expect(chatBox('b').getAttribute('data-state')).toBe('unchecked')
 
-  const actual = await vi.importActual<typeof ActivationModule>(
-    '@/lib/activate-ai-vault-structured-session'
-  )
   activate.mockImplementationOnce(actual.activateAiVaultStructuredSession)
   useAppStore.setState({
     unifiedTabsByWorktree: {
