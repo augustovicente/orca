@@ -220,7 +220,7 @@ export function AgentDefaultSurfaceSection({
         <button
           type="button"
           onClick={showInstalledList}
-          className="inline-flex items-center gap-0.5 rounded-sm text-[13px] font-medium underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+          className="inline-flex items-center gap-0.5 rounded-sm text-[13px] font-medium underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
         >
           {translate('settings.agents.defaultSurfacePerAgent', 'Choose per agent')}
           <ChevronRight className="size-3.5" />
