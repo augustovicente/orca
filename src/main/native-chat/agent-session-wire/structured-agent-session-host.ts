@@ -1,12 +1,13 @@
 import { createStructuredAgentSessionConversationReads } from './structured-agent-session-conversation-reads'
 import { continuationContextReader as contextReader } from './structured-agent-session-continuation-context'
+import { structuredAgentStartJournal } from './structured-agent-start-journal'
 import type { AgentSessionRewindParams } from '../../../shared/agent-session-rewind'
 import { rewindStructuredAgentSession } from './structured-agent-session-rewind'
 import { StructuredConversationCommandController } from './structured-conversation-command-controller'
 // Serialize durable mutations per conversation; open at rest and start a child only when work needs it.
 
 import type { AgentSessionSubscribeInput } from './structured-agent-session-subscribers'
-import * as leases from './structured-agent-session-restart-reconcile'
+import { createStartupRecovery } from './structured-agent-session-restart-reconcile'
 import { StructuredAgentSessionTaskQueue } from './structured-agent-session-task-queue'
 import { structuredAgentSessionOwnerStatus } from './structured-agent-session-owner-status'
 import { StructuredAgentSessionHostRuntimeState } from './structured-agent-session-host-runtime-state'
@@ -63,8 +64,7 @@ export class StructuredAgentSessionHost {
   private readonly subscribers = this.clientDelivery.subscribers
   private readonly tasks = new StructuredAgentSessionTaskQueue()
   private readonly runtimeState: StructuredAgentSessionHostRuntimeState
-  private readonly reconcileLeases: ReturnType<typeof leases.createRestartReconciler>
-  private readonly startup: ReturnType<typeof leases.createStartupRecovery>
+  private readonly startup: ReturnType<typeof createStartupRecovery>
   readonly reconcileRestartLeases = () => this.startup.reconcileRestartLeases()
   private readonly lifetime: lifetime.StructuredAgentSessionConversationLifetime
   private readonly conversationDelivery: conversation.StructuredAgentSessionConversationDelivery
@@ -90,12 +90,6 @@ export class StructuredAgentSessionHost {
       (id, e) => this.eventRecovery.recoverAfterSinkFailure(id, e),
       (expired) => this.lifetime.expireStartup(expired)
     )
-    this.reconcileLeases = leases.createRestartReconciler({
-      store: deps.store,
-      probe: (record) => this.runtimeState.probeRecord(record),
-      ...(deps.probeOwners ? { probeMany: deps.probeOwners } : {}),
-      now: () => this.now()
-    })
     this.conversationDelivery = conversation.createStructuredAgentSessionConversationDelivery({
       deps,
       acquireAborts: this.runtimeState.acquireAborts,
@@ -112,7 +106,7 @@ export class StructuredAgentSessionHost {
       stopOutgrownAgent: (id) => this.lifetime.stopAgent(id, { cause: 'evict', resting: true }),
       clientDelivery: this.clientDelivery
     })
-    this.startup = leases.createStartupRecovery(deps, this.reconcileLeases, this.runtimeState)
+    this.startup = createStartupRecovery(deps, this.runtimeState.reconcileLeases, this.runtimeState)
     this.eventRecovery = new StructuredAgentSessionEventRecovery({
       deps,
       store: deps.store,
@@ -191,7 +185,7 @@ export class StructuredAgentSessionHost {
       ...this.lifetimeContext(),
       subscribers: this.subscribers,
       tasks: this.tasks,
-      reconcileLeases: (sessionId) => this.reconcileLeases(sessionId),
+      reconcileLeases: (sessionId) => this.runtimeState.reconcileLeases(sessionId),
       serialize: (sessionId, task) => this.serialize(sessionId, task),
       openProviderChild: this.eventRecovery.openProviderChild,
       openConversation: this.conversationDelivery.open
@@ -318,6 +312,13 @@ export class StructuredAgentSessionHost {
 
   /** Full reduction: absence from a bounded page cannot prove a revised/tombstoned item is absent. */
   journalSnapshot = this.reads.journalSnapshot
+
+  private readonly startJournal = structuredAgentStartJournal(
+    () => this.deps,
+    (sessionId) => this.lifetime.conversation(sessionId)
+  )
+  captureAgentStartDestination = this.startJournal.captureAgentStartDestination
+  appendAgentStart = this.startJournal.appendAgentStart
 
   currentWork = this.clientDelivery.readCurrentWork
   readCurrentRequests: BackgroundTasks['currentRequests'] = (...args) =>
