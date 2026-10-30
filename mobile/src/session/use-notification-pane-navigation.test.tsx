@@ -1,3 +1,8 @@
+import {
+  structuredAgentSessionPaneKey,
+  structuredAgentSessionTabId
+} from '../../../src/shared/structured-agent-session-projection'
+import type { StructuredSessionOpenSource } from '../../../src/shared/open-structured-agent-session'
 import { createElement } from 'react'
 import { act, create, type ReactTestRenderer } from 'react-test-renderer'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -61,15 +66,19 @@ const switched: MobileSessionTab[] = []
 
 function Probe({
   terminalsLoaded,
-  sessionTabs = TABS
+  sessionTabs = TABS,
+  openNativeSession
 }: {
   terminalsLoaded: boolean
   sessionTabs?: MobileSessionTab[]
+  openNativeSession?: (source: StructuredSessionOpenSource) => Promise<void>
 }): null {
   useNotificationPaneNavigation({
     sessionTabs,
     terminalsLoaded,
-    switchSessionTab: (tab) => switched.push(tab)
+    switchSessionTab: (tab) => switched.push(tab),
+    worktreeId: 'wt-1',
+    openNativeSession
   })
   return null
 }
@@ -190,4 +199,55 @@ describe('the page pane hook', () => {
     render(true)
     expect(switched).toEqual([])
   })
+})
+
+it('opens a missing canonical native notification once, only after inventory loads', () => {
+  const openNativeSession = vi.fn(async () => {})
+  const paneKey = structuredAgentSessionPaneKey(
+    structuredAgentSessionTabId('historical'),
+    'historical'
+  )
+  bridge.route = { pathname: '/h/host-1/session/wt-1', params: { paneKey } }
+  let tree: ReactTestRenderer | undefined
+  act(() => {
+    tree = create(createElement(Probe, { terminalsLoaded: false, openNativeSession }))
+  })
+  expect(openNativeSession).not.toHaveBeenCalled()
+  act(() => {
+    tree?.update(createElement(Probe, { terminalsLoaded: true, openNativeSession }))
+  })
+  expect(openNativeSession).toHaveBeenCalledExactlyOnceWith({
+    kind: 'notification',
+    sessionId: 'historical',
+    worktreeId: 'wt-1'
+  })
+  deliver(paneKey)
+  expect(openNativeSession).toHaveBeenCalledOnce()
+  act(() => tree?.unmount())
+})
+it('routes an existing native notification through lineage instead of selecting its historical tab directly', () => {
+  const openNativeSession = vi.fn(async () => {})
+  const tab: MobileSessionTab = {
+    type: 'agent-session',
+    id: 'issued',
+    sessionId: 'historical',
+    agent: 'codex',
+    title: 'Chat',
+    isActive: false
+  }
+  let tree: ReactTestRenderer | undefined
+  act(() => {
+    tree = create(
+      createElement(Probe, { terminalsLoaded: true, sessionTabs: [tab], openNativeSession })
+    )
+  })
+  deliver(structuredAgentSessionPaneKey('issued', 'historical'))
+  expect(openNativeSession).toHaveBeenCalledExactlyOnceWith({
+    kind: 'notification',
+    sessionId: 'historical',
+    worktreeId: 'wt-1',
+    agent: 'codex'
+  })
+  expect(switched).toEqual([])
+  act(() => tree?.unmount())
 })

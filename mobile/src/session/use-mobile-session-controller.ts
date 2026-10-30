@@ -1,3 +1,4 @@
+import { useMobileStructuredSessionOpening } from './use-mobile-structured-session-opening'
 import { useNotificationPaneNavigation } from './use-notification-pane-navigation'
 import { useMobileSessionFoundation } from './use-mobile-session-foundation'
 import { useMobileSessionScreenState } from './use-mobile-session-screen-state'
@@ -23,6 +24,7 @@ import { useMobileSessionTerminalSendActions } from './use-mobile-session-termin
 import { useMobileSessionFileActions } from './use-mobile-session-file-actions'
 import { useMobileSessionTerminalInput } from './use-mobile-session-terminal-input'
 import { useMobileSessionAccessorySelection } from './use-mobile-session-accessory-selection'
+import { useTerminalDockKeys } from './use-terminal-dock-keys'
 import { useMobileSessionAttachments } from './use-mobile-session-attachments'
 import { useMobileSessionTerminalCreateActions } from './use-mobile-session-terminal-create-actions'
 import { useMobileSessionContentCreateActions } from './use-mobile-session-content-create-actions'
@@ -83,7 +85,8 @@ export function useMobileSessionController() {
   useMobileSessionStartup(keyboardState)
   const preferences = useMobileSessionPreferenceFocus(keyboardState)
   const tabSwitching = Object.assign(keyboardState, useMobileSessionTabSwitching(keyboardState))
-  useNotificationPaneNavigation(tabSwitching)
+  const openNativeSession = useMobileStructuredSessionOpening(tabSwitching)
+  useNotificationPaneNavigation({ ...tabSwitching, openNativeSession })
   const terminalWebview = Object.assign(tabSwitching, useMobileSessionTerminalWebview(tabSwitching))
   const terminalSendActions = Object.assign(
     terminalWebview,
@@ -98,10 +101,14 @@ export function useMobileSessionController() {
     terminalInput,
     useMobileSessionAccessorySelection(terminalInput)
   )
-  const attachments = Object.assign(
-    accessorySelection,
-    useMobileSessionAttachments(accessorySelection)
-  )
+  // The key row and the input fields share held ctrl/alt/shift, and the Duo rail renders the row apart from the fields.
+  const dockKeys = Object.assign(accessorySelection, {
+    dockKeys: useTerminalDockKeys({
+      activeHandle: accessorySelection.activeHandle,
+      sendInput: accessorySelection.handleAccessoryKey
+    })
+  })
+  const attachments = Object.assign(dockKeys, useMobileSessionAttachments(dockKeys))
   const terminalCreateActions = Object.assign(
     attachments,
     useMobileSessionTerminalCreateActions(attachments)

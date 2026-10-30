@@ -77,7 +77,7 @@ describe('activateAiVaultStructuredSession', () => {
   it('still reveals when the inventory refresh itself fails', async () => {
     // Refresh is advisory; its failure must still allow reveal to repair a closed chat.
     const parts = deps({
-      activate: vi.fn().mockReturnValueOnce(false).mockReturnValue(true),
+      activate: vi.fn().mockReturnValueOnce(false).mockReturnValueOnce(false).mockReturnValue(true),
       refresh: vi.fn().mockRejectedValueOnce(new Error('structured_session_restore_timeout'))
     })
 

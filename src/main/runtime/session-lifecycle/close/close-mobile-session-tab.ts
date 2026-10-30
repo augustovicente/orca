@@ -17,11 +17,12 @@ import {
 } from '../../mobile-session-tab-close-outcome'
 import { getRuntimeBrowserPageRegistry } from '../../runtime-browser-page-registry'
 import type { RuntimeEdgeCommandSurface } from '../../runtime-edge-command-controller'
-import { SESSION_TAB_NOT_FOUND_ERROR } from '../../../../shared/session-tab-close'
+import { closeRenderedStructuredSessionTab } from '../../agent-session/structured-session-renderer-close'
 import { rendererPublicationThrottle } from '../../../window/renderer-publication-throttle'
 import { structuredAgentSessionTabCloseCause } from '../../agent-session/structured-agent-session-tab-close-cause'
 import { retireHeadlessMobileSessionEditorTab } from '../../mobile-session-editor-projection'
 import { ORCA_LAYOUT_OWNER_IS_MAIN } from '../../../../shared/layout-owner-switch'
+import { captureInstalledStructuredSessionSurface } from '../../agent-session/structured-agent-session-close'
 
 export abstract class OrcaRuntimeWithCloseMobileSessionTab extends OrcaRuntimeWithCloseMobileRowInMainLayout {
   declare browserTabClose: RuntimeEdgeCommandSurface['browserTabClose']
@@ -115,6 +116,10 @@ export abstract class OrcaRuntimeWithCloseMobileSessionTab extends OrcaRuntimeWi
       }
     }
     let closedSelectionTabIds = [tab.id]
+    const chatSurface =
+      tab.type === 'agent-session'
+        ? captureInstalledStructuredSessionSurface(tab.sessionId, this)
+        : null
     const finishCommittedClose = (): MobileSessionTabCloseOutcome =>
       committedMobileSessionTabClose(
         this.clientSessionTabSelections,
@@ -281,21 +286,15 @@ export abstract class OrcaRuntimeWithCloseMobileSessionTab extends OrcaRuntimeWi
         await this.notifier.closeSessionTab(tab.id, worktreeId)
       }
     } else if (tab.type === 'agent-session') {
-      if (this.notifier?.closeSessionTab) {
-        try {
-          // The window maps reopened chats to tab ids not derivable from session ids.
-          await this.notifier.closeSessionTab(tab.id, worktreeId)
-        } catch (error) {
-          // The renderer already having removed the tab is an idempotent close, not a veto.
-          if (!(error instanceof Error && error.message === SESSION_TAB_NOT_FOUND_ERROR)) {
-            throw error
-          }
-        }
-      }
-      await this.closeStructuredAgentSessionTab(
+      await closeRenderedStructuredSessionTab(this.notifier, tab.id, worktreeId)
+      const committed = await this.closeStructuredAgentSessionTab(
         tab,
-        structuredAgentSessionTabCloseCause(options.reason)
+        structuredAgentSessionTabCloseCause(options.reason),
+        chatSurface
       )
+      if (!committed) {
+        return delegatedMobileSessionTabClose()
+      }
     } else if (!this.notifier?.closeSessionTab) {
       // Headless editors retire through the host-owned session.
       if (!retireHeadlessMobileSessionEditorTab(this, worktreeId, tab, options.force)) {

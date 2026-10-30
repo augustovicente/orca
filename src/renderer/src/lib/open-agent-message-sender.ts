@@ -2,7 +2,7 @@
 
 import { toast } from 'sonner'
 import type { AgentMessageSource } from '../../../shared/agent-session/agent-session-message-source'
-import { agentSessionWriteNoticeText } from '@/components/native-chat/agent-session-write-notice-text'
+import { structuredSessionOpenMessage } from '../../../shared/open-structured-agent-session'
 import type {
   OrchestrationPartyLocation,
   OrchestrationPartyLocationResult
@@ -17,10 +17,7 @@ import {
   focusRuntimeTerminalHandle
 } from '@/components/terminal-pane/terminal-handle-links'
 import { showAgentPaneUnavailable } from '@/components/terminal-pane/stale-agent-row'
-import {
-  activateAiVaultStructuredSession,
-  structuredSessionOpenFeedback
-} from './activate-ai-vault-structured-session'
+import { openDesktopStructuredSession } from './activate-ai-vault-structured-session'
 import { getKnownExecutionHostIdForWorktree } from './worktree-runtime-owner'
 import {
   executionHostIdForStructuredTarget,
@@ -60,7 +57,7 @@ export function openAgentMessageSender(
         )
       : null)
   if (!host) {
-    showLookupFailure('unreachable')
+    showLookupFailure('unreachable', sender.name ?? '')
     return Promise.resolve()
   }
   const key = `${executionHostIdForStructuredTarget(host)}\0${chatWorktreeId}\0${sender.party.address}`
@@ -72,7 +69,7 @@ export function openAgentMessageSender(
     .catch((error: unknown) => {
       // Every answer above shows its own words; one that threw showed none.
       console.warn('[agent-message-sender] opening the sender failed', error)
-      showLookupFailure('unreachable')
+      showLookupFailure('unreachable', sender.name ?? '')
     })
     .finally(() => opensInFlight.delete(key))
   opensInFlight.set(key, opening)
@@ -81,7 +78,7 @@ export function openAgentMessageSender(
 
 async function openSender(
   source: AgentMessageSource,
-  { party }: Sender,
+  { party, name }: Sender,
   host: RuntimeClientTarget
 ): Promise<void> {
   const environmentId = host.kind === 'environment' ? host.environmentId : null
@@ -92,37 +89,29 @@ async function openSender(
     .map((message) => message.messageId)
   const found = await lookUpSender(party, messageIds, host)
   if (typeof found === 'string') {
-    showLookupFailure(found)
+    showLookupFailure(found, name ?? '')
     return
   }
-  const { location } = found
-  if (!location) {
-    if (found.lost === 'chat') {
-      structuredSessionOpenFeedback.gone()
-    } else if (found.lost === 'terminal') {
-      showAgentPaneUnavailable()
-    } else {
-      // Not found, and not proven gone: one this host does not run.
-      showLookupFailure('unreachable')
-    }
+  if (!found.location && found.lost === 'terminal') {
+    showAgentPaneUnavailable()
     return
   }
-  if (location.kind === 'chat') {
-    const session = {
-      structuredSession: { workspaceId: location.worktreeId, sessionId: location.sessionId }
-    }
-    await activateAiVaultStructuredSession(session, undefined, host)
-    return
+  const result = await openDesktopStructuredSession(
+    { kind: 'sender', address: party.address, messageIds, agent: name ?? undefined },
+    host,
+    undefined,
+    async () => found
+  )
+  if (result.kind === 'terminal') {
+    await focusTerminal(result.handle, environmentId, name ?? '')
   }
-  if (location.kind !== 'terminal') {
-    // A kind a newer host answers with.
-    showLookupFailure('update')
-    return
-  }
-  await focusTerminal(location.handle, environmentId)
 }
 
-async function focusTerminal(handle: string, environmentId: string | null): Promise<void> {
+async function focusTerminal(
+  handle: string,
+  environmentId: string | null,
+  agent: string
+): Promise<void> {
   if (focusRendererTerminalHandle(handle, environmentId)) {
     return
   }
@@ -132,7 +121,7 @@ async function focusTerminal(handle: string, environmentId: string | null): Prom
     if (error instanceof RuntimeRpcCallError && TERMINAL_GONE_CODES.has(error.code)) {
       showAgentPaneUnavailable()
     } else {
-      showLookupFailure(isRuntimeCompatBlockError(error) ? 'update' : 'unreachable')
+      showLookupFailure(isRuntimeCompatBlockError(error) ? 'update' : 'unreachable', agent)
     }
   }
 }
@@ -187,14 +176,8 @@ function located(location: OrchestrationPartyLocation): OrchestrationPartyLocati
   return { location }
 }
 
-function showLookupFailure(failure: LookupFailure): void {
+function showLookupFailure(failure: LookupFailure, agent: string): void {
   toast.error(
-    agentSessionWriteNoticeText(
-      failure === 'older-host'
-        ? ['unsupported']
-        : failure === 'update'
-          ? ['updateOrcaToOpenChat']
-          : ['unreachable', 'tryAgain']
-    )
+    structuredSessionOpenMessage(failure === 'unreachable' ? 'unreachable' : 'unsupported', agent)
   )
 }

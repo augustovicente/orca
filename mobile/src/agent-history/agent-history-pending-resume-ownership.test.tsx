@@ -41,7 +41,13 @@ vi.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 })
 }))
 vi.mock('react-native-svg', () => ({ default: 'Svg', Path: 'Path' }))
-vi.mock('lucide-react-native', () => ({ ChevronLeft: 'Icon', Play: 'Icon', RefreshCw: 'Icon' }))
+vi.mock('lucide-react-native', () => ({
+  ChevronLeft: 'Icon',
+  Play: 'Icon',
+  RefreshCw: 'Icon',
+  Search: 'Icon',
+  X: 'Icon'
+}))
 const notifications = vi.hoisted(() => ({
   error: vi.fn(),
   success: vi.fn(),
@@ -428,3 +434,129 @@ it('resuming into the session it was opened from shows the resumed terminal ther
     await act(async () => tree?.unmount())
   }
 })
+
+it.each(['opened', 'old-host', 'timeout', 'unsupported-agent'] as const)(
+  'a native History tap opens in place, with safe legacy fallback only: %s',
+  async (mode) => {
+    notifications.replace.mockClear()
+    notifications.success.mockClear()
+    state.generation = 1
+    state.connection = 'connected'
+    state.legacy = true
+    state.completedBoundary = true
+    state.session = {
+      ...ownedSession(),
+      agent: mode === 'unsupported-agent' ? 'qoder' : 'codex',
+      sessionId: mode === 'opened' ? null : 'provider-session',
+      structuredSession: { sessionId: 'native-root', workspaceId: 'owned-worktree' }
+    }
+    let revealed = false
+    const send = vi.fn<RpcClient['sendRequest']>(async (method) => {
+      if (method === 'agentSession.reveal') {
+        if (mode === 'timeout') {
+          throw new Error('reply lost')
+        }
+        if (mode === 'unsupported-agent') {
+          return {
+            id: 'unsupported-agent',
+            ok: true,
+            result: {
+              ok: false,
+              refusal: {
+                code: 'structured_agent_session_unsupported',
+                message: 'host cannot open this agent'
+              }
+            }
+          }
+        }
+        if (mode === 'old-host') {
+          return {
+            id: 'old-host',
+            ok: false,
+            error: { code: 'invalid_argument', message: 'old host' }
+          }
+        }
+        revealed = true
+      }
+      const results: Record<string, unknown> = {
+        'orchestration.partyLocation': {
+          location: { kind: 'chat', sessionId: 'native-live', worktreeId: 'owned-worktree' }
+        },
+        'session.tabs.list': {
+          tabs: revealed
+            ? [
+                {
+                  type: 'agent-session',
+                  id: 'issued-tab',
+                  sessionId: 'native-live',
+                  agent: 'codex'
+                }
+              ]
+            : []
+        },
+        'agentSession.reveal': {
+          ok: true,
+          sessionId: 'native-live',
+          workspaceId: 'owned-worktree',
+          agent: 'codex',
+          readable: true
+        },
+        'session.tabs.activate': {},
+        'repo.list': {
+          repos: [{ id: 'owned-repo', path: '/owned/workspace', connectionId: null }]
+        },
+        'folderWorkspace.list': { workspaces: [] },
+        'projectGroup.list': { groups: [] },
+        'worktree.ps': {
+          worktrees: [
+            { worktreeId: 'owned-worktree', repoId: 'owned-repo', path: '/owned/workspace' }
+          ]
+        },
+        'settings.get': {},
+        'aiVault.prepareSessionResume': { useRealCodexHome: true },
+        'session.tabs.createTerminal': {
+          tab: { type: 'terminal', id: 'fallback-tab', terminal: 'fallback-pty', title: 'Terminal' }
+        },
+        'terminal.send': { send: { accepted: true } }
+      }
+      return { id: 'reply', ok: true, result: results[method] }
+    })
+    state.client = {
+      ...createFakeRpcClient({ getGeneration: () => state.generation }),
+      sendRequest: send
+    }
+    let tree: ReactTestRenderer | null = null
+    await act(async () => {
+      tree = create(
+        React.createElement(MobileAgentSessionHistoryPanel, {
+          hostId: 'owned-host',
+          worktreeId: 'owned-worktree'
+        })
+      )
+    })
+    try {
+      await act(async () => {
+        if (!state.onResume || !state.session) {
+          throw new Error('missing row')
+        }
+        await state.onResume(state.session)
+      })
+      const methods = send.mock.calls.map(([method]) => method)
+      expect(methods.includes('session.tabs.createTerminal')).toBe(
+        mode === 'old-host' || mode === 'unsupported-agent'
+      )
+      if (mode === 'opened') {
+        expect(notifications.replace).toHaveBeenCalledWith(
+          expect.stringContaining('/session/owned-worktree?paneKey=issued-tab')
+        )
+        expect(methods).not.toContain('repo.list')
+      }
+      if (mode === 'timeout') {
+        expect(notifications.replace).not.toHaveBeenCalled()
+      }
+      expect(send.mock.calls.filter(([method]) => method === 'agentSession.reveal')).toHaveLength(1)
+    } finally {
+      await act(async () => tree?.unmount())
+    }
+  }
+)

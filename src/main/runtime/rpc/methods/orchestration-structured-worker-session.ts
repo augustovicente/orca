@@ -25,7 +25,6 @@ import { OrchestrationError } from '../../orchestration/orchestration-error'
 import { mintAgentSessionOperationId } from '../../orchestration/structured-pointer-operation-id'
 import { structuredPointerCallerKey } from '../../orchestration/structured-mailbox-pointer-host'
 import { sendAgentTurn, type StructuredAgentTurnHost } from '../../orchestration/send-agent-turn'
-import { retireSettledStructuredWorkerTab } from '../../agent-session/structured-agent-session-tab-retirement'
 import { structuredWorkerSession } from '../../structured-worker-authority'
 import {
   mintStructuredWorkerHandle,
@@ -173,9 +172,7 @@ export async function discardStructuredWorkerSession(
       sessionId,
       outcome.reason
     )
-    return
   }
-  retireSettledStructuredWorkerTab(sessionId, runtime)
 }
 
 /** A submission reason as a clause: host sentences end in a period, legacy markers do not. */

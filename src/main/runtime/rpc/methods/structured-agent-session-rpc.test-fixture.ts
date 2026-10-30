@@ -185,6 +185,7 @@ export function hostStub(): StructuredAgentSessionHost {
       agent: 'codex' as const,
       readable: true
     })),
+    getSessionTabId: vi.fn(() => null),
     setSessionTabVisibility: vi.fn(async () => undefined),
     respondToPrompt: vi.fn(async () => ({ ok: true, replayed: false })),
     setOption: vi.fn(async () => ({ ok: true, replayed: false })),
@@ -249,6 +250,9 @@ export function dispatcher(
           : { model: 'gpt-5.6-sol', effort: 'medium' },
       runtimeKind: 'native'
     })),
+    currentLocalStructuredSessionPresentation: vi.fn(() => null),
+    captureStructuredAgentSessionPresentation: vi.fn(() => ({ raw: null, saved: [] })),
+    removeCapturedStructuredSessionSavedTabs: vi.fn(),
     publishStructuredAgentSessionTab: vi.fn()
   })
   const runtime = {

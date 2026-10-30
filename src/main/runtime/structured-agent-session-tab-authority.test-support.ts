@@ -192,7 +192,11 @@ export function rejectVisibility(rig: AuthorityRig) {
   db.exec(
     "CREATE TEMP TRIGGER reject_tab_delta BEFORE DELETE ON agent_session_tabs BEGIN SELECT RAISE(ABORT, 'visibility rejected'); END"
   )
+  db.exec(
+    "CREATE TEMP TRIGGER reject_tab_insert BEFORE INSERT ON agent_session_tabs BEGIN SELECT RAISE(ABORT, 'visibility rejected'); END"
+  )
   return () => {
+    db.exec('DROP TRIGGER reject_tab_insert')
     db.exec('DROP TRIGGER reject_initial_tabs')
     db.exec('DROP TRIGGER reject_tab_delta')
   }
