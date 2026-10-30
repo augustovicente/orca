@@ -56,7 +56,7 @@ function NoticeRow({ notice }: { notice: NativeChatComposerNotice }): React.JSX.
   const isHostWarning = notice.kind === 'host' && notice.tone === 'warning'
   const Icon =
     notice.kind === 'worker'
-      ? notice.icon
+      ? null
       : notice.kind === 'host'
         ? ServerOff
         : notice.kind === 'device'
@@ -68,15 +68,17 @@ function NoticeRow({ notice }: { notice: NativeChatComposerNotice }): React.JSX.
   return (
     <li data-notice-kind={notice.kind} className={cn(isError && 'bg-destructive/5')}>
       <div className="flex items-start gap-2 px-2.5 py-1.5">
-        <Icon
-          aria-hidden
-          className={cn(
-            'mt-0.5 size-3.5 shrink-0',
-            'text-muted-foreground',
-            isError && 'text-destructive',
-            isHostWarning && 'text-destructive'
-          )}
-        />
+        {Icon ? (
+          <Icon
+            aria-hidden
+            className={cn(
+              'mt-0.5 size-3.5 shrink-0',
+              'text-muted-foreground',
+              isError && 'text-destructive',
+              isHostWarning && 'text-destructive'
+            )}
+          />
+        ) : null}
         <p
           className={cn(
             'min-w-0 flex-1 select-text py-px leading-5 [overflow-wrap:anywhere]',

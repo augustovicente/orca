@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef } from 'react'
-import { TriangleAlert, type LucideIcon } from 'lucide-react'
+import { TriangleAlert } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { translate } from '@/i18n/i18n'
@@ -58,12 +58,11 @@ export function PaneBannerLearnMore({ onClick }: { onClick: () => void }): React
   )
 }
 
-/** The strip across the top of a terminal pane, with its actions and optional Dismiss; neutral for plain state. */
+/** The strip across the top of a terminal pane, with its actions and optional Dismiss; neutral is plain state, without the warning icon. */
 export function PaneTopWarningBanner({
   title,
   body,
   tone = 'warning',
-  icon: Icon = TriangleAlert,
   primaryAction,
   onDismiss,
   onDontShowAgain,
@@ -72,7 +71,6 @@ export function PaneTopWarningBanner({
   title: string
   body?: React.ReactNode
   tone?: 'warning' | 'neutral'
-  icon?: LucideIcon
   primaryAction: React.ReactNode
   onDismiss?: () => void
   onDontShowAgain?: () => void
@@ -98,19 +96,23 @@ export function PaneTopWarningBanner({
       {/* Wrap actions in narrow panes using disjoint container-query properties so unlayered utilities cannot override them. */}
       <div className="@[44rem]:flex @[44rem]:items-center @[44rem]:gap-2">
         <div className="flex min-w-0 flex-1 items-start gap-2.5">
-          <Icon
-            className={cn(
-              'mt-0.5 size-4 shrink-0',
-              tone === 'warning' ? 'text-status-warning' : 'text-muted-foreground'
-            )}
-            aria-hidden="true"
-          />
+          {tone === 'warning' ? (
+            <TriangleAlert
+              className="mt-0.5 size-4 shrink-0 text-status-warning"
+              aria-hidden="true"
+            />
+          ) : null}
           <div className="min-w-0 leading-5">
             <p className="font-medium text-foreground">{title}</p>
             {body ? <p className="text-muted-foreground">{body}</p> : null}
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-1 @[44rem]:shrink-0 @max-[44rem]:mt-1.5 @max-[44rem]:pl-6.5">
+        <div
+          className={cn(
+            'flex flex-wrap items-center gap-1 @[44rem]:shrink-0 @max-[44rem]:mt-1.5',
+            tone === 'warning' && '@max-[44rem]:pl-6.5'
+          )}
+        >
           {primaryAction}
           {onDontShowAgain ? (
             <Button type="button" variant="ghost" size="xs" onClick={onDontShowAgain}>

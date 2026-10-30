@@ -1,4 +1,4 @@
-import { Pencil, Pin, PinOff, SquareTerminal, X } from 'lucide-react'
+import { Pencil, Pin, PinOff, SquareTerminal, Timer, X } from 'lucide-react'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -104,6 +104,8 @@ type SortableTabContextMenuProps = {
   onRenameOpen: () => void
   onSetTabColor: (tabId: string, color: string | null) => void
   onTogglePin: () => void
+  /** Set on an orchestration worker the user kept open; returns it to auto-close. */
+  onAllowAutoClose?: () => void
   /** Only terminal-backed agent tabs can switch view; structured chats have no terminal beneath them. */
   canToggleViewMode?: boolean
   /** Select the destination label/icon from the tab’s current chat/terminal view. */
@@ -132,6 +134,7 @@ export function SortableTabContextMenu({
   onRenameOpen,
   onSetTabColor,
   onTogglePin,
+  onAllowAutoClose,
   canToggleViewMode = false,
   isChatView = false,
   onToggleViewMode,
@@ -198,6 +201,12 @@ export function SortableTabContextMenu({
             ? translate('auto.components.tab.bar.SortableTabContextMenu.417722e9c2', 'Unpin Tab')
             : translate('auto.components.tab.bar.SortableTabContextMenu.60f958ec75', 'Pin Tab')}
         </DropdownMenuItem>
+        {onAllowAutoClose ? (
+          <DropdownMenuItem onSelect={onAllowAutoClose}>
+            <Timer className="size-3.5 shrink-0" />
+            {translate('components.tab-bar.allowAutoClose', 'Allow auto-close')}
+          </DropdownMenuItem>
+        ) : null}
         <CopyTabIdMenuItem unifiedTabId={unifiedTabId} />
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={() => !isPinned && onClose(tab.id)} disabled={isPinned}>

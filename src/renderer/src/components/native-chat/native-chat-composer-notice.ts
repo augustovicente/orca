@@ -1,6 +1,5 @@
 // Separate Orca’s notice wording from verbatim external errors so the latter stay readable and copyable.
 
-import type { LucideIcon } from 'lucide-react'
 import { translate } from '@/i18n/i18n'
 import { readIpcErrorDetail } from '@/lib/ipc-error'
 import { isClipboardTextTooLargeError } from '../../../../shared/clipboard-text'
@@ -18,9 +17,8 @@ export type NativeChatComposerNotice = NativeChatComposerNoticeContent & {
   action?: { label: string; onClick: () => void; disabled?: boolean }
   onDismiss?: () => void
 } & (
-    | { kind: 'error' | 'attachment' | 'device' }
+    | { kind: 'error' | 'attachment' | 'device' | 'worker' }
     | { kind: 'host'; tone: 'warning' | 'muted' }
-    | { kind: 'worker'; icon: LucideIcon }
   )
 
 /** Keep external errors apart from headline; localErrorIsOrcaWords identifies already-worded renderer errors. */
