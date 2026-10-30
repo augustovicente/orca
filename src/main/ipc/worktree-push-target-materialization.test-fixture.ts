@@ -47,13 +47,13 @@ vi.mock('node:fs/promises', async (original) => {
   return {
     ...actual,
     lstat: new Proxy(actual.lstat, {
-      apply(fn, receiver, args) {
+      apply(fn: (...args: any[]) => ReturnType<typeof actual.lstat>, receiver, args) {
         if (String(args[0]) === legacyReadFailure.file) {
           return Promise.reject(
             Object.assign(new Error('owning-provider read denied'), { code: 'EACCES' })
           )
         }
-        return Reflect.apply(fn, receiver, args)
+        return fn.apply(receiver, args)
       }
     })
   }

@@ -1,3 +1,7 @@
+type CapturedCall<Result> = (...args: any[]) => Result
+
+type ArrayVisitMethod = (callback: (...values: unknown[]) => unknown, thisArg?: unknown) => unknown
+
 export function countProofWork() {
   let work = 0,
     mapEntryVisits = 0
@@ -31,129 +35,123 @@ export function countProofWork() {
         ? value.ref.length
         : 1
   Map.prototype[Symbol.iterator] = new Proxy(entries, {
-    apply(fn, receiver, args) {
+    apply(fn: CapturedCall<ReturnType<typeof entries>>, receiver, args) {
       work += receiver.size
       mapEntryVisits += receiver.size
-      return Reflect.apply(fn, receiver, args)
+      return fn.apply(receiver, args)
     }
   })
   Map.prototype.values = new Proxy(values, {
-    apply(fn, receiver, args) {
+    apply(fn: CapturedCall<ReturnType<typeof values>>, receiver, args) {
       work += receiver.size
-      return Reflect.apply(fn, receiver, args)
+      return fn.apply(receiver, args)
     }
   })
   String.prototype[Symbol.iterator] = new Proxy(stringIterator, {
-    apply(fn, receiver, args) {
+    apply(fn: CapturedCall<ReturnType<typeof stringIterator>>, receiver, args) {
       work += String(receiver).length
-      return Reflect.apply(fn, receiver, args)
+      return fn.apply(receiver, args)
     }
   })
   String.prototype.startsWith = new Proxy(startsWith, {
-    apply(fn, receiver, args) {
+    apply(fn: CapturedCall<ReturnType<typeof startsWith>>, receiver, args) {
       work += String(args[0]).length
-      return Reflect.apply(fn, receiver, args)
+      return fn.apply(receiver, args)
     }
   })
   String.prototype.endsWith = new Proxy(endsWith, {
-    apply(fn, receiver, args) {
+    apply(fn: CapturedCall<ReturnType<typeof endsWith>>, receiver, args) {
       work += String(args[0]).length
-      return Reflect.apply(fn, receiver, args)
+      return fn.apply(receiver, args)
     }
   })
   String.prototype.slice = new Proxy(slice, {
-    apply(fn, receiver, args) {
-      const result = Reflect.apply(fn, receiver, args)
+    apply(fn: CapturedCall<ReturnType<typeof slice>>, receiver, args) {
+      const result = fn.apply(receiver, args)
       work += result.length
       return result
     }
   })
   Map.prototype.get = new Proxy(get, {
-    apply(fn, receiver, args) {
+    apply(fn: CapturedCall<ReturnType<typeof get>>, receiver, args) {
       work += width(args[0])
-      return Reflect.apply(fn, receiver, args)
+      return fn.apply(receiver, args)
     }
   })
   Map.prototype.set = new Proxy(set, {
-    apply(fn, receiver, args) {
+    apply(fn: CapturedCall<ReturnType<typeof set>>, receiver, args) {
       work += width(args[0])
-      return Reflect.apply(fn, receiver, args)
+      return fn.apply(receiver, args)
     }
   })
   Set.prototype.has = new Proxy(has, {
-    apply(fn, receiver, args) {
+    apply(fn: CapturedCall<ReturnType<typeof has>>, receiver, args) {
       work += width(args[0])
-      return Reflect.apply(fn, receiver, args)
+      return fn.apply(receiver, args)
     }
   })
   Set.prototype.add = new Proxy(add, {
-    apply(fn, receiver, args) {
+    apply(fn: CapturedCall<ReturnType<typeof add>>, receiver, args) {
       work += width(args[0])
-      return Reflect.apply(fn, receiver, args)
+      return fn.apply(receiver, args)
     }
   })
   Set.prototype[Symbol.iterator] = new Proxy(iterator, {
-    apply(fn, receiver, args) {
+    apply(fn: CapturedCall<ReturnType<typeof iterator>>, receiver, args) {
       work += receiver.size
-      return Reflect.apply(fn, receiver, args)
+      return fn.apply(receiver, args)
     }
   })
   Array.prototype.slice = new Proxy(arraySlice, {
-    apply(fn, receiver, args) {
-      const result = Reflect.apply(fn, receiver, args)
+    apply(fn: CapturedCall<ReturnType<typeof arraySlice>>, receiver, args) {
+      const result = fn.apply(receiver, args)
       work += result.length
       return result
     }
   })
   JSON.stringify = new Proxy(stringify, {
-    apply(fn, receiver, args) {
-      const result = Reflect.apply(fn, receiver, args)
+    apply(fn: CapturedCall<ReturnType<typeof stringify>>, receiver, args) {
+      const result = fn.apply(receiver, args)
       work += result?.length ?? 0
       return result
     }
   })
   Array.prototype.push = new Proxy(push, {
-    apply(fn, receiver, args) {
+    apply(fn: CapturedCall<ReturnType<typeof push>>, receiver, args) {
       work += args.length
-      return Reflect.apply(fn, receiver, args)
+      return fn.apply(receiver, args)
     }
   })
   Array.prototype[Symbol.iterator] = new Proxy(arrayIterator, {
-    apply(fn, receiver, args) {
+    apply(fn: CapturedCall<ReturnType<typeof arrayIterator>>, receiver, args) {
       work += receiver.length
-      return Reflect.apply(fn, receiver, args)
+      return fn.apply(receiver, args)
     }
   })
-  const counted = <T extends (...args: never[]) => unknown>(method: T): T =>
+  const counted = <T extends ArrayVisitMethod>(method: T): T =>
     new Proxy(method, {
-      apply(fn, receiver, args) {
-        const [callback, thisArg] = args
-        const result = Reflect.apply(fn, receiver, [
+      apply(fn: ArrayVisitMethod, receiver, args) {
+        const [rawCallback, thisArg] = args
+        const callback: Parameters<ArrayVisitMethod>[0] = rawCallback
+        const result = fn.call(
+          receiver,
           (...values: unknown[]) => {
             work += 1
-            return Reflect.apply(callback, thisArg, values)
+            return callback.apply(thisArg, values)
           },
           thisArg
-        ])
+        )
         work += Array.isArray(result) ? result.length : 0
         return result
       }
     })
   Array.prototype.sort = new Proxy(sort, {
-    apply(fn, receiver, args) {
-      const compare = args[0]
-      return Reflect.apply(fn, receiver, [
-        (a: unknown, b: unknown) => {
-          work += width(a) + width(b)
-          return compare
-            ? Reflect.apply(compare, undefined, [a, b])
-            : String(a) < String(b)
-              ? -1
-              : String(a) > String(b)
-                ? 1
-                : 0
-        }
-      ])
+    apply(fn: CapturedCall<ReturnType<typeof sort>>, receiver, args) {
+      const compare: Parameters<typeof sort>[0] = args[0]
+      return fn.call(receiver, (a: unknown, b: unknown) => {
+        work += width(a) + width(b)
+        return compare ? compare(a, b) : String(a) < String(b) ? -1 : String(a) > String(b) ? 1 : 0
+      })
     }
   })
   Array.prototype.map = counted(map)
@@ -163,9 +161,9 @@ export function countProofWork() {
   Array.prototype.every = counted(every)
   Array.prototype.find = counted(find)
   String.prototype.split = new Proxy(split, {
-    apply(fn, receiver, args) {
+    apply(fn: CapturedCall<ReturnType<typeof split>>, receiver, args) {
       work += String(receiver).length
-      return Reflect.apply(fn, receiver, args)
+      return fn.apply(receiver, args)
     }
   })
   return {

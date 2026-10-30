@@ -54,10 +54,10 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   ])
   const layoutStat = (method: typeof actual.stat | typeof actual.lstat) =>
     new Proxy(method, {
-      apply(fn, receiver, args) {
+      apply(fn: (...args: any[]) => ReturnType<typeof method>, receiver, args) {
         const file = normalize(args[0])
         if (!owningLayout.enabled || !file.startsWith('/workspace/')) {
-          return Reflect.apply(fn, receiver, args)
+          return fn.apply(receiver, args)
         }
         if (!directories.has(file) && !files.has(file)) {
           return Promise.reject(missing())
@@ -74,19 +74,19 @@ vi.mock('node:fs/promises', async (importOriginal) => {
     stat: layoutStat(actual.stat),
     lstat: layoutStat(actual.lstat),
     readFile: new Proxy(actual.readFile, {
-      apply(fn, receiver, args) {
+      apply(fn: (...args: any[]) => ReturnType<typeof actual.readFile>, receiver, args) {
         const file = normalize(args[0])
         if (!owningLayout.enabled || !file.startsWith('/workspace/')) {
-          return Reflect.apply(fn, receiver, args)
+          return fn.apply(receiver, args)
         }
         return files.has(file) ? Promise.resolve(files.get(file)) : Promise.reject(missing())
       }
     }),
     realpath: new Proxy(actual.realpath, {
-      apply(fn, receiver, args) {
+      apply(fn: (...args: any[]) => ReturnType<typeof actual.realpath>, receiver, args) {
         const file = normalize(args[0])
         if (!owningLayout.enabled || !file.startsWith('/workspace/')) {
-          return Reflect.apply(fn, receiver, args)
+          return fn.apply(receiver, args)
         }
         return directories.has(file) || files.has(file)
           ? Promise.resolve(file)
@@ -94,10 +94,10 @@ vi.mock('node:fs/promises', async (importOriginal) => {
       }
     }),
     readdir: new Proxy(actual.readdir, {
-      apply(fn, receiver, args) {
+      apply(fn: (...args: any[]) => ReturnType<typeof actual.readdir>, receiver, args) {
         const file = normalize(args[0])
         if (!owningLayout.enabled || !file.startsWith('/workspace/')) {
-          return Reflect.apply(fn, receiver, args)
+          return fn.apply(receiver, args)
         }
         return file === '/workspace/repo/.git/worktrees'
           ? Promise.resolve([
