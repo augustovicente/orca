@@ -22,6 +22,16 @@ const ESC = '\x1b'
 const CTRL_C = '\x03'
 const SHELL_CHARACTERS = ['/', '|', '~', '-', ':']
 const AGENT_CHARACTERS = ['/', '@', '!']
+const ARROW_IDS = ['arrowUp', 'arrowDown', 'arrowLeft', 'arrowRight']
+// Built-in keys each row already shows; the ⋯ sheet offers the rest.
+const SHELL_ROW_KEY_IDS: ReadonlySet<string> = new Set(['escape', 'tab', ...ARROW_IDS])
+const AGENT_ROW_KEY_IDS: ReadonlySet<string> = new Set([
+  'escape',
+  'shiftTab',
+  'enter',
+  'ctrlC',
+  ...ARROW_IDS
+])
 
 // The terminal's key row: a row under the input, or a column in the Duo's side rail. Every key goes straight to the terminal.
 export function MobileSessionAccessoryKeys({
@@ -293,6 +303,7 @@ export function MobileSessionAccessoryKeys({
         canPaste={canPaste}
         isAttaching={isAttaching}
         phoneDisplay={isTerminalPhoneDisplayMode(activeHandle, terminalModes)}
+        rowKeyIds={runsAgent ? AGENT_ROW_KEY_IDS : SHELL_ROW_KEY_IDS}
         builtInKeys={visibleBuiltInAccessoryKeys}
         customKeys={customKeys}
         onPaste={() => void handlePaste()}

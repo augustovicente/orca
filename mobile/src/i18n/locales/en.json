@@ -1209,7 +1209,7 @@
       "addShortcut": "Add Custom Shortcut…",
       "addDescription": "Create key combo or text macro",
       "moreKeys": "MORE KEYS",
-      "moreKeysDescription": "These keys sit under ⋯ on the terminal key row. Toggle keys to show or hide them, and hold the grip to drag a key into the order you want. Esc, Tab, Enter and the arrows are always on the key row itself."
+      "moreKeysDescription": "These keys sit under ⋯ on the terminal key row. Toggle keys to show or hide them, and hold the grip to drag a key into the order you want. A key already on the row, like Esc or the arrows, is left out of ⋯."
     },
     "voiceModelList": {
       "modelSize": "{{size}} MB",

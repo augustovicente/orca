@@ -80,6 +80,8 @@ export function TerminalArrowPad({
 
   return (
     <View
+      // The chevrons must not become the touch target, or locationX/Y would be measured from them.
+      pointerEvents="box-only"
       style={[styles.arrowPad, dragging && styles.arrowPadDragging, disabled && styles.disabled]}
       onLayout={(event: LayoutChangeEvent) => {
         sizeRef.current = event.nativeEvent.layout

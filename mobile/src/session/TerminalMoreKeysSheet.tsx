@@ -12,17 +12,6 @@ import { useMobileColorScheme } from '../theme/use-mobile-color-scheme'
 import { useMobileTranslation } from '../i18n/use-mobile-translation'
 import { terminalDockStyles as styles } from './terminal-dock-styles'
 
-// The key row already has these.
-const KEY_ROW_IDS = new Set([
-  'escape',
-  'tab',
-  'shiftTab',
-  'enter',
-  'arrowUp',
-  'arrowDown',
-  'arrowLeft',
-  'arrowRight'
-])
 const EXTRA_KEY_IDS = new Set([
   'home',
   'end',
@@ -45,6 +34,8 @@ const EXTRA_KEY_IDS = new Set([
 const EXTRA_KEYS = TERMINAL_SHORTCUT_SPECIAL_KEYS.filter((key) => EXTRA_KEY_IDS.has(key.id))
 
 type TerminalMoreKeysSheetProps = {
+  /** Keys the current row already shows, which the sheet leaves out. */
+  readonly rowKeyIds: ReadonlySet<string>
   readonly visible: boolean
   readonly onClose: () => void
   readonly canSend: boolean
@@ -72,6 +63,7 @@ export function TerminalMoreKeysSheet({
   canPaste,
   isAttaching,
   phoneDisplay,
+  rowKeyIds,
   builtInKeys,
   customKeys,
   onPaste,
@@ -92,7 +84,7 @@ export function TerminalMoreKeysSheet({
     afterCloseRef.current = action
     onClose()
   }
-  const sheetKeys = builtInKeys.filter((key) => !KEY_ROW_IDS.has(key.id))
+  const sheetKeys = builtInKeys.filter((key) => !rowKeyIds.has(key.id))
   const combos = sheetKeys.filter((key) => key.id.startsWith('ctrl'))
   const keys = sheetKeys.filter((key) => !key.id.startsWith('ctrl'))
 
