@@ -14,8 +14,20 @@ import {
   unrefJournalProjectionTimer
 } from './journal-saved-state'
 
+// Each failed publication or savepoint quadruples the wait, so a full disk never rewrites a whole
+// chat on a short fixed timer; a healthy incremental write or a reopen resets it.
+const REPAIR_DELAY_MS = 1_000
+const MAX_REPAIR_DELAY_MS = 60 * 60_000
+// A full restore per check: development samples each chat so long streams stay responsive.
+const DEVELOPMENT_VERIFY_INTERVAL_MS = 60_000
+
 export class JournalWriteProjection {
+  /** Projection tests check the equality invariant after every commit and throw on divergence. */
+  static verifyEachCommit = false
+
   private through = 0
+  private failures = 0
+  private verifiedAt = Number.NEGATIVE_INFINITY
   private timer: ReturnType<typeof setTimeout> | null = null
   private closed = false
 
@@ -30,6 +42,8 @@ export class JournalWriteProjection {
 
   opened(through: number): void {
     this.through = through
+    this.failures = 0
+    this.clearTimer()
     this.schedule()
   }
 
@@ -37,40 +51,93 @@ export class JournalWriteProjection {
   prepare(db: Database.Database, rows: readonly JournalRow[], savedAt: number): () => void {
     const live = this.deps.state()
     const transition = isolateJournalTransition(live, rows, savedAt)
-    const projected =
-      this.through === live.lastSequence && this.through > 0 ? this.write(db, transition) : false
+    const attempted = this.through === live.lastSequence && this.through > 0
+    const projected = attempted && this.write(db, transition)
     return () => {
       this.deps.adopt(transition.adopt())
-      if (projected) this.through = this.deps.state().lastSequence
-      this.schedule()
-      if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test') {
-        this.assertEquivalent()
+      if (projected) {
+        this.through = this.deps.state().lastSequence
+        this.failures = 0
+      } else if (attempted) {
+        this.failures += 1
       }
+      this.schedule()
     }
   }
 
-  repair = (): Promise<void> =>
-    this.deps.queue
+  repair = (): Promise<void> => {
+    // A closing chat's next open repairs it.
+    if (this.closed) {
+      return Promise.resolve()
+    }
+    return this.deps.queue
       .serialize(() => {
         const state = this.deps.state()
-        if (this.through === state.lastSequence) return
+        if (this.through === state.lastSequence) {
+          return
+        }
         // Capture on this lane, after admitted recovery writes; publication rechecks the epoch.
-        if (saveJournalState(this.deps.database, state, true)) this.through = state.lastSequence
-        this.schedule(60_000)
+        if (saveJournalState(this.deps.database, state, true)) {
+          this.through = state.lastSequence
+        } else {
+          this.failures += 1
+        }
+        this.schedule()
       })
       .catch((error) => {
+        this.failures += 1
         logJournalProjectionFailure(this.deps.state().sessionId, error)
-        this.schedule(60_000)
+        this.schedule()
       })
+  }
+
+  /** Runs after commit notification, never in the adopt path. */
+  verify(): void {
+    const strict = JournalWriteProjection.verifyEachCommit
+    if (!strict) {
+      const now = performance.now()
+      if (
+        process.env.NODE_ENV !== 'development' ||
+        now - this.verifiedAt < DEVELOPMENT_VERIFY_INTERVAL_MS
+      ) {
+        return
+      }
+      this.verifiedAt = now
+    }
+    const live = this.deps.state()
+    const loaded = restoreJournal(this.deps.database.db, live.sessionId)
+    if (
+      loaded?.projectionThrough === this.through &&
+      !loaded.damage &&
+      !loaded.newer &&
+      isDeepStrictEqual(encodeJournalState(loaded.state), encodeJournalState(live))
+    ) {
+      return
+    }
+    const error = new Error('journal projection and contiguous tail differ from live state')
+    if (strict) {
+      throw error
+    }
+    logJournalProjectionFailure(live.sessionId, error)
+  }
 
   close(): void {
     this.closed = true
-    if (this.timer) clearTimeout(this.timer)
+    this.clearTimer()
+  }
+
+  private clearTimer(): void {
+    if (this.timer) {
+      clearTimeout(this.timer)
+    }
     this.timer = null
   }
 
-  private schedule(delay = 1_000): void {
-    if (this.closed || this.timer || this.through === this.deps.state().lastSequence) return
+  private schedule(): void {
+    if (this.closed || this.timer || this.through === this.deps.state().lastSequence) {
+      return
+    }
+    const delay = Math.min(REPAIR_DELAY_MS * 4 ** this.failures, MAX_REPAIR_DELAY_MS)
     this.timer = setTimeout(() => {
       this.timer = null
       void this.repair()
@@ -87,27 +154,18 @@ export class JournalWriteProjection {
       writeJournalProjection(db, transition.state, transition.changes())
     } catch (error) {
       // Only statement-local failures can preserve the append. An aborted outer transaction cannot.
-      if (!db.isTransaction) throw error
+      if (!db.isTransaction) {
+        throw error
+      }
       db.exec('ROLLBACK TO journal_projection')
       db.exec('RELEASE journal_projection')
-      if (!db.isTransaction) throw error
+      if (!db.isTransaction) {
+        throw error
+      }
       logJournalProjectionFailure(transition.state.sessionId, error)
       return false
     }
     db.exec('RELEASE journal_projection')
     return true
-  }
-
-  private assertEquivalent(): void {
-    const live = this.deps.state()
-    const loaded = restoreJournal(this.deps.database.db, live.sessionId)
-    if (
-      !loaded ||
-      loaded.damage ||
-      loaded.newer ||
-      !isDeepStrictEqual(encodeJournalState(loaded.state), encodeJournalState(live))
-    ) {
-      throw new Error('journal projection and contiguous tail differ from live state')
-    }
   }
 }

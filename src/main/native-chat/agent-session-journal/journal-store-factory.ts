@@ -5,6 +5,12 @@ export async function openAgentSessionJournal(
   options: AgentSessionJournalOptions
 ): Promise<AgentSessionJournal> {
   const journal = new AgentSessionJournal(options)
-  await journal.open()
+  try {
+    await journal.open()
+  } catch (error) {
+    // Nobody receives a handle whose open failed; stop its repair timer and drain its writes.
+    await journal.close()
+    throw error
+  }
   return journal
 }

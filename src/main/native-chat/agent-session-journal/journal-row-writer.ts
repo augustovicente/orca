@@ -48,7 +48,7 @@ export type JournalRowWriterDeps = {
   highestFence: () => number
   nextSequence: () => number
   prepare?: (db: Database.Database, rows: readonly JournalRow[], savedAt: number) => () => void
-  commit: (rows: readonly JournalRow[], savedAt: number, streamed?: boolean) => void
+  commit: (rows: readonly JournalRow[], savedAt: number) => void
   /** Streamed-text-only revisions may skip per-commit fsync; settlement makes them durable. */
   streamedTextRevision?: (row: JournalRow) => boolean
 }
@@ -75,7 +75,7 @@ export class JournalRowWriter {
       }, streamed)
       adopt?.()
       receipt?.committed()
-      this.deps.commit([row], savedAt, streamed)
+      this.deps.commit([row], savedAt)
       return row
     })
   }
@@ -117,7 +117,7 @@ export class JournalRowWriter {
     }, streamed)
     adopt?.()
     receipt?.committed()
-    this.deps.commit(rows, ts, streamed)
+    this.deps.commit(rows, ts)
     return rows
   }
 

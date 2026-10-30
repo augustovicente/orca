@@ -38,7 +38,7 @@ export type JournalStoreHost = {
   cursor: () => AgentJournalCursor
   adopt: (loaded: JournalLoad) => void
   prepare: NonNullable<ConstructorParameters<typeof JournalRowWriter>[0]['prepare']>
-  commit: (rows: readonly JournalRow[], savedAt: number, streamed?: boolean) => void
+  commit: (rows: readonly JournalRow[], savedAt: number) => void
   journal: () => AgentSessionJournal
   enqueue: JournalRowWriter['enqueue']
 }

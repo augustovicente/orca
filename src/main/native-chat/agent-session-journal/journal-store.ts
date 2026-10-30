@@ -119,7 +119,10 @@ export class AgentSessionJournal {
         this.onCommitted?.()
       },
       prepare: (db, rows, savedAt) => this.projection.prepare(db, rows, savedAt),
-      commit: (rows) => this.onCommitted?.(rows),
+      commit: (rows) => {
+        this.onCommitted?.(rows)
+        this.projection.verify()
+      },
       notifyCommitted: () => this.onCommitted?.([]),
       journal: () => this,
       enqueue: (build, receipt) => this.rowWriter.enqueue(build, receipt)
@@ -156,10 +159,10 @@ export class AgentSessionJournal {
     return this.reopenUnmarked
   }
 
+  /** A legacy or lagging chat publishes its saved state on the write lane after it opens. */
   async open(): Promise<void> {
     await this.restore()
     this.openedThrough = this.cursor()
-    await this.projection.repair()
   }
 
   /** Refuse future writes and drain admitted ones; the host retains database ownership. */
