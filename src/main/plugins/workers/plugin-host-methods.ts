@@ -120,6 +120,7 @@ function summarizeParams(method: string, params: unknown): string {
       const title = typeof record.title === 'string' ? record.title : ''
       return `titleChars=${title.length}`
     }
+    case 'storage.compareAndSet':
     case 'storage.set':
     case 'storage.delete':
     case 'secrets.set':

@@ -10,6 +10,11 @@ import {
 } from './agent-browser-bridge-types'
 import type { BrowserBackResult, BrowserReloadResult } from '../../shared/runtime-types'
 import { AgentBrowserBridgeMouseCommands } from './agent-browser-bridge-mouse-commands'
+import {
+  answerBrowserJavaScriptDialog,
+  getBrowserJavaScriptDialog
+} from './browser-javascript-dialogs'
+import { captureRemoteCliBrowserRevocation } from '../runtime/desktop-browser-bridge/remote-cli-browser-scope'
 
 export abstract class AgentBrowserBridgeUtilityCommands extends AgentBrowserBridgeMouseCommands {
   async clipboardRead(worktreeId?: string, browserPageId?: string): Promise<unknown> {
@@ -31,20 +36,30 @@ export abstract class AgentBrowserBridgeUtilityCommands extends AgentBrowserBrid
     })
   }
 
-  async dialogAccept(text?: string, worktreeId?: string, browserPageId?: string): Promise<unknown> {
-    return this.enqueueTargetedCommand(worktreeId, browserPageId, async (sessionName) => {
-      const args = ['dialog', 'accept']
-      if (text) {
-        args.push(text)
-      }
-      return await this.execAgentBrowser(sessionName, args)
-    })
+  async dialogAccept(text?: string, worktreeId?: string, browserPageId?: string): Promise<void> {
+    this.answerDialog(true, text, worktreeId, browserPageId)
   }
 
-  async dialogDismiss(worktreeId?: string, browserPageId?: string): Promise<unknown> {
-    return this.enqueueTargetedCommand(worktreeId, browserPageId, async (sessionName) => {
-      return await this.execAgentBrowser(sessionName, ['dialog', 'dismiss'])
-    })
+  async dialogDismiss(worktreeId?: string, browserPageId?: string): Promise<void> {
+    this.answerDialog(false, undefined, worktreeId, browserPageId)
+  }
+
+  // Not queued: the page's queued commands wait on this answer.
+  private answerDialog(
+    accept: boolean,
+    text: string | undefined,
+    worktreeId: string | undefined,
+    browserPageId: string | undefined
+  ): void {
+    this.assertCommandAdmission()
+    const assertNotRevoked = captureRemoteCliBrowserRevocation()
+    const { webContentsId } = this.resolveCommandTarget(worktreeId, browserPageId)
+    assertNotRevoked(webContentsId)
+    // Chrome answers an untouched prompt with its default text.
+    const promptText = text ?? getBrowserJavaScriptDialog(webContentsId)?.defaultPromptText ?? ''
+    if (!answerBrowserJavaScriptDialog(webContentsId, { accept, promptText })) {
+      throw new BrowserError('browser_no_dialog', 'No JavaScript dialog is open on this page')
+    }
   }
 
   async storageLocalGet(

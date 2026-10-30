@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util'
 import type { z } from 'zod'
 import {
   isPluginHostMethodName,
@@ -142,6 +143,16 @@ const HANDLERS: Record<PluginHostMethodName, BoundPluginHostMethod> = {
   'storage.get': bind(api['storage.get'], async ({ key }, { pluginId, services }) => ({
     value: services.storage.get(pluginId, key) ?? null
   })),
+  'storage.compareAndSet': bind(
+    api['storage.compareAndSet'],
+    async ({ key, expected, value }, { pluginId, services }) => {
+      if (!isDeepStrictEqual(services.storage.get(pluginId, key) ?? null, expected)) {
+        return { swapped: false }
+      }
+      okOrThrow(services.storage.set(pluginId, key, value))
+      return { swapped: true }
+    }
+  ),
   'storage.set': bind(api['storage.set'], async ({ key, value }, { pluginId, services }) =>
     okOrThrow(services.storage.set(pluginId, key, value))
   ),
