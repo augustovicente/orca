@@ -263,7 +263,11 @@ describe('profile state Store authority factory', () => {
 
       const saved = JSON.parse(restarted.store.prepareProfileStateExport().json)
       expect(saved).toMatchObject({ chatUiLaunchTipAudience: { version: 1, membership, basis } })
-      expect(saved.settings).not.toHaveProperty('experimentalNativeChat')
+      expect(saved.settings).toHaveProperty(
+        'experimentalNativeChat',
+        settings.experimentalNativeChat
+      )
+      expect(restarted.store.getSettings()).not.toHaveProperty('experimentalNativeChat')
     }
   )
 

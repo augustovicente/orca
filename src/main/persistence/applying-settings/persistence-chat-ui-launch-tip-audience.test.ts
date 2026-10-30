@@ -1,3 +1,5 @@
+import { Store } from '../loading-store/store'
+import { prepareLegacyProfileState } from '../profile-state/legacy-json/profile-state-legacy-import'
 import { LoadedCohortMigrationOperations } from '../loading-store/loaded-cohort-migrations'
 import { getDefaultPersistedState } from '../../../shared/constants'
 import { ProfileStateSqliteAuthority } from '../profile-state/profile-state-sqlite-authority'
@@ -54,9 +56,18 @@ describe('Chat UI launch tip audience', () => {
     store.flush()
     const record = { version: 1, membership, basis }
     expect(readDataFile()).toHaveProperty('chatUiLaunchTipAudience', record)
-    expect(readDataFile()).not.toHaveProperty('settings.experimentalNativeChat')
+    expect(Object.hasOwn(readDataFile().settings, 'experimentalNativeChat')).toBe(
+      Object.hasOwn(settings, 'experimentalNativeChat')
+    )
+    if (Object.hasOwn(settings, 'experimentalNativeChat')) {
+      expect(readDataFile().settings).toHaveProperty(
+        'experimentalNativeChat',
+        Reflect.get(settings, 'experimentalNativeChat')
+      )
+    }
+    expect(store.getSettings()).not.toHaveProperty('experimentalNativeChat')
 
-    // The switch is gone from the saved profile, so later loads must keep the record, not rederive it.
+    // The audience, rather than retained old data, owns completion on desktop.
     const reopened = await reopen()
     reopened.flush()
     expect(readDataFile()).toHaveProperty('chatUiLaunchTipAudience', record)
@@ -277,4 +288,84 @@ it('normalizes invalid defaults on load and main updates without changing overri
   const settings = (await reopen()).getSettings()
   expect(settings.agentDefaultSurface).toBe('terminal')
   expect(settings.nativeChatProviders).toEqual({ 'saved-agent': true })
+})
+
+it.each([
+  {},
+  { experimentalNativeChat: true },
+  { experimentalNativeChat: false },
+  { experimentalNativeChat: null },
+  { experimentalNativeChat: { future: ['raw', 1] } }
+])(
+  'retains only original raw data through Store saves, live updates and reopen: %o',
+  async (original) => {
+    writeDataFile({ settings: original })
+    const store = createStore()
+    const listener = vi.fn()
+    store.onSettingsChanged(listener)
+    const check = (saved: object) => {
+      expect(Object.hasOwn(saved, 'experimentalNativeChat')).toBe(
+        Object.hasOwn(original, 'experimentalNativeChat')
+      )
+      if (Object.hasOwn(original, 'experimentalNativeChat')) {
+        expect(Reflect.get(saved, 'experimentalNativeChat')).toEqual(
+          Reflect.get(original, 'experimentalNativeChat')
+        )
+      }
+    }
+    store.flush()
+    check(readDataFile().settings)
+    const updates = {
+      agentDefaultSurface: 'terminal' as const,
+      nativeChatProviders: { 'registered-agent': true },
+      experimentalNativeChat: 'ignored-input'
+    }
+    expect(store.updateSettings(updates, { notifyListeners: true })).not.toHaveProperty(
+      'experimentalNativeChat'
+    )
+    store.flush()
+    check(readDataFile().settings)
+    const exported = JSON.parse(store.prepareProfileStateExport().json)
+    check(exported.settings)
+    for (const [delta, live] of listener.mock.calls) {
+      expect(delta).not.toHaveProperty('experimentalNativeChat')
+      expect(live).not.toHaveProperty('experimentalNativeChat')
+    }
+    expect(listener).toHaveBeenCalledOnce()
+    const reopened = await reopen()
+    expect(reopened.getSettings()).toMatchObject({
+      agentDefaultSurface: 'terminal',
+      nativeChatProviders: { 'registered-agent': true }
+    })
+    expect(reopened.getSettings()).not.toHaveProperty('experimentalNativeChat')
+    check(JSON.parse(reopened.prepareProfileStateExport().json).settings)
+  }
+)
+
+it('keeps frozen imported originals separate for each Store and prepared export', () => {
+  const first = prepareLegacyProfileState(
+    dataFile(),
+    JSON.stringify({ settings: { experimentalNativeChat: { original: false } } })
+  )
+  const second = new Store({
+    dataFile: dataFile(),
+    serializedState: JSON.stringify({ settings: {} })
+  })
+  const third = new Store({
+    dataFile: dataFile(),
+    serializedState: JSON.stringify({ settings: { experimentalNativeChat: null } })
+  })
+  const input = { theme: 'dark' as const, experimentalNativeChat: true }
+  second.updateSettings(input)
+  expect(second.getSettings()).not.toHaveProperty('experimentalNativeChat')
+  expect(JSON.parse(second.prepareProfileStateExport().json).settings).not.toHaveProperty(
+    'experimentalNativeChat'
+  )
+  expect(JSON.parse(third.prepareProfileStateExport().json).settings).toHaveProperty(
+    'experimentalNativeChat',
+    null
+  )
+  expect(JSON.parse(first.prepared.json).settings).toHaveProperty('experimentalNativeChat', {
+    original: false
+  })
 })

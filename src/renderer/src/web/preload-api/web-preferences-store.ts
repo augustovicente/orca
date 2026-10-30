@@ -18,6 +18,8 @@ import {
   stripRetiredWebChatSettings,
   mergeWebUIState,
   migrateStoredWebSettings,
+  needsChatUiChoiceCarry,
+  retainOriginalWebChatSetting,
   runtimeChatPermissionSetting
 } from './web-preference-normalization'
 import { callRuntimeResult } from './web-runtime-calls'
@@ -47,13 +49,13 @@ export function getStoredSettings(): GlobalSettings {
         migratedStored.terminalAllowOsc52ClipboardDefaultedOnForAllUsers ||
       stored.terminalCustomThemes !== migratedStored.terminalCustomThemes ||
       stored.uiLanguage !== migratedStored.uiLanguage ||
-      Object.hasOwn(stored, 'experimentalNativeChat') ||
+      needsChatUiChoiceCarry(stored) ||
       stored.uiLanguagePortugueseMigrationApplied !== true)
   ) {
     try {
       const parsed = JSON.parse(rawStoredSettings) as unknown
       if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        writeJson(SETTINGS_STORAGE_KEY, migratedStored)
+        writeJson(SETTINGS_STORAGE_KEY, retainOriginalWebChatSetting(migratedStored, stored))
         if (osc52ClipboardDefaultOnOverridesPersistedOff(stored)) {
           // readLocalWebUIState calls getStoredSettings; raw merge avoids recursive migration writes.
           writeJson(UI_STORAGE_KEY, {
@@ -83,11 +85,11 @@ export function writeStoredSettings(
   settings: GlobalSettings,
   explicitActiveRuntimeEnvironmentId?: string | null
 ): void {
-  const durable = { ...settings }
+  const stored = readJson<Partial<GlobalSettings>>(SETTINGS_STORAGE_KEY, {})
+  const durable = retainOriginalWebChatSetting(settings, stored)
   if (explicitActiveRuntimeEnvironmentId !== undefined) {
     durable.activeRuntimeEnvironmentId = explicitActiveRuntimeEnvironmentId
   } else {
-    const stored = readJson<Partial<GlobalSettings>>(SETTINGS_STORAGE_KEY, {})
     if (Object.hasOwn(stored, 'activeRuntimeEnvironmentId')) {
       durable.activeRuntimeEnvironmentId = stored.activeRuntimeEnvironmentId ?? null
     } else {
