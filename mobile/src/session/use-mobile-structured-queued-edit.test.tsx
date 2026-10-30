@@ -34,7 +34,8 @@ import {
   editHoldReply,
   mobileQueuedEditHarness,
   withText,
-  readOrHoldReply
+  readOrHoldReply,
+  registerQueuedCanonicalInputTest
 } from './mobile-queued-edit-hook.test-fixture'
 import { insertDictationText } from '../dictation/mobile-dictation-text-insertion'
 
@@ -42,6 +43,8 @@ import { insertDictationText } from '../dictation/mobile-dictation-text-insertio
 const spoken = (text: string) => (draft: string) => insertDictationText(draft, text, null).text
 
 describe('mobile in-place queued Edit', () => {
+  const rig = mobileQueuedEditHarness()
+  registerQueuedCanonicalInputTest(rig)
   const {
     state,
     Harness,
@@ -53,7 +56,7 @@ describe('mobile in-place queued Edit', () => {
     notice,
     resolved,
     requestedFingerprint
-  } = mobileQueuedEditHarness()
+  } = rig
   it('waits for the capability probe before offering the legacy fallback', async () => {
     await mount(queuedDraft({ messageId: 'draft-1' }), null)
     expect(state.hook!.queued.edit).toBeUndefined()

@@ -2,7 +2,7 @@
 
 import type { AgentJournalDispatchRejection } from '../../../shared/agent-session-failure-words'
 import { randomUUID } from 'node:crypto'
-import { journalInputPresentationMember, visitJournalInputItems } from './journal-input-obligations'
+import * as journalInput from './journal-input-obligations'
 import { createJournalPublicReader } from './journal-public-read'
 import type {
   AgentJournalAcceptanceReceipt,
@@ -204,14 +204,16 @@ export class AgentSessionJournal {
 
   /** One reduced item with its attribution, for a writer that needs the turn a row joined. */
   item = (itemId: string): AgentJournalRenderItem | null =>
-    journalInputPresentationMember(this.state, itemId)
-      ? (this.state.items.get(itemId) ?? null)
-      : null
+    journalInput.readJournalInputItem(this.state, itemId)
 
   /** Visits reduced items with the producer that wrote each, for a producer re-deriving what an
    *  earlier run of this session left. */
   visitItemsWithLinkage = (visit: JournalItemLinkageVisitor): void =>
-    visitJournalInputItems(this.state, visit)
+    journalInput.visitJournalInputItems(this.state, visit)
+
+  /** Remember publication even after a rewind removes the row. */
+  hasRecordedItem = (itemId: string): boolean =>
+    this.state.items.has(itemId) || this.state.tombstones.has(itemId)
 
   /** Read the journal's running turn without allocating a snapshot; host projection decides current work. */
   runningTurn = (): { item: AgentJournalRenderItem; turnId: string } | null =>
@@ -260,8 +262,7 @@ export class AgentSessionJournal {
   })
 
   presentationRemoved = (itemId: string): boolean =>
-    this.state.tombstones.has(this.state.aliases.get(itemId) ?? itemId) ||
-    !journalInputPresentationMember(this.state, this.state.aliases.get(itemId) ?? itemId)
+    journalInput.journalInputPresentationRemoved(this.state, itemId)
 
   canonicalItemId = (itemId: string): string => resolveJournalItemId(this.state, itemId)
 

@@ -3,7 +3,6 @@ import { createElement } from 'react'
 import { act, create, type ReactTestRenderer } from 'react-test-renderer'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { StructuredAgentId } from '../../../src/shared/agent-session-provider-handle'
-import type { MobileNativeChatSendOutcome } from './native-chat/mobile-native-chat-send'
 import type { MobileNativeChatSendOrigin } from './native-chat/mobile-native-chat-pending-echo'
 import { useMobileStructuredNativeChatSendBridge } from './use-mobile-structured-native-chat-send-bridge'
 import {
@@ -25,7 +24,7 @@ const ORIGIN: MobileNativeChatSendOrigin = {
 
 describe('useMobileStructuredNativeChatSendBridge', () => {
   let renderer: ReactTestRenderer | null = null
-  let sendWithOutcome: (text: string) => Promise<MobileNativeChatSendOutcome>
+  let sendWithOutcome: ReturnType<typeof useMobileStructuredNativeChatSendBridge>['sendWithOutcome']
   const captureSendOrigin = vi.fn(() => ORIGIN)
   const clearDraftForSend = vi.fn()
   const onSendError = vi.fn()
@@ -129,4 +128,27 @@ describe('useMobileStructuredNativeChatSendBridge', () => {
 
     expect(restoreRejectedDraft).toHaveBeenCalledWith(ORIGIN, 'hello')
   })
+  it.each(['accepted', 'unknown', 'rejected'] as const)(
+    'carries typed provider commands and attachments through %s',
+    async (outcome) => {
+      sendStructured.mockResolvedValue(outcome)
+      mount('codex')
+      for (const text of ['/fast', '/permissions']) {
+        restoreRejectedDraft.mockClear()
+        await expect(sendWithOutcome(text, ['/shot.png'])).resolves.toBe(outcome)
+        expect(sendStructured).toHaveBeenLastCalledWith(
+          text,
+          ['/shot.png'],
+          undefined,
+          undefined,
+          []
+        )
+        if (outcome === 'rejected') {
+          expect(restoreRejectedDraft).toHaveBeenLastCalledWith(ORIGIN, text)
+        } else {
+          expect(restoreRejectedDraft).not.toHaveBeenCalled()
+        }
+      }
+    }
+  )
 })

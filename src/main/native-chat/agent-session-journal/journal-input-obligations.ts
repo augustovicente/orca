@@ -3,6 +3,7 @@ import {
   parseAgentJournalItemKey
 } from '../../../shared/agent-session-journal-item-key'
 import type {
+  AgentJournalRenderItem,
   AgentJournalSubmission,
   AgentJournalStatusItem
 } from '../../../shared/agent-session-journal-types'
@@ -269,4 +270,21 @@ export function visitJournalInputItems(
       visit(item.itemId, item.sequence, item.body, item)
     }
   }
+}
+
+export function readJournalInputItem(
+  state: JournalReducerState,
+  itemId: string
+): AgentJournalRenderItem | null {
+  return journalInputPresentationMember(state, itemId) ? (state.items.get(itemId) ?? null) : null
+}
+
+export function journalInputPresentationRemoved(
+  state: JournalReducerState,
+  itemId: string
+): boolean {
+  return (
+    state.tombstones.has(state.aliases.get(itemId) ?? itemId) ||
+    !journalInputPresentationMember(state, state.aliases.get(itemId) ?? itemId)
+  )
 }

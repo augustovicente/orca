@@ -1,4 +1,5 @@
 import { structuredAgentSessionSettledSends } from '../../../shared/structured-agent-session-send-settlement'
+import { AGENT_SESSION_SEND_SELECTION_RUNTIME_CAPABILITY } from '../../../shared/agent-session-create-capabilities'
 import type {
   AgentSessionAttachResult,
   AgentSessionMutationResult
@@ -13,6 +14,7 @@ import { readAgentSessionErrorRefusal } from '../../../shared/agent-session-writ
 import {
   callStructuredAgentSession,
   supportsStructuredAgentSessionCreateOptionsMode,
+  structuredAgentSessionHostSupports,
   supportsStructuredAgentSessionCreateMessage
 } from '@/runtime/structured-agent-session-client'
 import type { StructuredAgentSessionCreateParams } from '../../../shared/structured-agent-session-create'
@@ -126,6 +128,10 @@ export async function launchStructuredAgentSession(
         supported &&
         intent.explicitLaunchOptions !== undefined &&
         (await supportsStructuredAgentSessionCreateOptionsMode(intent.target))
+      intent.sendSelectionSupport = await structuredAgentSessionHostSupports(
+        intent.target,
+        AGENT_SESSION_SEND_SELECTION_RUNTIME_CAPABILITY
+      )
     } catch {
       // Unknown capability stays on the compatible create path.
     }

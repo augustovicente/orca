@@ -477,7 +477,7 @@ describe('Claude chat catch-up', () => {
     expect(c.warn).not.toHaveBeenCalled()
   })
 
-  // P saved aliases plus P unacknowledged queued prompts: P×J scope work and one J-item index.
+  // P saved aliases plus P unacknowledged queued prompts: two J-item indexes, not P×J scans.
   it.each([10, 100].flatMap((prompts) => [1_000, 10_000].map((items) => ({ prompts, items }))))(
     'bounds retained-leaf work for $prompts aliases and local misses over $items journal items',
     async ({ prompts, items }) => {
@@ -570,9 +570,8 @@ describe('Claude chat catch-up', () => {
       expect(c.journal.canonicalItemId(alias)).toBe(canonical)
       expect(committed).not.toHaveBeenCalled()
       expect(c.warn).not.toHaveBeenCalled()
-      expect(associationVisits).toBeGreaterThan(prompts * itemCount)
-      expect(associationVisits).toBeLessThanOrEqual((prompts + 1) * itemCount)
-      // Linked visits include the association visitor; bound the additional view passes.
+      expect(associationVisits).toBeLessThanOrEqual(2 * itemCount)
+      // The linked visitor also counts the association passes; bound the extra view work.
       expect(viewVisits - associationVisits).toBeLessThanOrEqual(2 * itemCount)
       console.info('retained-leaf operation counts', {
         prompts,

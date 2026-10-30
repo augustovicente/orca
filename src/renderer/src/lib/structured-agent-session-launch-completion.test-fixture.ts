@@ -30,7 +30,7 @@ import {
   submission,
   created,
   draft
-} from './structured-agent-session-launch-create-message.test-harness'
+} from './structured-agent-session-launch-create-message.test-fixture'
 
 export function registerCreateCompletionTests(): void {
   it.each(['reply', 'journal'] as const)(

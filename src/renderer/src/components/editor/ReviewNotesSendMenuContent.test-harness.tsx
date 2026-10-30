@@ -43,6 +43,9 @@ vi.mock('react', async () => {
     useMemo<T>(factory: () => T): T {
       return factory()
     },
+    useSyncExternalStore<T>(_subscribe: unknown, getSnapshot: () => T): T {
+      return getSnapshot()
+    },
     useEffect(effect: () => void | (() => void)): void {
       const cleanup = effect()
       if (typeof cleanup === 'function') {
@@ -197,21 +200,23 @@ function agentRow({
   paneKey,
   tabId,
   title,
-  agentType,
+  agentType = 'claude',
   state = 'done',
-  startedAt = harness.now
+  startedAt = harness.now,
+  prompt = ''
 }: {
   paneKey: string
   tabId: string
   title: string
-  agentType: TuiAgent
+  agentType?: TuiAgent
+  prompt?: string
   state?: AgentStatusState | 'idle'
   startedAt?: number
 }): DashboardAgentRowData {
   const entryState: AgentStatusState = state === 'idle' ? 'working' : state
   return {
     paneKey,
-    entry: agentEntry(paneKey, agentType, entryState, startedAt),
+    entry: { ...agentEntry(paneKey, agentType, entryState, startedAt), prompt },
     tab: tab(tabId, { title }) as DashboardAgentRowData['tab'],
     agentType,
     state,

@@ -55,7 +55,8 @@ export function useMobileNativeChatSessionLane({
     client,
     hostId,
     sessionId: structured ? sessionId : null,
-    enabled: connState === 'connected'
+    commandsOnRequest: hostSupport?.commandsOnRequest === true,
+    enabled: enabled && connState === 'connected'
   })
   const bridgeSession = useMobileNativeChatSession({
     client,
@@ -77,6 +78,7 @@ export function useMobileNativeChatSessionLane({
     connected: connState === 'connected',
     agent: structured ? agent : null,
     sessionCommands: sessionCommands.commands,
+    onCommandsChanged: sessionCommands.invalidate,
     onSendError,
     onQueuedEditNotice,
     ...(onActionResolved ? { onActionResolved } : {})

@@ -2,11 +2,9 @@ import type { AgentSessionSubscribeInput } from './agent-session-subscribe-input
 export type { AgentSessionSubscribeInput } from './agent-session-subscribe-input'
 import type { CurrentRequestsSubscriber } from './agent-session-current-requests'
 // Advance subscriber cursors independently, sending resets or reducer-projected batches as needed.
-
 import type { AgentJournalCursor } from '../../../shared/agent-session-journal-types'
 import type {
   AgentSessionHistoryPage,
-  AgentSessionSlashCommand,
   AgentSessionSubscribeEvent,
   AgentSessionTurnActivity
 } from '../../../shared/agent-session-wire'
@@ -50,7 +48,7 @@ export type Subscriber = {
   SubscriberFieldState
 
 export type AgentSessionSubscribersHooks = {
-  readCommands?: (sessionId: string) => AgentSessionSlashCommand[] | undefined
+  readCommands?: SubscriberFieldHooks['readCommands']
   /** Stable identity avoids serialization until queue changes. */
   readQueuePublication?: (sessionId: string) => QueuePublication | undefined
   readBackgroundTasks?: SubscriberFieldHooks['readBackgroundTasks']
@@ -247,17 +245,19 @@ export class AgentSessionSubscribers {
     }
   }
 
-  republishCommands(): void {
+  republishCommands(retired?: (sessionId: string) => boolean): void {
     const hostNow = this.now()
     for (const sessionId of this.bySession.keys()) {
       for (const subscriber of this.subscribers(sessionId)) {
-        if (subscriberCommandsChanged(this.hooks, subscriber)) {
+        const invalidated = subscriber.commandsOnRequest && retired?.(sessionId)
+        if (invalidated || subscriberCommandsChanged(this.hooks, subscriber)) {
           this.emit(subscriber, {
             type: 'batch',
             sessionId,
             batch: emptyAgentSessionBatch(subscriber.cursor),
             fence: subscriber.fence,
-            hostNow
+            hostNow,
+            ...(invalidated ? { commandsChanged: true as const } : {})
           })
         }
       }

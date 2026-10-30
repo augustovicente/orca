@@ -29,6 +29,7 @@ import { useImeEnterGestureOwnership } from '@/lib/ime-composition-keyboard-even
 import { useNativeChatComposerAppMenuSelection } from './use-native-chat-composer-app-menu-selection'
 import { useNativeChatComposerSubmit } from './use-native-chat-composer-submit'
 import { useNativeChatComposerCommandPicker } from './use-native-chat-composer-command-picker'
+import { useNotificationCardComposerClearance } from '@/lib/notification-card-composer-clearance'
 
 /** Send through the chat’s structured transport or verified PTY route, with agent-aware autocomplete and image handling. */
 export const NativeChatComposerPane = forwardRef<NativeChatComposerHandle, NativeChatComposerProps>(
@@ -170,13 +171,7 @@ export const NativeChatComposerPane = forwardRef<NativeChatComposerHandle, Nativ
         ? !hasPty || !onStop
         : sendHeld || (draft.trim() === '' && imageAttachments.length === 0)
 
-    const {
-      pickAttachments,
-      attachExternalPaths,
-      captureExternalPaths,
-      captureCopiedFiles,
-      resolveAttachmentOwner
-    } = useNativeChatFileDrops({
+    const fileDrops = useNativeChatFileDrops({
       paneKey,
       draftScopeKey,
       targetPtyId,
@@ -192,6 +187,7 @@ export const NativeChatComposerPane = forwardRef<NativeChatComposerHandle, Nativ
 
     const localHandle = useRef<NativeChatComposerHandle>(null)
     const root = useRef<HTMLDivElement>(null)
+    useNotificationCardComposerClearance(root, editSession === undefined)
     const handlePasteEvent = useNativeChatComposerHandle(localHandle, {
       resend: (text, imagePaths) => !structuredTransport && sendPty({ text, imagePaths }),
       attachmentScopeKey: draftScopeKey,
@@ -210,11 +206,11 @@ export const NativeChatComposerPane = forwardRef<NativeChatComposerHandle, Nativ
       ]),
       agent,
       disabled,
-      resolveAttachmentOwner,
+      resolveAttachmentOwner: fileDrops.resolveAttachmentOwner,
       attachResolvedPaths,
-      attachCopiedFiles: attachExternalPaths,
-      captureCopiedFiles,
-      captureExternalPaths,
+      attachCopiedFiles: fileDrops.attachExternalPaths,
+      captureCopiedFiles: fileDrops.captureCopiedFiles,
+      captureExternalPaths: fileDrops.captureExternalPaths,
       beginPendingImageAttachment: attachments.beginPendingImageAttachment,
       // Settles into the scope cache, which outlives a composer a prompt card unmounted.
       resolvePendingImageAttachment: attachments.pendingChips.resolve,
@@ -400,7 +396,7 @@ export const NativeChatComposerPane = forwardRef<NativeChatComposerHandle, Nativ
           onRetrySkills={picker.retrySkills}
           onChooseMentionFile={completeMention}
           onRemoveImageAttachment={(id) => removeImageAttachment(id)}
-          onAttach={pickAttachments}
+          onAttach={fileDrops.pickAttachments}
           onDictationToggle={dictation.toggleDictation}
           onDictationHoldStart={dictation.startHoldDictation}
           onDictationHoldEnd={dictation.stopHoldDictation}
