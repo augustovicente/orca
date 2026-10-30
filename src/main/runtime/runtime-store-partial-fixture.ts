@@ -1,3 +1,4 @@
+import type { TerminalCreateOptions } from './runtime-terminal-contracts'
 import type { RuntimeStore } from './runtime-store-contract'
 import type { GlobalSettings } from '../../shared/global-settings-types'
 import type { Repo } from '../../shared/repo-types'
@@ -114,4 +115,18 @@ export function storeFolderWorkspace(
     updatedAt: 0,
     ...fields
   }
+}
+
+/** Real C1 under the same empty local host used by connected resume owners. */
+export async function planLocalAgentTerminal(
+  opts: TerminalCreateOptions,
+  id = 'wt',
+  path = '/repo'
+): Promise<TerminalCreateOptions> {
+  const { resolveAgentTerminalCreateOptions } = await import('./runtime-agent-terminal-startup')
+  return resolveAgentTerminalCreateOptions(
+    { id, path, repo: null, folderWorkspace: null, connectionId: null },
+    { ...opts, launchRuntime: { platform: 'linux', pty: {} } },
+    { store: partialRuntimeStore(), hostIdentity: 'local', toSessionOptions: () => undefined }
+  )
 }

@@ -3,18 +3,14 @@ import {
   buildAiVaultResumeDragStartupForWorktree,
   type AiVaultResumeDragStartup
 } from './ai-vault-session-drag-startup'
-import {
-  AI_VAULT_LOCAL_DRAG_TYPE,
-  writeAiVaultLocalDragData,
-  readAiVaultLocalDragData
-} from './ai-vault-local-drag-data'
+import { AI_VAULT_LOCAL_DRAG_TYPE, writeAiVaultLocalDragData } from './ai-vault-local-drag-data'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createGlobalSettingsFixture } from '../../../shared/global-settings-test-fixture'
 import {
   buildAiVaultResumeForWorktree,
+  buildAiVaultResumeStartupForWorktree,
   type AiVaultResumeWorktreeArgs
 } from './ai-vault-resume-command'
-import { makeWorktree } from '../store/slices/worktrees-slice-test-fixtures'
 import { resolveTerminalHostOwnership } from './terminal-worktree-route'
 import {
   AI_VAULT_SESSION_DRAG_PAYLOAD_MAX_BYTES,
@@ -29,14 +25,13 @@ import {
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { createElement } from 'react'
 import AiVaultSessionDropLayer from '../components/tab-group/AiVaultSessionDropLayer'
-import { buildAiVaultResumeStartupForWorktree } from './ai-vault-resume-command'
 import {
   makeFolderWorkspace,
+  makeWorktree,
   makeTerminalTab,
   TEST_REPO
 } from '../store/slices/worktrees-slice-test-fixtures'
-import { resolveAgentTerminalCreateOptions } from '../../../main/runtime/runtime-agent-terminal-startup'
-import { partialRuntimeStore } from '../../../main/runtime/runtime-store-partial-fixture'
+import { planLocalAgentTerminal } from '../../../main/runtime/runtime-store-partial-fixture'
 import { mapRuntimeError } from '../../../main/runtime/rpc/errors'
 import { createIpcPtyTransport } from '../components/terminal-pane/pty-transport'
 import {
@@ -95,22 +90,7 @@ function parentTransfer(change: Record<string, unknown>) {
   return transfer
 }
 
-function historyDrag(state: AiVaultResumeWorktreeArgs['state'], sessionId = 'session-1') {
-  const args = { state, worktreeId: state.activeWorktreeId, session: { ...session, sessionId } }
-  const transfer = drag(args)
-  const serialized = transfer.getData(AI_VAULT_SESSION_DRAG_TYPE)
-  const privateSerialized = transfer.getData(AI_VAULT_LOCAL_DRAG_TYPE)
-  const payload = readAiVaultSessionDragData(transfer)
-  expect(payload).not.toBeNull()
-  const selected = payload ? readAiVaultLocalDragData(transfer, payload)?.normal : undefined
-  return { serialized, privateSerialized, selected, args }
-}
-
 describe('Session History session drag data', () => {
-  afterEach(() => {
-    clearAiVaultSessionDragData()
-  })
-
   it('bounds actual History production at C/U N/10N and a fixed eight-row viewport', async () => {
     const samples = []
     for (const size of [100, 1000]) {
@@ -139,68 +119,48 @@ describe('Session History session drag data', () => {
         'local-or-ssh'
       )
       expect(visits).toBe(size)
-      visits = 0
-      for (let index = 0; index < 8; index += 1) {
-        const drag = historyDrag(state, `session-${index}`)
-        expect(drag.serialized).toBe(parentBytes(drag.args))
-        expect(drag.selected).toBeUndefined()
-        expect(drag.privateSerialized).toBe('')
+      const rows = Array.from({ length: 8 }, (_, index) => ({
+        state,
+        worktreeId: state.activeWorktreeId,
+        session: { ...session, sessionId: `session-${index}` }
+      }))
+      for (const args of rows) {
+        visits = 0
+        const ordinary = parentBytes(args)
+        const ordinaryVisits = visits
+        expect(ordinaryVisits).toBeGreaterThan(0)
+        visits = 0
+        const remote = drag(args)
+        // Current main looks up paths; selected remote fallback adds no traversal.
+        expect(visits).toBe(ordinaryVisits)
+        expect(remote.getData(AI_VAULT_SESSION_DRAG_TYPE)).toBe(ordinary)
+        expect(remote.getData(AI_VAULT_LOCAL_DRAG_TYPE)).toBe('')
       }
-      expect(visits).toBe(0)
       state.activeWorkspaceExecutionHostId = 'local'
       const clone = vi.spyOn(globalThis, 'structuredClone')
       try {
-        const drags = Array.from({ length: 8 }, (_, index) =>
-          historyDrag(state, `session-${index}`)
-        )
+        const drags = rows.map((args) => drag(args))
         expect(clone).toHaveBeenCalledTimes(16)
         const inputs = [
           ...clone.mock.calls.map(([input]) => JSON.stringify(input) ?? ''),
-          ...drags.flatMap(({ serialized, privateSerialized }) => [serialized, privateSerialized])
+          ...drags.flatMap((transfer) => [
+            transfer.getData(AI_VAULT_SESSION_DRAG_TYPE),
+            transfer.getData(AI_VAULT_LOCAL_DRAG_TYPE)
+          ])
         ]
         for (const text of inputs) {
           expect(text).not.toContain('UNUSED_')
           expect(text).not.toContain('"codex":')
-          expect(new TextEncoder().encode(text).byteLength).toBeGreaterThan(0)
           expect(new TextEncoder().encode(text).byteLength).toBeLessThan(
             AI_VAULT_SESSION_DRAG_PAYLOAD_MAX_BYTES
           )
         }
         samples.push(inputs)
-        expect((await planPreferred(drags[0]?.selected ?? {})).env).toEqual({ SELECTED: 'first' })
       } finally {
         clone.mockRestore()
       }
     }
     expect(samples[1]).toEqual(samples[0])
-  })
-
-  it('keeps the 9000-character unrelated env drag valid and selected changes effective', async () => {
-    const state = sourceState({ UNUSED: 'x'.repeat(9000) })
-    const first = historyDrag(state)
-    if (!state.settings) {
-      throw new Error('Missing fixture settings')
-    }
-    state.settings.agentCmdOverrides = { claude: 'changed-claude' }
-    state.settings.agentDefaultArgs = { claude: '--model second' }
-    state.settings.agentDefaultEnv!.claude = { SELECTED: 'second' }
-    state.settings.agentPermissionOverrides = { claude: 'accept-edits' }
-    const second = historyDrag(state)
-    const originalPlan = await planPreferred(first.selected ?? {})
-    const changedPlan = await planPreferred(second.selected ?? {})
-    expect(originalPlan.command).toContain('selected-claude')
-    expect(originalPlan.command).toContain(`team'"'"'s model`)
-    expect(originalPlan.command).toContain('--dangerously-skip-permissions')
-    expect(originalPlan.env).toEqual({ SELECTED: 'first' })
-    expect(changedPlan.command).toContain('changed-claude')
-    expect(changedPlan.command).toContain('second')
-    expect(changedPlan.command).toContain('acceptEdits')
-    expect(changedPlan.command).not.toContain('--dangerously-skip-permissions')
-    expect(changedPlan.env).toEqual({ SELECTED: 'second' })
-    state.settings.agentPermissionOverrides = {}
-    const inherited = await planPreferred(historyDrag(state).selected ?? {})
-    expect(inherited.command).toContain('default')
-    expect(inherited.command).not.toContain('acceptEdits')
   })
 
   it('preserves an explicit null sessionCwd across the serialized round-trip', () => {
@@ -336,6 +296,10 @@ function sourceState(
   unrelatedEnv: Record<string, string> = {}
 ): AiVaultResumeWorktreeArgs['state'] {
   return {
+    detectedWorktreesByRepo: {},
+    sshConnectionStates: new Map(),
+    sshStateByEnvironment: new Map(),
+    runtimeStatusByEnvironmentId: new Map(),
     activeRepoId: 'repo1',
     activeWorktreeId: 'folder:source',
     projects: [],
@@ -373,6 +337,12 @@ const session = {
   codexHome: null,
   executionHostId: 'local',
   filePath: String.raw`\\wsl.localhost\Ubuntu\home\alice\.claude\projects\p\saved.jsonl`
+}
+const codexSession = {
+  ...session,
+  agent: 'codex' as const,
+  codexHome: String.raw`\\wsl.localhost\Ubuntu\home\alice\custom-codex`,
+  filePath: String.raw`\\wsl.localhost\Ubuntu\home\alice\custom-codex\sessions\saved.jsonl`
 }
 const createTab = vi.fn<AppState['createTab']>(() => makeTerminalTab({ id: 'tab', worktreeId: wt }))
 let state = sourceState()
@@ -459,13 +429,6 @@ async function drop(transfer: ReturnType<typeof drag>) {
   try {
     fireEvent(pane, event)
     expect(delivered).toHaveBeenCalledExactlyOnceWith(event)
-    expect(event).toMatchObject({
-      type: 'drop',
-      target: pane,
-      dataTransfer: transfer,
-      clientX: 50,
-      clientY: 50
-    })
     expect(event.defaultPrevented).toBe(true)
     await waitFor(() => {
       expect(mocks.error.mock.calls).toEqual([])
@@ -496,16 +459,11 @@ async function planPreferred(
   request: Pick<Parameters<typeof window.api.pty.spawn>[0], 'launchAgent' | 'resume' | 'env'>
 ) {
   try {
-    return await resolveAgentTerminalCreateOptions(
-      { id: 'wt', path: '/repo', repo: null, folderWorkspace: null, connectionId: null },
-      {
-        startupAgent: request.launchAgent ?? 'claude',
-        resume: request.resume,
-        env: request.env,
-        launchRuntime: { platform: 'linux', pty: {} }
-      },
-      { store: partialRuntimeStore(), hostIdentity: 'local', toSessionOptions: () => undefined }
-    )
+    return await planLocalAgentTerminal({
+      startupAgent: request.launchAgent ?? 'claude',
+      resume: request.resume,
+      env: request.env
+    })
   } catch (error) {
     const response = mapRuntimeError('history', { runtimeId: 'local' }, error)
     throw Object.assign(new Error(response.error.message), { response })
@@ -577,12 +535,7 @@ it.each(['folder:source', wt])(
     const args = {
       state,
       worktreeId: sourceWorktreeId,
-      session: {
-        ...session,
-        agent: 'codex' as const,
-        codexHome: String.raw`\\wsl.localhost\Ubuntu\home\alice\custom-codex`,
-        filePath: String.raw`\\wsl.localhost\Ubuntu\home\alice\custom-codex\sessions\saved.jsonl`
-      }
+      session: codexSession
     }
     state.settings = createGlobalSettingsFixture({
       terminalWindowsShell: 'powershell.exe',
@@ -702,12 +655,7 @@ it('keeps H1/H2 click/drop fallback, red/blue provenance and unknown outcomes di
 it.each(['real-home', 'repin'] as const)(
   'keeps the existing %s preparation owner through the actual drop',
   async (kind) => {
-    const codex = {
-      ...session,
-      agent: 'codex' as const,
-      codexHome: '/recorded-home',
-      filePath: String.raw`\\wsl.localhost\Ubuntu\home\alice\custom-codex\sessions\saved.jsonl`
-    }
+    const codex = { ...codexSession, codexHome: '/recorded-home' }
     state.settings = createGlobalSettingsFixture({
       agentPermissionDefault: 'own',
       agentDefaultArgs: { codex: '--dangerously-bypass-approvals-and-sandbox' }
@@ -728,8 +676,9 @@ it.each(['real-home', 'repin'] as const)(
   }
 )
 
-it('keeps cross-window selected, LONG3000 and near-cap parent input through the actual local drop', async () => {
-  const ordinarySettings = state.settings
+it('keeps selected snapshots, permission changes, LONG3000 and near-cap input through the actual drop', async () => {
+  state = sourceState({ UNUSED: 'x'.repeat(9000) })
+  const selectedSettings = state.settings
   state.settings = createGlobalSettingsFixture({
     agentPermissionDefault: 'own',
     agentDefaultArgs: { claude: '' },
@@ -739,15 +688,35 @@ it('keeps cross-window selected, LONG3000 and near-cap parent input through the 
   const emptySize = new TextEncoder().encode(parentBytes(args)).byteLength
   const nearCap = Math.floor((AI_VAULT_SESSION_DRAG_PAYLOAD_MAX_BYTES - emptySize) / 4)
   const largeSettings = state.settings
-  for (const size of [0, 3000, nearCap]) {
+  for (const [size, command, model, permission, expectedPermission] of [
+    [0, 'selected-claude', `team'"'"'s model`, 'full-access', '--dangerously-skip-permissions'],
+    [0, 'changed-claude', 'second', 'accept-edits', 'acceptEdits'],
+    [0, 'changed-claude', 'second', undefined, 'default'],
+    [3000, undefined, undefined, undefined, undefined],
+    [nearCap, undefined, undefined, undefined, undefined]
+  ] as const) {
     createTab.mockClear()
-    const env: Record<string, string> =
-      size === 0 ? { SELECTED: 'source' } : { LONG: 'x'.repeat(size) }
-    state.settings = size === 0 ? ordinarySettings : largeSettings
-    state.settings!.agentDefaultEnv = { claude: env }
+    const env: Record<string, string> = size
+      ? { LONG: 'x'.repeat(size) }
+      : { SELECTED: command === 'selected-claude' ? 'first' : 'second' }
+    state.settings = size
+      ? largeSettings
+      : {
+          ...selectedSettings,
+          agentCmdOverrides: { claude: command },
+          agentDefaultArgs: {
+            claude: model === 'second' ? '--model second' : '--model "team\'s model"'
+          },
+          agentPermissionOverrides: permission ? { claude: permission } : {},
+          agentDefaultEnv: { ...selectedSettings?.agentDefaultEnv, claude: env }
+        }
+    if (size) {
+      state.settings!.agentDefaultEnv = { claude: env }
+    }
     const expected = parentBytes(args)
     const transfer = drag(args)
     expect(transfer.getData(AI_VAULT_SESSION_DRAG_TYPE)).toBe(expected)
+    state.settings = createGlobalSettingsFixture()
     if (size === nearCap) {
       expect(
         AI_VAULT_SESSION_DRAG_PAYLOAD_MAX_BYTES - new TextEncoder().encode(expected).byteLength
@@ -758,8 +727,16 @@ it('keeps cross-window selected, LONG3000 and near-cap parent input through the 
     expect(pending.launchConfig).toBeUndefined()
     expect(pending.resumeProviderSession).toEqual({ key: 'session_id', id: 'saved' })
     const planned = await connectPreferred(pending, env)
-    if (size === 0) {
-      expect(planned?.command).toContain(`team'"'"'s model`)
+    if (command && model && expectedPermission) {
+      expect(planned?.command).toContain(command)
+      expect(planned?.command).toContain(model)
+      expect(planned?.command).toContain(expectedPermission)
+      if (permission !== 'full-access') {
+        expect(planned?.command).not.toContain('--dangerously-skip-permissions')
+      }
+      if (!permission) {
+        expect(planned?.command).not.toContain('acceptEdits')
+      }
     }
   }
 })

@@ -15,10 +15,11 @@ import type { NativeChatTextBlock } from '../../../../shared/native-chat-types'
 import {
   NATIVE_CHAT_NOTICE_COPY,
   nativeChatNoticeLook
-} from '../../../../shared/native-chat-notice'
+} from '../../../../shared/native-chat/native-chat-notice'
 import { useNativeChatOrcaStopView } from './native-chat-orca-stop-context'
 import { NativeChatInterruptedContinueButton } from './NativeChatInterruptedContinue'
-import { nativeChatOrcaStopRowText } from './native-chat-orca-stop-words'
+import { nativeChatOrcaStopRowText } from '../../../../shared/native-chat/native-chat-orca-stop-words'
+import { sayNativeChatOrcaStopTranslated } from './native-chat-orca-stop-words-text'
 import { ProviderFrameRow } from './NativeChatTranscriptChrome'
 import { Button } from '@/components/ui/button'
 import {
@@ -26,7 +27,10 @@ import {
   nativeChatClaudeSignInLabel,
   useNativeChatClaudeSignInView
 } from './native-chat-claude-sign-in'
-import { readWholeAgentSessionFailureFact } from '../../../../shared/agent-session-failure'
+import {
+  agentSessionFailureDetailText,
+  readWholeAgentSessionFailureFact
+} from '../../../../shared/agent-session-failure'
 import { agentSessionFailureSentence } from '../../../../shared/agent-session-failure-words'
 import { sayAgentSessionFailureTranslated } from './agent-session-failure-words-text'
 import { nativeChatAntigravitySignInContent } from './native-chat-antigravity-settings'
@@ -134,13 +138,10 @@ export function NativeChatNoticeRow({
   }
   // Name Orca and its host as the stop cause; without host context, preserve the original words.
   const { orcaStop } = block
-  const { hostLabel, remoteHost, continueAvailable } = orcaStopView
+  const { hostLabel, remoteHost, continueAvailable, wslDistro } = orcaStopView
   // A paired server with no name to show is still a remote server; its id is not a name.
   const machine =
-    hostLabel ??
-    (remoteHost
-      ? translate('components.native-chat.notices.orcaStopUnnamedServer', 'the remote server')
-      : null)
+    hostLabel ?? (remoteHost ? sayNativeChatOrcaStopTranslated('unnamedServer') : null)
   const named = orcaStop !== undefined && machine !== null
   const continueOffered =
     orcaStop?.turnItemId !== undefined && orcaStop.turnItemId === orcaStopView.offeredTurnItemId
@@ -153,8 +154,20 @@ export function NativeChatNoticeRow({
           (surface) => block.text === agentSessionFailureSentence(failure, surface, { agentName })
         )
       : undefined
+  // The host can't tell it's a WSL host; name the distro only over its plain not-installed words.
+  const wslMissingSurface =
+    failure?.kind === 'cliMissing' && wslDistro
+      ? (['row', 'rejection'] as const).find(
+          (surface) => block.text === agentSessionFailureSentence(failure, surface, { agentName })
+        )
+      : undefined
   const text = named
-    ? nativeChatOrcaStopRowText(orcaStop.cause, machine, { continueAvailable, remoteHost })
+    ? nativeChatOrcaStopRowText(
+        orcaStop.cause,
+        machine,
+        { continueAvailable, remoteHost },
+        sayNativeChatOrcaStopTranslated
+      )
     : failure?.kind === 'usageLimitReached'
       ? agentSessionFailureSentence(
           failure,
@@ -172,11 +185,16 @@ export function NativeChatNoticeRow({
             { agentName },
             sayAgentSessionFailureTranslated
           )
-        : agentSessionGoalControlWords(block.text)
-  const detail =
-    failure?.detail?.audience === 'person' && failure.detail.text.trim() !== text.trim()
-      ? failure.detail.text
-      : undefined
+        : failure && wslMissingSurface && wslDistro
+          ? agentSessionFailureSentence(
+              failure,
+              wslMissingSurface,
+              { agentName, wslDistro },
+              sayAgentSessionFailureTranslated
+            )
+          : agentSessionGoalControlWords(block.text)
+  const failureDetail = agentSessionFailureDetailText(failure)
+  const detail = failureDetail?.trim() !== text.trim() ? failureDetail : undefined
   const tone = named ? 'notice' : look.kind === 'line' ? look.tone : null
   const Icon =
     tone === 'warning'

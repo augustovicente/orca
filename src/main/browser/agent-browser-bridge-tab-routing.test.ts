@@ -53,19 +53,17 @@ vi.mock('./cdp-bridge', () => ({
 }))
 
 import { AgentBrowserBridge } from './agent-browser-bridge'
+import { runWithActiveRpcCaller } from '../runtime/rpc/rpc-active-caller'
 import {
-  createFakeAgentBrowserChild,
-  createSucceedWith,
+  answerAgentBrowserCommands,
   mockBrowserManager,
   mockWebContents,
   overrideBridgeWebContentsLookup,
   resetAgentBrowserBridgeMocks,
-  type ExecFileCallback
+  succeedRecordingAgentBrowserSpawns
 } from './agent-browser-bridge-test-harness'
 
 overrideBridgeWebContentsLookup(AgentBrowserBridge.prototype, webContentsFromIdMock)
-
-const succeedWith = createSucceedWith(execFileMock, stdinWrites)
 
 describe('AgentBrowserBridge', () => {
   let bridge: AgentBrowserBridge
@@ -94,17 +92,14 @@ describe('AgentBrowserBridge', () => {
     const b = new AgentBrowserBridge(mockBrowserManager(tabs))
     b.setActiveTab(1)
 
-    succeedWith({ snapshot: 'tree output' })
+    const spawns = succeedRecordingAgentBrowserSpawns(execFileMock, stdinWrites, {
+      snapshot: 'tree output'
+    })
     const result = await b.snapshot(undefined, 'tab-b')
 
-    const snapshotCall = execFileMock.mock.calls.find((c: unknown[]) =>
-      (c[1] as string[]).includes('snapshot')
-    )
-    expect(snapshotCall).toBeTruthy()
-    expect(snapshotCall![1]).toContain('--session')
-    expect(
-      (snapshotCall![1] as string[])[(snapshotCall![1] as string[]).indexOf('--session') + 1]
-    ).toBe('orca-tab-tab-b')
+    const snapshotArgs = spawns.find(({ command }) => command[0] === 'snapshot')?.args
+    expect(snapshotArgs).toContain('--session')
+    expect(snapshotArgs![snapshotArgs!.indexOf('--session') + 1]).toBe('orca-tab-tab-b')
     expect(result).toEqual({ browserPageId: 'tab-b', snapshot: 'tree output' })
     expect(b.getActiveWebContentsId()).toBe(1)
   })
@@ -253,6 +248,71 @@ describe('AgentBrowserBridge', () => {
     expect(b.tabList('wt-1').tabs).toMatchObject([{ browserPageId: 'tab-a', active: true }])
   })
 
+  describe('while an agent drives a tab', () => {
+    const agentPages = new Set<string>()
+    const agentOnTabA = (): AgentBrowserBridge => {
+      const tabs = new Map([
+        ['tab-a', 1],
+        ['tab-b', 2],
+        ['tab-c', 3]
+      ])
+      const worktrees = new Map([
+        ['tab-a', 'wt-1'],
+        ['tab-b', 'wt-1'],
+        ['tab-c', 'wt-1']
+      ])
+      const guests = new Map(
+        [...tabs].map(([tabId, id]) => [id, mockWebContents(id, `https://${tabId}.com`, tabId)])
+      )
+      webContentsFromIdMock.mockImplementation((id: number) => guests.get(id) ?? null)
+      const b = new AgentBrowserBridge(
+        mockBrowserManager(tabs, worktrees, {
+          isAgentUsingPage: (id: string) => agentPages.has(id),
+          beginAgentCommand: (id: string) => {
+            agentPages.add(id)
+            return { run: (execute) => execute(), end: () => {} }
+          }
+        })
+      )
+      b.onTabChanged(1, 'wt-1')
+      agentPages.clear()
+      agentPages.add('tab-a')
+      return b
+    }
+
+    it('keeps unpinned commands on that tab until it goes idle when the user picks another', () => {
+      const b = agentOnTabA()
+
+      b.onTabChanged(2, 'wt-1')
+      expect(b.getActivePageId('wt-1')).toBe('tab-a')
+
+      agentPages.clear()
+      expect(b.getActivePageId('wt-1')).toBe('tab-b')
+    })
+
+    it('holds a pick made before the agent switches tabs until the new tab goes idle', async () => {
+      const b = agentOnTabA()
+
+      b.onTabChanged(3, 'wt-1')
+      await b.tabSwitch(undefined, 'wt-1', 'tab-b')
+      expect(b.getActivePageId('wt-1')).toBe('tab-b')
+
+      agentPages.clear()
+      expect(b.getActivePageId('wt-1')).toBe('tab-c')
+    })
+
+    it.each([
+      [{ kind: 'paired-device', deviceId: 'phone' } as const, 'tab-a'],
+      [{ kind: 'local-cli' } as const, 'tab-b']
+    ])('a tab created by %o routes unpinned commands to %s', (caller, expected) => {
+      const b = agentOnTabA()
+
+      runWithActiveRpcCaller(caller, () => b.setActiveTab(2, 'wt-1'))
+
+      expect(b.getActivePageId('wt-1')).toBe(expected)
+    })
+  })
+
   it('updates the owning worktree active tab when switching by browser page id', async () => {
     const tabs = new Map([
       ['tab-a', 1],
@@ -298,20 +358,17 @@ describe('AgentBrowserBridge', () => {
     b.setActiveTab(1, 'wt-1')
 
     let releaseSnapshot: (() => void) | null = null
-    execFileMock.mockImplementation(
-      (_bin: string, args: string[], _opts: unknown, cb: ExecFileCallback) => {
-        if (args.includes('close')) {
-          cb(null, JSON.stringify({ success: true, data: null }), '')
-        } else if (args.includes('snapshot')) {
-          releaseSnapshot = () => {
-            cb(null, JSON.stringify({ success: true, data: { snapshot: 'tree' } }), '')
-          }
-        } else {
-          cb(null, JSON.stringify({ success: true, data: { ok: true } }), '')
+    answerAgentBrowserCommands(execFileMock, stdinWrites, (command, cb) => {
+      if (command.includes('close')) {
+        cb(null, JSON.stringify({ success: true, data: null }), '')
+      } else if (command[0] === 'snapshot') {
+        releaseSnapshot = () => {
+          cb(null, JSON.stringify({ success: true, data: { snapshot: 'tree' } }), '')
         }
-        return createFakeAgentBrowserChild({})
+      } else {
+        cb(null, JSON.stringify({ success: true, data: { ok: true } }), '')
       }
-    )
+    })
 
     const snapshot = b.snapshot('wt-1')
     const switched = b.tabSwitch(1, 'wt-1')

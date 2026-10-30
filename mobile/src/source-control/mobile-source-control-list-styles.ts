@@ -1,8 +1,9 @@
 import { StyleSheet } from 'react-native'
 import { colors, radii, spacing, typography } from '../theme/mobile-theme'
+import { themedStyleSheet } from '../theme/themed-styles'
 import { TEXT_INPUT_FONT_SIZE } from '../platform/text-input-font-size'
 
-export const listStyles = StyleSheet.create({
+export const listStyles = themedStyleSheet(() => ({
   listContent: {
     paddingHorizontal: spacing.lg,
     paddingBottom: 136
@@ -106,6 +107,25 @@ export const listStyles = StyleSheet.create({
     borderRadius: radii.button,
     alignItems: 'center',
     justifyContent: 'center'
+  },
+  conflictActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+    marginTop: spacing.xs
+  },
+  conflictActionButton: {
+    minHeight: 30,
+    paddingHorizontal: spacing.sm,
+    borderRadius: radii.button,
+    backgroundColor: colors.bgRaised,
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  conflictActionText: {
+    color: colors.textPrimary,
+    fontSize: typography.metaSize,
+    fontWeight: '600'
   },
   iconButtonPressed: {
     backgroundColor: colors.bgRaised
@@ -263,4 +283,4 @@ export const listStyles = StyleSheet.create({
     fontSize: typography.metaSize,
     lineHeight: 16
   }
-})
+}))

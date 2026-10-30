@@ -6,13 +6,12 @@ import {
   type AgentStartupSettings
 } from './agent-startup-plan-inputs'
 import { resolveResumeLaunchRecipe } from './tui-agent-launch-defaults'
-import { buildAgentResumeStartupPlan } from './tui-agent-resume-startup'
 import type { AgentLaunchRuntime } from './agent-launch-runtime'
 import { agentLaunchQuotingShell } from './agent-launch-runtime'
-import type { SessionOptionValue } from './native-chat-session-options'
+import type { SessionOptionValue } from './native-chat/input/native-chat-session-options'
 import { parseWslUncPath } from './wsl-paths'
 
-export function buildAgentTerminalResumePlan(args: {
+type AgentTerminalResumeInputArgs = {
   agent: ResumableTuiAgent
   providerSession: AgentProviderSessionMetadata
   resume: AgentTerminalResume
@@ -22,7 +21,9 @@ export function buildAgentTerminalResumePlan(args: {
   launchCwd?: string
   agentArgs?: string | null
   sessionOptions?: Record<string, SessionOptionValue>
-}) {
+}
+
+export function resolveAgentTerminalResumeInputs(args: AgentTerminalResumeInputArgs) {
   const { recipe } = args.resume
   const shell = agentLaunchQuotingShell(args.runtime)
   const selected = recipe.source === 'current-inputs' ? recipe.settings : args.settings
@@ -52,7 +53,7 @@ export function buildAgentTerminalResumePlan(args: {
               : {}),
           sessionOptions: args.sessionOptions
         })
-  return buildAgentResumeStartupPlan({
+  return {
     agent: args.agent,
     providerSession: {
       ...args.providerSession,
@@ -87,5 +88,5 @@ export function buildAgentTerminalResumePlan(args: {
       args.runtime.platform === 'linux' && args.resume.codexHome
         ? (parseWslUncPath(args.resume.codexHome)?.linuxPath ?? args.resume.codexHome)
         : args.resume.codexHome
-  })
+  }
 }

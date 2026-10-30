@@ -1,7 +1,7 @@
 import type { AiVaultResumeStartup } from '../../../shared/ai-vault-resume-startup'
 import { isAntigravityReferenceSession } from '../../../shared/antigravity-session-origin'
+import { canResumeAiVaultSessionOnTarget } from '../../../shared/ai-vault-resume-target'
 import {
-  canResumeAiVaultSessionOnTarget,
   getAiVaultResumeWorkspaceExecutionHostId,
   getAiVaultResumeWorkspaceTargetStatus
 } from './ai-vault-resume-target'

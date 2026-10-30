@@ -8,6 +8,8 @@ import type {
   RuntimeCreateAgentSessionResult
 } from '../../shared/agent-session-host-authority'
 import { OrcaRuntimeService } from './orca-runtime'
+import { buildAgentStartupPlan, buildAgentResumeStartupPlan } from '../../shared/tui-agent-startup'
+import { tokenizeStartupCommand } from '../../shared/tui-agent-startup-shell'
 import type { TerminalCreateOptions } from './runtime-terminal-contracts'
 import type { IPtyProvider } from '../providers/pty-provider-contract'
 
@@ -140,6 +142,79 @@ describe('agent-session execution namespace', () => {
     )
   })
 
+  it('retains compiled policy through args-only host reconstruction and repeated recorded resume', async () => {
+    const launch = buildAgentStartupPlan({
+      agent: 'codex',
+      prompt: '',
+      allowEmptyPromptLaunch: true,
+      cmdOverrides: {},
+      platform: 'linux',
+      agentArgs: '-m old-model -c model_reasoning_effort=low -c model_verbosity=low',
+      sessionOptions: { model: 'gpt-5.5', effort: 'high', permissionMode: 'ask' },
+      sessionOptionsOverrideAgentArgs: true
+    })
+    expect(launch?.sessionOptions).toEqual({
+      model: 'gpt-5.5',
+      effort: 'high',
+      permissionMode: 'ask'
+    })
+    expect(launch?.launchCommand).not.toContain('old-model')
+    const policyTokens = [
+      'codex',
+      '-c',
+      'model_verbosity=low',
+      '-a',
+      'on-request',
+      '-s',
+      'read-only',
+      '-c',
+      'approvals_reviewer=user'
+    ]
+    expect(tokenizeStartupCommand(launch?.launchConfig.agentCommand ?? '', 'posix')).toMatchObject({
+      ok: true,
+      tokens: policyTokens
+    })
+    const runtime = createRuntime()
+    const createTerminal = vi.spyOn(runtime, 'createTerminal').mockResolvedValue(terminal())
+    const providerSession = { key: 'session_id' as const, id: 'provider-session-1' }
+    await runtime.ensureAgentSession({
+      kind: 'explicit',
+      worktree: 'id:worktree-1',
+      agent: 'codex',
+      providerSession,
+      agentArgs: launch?.launchConfig.agentArgs
+    })
+    const host = await runtime.planAgentPaneLaunch('worktree-1', {
+      ...createTerminal.mock.calls[0]![1],
+      launchRuntime: { platform: 'linux', pty: {} }
+    })
+    expect(tokenizeStartupCommand(host?.command ?? '', 'posix')).toMatchObject({
+      ok: true,
+      tokens: [
+        policyTokens[0],
+        '-c',
+        'disable_paste_burst=true',
+        ...policyTokens.slice(1),
+        'resume',
+        providerSession.id
+      ]
+    })
+    expect(host?.launchConfig).toEqual(launch?.launchConfig)
+    const resumeInputs = {
+      agent: 'codex' as const,
+      providerSession,
+      platform: 'linux' as const,
+      cmdOverrides: {}
+    }
+    const resumed = buildAgentResumeStartupPlan({ ...resumeInputs, ...host?.launchConfig })
+    const resumedAgain = buildAgentResumeStartupPlan({ ...resumeInputs, ...resumed?.launchConfig })
+    expect(resumedAgain?.launchConfig).toEqual(launch?.launchConfig)
+    expect(tokenizeStartupCommand(resumedAgain?.launchCommand ?? '', 'posix')).toMatchObject({
+      ok: true,
+      tokens: [...policyTokens, '-c', 'disable_paste_burst=true', 'resume', providerSession.id]
+    })
+  })
+
   it('propagates probe getter failure before entering the probe failure fallback', async () => {
     const failure = new Error('probe getter failed')
     const runtime = createRuntime({
@@ -184,6 +259,21 @@ describe('agent-session execution namespace', () => {
 })
 
 describe('agent-session create operation ledger', () => {
+  it.each(['auto-submit', 'draft', undefined] as const)(
+    'suppresses startup updates only for auto-submitted launches: %s',
+    async (promptDelivery) => {
+      const runtime = createRuntime()
+      const createTerminal = vi.spyOn(runtime, 'createTerminal').mockResolvedValue(terminal())
+      await runtime.createAgentSession(
+        request(operationId(), { prompt: undefined, promptDelivery })
+      )
+      expect(createTerminal).toHaveBeenCalledWith(
+        'id:worktree-1',
+        expect.objectContaining({ suppressStartupUpdatePrompt: promptDelivery === 'auto-submit' })
+      )
+    }
+  )
+
   it.each([true, false, undefined])(
     'forwards renderer keyboard support on create and resume: %s',
     async (terminalKittyKeyboardProtocol) => {
@@ -315,27 +405,6 @@ describe('agent-session create operation ledger', () => {
     ).rejects.toThrow('agent_session_legacy_required')
 
     expect(createTerminal).not.toHaveBeenCalled()
-  })
-
-  it('leaves Codex resume planning to the shared terminal planner', async () => {
-    const runtime = createRuntime()
-    const createTerminal = vi.spyOn(runtime, 'createTerminal').mockResolvedValue(terminal())
-
-    await runtime.ensureAgentSession({
-      kind: 'explicit',
-      worktree: 'id:worktree-1',
-      agent: 'codex',
-      providerSession: { key: 'session_id', id: 'provider-session-1' }
-    })
-
-    expect(createTerminal).toHaveBeenCalledWith(
-      'id:worktree-1',
-      expect.objectContaining({
-        startupAgent: 'codex',
-        resume: { recipe: { source: 'host-defaults' } },
-        resumeProviderSession: { key: 'session_id', id: 'provider-session-1' }
-      })
-    )
   })
 
   it('selects nested SSH legacy fallback before reading a Pi transcript path locally', async () => {

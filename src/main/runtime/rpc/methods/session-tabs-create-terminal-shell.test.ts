@@ -12,7 +12,8 @@ import {
   PROVIDER_SESSION
 } from '../../../ai-vault/structured-session-ownership.test-support'
 import { setStructuredAgentSessionHost } from '../../../native-chat/agent-session-wire/structured-agent-session-registry'
-import { agentSessionLeaseFixture } from '../../../../shared/agent-session-record.test-fixture'
+import { agentSessionRecordFixture } from '../../../../shared/agent-session-record.test-fixture'
+import { agentSessionConversationView } from '../../../../shared/agent-session-conversation-view'
 
 function makeRequest(params: unknown): RpcRequest {
   return { id: 'req-1', authToken: 'tok', method: 'session.tabs.createTerminal', params }
@@ -42,13 +43,15 @@ describe('session.tabs.createTerminal shell selection', () => {
     async ({ agent, proving, scoped, code }) => {
       const runtime = makeRuntime()
       vi.mocked(runtime.ensureStructuredAgentSessionHost).mockImplementation(async () => {
+        const record = agentSessionRecordFixture()
+        if (proving) {
+          record.lease.handoffStage = 'new-owner-proving'
+          record.lease.claimStatus = 'reserved'
+          record.lease.ownerProcess = null
+        }
         installOwnership({
           provider: agent,
-          lease: agentSessionLeaseFixture(
-            proving
-              ? { handoffStage: 'new-owner-proving', claimStatus: 'reserved', ownerProcess: null }
-              : {}
-          )
+          ownerObservation: agentSessionConversationView(record).ownerObservation
         })
       })
       const dispatcher = new RpcDispatcher({
@@ -76,10 +79,7 @@ describe('session.tabs.createTerminal shell selection', () => {
           launchAgent: agent,
           resume: {
             ...(scoped ? { providerSession: { key: 'session_id', id: PROVIDER_SESSION } } : {}),
-            recipe: {
-              source: 'current-inputs',
-              settings: { agentPermissionDefault: 'accept-edits' }
-            }
+            recipe: { source: 'saved' }
           },
           ...(!scoped ? { resumeProviderSession: { key: 'session_id', id: PROVIDER_SESSION } } : {})
         })

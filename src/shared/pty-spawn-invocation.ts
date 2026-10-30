@@ -49,6 +49,8 @@ export type PtySpawnRequest = {
   placement?: TerminalPanePlacement
   // Visible restores are `user-resume`, hidden ones `automatic-restore`; the fork gate validates.
   spawnIntent?: SpawnIntent
+  /** A passive restore holds a stopped WSL distro, as on the existing IPC route. */
+  wslPassiveRestore?: true
   agentLaunch?: AgentPaneLaunchRequest
   // Main emits agent_started only after a successful spawn.
   telemetry?: { agent_kind: AgentKind; launch_source: LaunchSource; request_kind: RequestKind }

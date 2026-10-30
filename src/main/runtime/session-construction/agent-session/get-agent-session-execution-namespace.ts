@@ -99,7 +99,10 @@ export abstract class OrcaRuntimeWithGetAgentSessionExecutionNamespace extends O
     if (!this.store) {
       throw new Error('runtime_unavailable')
     }
-    const workspace = await this.resolveTerminalWorkspaceLaunchScope(request.worktree)
+    // An explicit ensure is the caller's own act (automatic is refused above), as its spawn below.
+    const workspace = await this.resolveTerminalWorkspaceLaunchScope(request.worktree, undefined, {
+      wslUserAct: true
+    })
     const namespace = this.getAgentSessionExecutionNamespace(workspace, request.agent)
     if (
       !namespace ||
@@ -135,6 +138,8 @@ export abstract class OrcaRuntimeWithGetAgentSessionExecutionNamespace extends O
       throw new Error('client_disconnected')
     }
     const terminal = await this.createTerminal(`id:${workspace.id}`, {
+      // An explicit ensure is the caller's own act, as its workspace resolution above.
+      wslUserAct: true,
       startupAgent: request.agent,
       resume: request.resume
         ? { ...request.resume, providerSession: identity.providerSession }

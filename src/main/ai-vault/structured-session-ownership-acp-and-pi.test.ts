@@ -39,7 +39,8 @@ const allowed = (command: string) =>
   expect(
     assertLegacyAiVaultResumeCommandAllowed(command, async () => undefined)
   ).resolves.toBeUndefined()
-const refused = (command: string) =>
+type ResumeCommand = Parameters<typeof assertLegacyAiVaultResumeCommandAllowed>[0]
+const refused = (command: ResumeCommand) =>
   expect(assertLegacyAiVaultResumeCommandAllowed(command, async () => undefined)).rejects.toThrow(
     'agent_session_conflict'
   )
@@ -136,20 +137,15 @@ describe('Session History rows owned by OpenCode, Grok, OMP and Pi chats', () =>
           executionHostId: 'local'
         })
       ).toThrow('agent_session_conflict')
-      await expect(
-        assertLegacyAiVaultResumeCommandAllowed(
-          {
-            agent: rowAgent,
-            providerSession: {
-              key: 'session_id',
-              id: rowAgent === 'pi' || rowAgent === 'omp' ? OTHER_UUID : sessionId,
-              transcriptPath: rowAgent === 'omp' ? '/sessions/other.jsonl' : filePath
-            },
-            ...(rowAgent === 'omp' ? { ompResumeFilePath: filePath } : {})
-          },
-          async () => undefined
-        )
-      ).rejects.toThrow('agent_session_conflict')
+      await refused({
+        agent: rowAgent,
+        providerSession: {
+          key: 'session_id',
+          id: rowAgent === 'pi' || rowAgent === 'omp' ? OTHER_UUID : sessionId,
+          transcriptPath: rowAgent === 'omp' ? '/sessions/other.jsonl' : filePath
+        },
+        ...(rowAgent === 'omp' ? { ompResumeFilePath: filePath } : {})
+      })
     }
   )
 

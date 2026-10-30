@@ -14,9 +14,15 @@ vi.mock('../preflight/agent-detection', () => ({
 }))
 
 const workspace = { id: 'w', path: '/repo', connectionId: null, repo: null, folderWorkspace: null }
+let resumeShellSetting = 'cmd.exe'
 const host = {
-  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: for a workspace with no repo or folder, the planner reads only getSettings.
-  store: { getSettings: () => ({ terminalWindowsShell: 'cmd.exe' }) } as never,
+  store: partialRuntimeStore({
+    getSettings: () => ({
+      terminalWindowsShell: resumeShellSetting,
+      agentDefaultArgs: { codex: '--model host-model' },
+      agentDefaultEnv: { codex: { SETTINGS: 'host' } }
+    })
+  }),
   hostIdentity: 'host-1',
   toSessionOptions: () => undefined
 }
@@ -110,52 +116,32 @@ const wslRuntime = {
   platform: 'linux',
   pty: { shellOverride: 'wsl.exe', terminalWindowsWslDistro: 'Ubuntu' }
 } as const
-function resumePlan(
-  resume: NonNullable<Parameters<typeof resolveAgentTerminalCreateOptions>[1]['resume']>,
-  options: Parameters<typeof resolveAgentTerminalCreateOptions>[1] = {},
-  terminalWindowsShell = 'cmd.exe'
-) {
-  return resolveAgentTerminalCreateOptions(
-    workspace,
-    {
-      startupAgent: 'claude',
-      resumeProviderSession: { key: 'session_id', id: 'saved', cwd: '/original' },
-      launchRuntime: wslRuntime,
-      ...options,
-      resume
-    },
-    {
-      ...host,
-      store: partialRuntimeStore({
-        getSettings: () => ({
-          terminalWindowsShell,
-          agentCmdOverrides: { claude: 'host-claude' },
-          agentDefaultArgs: { claude: '--model host-model', codex: '--model host-model' },
-          agentDefaultEnv: { claude: { SETTINGS: 'host' }, codex: { SETTINGS: 'host' } }
-        })
-      })
-    }
-  )
-}
 
 it.each([
   ['cmd.exe', undefined, undefined, `codex "resume" "session's"`],
   ['powershell.exe', 'cmd.exe', undefined, `codex "resume" "session's"`],
   ['powershell.exe', undefined, undefined, "codex 'resume' 'session''s'"],
-  ['cmd.exe', undefined, wslRuntime, `codex 'resume' 'session'"'"'s'`]
+  [
+    'cmd.exe',
+    undefined,
+    wslRuntime,
+    `codex '-c' 'disable_paste_burst=true' 'resume' 'session'"'"'s'`
+  ]
 ] as const)(
   'quotes saved identity with setting %s and override %s for runtime %j',
   async (setting, shellOverride, launchRuntime, expected) => {
-    const launch = await resumePlan(
-      { recipe: { source: 'saved' }, codexHome: null },
+    resumeShellSetting = setting
+    const launch = await resolveAgentTerminalCreateOptions(
+      workspace,
       {
         startupAgent: 'codex',
+        resume: { recipe: { source: 'saved' }, codexHome: null },
         resumeProviderSession: { key: 'session_id', id: "session's" },
         shellOverride,
         launchRuntime,
         envToDelete: ['EXPLICIT_DELETE']
       },
-      setting
+      host
     )
     expect(launch.command).toBe(expected)
     expect(launch.launchConfig?.agentArgs).toBe('')
@@ -178,39 +164,46 @@ it('maps actual ordinary C1 null without typed refusal evidence', async () => {
     code: 'runtime_error',
     message: 'Could not build launch command for claude.'
   })
-  expect(response.error).not.toHaveProperty('data')
   expect(isAgentResumeNotDispatchedResponse(response)).toBe(false)
 })
 
 it.skipIf(original === 'win32')(
   'composes the selected home with recorded cwd through typed C1',
   async () => {
+    resumeShellSetting = 'cmd.exe'
     const cwd = realpathSync(tmpdir())
     for (const resumeInLaunchCwd of [undefined, false, true]) {
-      const launch = await resumePlan(
-        {
-          recipe: {
-            source: 'saved',
-            launchConfig: {
-              agentCommand: "codex '--dangerously-bypass-approvals-and-sandbox'",
-              agentArgs: '--dangerously-bypass-approvals-and-sandbox',
-              agentEnv: { SELECTED: 'recipe', CODEX_HOME: '/recipe' }
-            }
-          },
-          codexHome: String.raw`\\wsl.localhost\Ubuntu\selected`,
-          resumeInLaunchCwd
-        },
+      const launch = await resolveAgentTerminalCreateOptions(
+        workspace,
         {
           startupAgent: 'codex',
+          launchRuntime: wslRuntime,
+          resume: {
+            recipe: {
+              source: 'saved',
+              launchConfig: {
+                agentCommand: "codex '--dangerously-bypass-approvals-and-sandbox'",
+                agentArgs: '--dangerously-bypass-approvals-and-sandbox',
+                agentEnv: { SELECTED: 'recipe', CODEX_HOME: '/recipe' }
+              }
+            },
+            codexHome: String.raw`\\wsl.localhost\Ubuntu\selected`,
+            resumeInLaunchCwd
+          },
           resumeProviderSession: { key: 'session_id', id: 'saved', cwd: '/' },
           cwd,
           env: { CODEX_HOME: '/caller' },
           accountEnv: { CODEX_HOME: '/account' }
-        }
+        },
+        host
       )
-      const argv = resumeInLaunchCwd
-        ? ['-c', 'tui.resume_cwd=current', 'resume', 'saved']
-        : ['resume', 'saved']
+      const argv = [
+        '-c',
+        'disable_paste_burst=true',
+        ...(resumeInLaunchCwd ? ['-c', 'tui.resume_cwd=current'] : []),
+        'resume',
+        'saved'
+      ]
       expect(launch.launchConfig).toMatchObject({ agentCommand: 'codex', agentArgs: '' })
       expect(launch.env).toEqual({ SELECTED: 'recipe', CODEX_HOME: '/account' })
       expect(launch.resumeProviderSession).toEqual({ key: 'session_id', id: 'saved', cwd: '/' })

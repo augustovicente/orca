@@ -1,5 +1,4 @@
 import type { AgentTerminalResume } from '../../../../shared/agent-terminal-resume'
-import type { MobileTerminalCreateOptions } from './mobile-terminal-renderer-create'
 import type { RuntimeMobileSessionTabsResult } from '../../../../shared/runtime-session-contracts'
 import { OrcaRuntimeWithFailedStartPanes } from './failed-start-pane'
 import type { WorktreeStartupLaunch } from '../../../../shared/worktree/launch-types'
@@ -20,9 +19,39 @@ import { navigationTargetsHost } from '../../../../shared/runtime-navigation'
 import { MOBILE_TERMINAL_CREATE_RESULT_TTL_MS } from '../../orca-runtime-core'
 import { seedResumeLaunchIdentity } from '../../../ipc/pty/pane/resume-launch-identity'
 
+/** A paired client's terminal create request. */
+export type MobileTerminalCreateOptions = {
+  terminalImageViewerSupported?: boolean
+  afterTabId?: string
+  sourceChatFork?: { sessionId: string }
+  targetGroupId?: string
+  resume?: AgentTerminalResume
+  startupAgent?: TuiAgent
+  resumeProviderSession?: AgentProviderSessionMetadata
+  accountEnv?: Record<string, string>
+  command?: string
+  shellOverride?: string
+  cwd?: string
+  env?: Record<string, string>
+  envToDelete?: string[]
+  startupCommandDelivery?: WorktreeStartupLaunch['startupCommandDelivery']
+  agent?: TuiAgent
+  agentPrompt?: string
+  launchConfig?: SleepingAgentLaunchConfig
+  launchAgent?: TuiAgent
+  viewMode?: 'terminal' | 'chat'
+  activate?: boolean
+  clientNavigationId?: string
+  clientMutationId?: string
+  supportsSplitGroupPlacement?: boolean
+  signal?: AbortSignal
+}
+
 export type OwnedMobileTerminalCreateOptions = {
   resume?: AgentTerminalResume
   startupAgent?: TuiAgent
+  /** A paired client's own create or tab open; without it a stopped WSL distro holds the start. */
+  wslUserAct?: true
   command?: string
   shellOverride?: string
   cwd?: string
@@ -139,7 +168,7 @@ export abstract class OrcaRuntimeWithCreateMobileSessionTerminal extends OrcaRun
     if (select) {
       const worktreeId =
         this.getExplicitSessionWorktreeIdSelector(worktreeSelector) ??
-        (await this.resolveWorktreeSelector(worktreeSelector)).id
+        (await this.resolveWorkspaceSelector(worktreeSelector)).id
       this.applyMobileSessionTabNavigation(
         this.getMobileSessionTabsForWorktree(worktreeId),
         result.tab.id,

@@ -1,8 +1,7 @@
-import { resolveAgentTerminalCreateOptions } from '../../runtime/runtime-agent-terminal-startup'
-import { partialRuntimeStore } from '../../runtime/runtime-store-partial-fixture'
+import { planLocalAgentTerminal } from '../../runtime/runtime-store-partial-fixture'
 import { isAgentResumeNotDispatchedResponse } from '../../../shared/agent-terminal-resume-outcome'
 import { describe, expect, it, vi } from 'vitest'
-import { setupPtyIpcSuite } from '../pty-ipc-test-harness'
+import { setupPtyIpcSuite } from './pty-ipc-test-harness'
 import {
   installRestartHarness,
   leafId,
@@ -11,50 +10,50 @@ import {
   restartSpawnArgs,
   tabId,
   worktreeId
-} from '../pty-pane-owner-swap.test-fixture'
+} from './pty-pane-owner-swap.test-fixture'
 
-vi.mock('electron', () => import('../pty-ipc-mock-registry').then((m) => m.electronModuleMock()))
-vi.mock('fs', () => import('../pty-ipc-mock-registry').then((m) => m.fsModuleMock()))
-vi.mock('node-pty', () => import('../pty-ipc-mock-registry').then((m) => m.nodePtyModuleMock()))
+vi.mock('electron', () => import('./pty-ipc-mock-registry').then((m) => m.electronModuleMock()))
+vi.mock('fs', () => import('./pty-ipc-mock-registry').then((m) => m.fsModuleMock()))
+vi.mock('node-pty', () => import('./pty-ipc-mock-registry').then((m) => m.nodePtyModuleMock()))
 vi.mock('node:child_process', async (importOriginal) =>
-  (await import('../pty-ipc-mock-registry')).childProcessModuleMock(await importOriginal())
+  (await import('./pty-ipc-mock-registry')).childProcessModuleMock(await importOriginal())
 )
 vi.mock('../../opencode/hook-service', () =>
-  import('../pty-ipc-mock-registry').then((m) => m.openCodeHookServiceModuleMock())
+  import('./pty-ipc-mock-registry').then((m) => m.openCodeHookServiceModuleMock())
 )
 vi.mock('../../mimo/hook-service', () =>
-  import('../pty-ipc-mock-registry').then((m) => m.mimoHookServiceModuleMock())
+  import('./pty-ipc-mock-registry').then((m) => m.mimoHookServiceModuleMock())
 )
 vi.mock('../../agent-hooks/server', () =>
-  import('../pty-ipc-mock-registry').then((m) => m.agentHookServerModuleMock())
+  import('./pty-ipc-mock-registry').then((m) => m.agentHookServerModuleMock())
 )
 vi.mock('../../pi/titlebar-extension-service', () =>
-  import('../pty-ipc-mock-registry').then((m) => m.piTitlebarExtensionModuleMock())
+  import('./pty-ipc-mock-registry').then((m) => m.piTitlebarExtensionModuleMock())
 )
-vi.mock('../../pwsh', () => import('../pty-ipc-mock-registry').then((m) => m.pwshModuleMock()))
+vi.mock('../../pwsh', () => import('./pty-ipc-mock-registry').then((m) => m.pwshModuleMock()))
 vi.mock('../../wsl', async (importOriginal) =>
-  (await import('../pty-ipc-mock-registry')).wslModuleMock(await importOriginal())
+  (await import('./pty-ipc-mock-registry')).wslModuleMock(await importOriginal())
 )
 vi.mock('../../telemetry/client', () =>
-  import('../pty-ipc-mock-registry').then((m) => m.telemetryClientModuleMock())
+  import('./pty-ipc-mock-registry').then((m) => m.telemetryClientModuleMock())
 )
 vi.mock('../../telemetry/classify-error', () =>
-  import('../pty-ipc-mock-registry').then((m) => m.classifyErrorModuleMock())
+  import('./pty-ipc-mock-registry').then((m) => m.classifyErrorModuleMock())
 )
 vi.mock('../../cli/linux-terminal-orca-cli-shim', () =>
-  import('../pty-ipc-mock-registry').then((m) => m.linuxCliShimModuleMock())
+  import('./pty-ipc-mock-registry').then((m) => m.linuxCliShimModuleMock())
 )
 vi.mock('../../memory/pty-registry', () =>
-  import('../pty-ipc-mock-registry').then((m) => m.ptyRegistryModuleMock())
+  import('./pty-ipc-mock-registry').then((m) => m.ptyRegistryModuleMock())
 )
 vi.mock('../../agent-hooks/migration-unsupported-pty-state', () =>
-  import('../pty-ipc-mock-registry').then((m) => m.migrationUnsupportedPtyModuleMock())
+  import('./pty-ipc-mock-registry').then((m) => m.migrationUnsupportedPtyModuleMock())
 )
 vi.mock('../../codex/codex-pane-account-registry', () =>
-  import('../pty-ipc-mock-registry').then((m) => m.codexPaneAccountRegistryModuleMock())
+  import('./pty-ipc-mock-registry').then((m) => m.codexPaneAccountRegistryModuleMock())
 )
 vi.mock('../../codex/codex-state-db-backfill-recovery', () =>
-  import('../pty-ipc-mock-registry').then((m) => m.codexBackfillRecoveryModuleMock())
+  import('./pty-ipc-mock-registry').then((m) => m.codexBackfillRecoveryModuleMock())
 )
 
 describe('pty:spawn replacing a pane owner', () => {
@@ -76,34 +75,10 @@ describe('pty:spawn replacing a pane owner', () => {
     expect(providerSpawn).toHaveBeenCalledTimes(1)
   })
 
-  it('stops the replaced owner and launches fresh instead of reattaching it', async () => {
+  it('keeps the original on typed refusal, then stops it once for corrected replacement', async () => {
     const { providerSpawn, shutdown, store, runtime } = installRestartHarness()
-    registerWithFakes(mainWindow, runtime, store)
-
-    const spawned = await handlers.get('pty:spawn')!(
-      null,
-      restartSpawnArgs({ replacesPtyId: 'pty-old' })
-    )
-
-    expect(spawned).toMatchObject({ id: 'pty-new' })
-    expect(shutdown).toHaveBeenCalledWith('pty-old', expect.objectContaining({ immediate: true }))
-    expect(spawned).not.toHaveProperty('isReattach', true)
-    const freshLaunch = providerSpawn.mock.calls.find(([options]) => !options.attachOnly)?.[0]
-    expect(freshLaunch).toMatchObject({ command: 'codex' })
-    expect(shutdown.mock.invocationCallOrder[0]).toBeLessThan(
-      providerSpawn.mock.invocationCallOrder[0]!
-    )
-  })
-
-  it('keeps the live original binding when typed planning refuses before replacement', async () => {
-    const { providerSpawn, shutdown, store, runtime } = installRestartHarness()
-    const plan = vi.fn(
-      (id: string, opts: Parameters<typeof resolveAgentTerminalCreateOptions>[1]) =>
-        resolveAgentTerminalCreateOptions(
-          { id, path: '/tmp/restart', repo: null, folderWorkspace: null, connectionId: null },
-          { ...opts, launchRuntime: { platform: 'linux', pty: {} } },
-          { store: partialRuntimeStore(), hostIdentity: 'local', toSessionOptions: () => undefined }
-        )
+    const plan = vi.fn((id: string, opts: Parameters<typeof planLocalAgentTerminal>[0]) =>
+      planLocalAgentTerminal(opts, id, '/tmp/restart')
     )
     const reportAgentLaunchPaneVerdict = vi.fn()
     registerWithFakes(
@@ -115,14 +90,15 @@ describe('pty:spawn replacing a pane owner', () => {
       store
     )
     const original = store.getWorkspaceSession()
-    const reply = await handlers.get('pty:spawn')!(null, {
+    const request = {
       ...restartSpawnArgs({ replacesPtyId: 'pty-old' }),
       command: undefined,
       launchConfig: undefined,
       launchAgent: 'claude',
       resumeProviderSession: { key: 'session_id', id: 'saved' },
       resume: { recipe: { source: 'saved', launchConfig: { agentArgs: '"', agentEnv: {} } } }
-    })
+    }
+    const reply = await handlers.get('pty:spawn')!(null, request)
     expect(isAgentResumeNotDispatchedResponse(reply)).toBe(true)
     expect(reportAgentLaunchPaneVerdict).not.toHaveBeenCalled()
     expect(shutdown).not.toHaveBeenCalled()
@@ -132,10 +108,8 @@ describe('pty:spawn replacing a pane owner', () => {
     const retry = await handlers.get('pty:spawn')!(null, restartSpawnArgs())
     expect(retry).toMatchObject({ id: 'pty-old', isReattach: true })
     const corrected = await handlers.get('pty:spawn')!(null, {
-      ...restartSpawnArgs({ replacesPtyId: 'pty-old' }),
-      command: undefined,
-      launchConfig: undefined,
-      launchAgent: 'claude',
+      ...request,
+      resumeProviderSession: undefined,
       resume: {
         providerSession: { key: 'session_id', id: 'saved' },
         recipe: { source: 'saved', launchConfig: { agentArgs: '', agentEnv: {} } }
@@ -149,8 +123,12 @@ describe('pty:spawn replacing a pane owner', () => {
     )
     expect(plan).toHaveBeenCalledTimes(2)
     expect(shutdown).toHaveBeenCalledOnce()
-    expect(shutdown).toHaveBeenCalledWith('pty-old', expect.objectContaining({ immediate: true }))
     expect(providerSpawn.mock.calls.filter(([options]) => !options.attachOnly)).toHaveLength(1)
+    const freshCallIndex = providerSpawn.mock.calls.findIndex(([options]) => !options.attachOnly)
+    expect(shutdown.mock.invocationCallOrder[0]).toBeLessThan(
+      providerSpawn.mock.invocationCallOrder[freshCallIndex]!
+    )
+    expect(shutdown).toHaveBeenCalledWith('pty-old', expect.objectContaining({ immediate: true }))
   })
 
   it('labels the replaced owner exit so the renderer keeps the pane', async () => {
@@ -222,6 +200,8 @@ describe('pty:spawn replacing a pane owner', () => {
     registerWithFakes(mainWindow, runtime, store)
     await handlers.get('pty:spawn')!(null, restartSpawnArgs({ replacesPtyId: 'pty-old' }))
     const swapped = store.getWorkspaceSession()
+    const freshLaunch = providerSpawn.mock.calls.find(([options]) => !options.attachOnly)?.[0]
+    expect(freshLaunch).toMatchObject({ command: 'codex' })
     expect(boundAtFreshLaunch).toEqual(['pty-old'])
     expect(durableBindings).toEqual(['pty-new'])
     expect(swapped.tabsByWorktree[worktreeId]).toEqual([

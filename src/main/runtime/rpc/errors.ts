@@ -10,10 +10,13 @@ import {
   type AgentSessionRefusalError
 } from '../../../shared/agent-session-wire-refusals'
 import type { RpcEnvelopeMeta, RpcFailure, RpcSuccess } from './core'
+import { CONNECTOR_REPLY_ERROR_CODES } from '../../../shared/rpc-contract/connector-params'
 import { ORCHESTRATION_SESSION_CALLER_ERROR_CODES } from '../../../shared/orchestration-session-caller-codes'
 import { computerUseErrorRecoveryData } from '../../../shared/computer-use-error-recovery'
 import { COMPUTER_ERROR_CODES } from '../../../shared/runtime-types'
 import { TerminalSplitOutcomeError } from '../../../shared/terminal-split-outcome'
+import { WslHostWindowsDriveRefusalError } from '../../../shared/wsl-host-windows-drive-refusal'
+import { wslDistroHoldRpcFailure } from '../../../shared/wsl-distro-stopped-hold'
 import { LINEAR_ERROR_CODES } from '../../../shared/linear/agent-access'
 import { AGENT_SESSION_RPC_ERROR_CODES } from '../../../shared/agent-session-host-authority'
 import { ARTIFACT_SHARING_DISABLED_CODE } from '../../../shared/artifact-sharing-gate'
@@ -103,6 +106,7 @@ const RUNTIME_PASSTHROUGH_CODES: ReadonlySet<string> = new Set([
   'remote_update_not_downloaded',
   'connectors_disabled',
   'external_conversation_not_found',
+  ...CONNECTOR_REPLY_ERROR_CODES,
   ...AGENT_SESSION_RPC_ERROR_CODES
 ])
 
@@ -190,8 +194,11 @@ export function mapRuntimeError(id: string, meta: RpcEnvelopeMeta, error: unknow
   if (isAgentSessionRefusalError(error)) {
     return agentSessionRefusalErrorResponse(id, meta, error)
   }
-  if (error instanceof TerminalSplitOutcomeError) {
-    // Keeps the code callers already match; the split's id rides in `data` for scripts.
+  if (
+    error instanceof TerminalSplitOutcomeError ||
+    error instanceof WslHostWindowsDriveRefusalError
+  ) {
+    // Keeps the code callers already match; the split's id or the refusal kind rides in `data`.
     return errorResponse(id, meta, 'runtime_error', message, error.data)
   }
   if (
@@ -263,6 +270,11 @@ export function mapRuntimeError(id: string, meta: RpcEnvelopeMeta, error: unknow
       skillInstallFailure
     )
   }
+  // Same code older clients match; people read the sentence, programs the hold in `data`.
+  const held = wslDistroHoldRpcFailure(message)
+  if (held) {
+    return errorResponse(id, meta, 'runtime_error', held.message, held.data)
+  }
   if (message === 'invalid_terminal_send') {
     return errorResponse(id, meta, 'invalid_argument', 'Missing terminal send payload')
   }
@@ -289,18 +301,15 @@ export const computerErrorData = computerUseErrorRecoveryData
 
 // BrowserError.code uses the browser namespace, separate from the runtime message-code allowlist.
 export function mapBrowserError(id: string, meta: RpcEnvelopeMeta, error: unknown): RpcFailure {
-  if (
-    error instanceof Error &&
-    'code' in error &&
-    typeof (error as { code: unknown }).code === 'string'
-  ) {
-    return errorResponse(id, meta, (error as { code: string }).code, error.message)
-  }
-  return mapRuntimeError(id, meta, error)
+  return mapNamespacedError(id, meta, error)
 }
 
 // EmulatorError.code likewise uses its own namespace rather than generic runtime_error.
 export function mapEmulatorError(id: string, meta: RpcEnvelopeMeta, error: unknown): RpcFailure {
+  return mapNamespacedError(id, meta, error)
+}
+
+function mapNamespacedError(id: string, meta: RpcEnvelopeMeta, error: unknown): RpcFailure {
   if (
     error instanceof Error &&
     'code' in error &&
