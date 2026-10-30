@@ -17,7 +17,7 @@ from trial_contract import (DiscoveryError, MARKER, SELECTORS, TASKS, acknowledg
                             schedule, select_unique, summarize, verdict)
 
 HERE = Path(__file__).resolve().parent
-REPO = HERE.parent.parent
+REPO = HERE.parents[2]
 WIN = sys.platform == "win32"
 
 

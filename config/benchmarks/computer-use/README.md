@@ -61,7 +61,7 @@ click. Interference probes remain separate from task latency comparisons.
 ## Headless contract checks
 
 ```sh
-ORCA_BACKGROUND_LAUNCH=1 python3 -m unittest discover -s bench/computer-use -p 'test_*.py'
+ORCA_BACKGROUND_LAUNCH=1 python3 -m unittest discover -s config/benchmarks/computer-use -p 'test_*.py'
 ```
 
 These checks protect the historical false-success cases and process-tree cleanup.
