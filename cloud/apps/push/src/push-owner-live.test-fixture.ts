@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest'
-import { companion, headers, integer, text } from './push-owner-integration.test-fixture.js'
+import { companion, headers, integer, ownerCleanup, text } from './push-owner-integration.test-fixture.js'
 import { createPushServerHarness } from './push-server-harness.test-fixture.js'
 
 it('serves live production route/registration/dispatch and fenced settlement to the owner parent', async () => {
@@ -14,6 +14,7 @@ it('serves live production route/registration/dispatch and fenced settlement to 
       return decision
     } }
   })
+  let primary: { failed: true; error: unknown } | undefined
   try {
     await companion('cloud', async (op, data) => {
       if (op === 'http') {
@@ -32,6 +33,7 @@ it('serves live production route/registration/dispatch and fenced settlement to 
           pending: await h.database.query('SELECT state FROM push_delivery_batches'),
           recipients: await h.database.query('SELECT * FROM push_event_recipients'),
           decisions,
+          fcmProviders: h.fcmRequests.map((request) => ({ body: request.body })),
           providers: h.apnsRequests.map((request) => ({ path: request.path, body: request.body }))
         }
       }
@@ -40,5 +42,9 @@ it('serves live production route/registration/dispatch and fenced settlement to 
     })
     // The parent checks exact payload/claim/queue evidence; this child must reach real teardown.
     expect(h.apnsRequests.length).toBeGreaterThan(0)
-  } finally { observed.mockRestore(); await h.close() }
+  } catch (error) { primary = { failed: true, error } }
+  const cleanup = ownerCleanup(primary)
+  await cleanup.run(() => observed.mockRestore())
+  await cleanup.run(() => h.close())
+  cleanup.finish()
 }, 120_000)

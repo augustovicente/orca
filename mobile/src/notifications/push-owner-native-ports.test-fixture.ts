@@ -109,6 +109,10 @@ vi.mock('react-native', () => ({
     }
   }
 }))
+vi.mock('expo-notifications', () => ({
+  getPresentedNotificationsAsync: async () => [],
+  dismissNotificationAsync: async () => {}
+}))
 vi.mock('./desktop-notification-channel', () => ({
   ensureDesktopNotificationChannel: async () => {}
 }))

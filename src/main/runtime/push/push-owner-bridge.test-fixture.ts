@@ -180,30 +180,4 @@ export async function integrationDeadline<T>(
   }
 }
 
-export function ownerCleanup(primary?: { failed: true; error: unknown }) {
-  const failures: unknown[] = primary ? [primary.error] : []
-  return {
-    get failed() {
-      return failures.length > 0
-    },
-    async run(operation: () => unknown): Promise<void> {
-      try {
-        await operation()
-      } catch (error) {
-        failures.push(error)
-      }
-    },
-    finish(): void {
-      if (failures.length === 1) {
-        throw failures[0]
-      }
-      if (failures.length > 1) {
-        throw new AggregateError(
-          failures,
-          'Live owner iteration or cleanup failed',
-          primary ? { cause: primary.error } : undefined
-        )
-      }
-    }
-  }
-}
+export { ownerCleanup } from '../../../../cloud/apps/push/src/push-owner-integration.test-fixture'

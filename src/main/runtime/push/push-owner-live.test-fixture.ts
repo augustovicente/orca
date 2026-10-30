@@ -1,8 +1,8 @@
+import { launchOwnerCompanions } from './push-owner-companions.test-fixture'
+import { runRfp1Observation } from './push-rfp1-observation.test-fixture'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
-import { createRequire } from 'node:module'
-import { runProcess } from '@orca/process-host'
+import { join, resolve } from 'node:path'
 import { expect, it, vi } from 'vitest'
 import {
   createOwnerBridge,
@@ -112,22 +112,7 @@ it('keeps T2 through late/lost actual replies and recovers bounded source failur
     }
     return result
   })
-  const launches = ['cloud', 'mobile'].map(async (role) => {
-    const cwd = role === 'cloud' ? join(root, 'cloud/apps/push') : join(root, 'mobile')
-    const require = createRequire(join(cwd, 'package.json'))
-    const cli = join(dirname(require.resolve('vitest/package.json')), 'vitest.mjs')
-    return runProcess({
-      program: process.execPath,
-      args: [cli, 'run', '--config', join(root, `config/push-owner-${role}.vitest.config.mjs`)],
-      cwd,
-      env: { ...process.env, ORCA_BACKGROUND_LAUNCH: '1', ORCA_PUSH_OWNER_BRIDGE: base },
-      signal: abort.signal,
-      timeoutMs: 150_000,
-      terminationBarrier: true,
-      onChildTerminated: () => closed.add(role),
-      stdio: 'inherit'
-    })
-  })
+  const launches = launchOwnerCompanions(root, base, abort, closed)
   const resultsPromise = Promise.allSettled(launches)
   let primary: { failed: true; error: unknown } | undefined
   const advance = async (delta: number) => {
@@ -295,3 +280,9 @@ it('keeps T2 through late/lost actual replies and recovers bounded source failur
   })
   cleanup.finish()
 }, 180_000)
+
+it(
+  'captures raw old-peer view/source currentness through the live signed provider graph',
+  runRfp1Observation,
+  180_000
+)

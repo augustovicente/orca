@@ -1,3 +1,4 @@
+import { runObservationPhone } from './push-rfp1-phone.test-fixture'
 import { pushOwnerNativePorts } from './push-owner-native-ports.test-fixture'
 import { expect, it, vi } from 'vitest'
 import nacl from 'tweetnacl'
@@ -23,6 +24,10 @@ const ports = pushOwnerNativePorts()
 
 it('runs the actual current-owner, prepared sender and signed publisher against live parent desktop/cloud actors', async () => {
   const base = text(process.env.ORCA_PUSH_OWNER_BRIDGE)
+  if (process.env.ORCA_PUSH_OWNER_EXPERIMENT === '1') {
+    await runObservationPhone(base)
+    return
+  }
   const nativeFetch = globalThis.fetch
   let stop: (() => void) | undefined
   const detach: (() => void)[] = []
