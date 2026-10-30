@@ -1,3 +1,4 @@
+import { getRepoSourceHostCount } from '../task-project-source-combobox-model'
 import { getProjectGroupingIndexFromState } from '@/store/project-host-setup-selector'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Check, ChevronRight, ChevronsUpDown, FolderPlus } from 'lucide-react'
@@ -44,10 +45,6 @@ function hasMultipleHosts(repos: readonly Repo[]): boolean {
     }
   }
   return false
-}
-
-function hasMultipleHostsInGroup(sources: readonly Repo[]): boolean {
-  return hasMultipleHosts(sources)
 }
 
 export default function AutomationProjectCombobox({
@@ -267,10 +264,11 @@ export default function AutomationProjectCombobox({
             {filteredGroups.map((group) => {
               const selectedSource = getAutomationProjectSelectedSource(group, value)
               const selectedProject = group.sources.some((source) => source.id === value)
-              const hasHostMenu = hasMultipleHostsInGroup(group.sources)
+              const hostCount = getRepoSourceHostCount(group.sources)
+              const hasHostMenu = hostCount > 1
               const hostLabel = showHostLabels ? getRepoHostLabel?.(selectedSource) : null
               const detail = hasHostMenu
-                ? `${hostLabel?.trim() || getRepoExecutionHostId(selectedSource)} · ${projectHostCountLabel(group.sources.length)}`
+                ? `${hostLabel?.trim() || getRepoExecutionHostId(selectedSource)} · ${projectHostCountLabel(hostCount)}`
                 : getRepoDetail(selectedSource, hostLabel)
               return (
                 <div

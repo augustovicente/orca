@@ -6,6 +6,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { useAllWorktrees, useRepoMap, useWorktreeMap } from '@/store/selectors'
 import type { ProjectGroup } from '../../../../shared/project-group-types'
 import type { Repo } from '../../../../shared/repo-types'
+import { getHeaderCreateWorkspaceTarget } from './header-create-workspace-target'
 import {
   getRepoExecutionHostId,
   getSettingsFocusedExecutionHostId
@@ -155,8 +156,13 @@ const WorktreeList = React.memo(function WorktreeList({
   }, [])
 
   const handleCreateForRepo = useCallback(
-    (projectId: string) => {
-      openModal('new-workspace-composer', { initialRepoId: projectId, telemetrySource: 'sidebar' })
+    (repo: Repo, { pinHost }: { pinHost: boolean }) => {
+      const { repos, projectHostSetups } = useAppStore.getState()
+      openModal('new-workspace-composer', {
+        initialRepoId: repo.id,
+        ...(pinHost ? getHeaderCreateWorkspaceTarget(repo, repos, projectHostSetups) : {}),
+        telemetrySource: 'sidebar'
+      })
     },
     [openModal]
   )

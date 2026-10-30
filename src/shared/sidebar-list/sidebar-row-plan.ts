@@ -184,7 +184,7 @@ export function planSidebarRows(inputs: SidebarRowPlanInputs) {
     const result: Row[] = []
     if (groupBy !== 'repo') {
       for (const creation of pendingCreations) {
-        result.push(buildPendingCreationRow(creation, repoMap))
+        result.push(buildPendingCreationRow(creation, repoMap, repoByHost))
       }
     }
     // Include pinned-only rows when testing mixed hosts or pinned remotes lose host labels.
@@ -196,8 +196,10 @@ export function planSidebarRows(inputs: SidebarRowPlanInputs) {
     )
     // Project ambiguity is independent of section/host filters; repoMap decides it, candidate maps gate notice eligibility.
     const noticeHostContextLabelByRepoId = getNoticeHostContextLabels(
-      new Set([...importedWorktreesByRepo.keys(), ...newExternalWorktreesInboxByRepo.keys()]),
-      repoMap.keys(),
+      [...importedWorktreesByRepo.values(), ...newExternalWorktreesInboxByRepo.values()].map(
+        (candidate) => candidate.repo
+      ),
+      inputs.repos ?? repoMap.values(),
       repoMap,
       projectIndex,
       hostLabelById
@@ -206,6 +208,8 @@ export function planSidebarRows(inputs: SidebarRowPlanInputs) {
       groupBy,
       worktrees: naturalWorktrees,
       repoMap,
+      repoOf,
+      defaultHostId,
       prGroupOf,
       collapsedGroups,
       workspaceStatuses,

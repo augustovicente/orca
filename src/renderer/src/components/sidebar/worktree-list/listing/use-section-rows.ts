@@ -1,16 +1,13 @@
 import { useCallback, useMemo, useState } from 'react'
-import { shallow } from 'zustand/shallow'
-import { persistedUIValuesEqual } from '../../../../../../shared/persisted-ui-equality'
 import { useShallow } from 'zustand/react/shallow'
 import { useAppStore } from '@/store'
-import type { AppState } from '@/store/types'
-import type { Repo } from '../../../../../../shared/repo-types'
 import {
   getLocalExecutionHostLabel,
   type ExecutionHostId
 } from '../../../../../../shared/execution-host'
 import { getHostDisplayLabelOverrides } from '../../../../../../shared/host-setting-overrides'
 import { planSidebarRows } from '../../../../../../shared/sidebar-list/sidebar-row-plan'
+import { createHostScopedRepoOf } from '../../../../../../shared/sidebar-list/sidebar-feed-index'
 import { createSidebarPRGroupReader } from '../grouping/pr-group-key'
 import { useEffectiveCollapsedGroups } from './use-collapsed-groups'
 import type { Row } from '../../../../../../shared/sidebar-list/row-types'
@@ -30,57 +27,11 @@ import {
 } from '../../../../../../shared/sidebar-list/host-section-order'
 import type { ExecutionHostRegistryEntry } from '../../../../../../shared/execution-host-registry'
 import {
-  type SidebarHostOption,
-  buildSidebarHostOptions,
-  sidebarHostSemantics,
+  createSidebarHostOptionsSelector,
   createSidebarHostLabelsSelector
 } from '../../sidebar-host-options'
 import { selectPendingWorktreeCreationKeys } from './pending-worktree-creation-keys'
 import { selectWorktreesByRepo } from '@/store/workspace-record-selectors'
-
-function createSidebarHostOptionsSelector() {
-  let inputs: readonly unknown[] = []
-  let result: SidebarHostOption[] = []
-  return (
-    state: AppState,
-    repos: readonly Repo[],
-    settings: AppState['settings'],
-    hostLabelOverrides: Parameters<typeof buildSidebarHostOptions>[0]['hostLabelOverrides']
-  ): SidebarHostOption[] => {
-    const nextInputs = [
-      repos,
-      state.sshTargetLabels,
-      state.sshConnectionStates,
-      settings,
-      state.runtimeStatusByEnvironmentId,
-      state.runtimeEnvironments,
-      hostLabelOverrides,
-      state.wslHostStatuses,
-      settings?.experimentalWslHosts === true,
-      state.wslHostServerFiles === 'missing'
-    ]
-    if (shallow(inputs, nextInputs)) {
-      return result
-    }
-    inputs = nextInputs
-    const next = buildSidebarHostOptions({
-      repos,
-      sshTargetLabels: state.sshTargetLabels,
-      sshConnectionStates: state.sshConnectionStates,
-      settings,
-      runtimeEnvironments: state.runtimeEnvironments,
-      runtimeStatusByEnvironmentId: state.runtimeStatusByEnvironmentId,
-      hostLabelOverrides,
-      wslHostStatuses: state.wslHostStatuses,
-      wslHostsEnabled: settings?.experimentalWslHosts === true,
-      wslHostServerFilesMissing: state.wslHostServerFiles === 'missing'
-    })
-    if (!persistedUIValuesEqual(result.map(sidebarHostSemantics), next.map(sidebarHostSemantics))) {
-      result = next
-    }
-    return result
-  }
-}
 
 export function useSidebarSectionRows(args: SectionRowsArgs) {
   const { repos, worktrees, repoMap, defaultHostId } = args
@@ -138,6 +89,8 @@ export function useSidebarSectionRows(args: SectionRowsArgs) {
 
   const hostScopedGroups =
     args.workspaceHostScope !== 'all' || args.visibleWorkspaceHostIds !== null
+  // Same-id registrations on two hosts: each row and project header needs its own host's.
+  const repoOfWorktree = useMemo(() => createHostScopedRepoOf(repos, repoMap), [repos, repoMap])
   const rowPlan = useMemo(
     () =>
       planSidebarRows({
@@ -145,6 +98,7 @@ export function useSidebarSectionRows(args: SectionRowsArgs) {
         worktrees,
         repoMap,
         repos,
+        repoOfWorktree,
         prGroupOf: createSidebarPRGroupReader(repoMap, args.prCache),
         repoOrder,
         workspaceStatuses: args.workspaceStatuses,
@@ -169,6 +123,7 @@ export function useSidebarSectionRows(args: SectionRowsArgs) {
       repos,
       worktrees,
       repoMap,
+      repoOfWorktree,
       args.prCache,
       defaultHostId,
       repoOrder,

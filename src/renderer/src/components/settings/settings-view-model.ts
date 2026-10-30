@@ -1,4 +1,10 @@
-import { useCallback } from 'react'
+import {
+  getSettingsEntryHostSelection,
+  getSettingsProjectSelectedSetup,
+  projectSettingsConcreteSelection,
+  type SettingsConcreteSelection
+} from './settings-project-list'
+import { useCallback, useEffect, useState } from 'react'
 import type { SettingsNavGroup } from '@/lib/settings-navigation-types'
 import { translate } from '@/i18n/i18n'
 import type { SettingsStoreModel } from './use-settings-store-model'
@@ -131,3 +137,123 @@ export function buildSettingsViewModel(
 }
 
 export type SettingsViewModel = ReturnType<typeof buildSettingsViewModel>
+
+export function useConcreteProjectContinuity(
+  model: SettingsStoreModel,
+  interactions: SettingsInteractionController,
+  visibleSectionIds: ReadonlySet<string>
+): SettingsStoreModel {
+  const {
+    activeSectionId: storedActiveSectionId,
+    settingsProjectList,
+    settingsProjectHostSelection,
+    settingsProjectSetupSelection,
+    setActiveSectionId,
+    setSettingsProjectHostSelection
+  } = model
+  const [committed, setCommitted] = useState<{
+    anchor: SettingsConcreteSelection
+    hosts: SettingsStoreModel['settingsProjectHostSelection']
+    setups: SettingsStoreModel['settingsProjectSetupSelection']
+  } | null>(null)
+  const anchor =
+    committed?.hosts === settingsProjectHostSelection &&
+    committed.setups === settingsProjectSetupSelection
+      ? committed.anchor
+      : null
+  const projected =
+    !interactions.pendingNavSectionRef.current && !model.settingsNavigationTarget
+      ? projectSettingsConcreteSelection(settingsProjectList, storedActiveSectionId, anchor)
+      : null
+  const selection = projected && visibleSectionIds.has(projected.sectionId) ? projected : null
+  const selectedHostId = selection?.hostId
+  const selectedSetupId = selection?.setupId
+  const activeSectionId = selection?.sectionId ?? storedActiveSectionId
+  const hosts = selection
+    ? {
+        ...settingsProjectHostSelection,
+        [activeSectionId.slice('repo-'.length)]: selection.hostId
+      }
+    : settingsProjectHostSelection
+  const setups = selection
+    ? {
+        ...settingsProjectSetupSelection,
+        [activeSectionId.slice('repo-'.length)]: selection.setupId
+      }
+    : settingsProjectSetupSelection
+  useEffect(() => {
+    if (selectedHostId !== undefined && selectedSetupId !== undefined) {
+      if (storedActiveSectionId !== activeSectionId) {
+        setActiveSectionId(activeSectionId)
+      }
+      const key = activeSectionId.slice('repo-'.length)
+      if (
+        settingsProjectHostSelection[key] !== selectedHostId ||
+        settingsProjectSetupSelection[key] !== selectedSetupId
+      ) {
+        setSettingsProjectHostSelection(key, selectedHostId, selectedSetupId)
+      }
+    }
+    const entry = settingsProjectList.find(
+      (candidate) => `repo-${candidate.selectionKey}` === activeSectionId
+    )
+    const explicit = entry
+      ? getSettingsEntryHostSelection(
+          entry,
+          settingsProjectHostSelection,
+          settingsProjectSetupSelection
+        )
+      : null
+    const setup =
+      entry && explicit
+        ? getSettingsProjectSelectedSetup(
+            entry,
+            selectedHostId ?? explicit.hostId,
+            selectedSetupId ?? explicit.setupId
+          )
+        : null
+    const next =
+      setup && visibleSectionIds.has(activeSectionId)
+        ? {
+            sectionId: activeSectionId,
+            repoId: setup.repoId,
+            hostId: setup.hostId,
+            setupId: setup.id
+          }
+        : null
+    setCommitted((previous) =>
+      next
+        ? previous &&
+          previous.anchor.sectionId === next.sectionId &&
+          previous.anchor.repoId === next.repoId &&
+          previous.anchor.hostId === next.hostId &&
+          previous.anchor.setupId === next.setupId &&
+          previous.hosts === settingsProjectHostSelection &&
+          previous.setups === settingsProjectSetupSelection
+          ? previous
+          : {
+              anchor: next,
+              hosts: settingsProjectHostSelection,
+              setups: settingsProjectSetupSelection
+            }
+        : null
+    )
+  }, [
+    activeSectionId,
+    storedActiveSectionId,
+    settingsProjectList,
+    settingsProjectHostSelection,
+    settingsProjectSetupSelection,
+    setActiveSectionId,
+    setSettingsProjectHostSelection,
+    selectedHostId,
+    selectedSetupId,
+    visibleSectionIds
+  ])
+  return {
+    ...model,
+    activeSectionId,
+    settingsProjectHostSelection: hosts,
+    settingsProjectSetupSelection: setups
+  }
+}

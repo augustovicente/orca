@@ -7,7 +7,7 @@ import { projectHostCountLabel } from './project-host-count-label'
 import {
   selectedTaskProjectGroups,
   getSelectedTaskProjectSource,
-  hasMultipleTaskProjectHostsInGroup
+  getRepoSourceHostCount
 } from './task-project-source-combobox-model'
 
 export type TaskProjectSourceStatus = {
@@ -55,15 +55,16 @@ export function getProjectDetail(
   group: TaskProjectPickerGroup,
   selected: ReadonlySet<string>,
   showHostLabels: boolean,
-  getRepoHostLabel?: (repo: Repo) => string | null | undefined
+  getRepoHostLabel?: (repo: Repo) => string | null | undefined,
+  sourceHostCount = getRepoSourceHostCount(group.sources)
 ): string {
   const selectedSource = getSelectedTaskProjectSource(group, selected)
   if (!selectedSource) {
     return translate('projects.unavailableSource', 'Unavailable')
   }
   const hostLabel = showHostLabels ? getRepoHostLabel?.(selectedSource)?.trim() : ''
-  if (hasMultipleTaskProjectHostsInGroup(group)) {
-    const hostCount = projectHostCountLabel(group.sources.length)
+  if (sourceHostCount > 1) {
+    const hostCount = projectHostCountLabel(sourceHostCount)
     return hostLabel ? `${hostLabel} · ${hostCount}` : hostCount
   }
   return hostLabel ? `${hostLabel} · ${selectedSource.path}` : selectedSource.path

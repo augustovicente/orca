@@ -18,15 +18,18 @@ export type PaletteFilterGroup = {
   heading: string
   options: readonly PaletteFilterOption[]
   selected: readonly string[]
+  partial?: ReadonlySet<string>
 }
 
 function FilterOptionRow({
   option,
   isSelected,
+  isPartial,
   isActive,
   onToggle
 }: {
   option: PaletteFilterOption
+  isPartial?: boolean
   isSelected: boolean
   isActive: boolean
   onToggle: () => void
@@ -52,7 +55,10 @@ function FilterOptionRow({
       >
         {isSelected ? <Check className="size-3" aria-hidden="true" /> : null}
       </span>
-      <span className="min-w-0 flex-1 truncate text-foreground">{option.label}</span>
+      <span className="min-w-0 flex-1 truncate text-foreground">
+        {option.label}
+        {isPartial ? ` · ${translate('projectFilter.partial', 'Partial')}` : ''}
+      </span>
       <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground/70">
         {option.count}
       </span>
@@ -202,7 +208,7 @@ export function PaletteFilterFieldOptions({
       : translate('worktreeJumpPalette.filter.clearProjects', 'Clear projects')
 
   const canSelectAll = ranked.unselectedCount > 0
-  const canClear = ranked.selectedCount > 0
+  const canClear = group.selected.length > 0
 
   return (
     <>
@@ -288,6 +294,7 @@ export function PaletteFilterFieldOptions({
                   <FilterOptionRow
                     option={option}
                     isSelected={selected.has(option.id)}
+                    isPartial={group.partial?.has(option.id)}
                     isActive={virtualItem.index === activeIndex}
                     onToggle={() => onToggle(option.id)}
                   />

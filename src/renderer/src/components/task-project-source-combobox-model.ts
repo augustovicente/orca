@@ -50,5 +50,9 @@ export function hasMultipleTaskProjectHosts(groups: readonly TaskProjectPickerGr
 }
 
 export function hasMultipleTaskProjectHostsInGroup(group: TaskProjectPickerGroup): boolean {
-  return hasMultipleTaskProjectHosts([group])
+  return getRepoSourceHostCount(group.sources) > 1
+}
+
+export function getRepoSourceHostCount(sources: readonly Repo[]): number {
+  return new Set(sources.map(getRepoExecutionHostId)).size
 }

@@ -246,15 +246,51 @@ export function getSettingsProjectHostRepo(
   selectedHostId: ExecutionHostId | undefined,
   selectedSetupId?: string
 ): Repo | undefined {
-  const effectiveHostId = resolveEffectiveProjectHost(settingsProject.setups, selectedHostId)
-  if (!effectiveHostId) {
-    return undefined
+  const setup = getSettingsProjectSelectedSetup(settingsProject, selectedHostId, selectedSetupId)
+  return setup ? (buildProjectSetupRepoLookup(repos).resolve(setup) ?? undefined) : undefined
+}
+
+/** The same concrete selection supplies rendering and continuity, even without a hydrated Repo. */
+export function getSettingsProjectSelectedSetup(
+  entry: SettingsProject,
+  hostId: ExecutionHostId | undefined,
+  setupId?: string
+): ProjectHostSetup | undefined {
+  const host = resolveEffectiveProjectHost(entry.setups, hostId)
+  return (
+    entry.setups.find((setup) => setup.id === setupId && setup.hostId === host) ??
+    entry.setups.find((setup) => setup.hostId === host) ??
+    entry.setups[0]
+  )
+}
+
+export type SettingsConcreteSelection = {
+  sectionId: string
+  repoId: string
+  hostId: ExecutionHostId
+  setupId: string
+}
+
+export function projectSettingsConcreteSelection(
+  entries: readonly SettingsProject[],
+  activeSectionId: string,
+  anchor: SettingsConcreteSelection | null
+): SettingsConcreteSelection | null {
+  if (!anchor || anchor.sectionId !== activeSectionId) {
+    return null
   }
-  const effectiveSetup =
-    settingsProject.setups.find(
-      (setup) => setup.id === selectedSetupId && setup.hostId === effectiveHostId
-    ) ??
-    settingsProject.setups.find((setup) => setup.hostId === effectiveHostId) ??
-    settingsProject.setups[0]
-  return buildProjectSetupRepoLookup(repos).resolve(effectiveSetup) ?? undefined
+  const target = getSettingsTargetHostSelection(entries, anchor.repoId, anchor.hostId)
+  if (!target) {
+    return null
+  }
+  const entry = entries.find((candidate) => candidate.selectionKey === target.selectionKey)
+  const setupId = entry?.setups.some(
+    (setup) =>
+      setup.id === anchor.setupId &&
+      setup.hostId === anchor.hostId &&
+      setup.repoId === anchor.repoId
+  )
+    ? anchor.setupId
+    : target.setupId
+  return { ...anchor, sectionId: `repo-${target.selectionKey}`, setupId }
 }

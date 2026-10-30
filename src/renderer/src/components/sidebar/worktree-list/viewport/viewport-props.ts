@@ -49,13 +49,13 @@ export type VirtualizedWorktreeViewportProps = {
   projectOrderBy: ProjectOrderBy
   toggleGroup: (key: string) => void
   collapsedGroups: Set<string>
-  handleCreateForRepo: (projectId: string) => void
+  handleCreateForRepo: (repo: Repo, options: { pinHost: boolean }) => void
   handleOpenRepoSettings: (projectId: string, sectionId?: string) => void
   handleOpenWorktreeVisibility: (repo: Repo) => void
-  handleShowImportedWorktrees: (projectId: string) => void
-  handleKeepImportedWorktreesHidden: (projectId: string) => void
+  handleShowImportedWorktrees: (repo: Repo) => void
+  handleKeepImportedWorktreesHidden: (repo: Repo) => void
   importedWorktreeCardActionState: ReadonlyMap<string, ImportedWorktreeCardActionState>
-  handleOpenSuppressExternalWorktreeInbox: (projectId: string) => void
+  handleOpenSuppressExternalWorktreeInbox: (repo: Repo) => void
   newExternalWorktreeInboxActionState: ReadonlyMap<string, NewExternalWorktreesInboxActionState>
   handleRemoveProject: (repo: Repo) => void
   handleCreateGroupFromRepo: (repo: Repo) => void

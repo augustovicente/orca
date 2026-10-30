@@ -1,3 +1,10 @@
+import { getRepoHostIdentityForParts } from '../repo-host-identity'
+import {
+  getWorktreeExecutionHostId,
+  LOCAL_EXECUTION_HOST_ID,
+  type ExecutionHostId
+} from '../execution-host'
+import type { RepoOfWorktree } from './row-types'
 import type { Repo } from '../repo-types'
 import type { WorkspaceStatusDefinition, Worktree } from '../worktree/types'
 import type { ProjectSectionModel } from '../project-section-grouping'
@@ -12,14 +19,18 @@ export function getRenderedNaturalAnchorRepoIds({
   groupBy,
   worktrees,
   repoMap,
+  repoOf = (worktree) => repoMap.get(worktree.repoId),
   prGroupOf,
   collapsedGroups,
   workspaceStatuses,
   workspaceStatusById,
-  projectGrouping
+  projectGrouping,
+  defaultHostId = LOCAL_EXECUTION_HOST_ID
 }: {
+  defaultHostId?: ExecutionHostId
   groupBy: WorktreeGroupBy
   worktrees: readonly Worktree[]
+  repoOf?: RepoOfWorktree
   repoMap: Map<string, Repo>
   prGroupOf: SidebarPRGroupReader
   collapsedGroups: ReadonlySet<string>
@@ -31,14 +42,24 @@ export function getRenderedNaturalAnchorRepoIds({
   if (groupBy === 'none') {
     if (!collapsedGroups.has(ALL_GROUP_KEY)) {
       for (const worktree of worktrees) {
-        renderedRepoIds.add(worktree.repoId)
+        renderedRepoIds.add(
+          getRepoHostIdentityForParts(
+            worktree.repoId,
+            getWorktreeExecutionHostId(worktree, repoOf(worktree), defaultHostId)
+          )
+        )
       }
     }
     return renderedRepoIds
   }
   if (groupBy === 'repo') {
     for (const worktree of worktrees) {
-      renderedRepoIds.add(worktree.repoId)
+      renderedRepoIds.add(
+        getRepoHostIdentityForParts(
+          worktree.repoId,
+          getWorktreeExecutionHostId(worktree, repoOf(worktree), defaultHostId)
+        )
+      )
     }
     return renderedRepoIds
   }
@@ -53,7 +74,12 @@ export function getRenderedNaturalAnchorRepoIds({
       workspaceStatusById
     )
     if (groupKey && !collapsedGroups.has(groupKey)) {
-      renderedRepoIds.add(worktree.repoId)
+      renderedRepoIds.add(
+        getRepoHostIdentityForParts(
+          worktree.repoId,
+          getWorktreeExecutionHostId(worktree, repoOf(worktree), defaultHostId)
+        )
+      )
     }
   }
   return renderedRepoIds

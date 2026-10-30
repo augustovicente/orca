@@ -1,3 +1,4 @@
+import { useConcreteProjectContinuity } from './settings-view-model'
 import { useCallback, useMemo } from 'react'
 import { applyDocumentTheme } from '@/lib/document-theme'
 import { useSettingsNavigationMetadata } from '@/hooks/useSettingsNavigationMetadata'
@@ -155,18 +156,19 @@ export function useSettingsNavigationModel(
     () => new Set(visibleNavSections.map((section) => section.id)),
     [visibleNavSections]
   )
+  const currentModel = useConcreteProjectContinuity(model, interactions, visibleSectionIds)
   const neededSectionIds = useMemo(
     () =>
       deriveNeededSectionIds({
         navSectionIds: navSections.map((section) => section.id),
         mountedSectionIds: model.mountedSectionIds,
-        activeSectionId: model.activeSectionId,
+        activeSectionId: currentModel.activeSectionId,
         pendingSectionId: interactions.pendingNavSectionRef.current,
         query: model.settingsSearchQuery,
         visibleSectionIds
       }),
     [
-      model.activeSectionId,
+      currentModel.activeSectionId,
       model.mountedSectionIds,
       interactions.pendingNavSectionRef,
       navSections,
@@ -176,6 +178,7 @@ export function useSettingsNavigationModel(
   )
 
   return {
+    model: currentModel,
     applyTheme,
     displayedGitUsername,
     navSections,

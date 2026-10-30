@@ -20,13 +20,13 @@ export function getEmptyProjectPlaceholderRepoIds(args: {
   const matchesRepo = projectRepoFilterMatcher(args.filterRepoIds)
   const visibleRepoIds = new Set(
     args.visibleWorktrees.map((worktree) =>
-      getRepoHostIdentityForParts(worktree.repoId, getWorktreeExecutionHostId(worktree))
+      getRepoHostIdentityForParts(worktree.repoId, getWorktreeExecutionHostId(worktree, undefined))
     )
   )
   const populated = new Set(
     Object.values(args.worktreesByRepo).flatMap((rows) =>
       (rows ?? []).map((row) =>
-        getRepoHostIdentityForParts(row.repoId, getWorktreeExecutionHostId(row))
+        getRepoHostIdentityForParts(row.repoId, getWorktreeExecutionHostId(row, undefined))
       )
     )
   )

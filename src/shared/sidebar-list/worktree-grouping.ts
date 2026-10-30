@@ -14,6 +14,7 @@ import type { OrderedGroupEntry, WorktreeGroupEntry } from './worktree-group-ent
 import { buildProjectSections, type ProjectGroupingIndex } from '../project-section-grouping'
 import { orderProjectSections } from '../project-section-order'
 import type {
+  ProjectSectionNotice,
   ImportedWorktreesCardCandidate,
   NewExternalWorktreesInboxCandidate,
   PendingCreationRef,
@@ -71,10 +72,18 @@ export function buildOrderedGroups(args: {
       placeholderRepoIds,
       noticeRepos: [
         ...[...importedWorktreesByRepo].map(
-          ([repoId, candidate]) => [repoId, candidate.repo] as const
+          ([repoId, candidate]): readonly [string, Repo, ProjectSectionNotice] => [
+            repoId,
+            candidate.repo,
+            { kind: 'imported', candidate }
+          ]
         ),
         ...[...newExternalWorktreesInboxByRepo].map(
-          ([repoId, candidate]) => [repoId, candidate.repo] as const
+          ([repoId, candidate]): readonly [string, Repo, ProjectSectionNotice] => [
+            repoId,
+            candidate.repo,
+            { kind: 'external', candidate }
+          ]
         )
       ],
       pendingRepoIds: pendingByRepo.keys(),

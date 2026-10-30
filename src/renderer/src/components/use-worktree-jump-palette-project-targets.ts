@@ -1,3 +1,7 @@
+import {
+  getRepoHostIdentity,
+  getRepoHostIdentityForParts
+} from '../../../shared/repo-host-identity'
 import { useAppStore } from '@/store'
 import { getProjectGroupingIndexFromState } from '@/store/project-host-setup-selector'
 import { useMemo } from 'react'
@@ -72,15 +76,19 @@ export function useWorktreeJumpPaletteProjectTargets({
         ids.add(repo.id)
       }
     }
-    for (const repoId of buildImportedWorktreesCardCandidates({
+    for (const candidate of buildImportedWorktreesCardCandidates({
       repos,
       detectedWorktreesByRepo,
       visibilityDefaultsByHost: worktreeVisibilityDefaultsByHost
-    }).keys()) {
-      ids.add(repoId)
+    }).values()) {
+      ids.add(getRepoHostIdentity(candidate.repo))
     }
     for (const creation of Object.values(pendingWorktreeCreations)) {
-      ids.add(creation.request.repoId)
+      ids.add(
+        creation.request.executionHostId
+          ? getRepoHostIdentityForParts(creation.request.repoId, creation.request.executionHostId)
+          : creation.request.repoId
+      )
     }
     return ids
   }, [

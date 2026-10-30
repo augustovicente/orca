@@ -1,3 +1,4 @@
+import { getRepoHostIdentity } from '../../../../shared/repo-host-identity'
 import { getRepoExecutionHostId } from '../../../../shared/execution-host'
 import type { ProjectGroupingSettings } from '../../../../shared/project-grouping'
 import { isCmdJPaletteQueryTooLarge } from './palette-results'
@@ -18,6 +19,7 @@ import { getDistinctProjectGroups } from '../../../../shared/project-groups'
 import {
   buildProjectGroupingIndex,
   getProjectGroupingForRepo,
+  getProjectSectionRepoLookup,
   type ProjectGroupingIndex
 } from '../../../../shared/project-section-grouping'
 
@@ -85,6 +87,7 @@ function buildCmdJProjectSearchCandidates({
 }): CmdJProjectSearchResult[] {
   const index = projectIndex ?? buildProjectGroupingIndex({ projects, projectHostSetups, settings })
   const repoMap = new Map(repos.map((repo) => [repo.id, repo]))
+  const repoByHost = getProjectSectionRepoLookup(repos)
   const candidates: CmdJProjectSearchResult[] = []
 
   getDistinctProjectGroups(projectGroups).forEach((group, order) => {
@@ -104,10 +107,20 @@ function buildCmdJProjectSearchCandidates({
 
   const seenRowKeys = new Set<string>()
   repos.forEach((repo, repoIndex) => {
-    if (renderableRepoIds && !renderableRepoIds.has(repo.id)) {
+    if (
+      renderableRepoIds &&
+      !renderableRepoIds.has(repo.id) &&
+      !renderableRepoIds.has(getRepoHostIdentity(repo))
+    ) {
       return
     }
-    const target = getProjectGroupingForRepo(repo.id, repoMap, index, getRepoExecutionHostId(repo))
+    const target = getProjectGroupingForRepo(
+      repo.id,
+      repoMap,
+      index,
+      getRepoExecutionHostId(repo),
+      repoByHost
+    )
     if (!target.repo || seenRowKeys.has(target.key)) {
       return
     }

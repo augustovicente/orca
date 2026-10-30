@@ -19,7 +19,7 @@ import type { TaskProjectPickerGroup } from './task-page/task-page-default-repo-
 import {
   getSelectedTaskProjectSource,
   hasMultipleTaskProjectHosts,
-  hasMultipleTaskProjectHostsInGroup,
+  getRepoSourceHostCount,
   isTaskProjectGroupSelected,
   selectedTaskProjectGroups
 } from './task-project-source-combobox-model'
@@ -232,8 +232,15 @@ export default function TaskProjectSourceCombobox({
             {filteredGroups.map((group) => {
               const selectedProject = isTaskProjectGroupSelected(group, selected)
               const selectedSource = getSelectedTaskProjectSource(group, selected)
-              const detail = getProjectDetail(group, selected, showHostLabels, getRepoHostLabel)
-              const hasSourceMenu = hasMultipleTaskProjectHostsInGroup(group)
+              const hostCount = getRepoSourceHostCount(group.sources)
+              const detail = getProjectDetail(
+                group,
+                selected,
+                showHostLabels,
+                getRepoHostLabel,
+                hostCount
+              )
+              const hasSourceMenu = hostCount > 1
               return (
                 <div
                   key={group.projectKey}

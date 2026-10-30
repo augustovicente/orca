@@ -5,7 +5,10 @@ import { compareFolderWorkspacesForDisplay } from './folder-workspace-lanes'
 import { getRepoExecutionHostId } from '../execution-host'
 import type { Repo } from '../repo-types'
 import type { Worktree } from '../worktree/types'
-import { getWorktreeHostIdentity } from '../worktree/host-qualified-identity'
+import {
+  composeWorktreeHostIdentity,
+  getWorktreeHostIdentity
+} from '../worktree/host-qualified-identity'
 import { getFolderWorkspaceHostIdentity } from '../folder-workspace-worktree'
 import { getWorktreeLineageGroupKey } from './group-keys'
 import {
@@ -51,7 +54,7 @@ export function buildImportedWorktreesCardRow(
 ): ImportedWorktreesCardRow {
   return {
     type: 'imported-worktrees-card',
-    key: `imported-worktrees-card:${placement}:${candidate.repo.id}`,
+    key: `imported-worktrees-card:${placement}:${composeWorktreeHostIdentity(getRepoExecutionHostId(candidate.repo), candidate.repo.id)}`,
     repo: candidate.repo,
     hiddenWorktrees: candidate.hiddenWorktrees,
     placement,
@@ -67,7 +70,7 @@ export function buildNewExternalWorktreesInboxRow(
 ): NewExternalWorktreesInboxRow {
   return {
     type: 'new-external-worktrees-inbox',
-    key: `new-external-worktrees-inbox:${candidate.repo.id}`,
+    key: `new-external-worktrees-inbox:${composeWorktreeHostIdentity(getRepoExecutionHostId(candidate.repo), candidate.repo.id)}`,
     repo: candidate.repo,
     inboxWorktrees: candidate.inboxWorktrees,
     ...(hostContext
@@ -150,7 +153,7 @@ export function appendUngroupedWorkspaceRows({
   defaultHostId: ExecutionHostId
   collapsedGroups: Set<string>
   occurrencePlan: WorktreeOccurrencePlan<Worktree>
-  mixedWorktreeHostContextLabels: ReadonlyMap<string, string>
+  mixedWorktreeHostContextLabels?: ReadonlyMap<string, string>
   result: Row[]
 }): void {
   // Folder-only accounts must still render flat rows (#15362).
