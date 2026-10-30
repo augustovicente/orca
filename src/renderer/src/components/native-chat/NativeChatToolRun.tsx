@@ -3,7 +3,7 @@ import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { NativeChatExpandable } from './NativeChatExpandable'
 import { useNativeChatDisclosure } from './native-chat-disclosure-store'
-import { Check } from 'lucide-react'
+import { Check, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { translate } from '@/i18n/i18n'
 import {
@@ -31,6 +31,13 @@ import { NativeChatToolRunCallCounts } from './NativeChatToolRunCallCounts'
 import { NativeChatToolRunMembers, revealNativeChatToolRunMember } from './NativeChatToolRunMembers'
 import { NativeChatToolRunMemberList } from './NativeChatToolRunMemberList'
 import { NativeChatBrowserRunPageButton } from './NativeChatBrowserPageButton'
+import { LoadingSpinner } from '@/components/LoadingSpinner'
+import {
+  nativeChatUsesPlainLanguage,
+  plainToolActivityDetailsLabel,
+  plainToolActivityLabel,
+  plainToolActivityOutcome
+} from './native-chat-plain-language'
 
 /** Insert keyed asides before their block or after the final block. */
 export type NativeChatToolRunAsides = {
@@ -97,12 +104,16 @@ export function NativeChatToolRun({
         : 0,
     [asides]
   )
+  const plainLanguage = nativeChatUsesPlainLanguage()
   // Key reader overrides by controlling disclosure state so returning restores them without mid-render store writes.
   const runKey =
     disclosureId === undefined
       ? undefined
       : `run:${disclosureId}:${expandSignal}:${revealedDiff?.requestId ?? '-'}`
-  const { open, setOpen } = useNativeChatDisclosure(runKey, revealedDiff ? true : expandSignal)
+  const { open, setOpen } = useNativeChatDisclosure(
+    runKey,
+    revealedDiff ? true : plainLanguage ? false : expandSignal
+  )
 
   // Share the renderability predicate with slot selection so childless groups cannot create empty margin wrappers.
   const subagentRows = subagentGroups
@@ -147,6 +158,16 @@ export function NativeChatToolRun({
   const showsHeader = !hasAskCall || callCount > 0
   // A single command is more recognizable than its category summary.
   const runSentence = nativeChatToolRunSentence(headerBlocks, { live })
+  const plainLabel = plainLanguage ? plainToolActivityLabel(headerBlocks) : null
+  const plainOutcome = plainLanguage
+    ? plainToolActivityOutcome({
+        live,
+        succeeded: runSucceeded,
+        failedCallCount,
+        interruptedCallCount
+      })
+    : null
+  const plainDetailsLabel = plainLanguage ? plainToolActivityDetailsLabel() : null
   // The card sits inside the run's own scroll box, so that box has to move too.
   const revealDiff = useMemo(
     () =>
@@ -180,7 +201,45 @@ export function NativeChatToolRun({
           listsQuestions={false}
         />
       ) : null}
-      {!showsHeader ? null : (
+      {!showsHeader ? null : plainLanguage ? (
+        <div className="flex items-start gap-1">
+          <div
+            className="flex min-h-6 min-w-0 flex-1 items-start gap-1.5 py-0.5 text-sm leading-relaxed"
+            aria-live="polite"
+            data-native-chat-tool-run-state={live ? 'live' : 'settled'}
+            data-native-chat-tool-run-plain="true"
+          >
+            {settledHeaderIcon ? (
+              <span className="flex h-[1lh] shrink-0 items-center">
+                <NativeChatToolRunIcon
+                  iconName={settledHeaderIcon}
+                  className="text-chat-foreground-faint"
+                />
+              </span>
+            ) : null}
+            <span
+              className={cn(
+                'min-w-0 whitespace-normal break-words text-sm leading-relaxed',
+                live
+                  ? 'animate-pulse text-chat-foreground motion-reduce:animate-none'
+                  : 'text-chat-foreground'
+              )}
+            >
+              {plainLabel}
+            </span>
+            {live ? (
+              <span className="flex h-[1lh] shrink-0 items-center">
+                <LoadingSpinner className="size-3.5" />
+              </span>
+            ) : plainOutcome ? (
+              <span className="flex h-[1lh] shrink-0 items-center font-sans text-xs text-chat-foreground-faint">
+                {plainOutcome}
+              </span>
+            ) : null}
+          </div>
+          <NativeChatBrowserRunPageButton calls={headerBlocks.filter(isToolCallBlock)} />
+        </div>
+      ) : (
         <div className="flex items-start gap-1">
           {/* Keep one header across live/settled states; summary line-height aligns marks and wrapped text. */}
           <button
@@ -231,6 +290,23 @@ export function NativeChatToolRun({
           <NativeChatBrowserRunPageButton calls={headerBlocks.filter(isToolCallBlock)} />
         </div>
       )}
+      {plainLanguage && showsHeader ? (
+        <button
+          type="button"
+          onClick={() => setOpen(!open)}
+          aria-expanded={open}
+          className="group/tool-run-details flex min-h-6 w-fit items-center gap-1 rounded-md py-0.5 text-left font-sans text-xs text-chat-foreground-faint transition-colors hover:text-chat-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        >
+          <ChevronRight
+            aria-hidden
+            className={cn(
+              'size-3 shrink-0 transition-transform motion-reduce:transition-none',
+              open && 'rotate-90'
+            )}
+          />
+          {plainDetailsLabel}
+        </button>
+      ) : null}
       <NativeChatExpandable open={open && showsHeader}>
         <NativeChatToolRunMembers
           followKey={blocks.length + asideCount}

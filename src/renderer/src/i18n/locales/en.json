@@ -23113,6 +23113,42 @@
   "contadorca": {
     "clientHome": {
       "placeholder": "Espaço do cliente"
+    },
+    "chat": {
+      "failure": {
+        "supportAction": "Falar com suporte",
+        "headline": "Não foi possível concluir esta etapa.",
+        "supportLead": "Se precisar de ajuda,",
+        "support": "falar com suporte"
+      },
+      "approval": {
+        "browser": "O assistente quer abrir o navegador e acessar um site",
+        "file": "O assistente quer alterar um arquivo",
+        "command": "O assistente quer executar uma ação no computador",
+        "plan": "O assistente quer que você revise o plano antes de continuar",
+        "other": "O assistente quer continuar",
+        "allowOnce": "Permitir uma vez",
+        "allowAlways": "Permitir sempre",
+        "deny": "Negar",
+        "stop": "Parar",
+        "approvePlan": "Aprovar plano",
+        "keepPlanning": "Continuar planejando",
+        "yes": "Sim",
+        "no": "Não",
+        "cancelOption": "Cancelar"
+      },
+      "tool": {
+        "command": "Executando comando",
+        "read": "Lendo arquivo",
+        "write": "Alterando arquivo",
+        "browser": "Abrindo site",
+        "search": "Pesquisando",
+        "step": "Executando etapa",
+        "failed": "Falhou",
+        "interrupted": "Interrompido",
+        "done": "Concluído"
+      },
+      "details": "Detalhes técnicos"
     }
   }
 }
