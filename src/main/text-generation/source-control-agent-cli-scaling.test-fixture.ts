@@ -28,6 +28,11 @@ type ScalingFixture = {
   handles: asyncFs.FileHandle[]
 }
 
+function discoveryReadFileCount(paths: readonly unknown[]): number {
+  // Linux's existing process guard proves identity independently of CLI discovery.
+  return paths.filter((path) => !/^\/proc\/\d+\/stat$/.test(String(path))).length
+}
+
 export function installedNamingScalingContract(
   rootPath: () => string,
   fixture: ScalingFixture,
@@ -108,7 +113,7 @@ process.stdin.on('end', () => console.log('Fix login flow'))
             stats.mock.calls.length +
             opens.mock.calls.length +
             vi.mocked(asyncFs.access).mock.calls.length +
-            vi.mocked(asyncFs.readFile).mock.calls.length +
+            discoveryReadFileCount(vi.mocked(asyncFs.readFile).mock.calls.map(([path]) => path)) +
             dirReads.mock.calls.length +
             fixture.handles.reduce(
               (sum, file) =>
@@ -163,6 +168,15 @@ process.stdin.on('end', () => console.log('Fix login flow'))
       expect(JSON.stringify(launchSpec).length).toBeLessThan(512)
 
       if (agentId === 'codex' && versions === 10) {
+        expect(discoveryReadFileCount(['/proc/123/stat'])).toBe(0)
+        const discoveryPaths = [
+          join(root, '.nvm', 'alias', 'default'),
+          join(root, 'proc', '123', 'stat'),
+          '/proc/self/stat',
+          '/proc/123/statm',
+          '/proc/123/stat/child'
+        ]
+        expect(discoveryReadFileCount(discoveryPaths)).toBe(discoveryPaths.length)
         expect(await request(`${bin}:/usr/bin:/bin`)).toMatchObject({ enumerations: 0, entries: 0 })
         expect(await request('/usr/bin:/bin', program)).toMatchObject({
           enumerations: 0,
