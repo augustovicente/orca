@@ -214,6 +214,32 @@ describe('terminal worker turn stops', () => {
     await settle()
     expect(waiting.mail()).toHaveLength(0)
   })
+
+  it('stays quiet after the worker asks and ends its turn, until the answer arrives', async () => {
+    const ctx = setup()
+    const question = ctx.db.createQuestion({
+      runId: ctx.run.id,
+      dispatchId: ctx.dispatch.id,
+      askerHandle: HANDLE,
+      question: 'Which file?'
+    })
+    const current = { row: hookRow({}) }
+    const stops = terminal(ctx, current)
+    stops.observe(moved('working', 'done'))
+    await settle()
+    expect(ctx.mail()).toHaveLength(0)
+
+    ctx.db.answerQuestion({
+      messageId: question.message.id,
+      runId: ctx.run.id,
+      consumerGeneration: ctx.run.consumer_generation,
+      body: 'main.ts'
+    })
+    current.row = hookRow({ stateStartedAt: 300 })
+    stops.observe(moved('working', 'done'))
+    await settle()
+    expect(ctx.mail().map((m) => m.subject)).toEqual(['Worker stopped without reporting'])
+  })
 })
 
 describe('chat worker turn stops', () => {

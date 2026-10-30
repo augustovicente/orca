@@ -1,4 +1,5 @@
 import { defineMethod } from '../../../core'
+import { deliverQuestionAnswer } from '../../../../orchestration/question-answer-delivery'
 import type { TaskStatus } from '../../../../orchestration/db'
 import { OrchestrationError } from '../../../../orchestration/orchestration-error'
 import { ORCHESTRATION_LEGACY_RUN_ID } from '../../../../../../shared/orchestration-rpc-contract'
@@ -94,7 +95,7 @@ export const ORCHESTRATION_MESSAGE_METHODS = [
         return recordReceiptBeforeNudge(
           recordMutationReceipt,
           { ...answered, message: exposeMessage(answered.message) },
-          () => runtime.notifyMessageArrived(`dispatch:${question.dispatch_id}`, 'status')
+          () => deliverQuestionAnswer(runtime, question)
         )
       }
       if (question) {
@@ -137,7 +138,7 @@ export const ORCHESTRATION_MESSAGE_METHODS = [
           )
         }
         return recordReceiptBeforeNudge(recordMutationReceipt, receipt, () =>
-          runtime.notifyMessageArrived(`dispatch:${question.dispatch_id}`, 'status')
+          deliverQuestionAnswer(runtime, question)
         )
       }
 

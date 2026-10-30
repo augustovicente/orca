@@ -27,7 +27,7 @@ export type WorkerTurnStopDispatch =
 
 export type WorkerTurnStopReportDeps = {
   getDb: () => OrchestrationDb | null
-  /** `ask` and `check --wait` hold a `dispatch:<id>` waiter: those are deliberate waits. */
+  /** `check --wait` holds a `dispatch:<id>` waiter: a deliberate wait. */
   isWaitingForMail: (mailbox: string) => boolean
   notify: (handle: string, messageType: string) => void
 }
@@ -77,13 +77,13 @@ export function reportWorkerTurnStop(
   deps: WorkerTurnStopReportDeps
 ): void {
   const dispatchId = workerTurnStopDispatchId(target)
-  // Waiting on mail, or a clean finish resting on its own helpers, is deliberate; an exit never is.
+  // Waiting on mail, or a clean finish resting on its own question or helpers, is deliberate; an exit never is.
   if (
     stop.reason !== 'exited' &&
     (deps.isWaitingForMail(`dispatch:${dispatchId}`) ||
       (stop.reason === 'finished' &&
-        target.kind === 'local' &&
-        db.hasOpenHelperDispatch(dispatchId)))
+        (db.hasPendingAskedQuestion(dispatchId) ||
+          (target.kind === 'local' && db.hasOpenHelperDispatch(dispatchId)))))
   ) {
     return
   }

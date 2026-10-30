@@ -95,6 +95,16 @@ export class RuntimeMessageWaiters {
     })
   }
 
+  /** Wake every waiter on the handle as one notification; false when none is waiting. */
+  notify(handle: string): boolean {
+    const waiters = this.waitersByHandle.get(handle)
+    if (!waiters) {
+      return false
+    }
+    this.resolveNotified([...waiters])
+    return true
+  }
+
   cancel(handle: string): void {
     const waiters = this.waitersByHandle.get(handle)
     if (!waiters) {

@@ -420,4 +420,104 @@ describe('orchestration RPC methods', () => {
       expect(payload.options).toEqual(['a', 'b', 'c'])
     })
   })
+
+  describe('ask, then end the turn', () => {
+    const flush = () => new Promise((resolve) => setImmediate(resolve))
+
+    function askingDispatch() {
+      const task = db.createTask({ spec: 'question work' })
+      const dispatch = createRootDispatch(db, task.id, 'term_worker')
+      const deliver = vi
+        .spyOn(runtime, 'deliverPendingMessagesForHandle')
+        .mockImplementation(() => {})
+      const woke = () => deliver.mock.calls.some(([handle]) => handle === `dispatch:${dispatch.id}`)
+      return { dispatch, deliver, woke }
+    }
+
+    it('wakes the worker with an answer that arrives after it stopped waiting', async () => {
+      setup()
+      const { woke } = askingDispatch()
+
+      const asked = (await call('orchestration.ask', {
+        from: 'term_worker',
+        question: 'Which file?',
+        wait: false,
+        timeoutMs: 1
+      })) as { messageId: string; pending?: boolean; next?: string }
+      expect(asked).toMatchObject({
+        pending: true,
+        next: expect.stringContaining('End your turn')
+      })
+      await call('orchestration.reply', {
+        id: asked.messageId,
+        body: 'main.ts',
+        from: 'term_coord'
+      })
+      await flush()
+
+      expect(woke()).toBe(true)
+      await expect(call('orchestration.check', { terminal: 'term_worker' })).resolves.toMatchObject(
+        {
+          messages: [
+            expect.objectContaining({
+              body: 'main.ts',
+              thread_id: asked.messageId
+            })
+          ]
+        }
+      )
+    })
+
+    it('lets other mail wake a worker blocked on a waiting ask', async () => {
+      setup()
+      const { dispatch, woke } = askingDispatch()
+      const asking = call('orchestration.ask', {
+        from: 'term_worker',
+        question: 'Proceed?',
+        timeoutMs: 5_000
+      }) as Promise<{ answer: string }>
+      await flush()
+
+      await call('orchestration.send', {
+        from: 'term_coord',
+        to: `dispatch:${dispatch.id}`,
+        subject: 'Change of plan',
+        body: 'Drop the question; do the other thing.'
+      })
+      await flush()
+      expect(woke()).toBe(true)
+
+      const question = db.getInbox(20).find((message) => message.type === 'question')!
+      await call('orchestration.reply', {
+        id: question.id,
+        body: 'yes',
+        from: 'term_coord'
+      })
+      await expect(asking).resolves.toMatchObject({ answer: 'yes' })
+    })
+
+    it('gives a waiting ask its answer without also waking the worker with it', async () => {
+      setup()
+      const { woke } = askingDispatch()
+      const asking = call('orchestration.ask', {
+        from: 'term_worker',
+        question: 'Proceed?',
+        timeoutMs: 5_000
+      }) as Promise<{ answer: string; answerMessageId: string }>
+      await flush()
+
+      const question = db.getInbox(20).find((message) => message.type === 'question')!
+      await call('orchestration.reply', {
+        id: question.id,
+        body: 'yes',
+        from: 'term_coord'
+      })
+      const answered = await asking
+      await flush()
+
+      expect(answered.answer).toBe('yes')
+      expect(woke()).toBe(false)
+      expect(db.getMessageById(answered.answerMessageId)?.read).toBe(1)
+    })
+  })
 })

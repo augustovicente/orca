@@ -70,11 +70,10 @@ Do only this task, yourself: no subagents or helper workers unless the task asks
 === CLI COMMANDS ===
 
 \`\`\`sh
-  # Ask the coordinator and wait for its answer. Never use a local question
-  # prompt such as AskUserQuestion; the coordinator cannot see or answer it.
-  # On a timeout, resume with the returned message ID; do not ask again.
-  ${cli} orchestration ask --from ${params.workerHandle} --question "<your question>" --options "<optional,comma,separated>" --timeout-ms 600000
-  ${cli} orchestration ask --from ${params.workerHandle} --resume <message_id> --timeout-ms 600000
+  # Ask the coordinator, then end your turn; Orca wakes you with the answer.
+  # Never use a local question prompt such as AskUserQuestion; the
+  # coordinator cannot see or answer it.
+  ${cli} orchestration ask --from ${params.workerHandle} --question "<your question>" --options "<optional,comma,separated>"
 
   # Blocked, and the coordinator must act before you can continue:
   ${cli} orchestration send --from ${params.workerHandle} --type escalation --subject "Blocked: <reason>" --body "<details>" --task-id ${params.taskId} --dispatch-id ${params.dispatchId}

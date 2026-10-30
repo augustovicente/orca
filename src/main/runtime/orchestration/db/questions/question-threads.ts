@@ -143,8 +143,10 @@ export function answerQuestion(
       threadId: question.message_id,
       runId: params.runId
     })
-    // ask returns the answer directly; mark it read to prevent replay through check.
-    this.markAsRead([message.id])
+    // The answer is the worker's mail; a federated worker's copy lives on its execution host.
+    if (this.getFederatedDispatch(question.dispatch_id)) {
+      this.markAsReadAndDelivered([message.id])
+    }
     this.db
       .prepare(
         `UPDATE question_threads
@@ -165,6 +167,20 @@ export function answerQuestion(
     this.db.exec('ROLLBACK')
     throw error
   }
+}
+
+/** Whether the Dispatch asked a question still awaiting its answer, here or at its paired Run home. */
+export function hasPendingAskedQuestion(this: OrchestrationDb, dispatchId: string): boolean {
+  const row = this.db
+    .prepare(
+      `SELECT EXISTS (
+         SELECT 1 FROM question_threads WHERE dispatch_id = ? AND status = 'pending'
+       ) OR EXISTS (
+         SELECT 1 FROM remote_questions WHERE dispatch_id = ? AND status = 'pending'
+       ) AS pending`
+    )
+    .get(dispatchId, dispatchId) as { pending: number }
+  return row.pending === 1
 }
 
 export function closeQuestionsForDispatch(this: OrchestrationDb, dispatchId: string): string[] {
@@ -189,6 +205,7 @@ export type QuestionThreadsMethods = {
   getQuestion: typeof getQuestion
   getQuestionRaw: typeof getQuestionRaw
   answerQuestion: typeof answerQuestion
+  hasPendingAskedQuestion: typeof hasPendingAskedQuestion
   closeQuestionsForDispatch: typeof closeQuestionsForDispatch
 }
 
@@ -198,6 +215,7 @@ export function attachQuestionThreads(ctor: { prototype: object }): void {
     getQuestion,
     getQuestionRaw,
     answerQuestion,
+    hasPendingAskedQuestion,
     closeQuestionsForDispatch
   })
 }

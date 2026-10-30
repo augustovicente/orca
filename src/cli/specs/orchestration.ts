@@ -214,9 +214,9 @@ export const ORCHESTRATION_COMMAND_SPECS: CommandSpec[] = [
   },
   {
     path: ['orchestration', 'ask'],
-    summary: 'Ask the coordinator a question and block until answered',
+    summary: 'Ask the coordinator a question; Orca wakes you with the answer',
     usage:
-      'orca orchestration ask (--question <text> | --resume <message_id>) [--to <run:id>] [--run <run_id>] [--options <csv>] [--timeout-ms <n>] [--from <handle>] [--retry-request <id>] [--json]',
+      'orca orchestration ask (--question <text> | --resume <message_id>) [--to <run:id>] [--run <run_id>] [--options <csv>] [--wait] [--timeout-ms <n>] [--from <handle>] [--retry-request <id>] [--json]',
     allowedFlags: [
       ...GLOBAL_FLAGS,
       'to',
@@ -225,14 +225,14 @@ export const ORCHESTRATION_COMMAND_SPECS: CommandSpec[] = [
       'resume',
       'dispatch-capability',
       'options',
+      'wait',
       'timeout-ms',
       'from',
       'retry-request'
     ],
     identityFlagRoles: { from: 'caller' },
     notes: [
-      'From an active Dispatch, a new question defaults to its owning Run mailbox.',
-      '--timeout-ms accepts 1 to 1800000 ms per wait (default 600000 = 10 minutes, max 30 minutes); larger values are rejected. Timeout leaves the question pending; resume with the original message ID.'
+      'From an active Dispatch, a new question goes to its owning Run mailbox and ask returns at once: end your turn, and Orca wakes you with the answer as mail. --wait and --resume block until the answer instead; --timeout-ms accepts 1 to 1800000 ms per wait (default 600000 = 10 minutes, max 30 minutes), and a timeout leaves the question pending.'
     ]
   },
   {
