@@ -1,7 +1,11 @@
 import { useCallback } from 'react'
 import { toast } from 'sonner'
 import { useAppStore } from '@/store'
-import { selectWorktreesByRepo } from '@/store/workspace-record-selectors'
+import {
+  selectWorkspaceByHostTarget,
+  type WorkspaceRecordState
+} from '@/store/workspace-record-selectors'
+import { hostWorktreeTarget } from '../../../../shared/worktree/host-qualified-identity'
 import { getRuntimeTargetForWorktreeOwner } from '@/lib/file-owner-runtime-target'
 import { runtimeTargetForWorkspaceOwner } from '@/lib/resolve-owner'
 import type { ExecutionHostId } from '../../../../shared/execution-host'
@@ -125,30 +129,22 @@ function reportTaskStatusSyncResult(result: WorkspaceBoardTaskStatusSyncResult):
   )
 }
 
-function isSharedWorktreeId(state: WorktreeOperationRouteState, worktreeId: string): boolean {
-  let copies = 0
-  for (const rows of Object.values(selectWorktreesByRepo(state) ?? {})) {
-    for (const row of rows) {
-      if (row.id === worktreeId && ++copies > 1) {
-        return true
-      }
-    }
-  }
-  return false
-}
-
-/** Linear settings of the worktree's owner, or `null` to skip a worktree whose owner is ambiguous. */
+/** Linear settings of the worktree's owner, or `null` when its captured copy is gone or ambiguous. */
 export function linearSettingsForBoardWorktree(
-  state: WorktreeOperationRouteState,
+  state: WorktreeOperationRouteState & WorkspaceRecordState,
   worktreeId: string,
-  /** The card's own host; only a same-id copy on several hosts needs it to pick one. */
+  /** The card's own host, retained even if its same-id copies change while queued. */
   hostId?: ExecutionHostId
 ): RuntimeLinearSettings | null {
-  // Why: a workspace no row places is this computer's, but a twin must not borrow its Linear account.
-  const target =
-    hostId && isSharedWorktreeId(state, worktreeId)
-      ? runtimeTargetForWorkspaceOwner(state, { workspaceId: worktreeId, hostId })
-      : getRuntimeTargetForWorktreeOwner(state, worktreeId)
+  if (
+    hostId &&
+    !selectWorkspaceByHostTarget(state, hostWorktreeTarget({ id: worktreeId, hostId }))
+  ) {
+    return null
+  }
+  const target = hostId
+    ? runtimeTargetForWorkspaceOwner(state, { workspaceId: worktreeId, hostId })
+    : getRuntimeTargetForWorktreeOwner(state, worktreeId)
   if (!target) {
     warnAmbiguousOwnerOnce(worktreeId, 'sync a board task status')
   }
@@ -189,9 +185,12 @@ export function useWorkspaceBoardTaskStatusSync(args: {
             return undefined
           }
           const state = useAppStore.getState()
-          // Only a same-id copy needs its host named; others keep the id-only lookup.
-          const hostId = isSharedWorktreeId(state, worktree.id) ? worktree.hostId : undefined
-          return state.getKnownWorktreeById(worktree.id, hostId)?.workspaceStatus
+          return worktree.hostId
+            ? selectWorkspaceByHostTarget(
+                state,
+                hostWorktreeTarget({ id: worktree.id, hostId: worktree.hostId })
+              )?.workspaceStatus
+            : state.getKnownWorktreeById(worktree.id)?.workspaceStatus
         }
       })
         .then((result) => {
