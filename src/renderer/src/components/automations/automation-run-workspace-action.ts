@@ -1,6 +1,4 @@
-import { callStructuredAgentSession } from '@/runtime/structured-agent-session-client'
-import { openStructuredAgentSessionProvisionalTab } from '@/lib/structured-agent-session-launch-surface'
-import type { TuiAgent } from '../../../../shared/tui-agent'
+import { openExistingStructuredSession } from '@/lib/open-existing-structured-session'
 import { ALL_TUI_AGENTS } from '../../../../shared/tui-agent-display-names'
 import { isStructuredAgentSessionIdFor } from '../../../../shared/structured-agent-session-create'
 import type { AutomationRun } from '../../../../shared/automations-types'
@@ -63,7 +61,7 @@ export function createAutomationRunWorkspaceAction({ store, list }: AutomationsP
         toast.error(workspaceUnavailableMessage())
         return
       }
-      void openRunChat(run.workspaceId, run.chatSessionId, agent, ownerEnvironmentId)
+      void openRunChat(run.workspaceId, run.chatSessionId, ownerEnvironmentId)
       return
     }
     const paneRef = parsePaneKey(run.terminalPaneKey ?? '')
@@ -103,29 +101,33 @@ export function createAutomationRunWorkspaceAction({ store, list }: AutomationsP
 async function openRunChat(
   worktreeId: string,
   sessionId: string,
-  agent: TuiAgent,
   environmentId: string | null
 ): Promise<void> {
   try {
-    await callStructuredAgentSession(
-      environmentId ? { kind: 'environment', environmentId } : { kind: 'local' },
-      'agentSession.history',
-      { sessionId, direction: 'tail', limit: 1 }
+    await openExistingStructuredSession(
+      { workspaceId: worktreeId, sessionId },
+      {
+        target: environmentId ? { kind: 'environment', environmentId } : { kind: 'local' },
+        present: (outcome) => {
+          if (outcome !== 'activated') {
+            runChatUnavailable()
+          }
+        },
+        onError: runChatUnavailable
+      }
     )
-    openStructuredAgentSessionProvisionalTab({
-      worktreeId,
-      executionHostId: environmentId ? `runtime:${environmentId}` : 'local',
-      sessionId,
-      agent
-    })
   } catch {
-    toast.message(
-      translate(
-        'components.automations.runChatUnavailable',
-        'Run chat is unavailable. Showing its workspace; any saved output remains in Run Details.'
-      )
-    )
+    // The initiating interaction owns error feedback, including when this click joins it.
   }
+}
+
+function runChatUnavailable(): void {
+  toast.message(
+    translate(
+      'components.automations.runChatUnavailable',
+      'Run chat is unavailable. Showing its workspace; any saved output remains in Run Details.'
+    )
+  )
 }
 
 function workspaceUnavailableMessage(): string {

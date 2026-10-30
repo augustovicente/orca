@@ -1,3 +1,8 @@
+import {
+  ChatOpenTestRuntime,
+  exerciseRecordedChatOpen,
+  type createChatRendererBridge
+} from './automation-chat-renderer-test-harness'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -25,8 +30,6 @@ import {
   testState,
   readPersistedStateJson
 } from '../../../src/main/persistence/persistence-test-harness'
-import { createAutomationRunWorkspaceAction } from '../../../src/renderer/src/components/automations/automation-run-workspace-action'
-import type { AutomationsPageActionContext } from '../../../src/renderer/src/components/automations/automations-page-action-context'
 
 export type ChatReuseMode = 'normal' | 'lost-reply' | 'restart'
 
@@ -36,7 +39,7 @@ export async function exerciseBusyChatReuse(
   target: AutomationChatLaunchRequest['target'],
   controls: {
     setHost: (host: StructuredAgentSessionHost | null) => void
-    openChat: Mock
+    bindRenderer: (renderer: Awaited<ReturnType<typeof createChatRendererBridge>> | null) => void
     launch: Mock
   }
 ): Promise<void> {
@@ -234,21 +237,22 @@ export async function exerciseBusyChatReuse(
       status: 'completed',
       outputSnapshot: { content: 'Exact automation output' }
     })
-    const pageContext = {
-      store: {
-        repoForRow: () => undefined,
-        worktreeForRow: () => ({ id: saved.workspaceId, hostId: 'local' })
-      },
-      list: { selectedRow: { key: 'row' } }
+    await eventually(() => expect(readCurrent().usage).not.toBeNull())
+    const beforeOpen = {
+      journal: await rig.host.journalSnapshot(sessionId),
+      runs: disk.listAutomationRuns(saved.id),
+      record: rig.store.getConversation(sessionId)
     }
-    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: selectedRow/repoForRow/worktreeForRow are scripted; the ordinary Details action and actual Chat opener execute.
-    const context = pageContext as unknown as AutomationsPageActionContext
-    createAutomationRunWorkspaceAction(context)(readCurrent())
-    await eventually(() =>
-      expect(controls.openChat).toHaveBeenCalledWith(
-        expect.objectContaining({ sessionId: sessionId, agent: 'codex' })
-      )
-    )
+    const create = vi.spyOn(rig.host, 'create')
+    const openingRuntime = new ChatOpenTestRuntime(disk)
+    vi.spyOn(openingRuntime, 'ensureStructuredAgentSessionHost').mockResolvedValue()
+    vi.spyOn(openingRuntime, 'openAgentSessionRecordStore').mockResolvedValue(rig.store)
+    await exerciseRecordedChatOpen(openingRuntime, readCurrent(), controls.bindRenderer)
+    expect(rig.host.isSessionTabVisible(sessionId)).toBe(true)
+    expect(await rig.host.journalSnapshot(sessionId)).toEqual(beforeOpen.journal)
+    expect(disk.listAutomationRuns(saved.id)).toEqual(beforeOpen.runs)
+    expect(rig.store.getConversation(sessionId)).toEqual(beforeOpen.record)
+    expect(create).not.toHaveBeenCalled()
     expect(send).toHaveBeenCalledOnce()
     expect(controls.launch).not.toHaveBeenCalled()
     service.stop()

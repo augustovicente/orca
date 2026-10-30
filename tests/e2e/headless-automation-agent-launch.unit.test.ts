@@ -1,3 +1,5 @@
+import '../../src/main/runtime/rpc/unused-default-rpc-methods.test-fixture'
+import type { createChatRendererBridge } from './helpers/automation-chat-renderer-test-harness'
 import { exerciseBusyChatReuse } from './helpers/automation-chat-reuse-test-harness'
 import { readAutomationRunReceipt } from '../../src/main/automations/automation-run-receipt'
 import {
@@ -20,11 +22,13 @@ import { buildProfileStateCutoverFixture } from '../../src/main/persistence/prof
 import { launchAutomationChatAgent } from '../../src/main/automations/automation-chat-agent-launch'
 
 const mocks = vi.hoisted(() => {
-  const hostState: { actualHost: StructuredAgentSessionHost | null } = { actualHost: null }
+  const hostState: {
+    actualHost: StructuredAgentSessionHost | null
+    renderer: Awaited<ReturnType<typeof createChatRendererBridge>> | null
+  } = { actualHost: null, renderer: null }
   return {
     ...hostState,
     hostAvailable: true,
-    openChat: vi.fn(),
     readChat: vi.fn<typeof callStructuredAgentSession>().mockResolvedValue({}),
     launch: vi.fn(),
     host: { journalSnapshot: vi.fn(), currentWork: vi.fn(), send: vi.fn() }
@@ -40,20 +44,31 @@ vi.mock('@/runtime/structured-agent-session-client', () => ({
   callStructuredAgentSession: (...args: Parameters<typeof callStructuredAgentSession>) =>
     mocks.readChat(...args)
 }))
-vi.mock('@/lib/structured-agent-session-launch-surface', () => ({
-  openStructuredAgentSessionProvisionalTab: (...args: unknown[]) => mocks.openChat(...args)
+vi.mock('@/runtime/runtime-rpc-client', () => ({
+  callRuntimeRpc: (
+    target: Parameters<NonNullable<typeof mocks.renderer>['call']>[0],
+    method: string,
+    params: unknown
+  ) => {
+    if (!mocks.renderer) {
+      throw new Error('renderer not bound')
+    }
+    return mocks.renderer.call(target, method, params)
+  },
+  runtimeEnvironmentSupportsCapability: async () => true
 }))
 vi.mock('@/lib/worktree-activation', () => ({ activateAndRevealWorktree: () => true }))
 vi.mock('@/store', () => ({
   useAppStore: {
-    getState: () => ({
-      settings: {},
-      repos: [],
-      worktreesByRepo: {},
-      getTab: () => undefined,
-      terminalLayoutsByTabId: {},
-      ptyIdsByTabId: {}
-    })
+    getState: () =>
+      mocks.renderer?.store.getState() ?? {
+        settings: {},
+        repos: [],
+        worktreesByRepo: {},
+        getTab: () => undefined,
+        terminalLayoutsByTabId: {},
+        ptyIdsByTabId: {}
+      }
   }
 }))
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), message: vi.fn() } }))
@@ -385,7 +400,9 @@ it.each(['normal', 'lost-reply', 'restart'] as const)(
       setHost: (host) => {
         mocks.actualHost = host
       },
-      openChat: mocks.openChat,
+      bindRenderer: (renderer) => {
+        mocks.renderer = renderer
+      },
       launch: mocks.launch
     })
 )

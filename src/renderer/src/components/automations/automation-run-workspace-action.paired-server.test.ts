@@ -1,15 +1,19 @@
 /** Paired runs use server PTY IDs while local mirrors use terminal handles; comparing those IDs falsely made available run terminals appear missing (#21213). */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { makeUnifiedTab } from '@/store/slices/store-test-helpers'
+import type { Tab } from '../../../../shared/tab-types'
 import type { AutomationRun } from '../../../../shared/automations-types'
 import { toRemoteRuntimePtyId } from '../../../../shared/remote-runtime/remote-runtime-pty-id'
 import { toWebTerminalSurfaceTabId } from '../../../../shared/terminal-surface-id'
 
 const mocks = vi.hoisted(() => {
   const state: Record<string, unknown> = {}
+  const chatTabs: Tab[] = []
   return {
     state,
-    openChat: vi.fn(),
-    readChat: vi.fn(async () => ({})),
+    chatTabs,
+    activateTab: vi.fn(),
+    rpc: vi.fn(),
     toastError: vi.fn(),
     toastMessage: vi.fn(),
     activateAndRevealWorktree: vi.fn(() => true),
@@ -18,11 +22,9 @@ const mocks = vi.hoisted(() => {
   }
 })
 
-vi.mock('@/runtime/structured-agent-session-client', () => ({
-  callStructuredAgentSession: mocks.readChat
-}))
-vi.mock('@/lib/structured-agent-session-launch-surface', () => ({
-  openStructuredAgentSessionProvisionalTab: mocks.openChat
+vi.mock('@/runtime/runtime-rpc-client', () => ({
+  callRuntimeRpc: mocks.rpc,
+  runtimeEnvironmentSupportsCapability: async () => true
 }))
 vi.mock('sonner', () => ({ toast: { error: mocks.toastError, message: mocks.toastMessage } }))
 vi.mock('@/store', () => ({ useAppStore: { getState: () => mocks.state } }))
@@ -90,7 +92,9 @@ function storeState(mirrored: boolean): Record<string, unknown> {
         }
       : {},
     ptyIdsByTabId: mirrored ? { [MIRRORED_TAB]: [MIRRORED_PTY] } : {},
-    unifiedTabsByWorktree: {},
+    unifiedTabsByWorktree: { [WT]: mocks.chatTabs },
+    activateTab: mocks.activateTab,
+    focusGroup: vi.fn(),
     groupsByWorktree: {},
     activeGroupIdByWorktree: {},
     setTabLayout: vi.fn(),
@@ -108,11 +112,26 @@ function openRun(target: AutomationRun = run): void {
   createAutomationRunWorkspaceAction(context)(target)
 }
 
-describe('opening a paired-server automation run', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
+beforeEach(() => {
+  vi.clearAllMocks()
+  mocks.chatTabs.length = 0
+  mocks.rpc.mockImplementation(async (_target, method, params) => {
+    if (method === 'agentSession.reveal') {
+      mocks.chatTabs.push(
+        makeUnifiedTab({
+          id: 'recorded-chat',
+          entityId: params.sessionId,
+          worktreeId: WT,
+          executionHostId: `runtime:${ENV}`,
+          contentType: 'agent-session'
+        })
+      )
+    }
+    return { ok: true }
   })
+})
 
+describe('opening a paired-server automation run', () => {
   it('opens the mirrored pane of the run', () => {
     mocks.state = storeState(true)
 
@@ -177,24 +196,20 @@ it('opens the recorded Chat on its owning paired server without creating a sessi
     terminalPtyId: null
   })
   await vi.waitFor(() =>
-    expect(mocks.openChat).toHaveBeenCalledWith({
-      worktreeId: WT,
-      executionHostId: `runtime:${ENV}`,
-      sessionId: 'codex_recorded_chat',
-      agent: 'codex'
-    })
+    expect(mocks.activateTab).toHaveBeenCalledWith('recorded-chat', { worktreeId: WT })
   )
-  expect(mocks.readChat).toHaveBeenCalledWith(
+  expect(mocks.rpc).toHaveBeenCalledWith(
     { kind: 'environment', environmentId: ENV },
-    'agentSession.history',
-    { sessionId: 'codex_recorded_chat', direction: 'tail', limit: 1 }
+    'agentSession.reveal',
+    { sessionId: 'codex_recorded_chat' },
+    expect.any(Object)
   )
 })
 
 it('keeps Run Details output and opens the workspace when the recorded chat is gone', async () => {
-  mocks.openChat.mockClear()
+  mocks.activateTab.mockClear()
   Object.assign(mocks.state, storeState(false))
-  mocks.readChat.mockRejectedValueOnce(new Error('gone'))
+  mocks.rpc.mockResolvedValue({ ok: false, refusal: { code: 'agent_session_identity_required' } })
   // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: Chat opening reads only the selected row and workspace resolvers supplied here.
   const action = createAutomationRunWorkspaceAction({
     store: { repoForRow: () => ({ id: 'repo-a' }), worktreeForRow: () => worktree },
@@ -211,14 +226,14 @@ it('keeps Run Details output and opens the workspace when the recorded chat is g
   await vi.waitFor(() =>
     expect(mocks.toastMessage).toHaveBeenCalledWith(expect.stringContaining('saved output remains'))
   )
-  expect(mocks.openChat).not.toHaveBeenCalled()
+  expect(mocks.activateTab).not.toHaveBeenCalled()
 })
 
 it.each(['terminal', 'chat'] as const)(
   'opens the actual published %s target even when delivery failed',
   async (kind) => {
     Object.assign(mocks.state, storeState(false))
-    mocks.openChat.mockClear()
+    mocks.activateTab.mockClear()
     mocks.activateWebRuntimeSessionTab.mockClear()
     const failed = {
       ...run,
@@ -237,9 +252,42 @@ it.each(['terminal', 'chat'] as const)(
     openRun(failed)
     await vi.waitFor(() =>
       expect(
-        kind === 'chat' ? mocks.openChat : mocks.activateWebRuntimeSessionTab
+        kind === 'chat' ? mocks.activateTab : mocks.activateWebRuntimeSessionTab
       ).toHaveBeenCalledOnce()
     )
     expect(mocks.activateAndRevealWorktree).toHaveBeenCalledWith(WT)
   }
 )
+
+it('presents one automation fallback when duplicate exact activation clicks reject', async () => {
+  Object.assign(mocks.state, storeState(false))
+  mocks.chatTabs.push(
+    makeUnifiedTab({
+      id: 'recorded-chat',
+      entityId: 'claude_published',
+      worktreeId: WT,
+      executionHostId: `runtime:${ENV}`,
+      contentType: 'agent-session'
+    })
+  )
+  mocks.state.focusGroup = vi.fn(() => {
+    throw new Error('activation unavailable')
+  })
+  const recorded = {
+    ...run,
+    sessionKind: 'chat' as const,
+    chatSessionId: 'claude_published',
+    terminalSessionId: null,
+    terminalPaneKey: null,
+    terminalPtyId: null
+  }
+  openRun(recorded)
+  openRun(recorded)
+  await vi.waitFor(() =>
+    expect(mocks.toastMessage).toHaveBeenCalledExactlyOnceWith(
+      expect.stringContaining('saved output remains')
+    )
+  )
+  expect(mocks.toastError).not.toHaveBeenCalled()
+  expect(mocks.activateWebRuntimeSessionTab).not.toHaveBeenCalled()
+})
