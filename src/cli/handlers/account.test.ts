@@ -11,7 +11,7 @@ const {
   getVersionManagerBinPathsMock,
   readKeychainMock,
   resolveCliCommandMock,
-  runProcessMock,
+  spawnProcessMock,
   rmSyncMock,
   spawnMock,
   stdioForWindowsInteractiveChildMock,
@@ -21,7 +21,7 @@ const {
   getVersionManagerBinPathsMock: vi.fn(),
   readKeychainMock: vi.fn(),
   resolveCliCommandMock: vi.fn(),
-  runProcessMock: vi.fn(),
+  spawnProcessMock: vi.fn(),
   rmSyncMock: vi.fn(),
   spawnMock: vi.fn(),
   stdioForWindowsInteractiveChildMock: vi.fn(),
@@ -42,7 +42,7 @@ vi.mock('node:child_process', () => ({
 }))
 vi.mock('@orca/process-host', async (importOriginal) => ({
   ...(await importOriginal<typeof ProcessHostModule>()),
-  runProcess: runProcessMock
+  spawnProcess: spawnProcessMock
 }))
 vi.mock('../../main/claude-accounts/keychain', () => ({
   deleteActiveClaudeKeychainCredentialsStrict: deleteKeychainMock,
@@ -72,6 +72,15 @@ import {
   CLAUDE_SIGN_IN_RUNTIME_CAPABILITY,
   DATA_ACCOUNT_RUNTIME_CAPABILITY
 } from '../../shared/account-runtime-capabilities'
+
+function helpChild(stdout: string): EventEmitter {
+  const child = Object.assign(new EventEmitter(), { stdout: new EventEmitter() })
+  queueMicrotask(() => {
+    child.stdout.emit('data', stdout)
+    child.emit('close', 0)
+  })
+  return child
+}
 
 function successfulChild(): EventEmitter {
   const child = new EventEmitter()
@@ -127,7 +136,7 @@ describe('account CLI handlers', () => {
       dispose: vi.fn()
     }))
     resolveCliCommandMock.mockReset().mockImplementation((command: string) => command)
-    runProcessMock.mockReset()
+    spawnProcessMock.mockReset()
     getVersionManagerBinPathsMock.mockReset().mockReturnValue([])
     readKeychainMock.mockReset().mockResolvedValue(null)
     deleteKeychainMock.mockReset().mockResolvedValue(undefined)
@@ -181,75 +190,71 @@ describe('account CLI handlers', () => {
     }
   })
 
-  it.each(['opencode2', 'opencode'])(
-    'adds an OpenCode account using supported %s with isolated probe and login',
-    async (supportedCommand) => {
-      callMock.mockResolvedValue({
-        id: 'test',
-        ok: true,
-        result: { capabilities: [DATA_ACCOUNT_RUNTIME_CAPABILITY] },
-        _meta: { runtimeId: 'test-runtime' }
-      })
-      resolveCliCommandMock.mockImplementation((command: string) => `/tools/${command}`)
-      runProcessMock.mockImplementation(async ({ program }) => {
-        if (program !== `/tools/${supportedCommand}`) {
-          throw new Error('ENOENT')
-        }
-        return {
-          code: 0,
-          timedOut: false,
-          stdout: '--standalone  Run with a private server instead of the background service',
-          stderr: ''
-        }
-      })
-      await ACCOUNT_HANDLERS['account add'](context('opencode', true))
-      expect(runProcessMock.mock.calls.map(([spec]) => spec.program)).toEqual(
-        supportedCommand === 'opencode2'
-          ? ['/tools/opencode2']
-          : ['/tools/opencode2', '/tools/opencode']
-      )
-      const [command, args, options] = spawnMock.mock.calls[0]
-      expect(command).toBe(`/tools/${supportedCommand}`)
-      expect(args).toEqual(['auth', 'login', '--standalone'])
-      expect(runProcessMock).toHaveBeenLastCalledWith(
-        expect.objectContaining({
-          args: ['auth', 'login', '--help'],
-          timeoutMs: 10_000,
-          env: options.env
-        })
-      )
-      expect(options.env.OPENCODE_DB).toBe('opencode.db')
-      expect(existsSync(options.env.XDG_DATA_HOME)).toBe(false)
-      expect(callMock).toHaveBeenLastCalledWith('accounts.addDataFromHome', {
-        provider: 'opencode',
-        sourceDataHome: options.env.XDG_DATA_HOME,
-        label: 'opencode'
-      })
-    }
-  )
-
-  it('explains the required OpenCode package before login when only 1.x is installed', async () => {
+  it('falls back to OpenCode when opencode2 cannot be spawned', async () => {
+    const supportedCommand = 'opencode'
     callMock.mockResolvedValue({
       id: 'test',
       ok: true,
       result: { capabilities: [DATA_ACCOUNT_RUNTIME_CAPABILITY] },
       _meta: { runtimeId: 'test-runtime' }
     })
-    runProcessMock.mockRejectedValueOnce(new Error('ENOENT')).mockResolvedValueOnce({
-      code: 0,
-      timedOut: false,
-      stdout:
-        'opencode auth login [url]\nlog in to a provider\nOptions:\n  --pure  run without external plugins',
-      stderr: ''
+    resolveCliCommandMock.mockImplementation((command: string) => `/tools/${command}`)
+    spawnProcessMock.mockImplementation(({ program }) => {
+      if (program !== `/tools/${supportedCommand}`) {
+        throw new Error('ENOENT')
+      }
+      return helpChild('--standalone  Run with a private server instead of the background service')
     })
-    await expect(ACCOUNT_HANDLERS['account add'](context('opencode', true))).rejects.toThrow(
-      'Install @opencode/cli (npm install -g @opencode/cli), then run this command again.'
+    await ACCOUNT_HANDLERS['account add'](context('opencode', true))
+    expect(spawnProcessMock.mock.calls.map(([spec]) => spec.program)).toEqual([
+      '/tools/opencode2',
+      '/tools/opencode'
+    ])
+    const [command, args, options] = spawnMock.mock.calls[0]
+    expect(command).toBe(`/tools/${supportedCommand}`)
+    expect(args).toEqual(['auth', 'login', '--standalone'])
+    expect(spawnProcessMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        args: ['auth', 'login', '--help'],
+        env: options.env
+      })
     )
-    expect(spawnMock).not.toHaveBeenCalled()
-    expect(callMock).toHaveBeenCalledTimes(1)
-    for (const [spec] of runProcessMock.mock.calls) {
-      expect(existsSync(spec.env.XDG_DATA_HOME)).toBe(false)
-    }
+    expect(options.env.OPENCODE_DB).toBe('opencode.db')
+    expect(existsSync(options.env.XDG_DATA_HOME)).toBe(false)
+    expect(callMock).toHaveBeenLastCalledWith('accounts.addDataFromHome', {
+      provider: 'opencode',
+      sourceDataHome: options.env.XDG_DATA_HOME,
+      label: 'opencode'
+    })
+  })
+
+  it('skips a Windows candidate that the interactive login preparation cannot launch', async () => {
+    Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
+    callMock.mockResolvedValue({ result: { capabilities: [DATA_ACCOUNT_RUNTIME_CAPABILITY] } })
+    resolveCliCommandMock.mockImplementation((command: string) =>
+      command === 'opencode2' ? 'C:\\Users\\A&B\\npm\\opencode2.cmd' : 'C:\\tools\\opencode.cmd'
+    )
+    spawnProcessMock.mockImplementation(() => helpChild('--standalone'))
+
+    await ACCOUNT_HANDLERS['account add'](context('opencode', true))
+
+    expect(spawnProcessMock).toHaveBeenCalledTimes(1)
+    const [probe] = spawnProcessMock.mock.calls[0]
+    expect(probe.program).toBe(getCmdExePath())
+    expect(probe.args).toEqual([
+      '/d',
+      '/c',
+      '@',
+      'C:\\tools\\opencode.cmd',
+      'auth',
+      'login',
+      '--help'
+    ])
+    expect(spawnMock).toHaveBeenCalledWith(
+      probe.program,
+      ['/d', '/c', '@', 'C:\\tools\\opencode.cmd', 'auth', 'login', '--standalone'],
+      expect.objectContaining({ env: probe.env })
+    )
   })
 
   it('uses Codex device auth and keeps JSON stdout clean', async () => {

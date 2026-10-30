@@ -75,7 +75,8 @@ async function runAgentLoginInTerminal(
 ): Promise<void> {
   if (command === 'opencode') {
     command = await resolveOpenCodeLoginCommand(
-      addAgentNodePaths({ ...stripElectronRunAsNode(process.env), ...extraEnv })
+      addAgentNodePaths({ ...stripElectronRunAsNode(process.env), ...extraEnv }),
+      session
     )
   }
   await new Promise<void>((resolvePromise, rejectPromise) => {
