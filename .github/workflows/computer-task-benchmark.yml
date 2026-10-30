@@ -92,6 +92,12 @@ jobs:
               --cua "$RUNNER_TEMP/cua/cua-driver" \
               --electron "$RUNNER_TEMP/electron/node_modules/electron/dist/electron" \
               --out "out/task-linux-$BENCH_TARGET" --n 3 --budget 1800
+            if [ "$BENCH_TARGET" = electron ]; then
+              /usr/bin/python3 config/benchmarks/computer-use/linux_focus_probe.py \
+                --electron "$RUNNER_TEMP/electron/node_modules/electron/dist/electron" \
+                --baseline "$BASELINE_SHA" --candidate "$CANDIDATE_SHA" \
+                --out "out/task-linux-$BENCH_TARGET/focus-probe"
+            fi
           '
       - if: always()
         uses: actions/upload-artifact@v4
