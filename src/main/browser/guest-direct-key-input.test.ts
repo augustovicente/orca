@@ -265,7 +265,9 @@ describe('dispatchPageKeyEvent', () => {
         // The frame's handler sends focus to the parent after the first key.
         focusInFrame = false
       }
-      return focusInFrame || sessionId ? inFrame(method, params, sessionId) : fakeSender()(method)
+      return focusInFrame || sessionId
+        ? inFrame(method, params, sessionId)
+        : fakeSender()(method, params, sessionId)
     })
     const keys = ['a', 'b'].flatMap((key) => [
       { type: 'keyDown', key, text: key },
