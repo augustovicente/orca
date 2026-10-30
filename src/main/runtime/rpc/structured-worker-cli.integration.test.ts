@@ -87,13 +87,17 @@ beforeEach(async () => {
         isRecord(response.turn)
       ) {
         const turnId = response.turn.id
+        const clientUserMessageId = params.clientUserMessageId
+        if (typeof turnId !== 'string' || typeof clientUserMessageId !== 'string') {
+          throw new Error('expected string turn and user message identities')
+        }
         setTimeout(() => {
           args[1]?.onNotification?.('turn/started', { turn: { id: turnId } })
           args[1]?.onNotification?.('item/completed', {
             item: {
               type: 'userMessage',
-              id: `echo-${params.clientUserMessageId}`,
-              clientId: params.clientUserMessageId,
+              id: `echo-${clientUserMessageId}`,
+              clientId: clientUserMessageId,
               content: [{ type: 'text', text: 'CLI worker brief' }]
             }
           })
