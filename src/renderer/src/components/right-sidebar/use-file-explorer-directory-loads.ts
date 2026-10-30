@@ -16,6 +16,7 @@ import {
 } from './file-explorer-operation-owner'
 import {
   keepOpenedDirectoryLinks,
+  canFollowFolderLink,
   clearFailedOpenedDirectoryLinks,
   readFileExplorerDirectory
 } from './file-explorer-directory-listing'
@@ -28,6 +29,8 @@ import {
 } from './file-explorer-dir-load-state'
 import { decideExpandedDirLoad } from './file-explorer-stale-dir-cache'
 import { statUserOpenedPath } from '@/lib/user-opened-local-path'
+
+const FOLLOW_LINK = { followProjectFolderLink: true } as const
 
 export type ReadOutcome = 'refreshed' | 'root-unreadable' | 'superseded'
 
@@ -92,7 +95,8 @@ export function useFileExplorerDirectoryLoads(
         updateLoadingDirPaths((prev) => clearFileExplorerDirsLoading(prev, [dirPath]))
       })
       token.started = true
-      const cached = dirCacheRef.current[dirPath]
+      const cache = dirCacheRef.current
+      const cached = cache[dirPath]
       const execution = (async (): Promise<ReadOutcome> => {
         try {
           setDirCache((prev) => withPendingFileExplorerDirCacheEntries(prev, [dirPath]))
@@ -100,7 +104,8 @@ export function useFileExplorerDirectoryLoads(
           const listing = await readFileExplorerDirectory(activeWorktreeId, worktreePath, dirPath, {
             wakeWslDistro: options.wakeWslDistro,
             paged: cached?.paged,
-            minEntries: cached?.children.length
+            minEntries: cached?.children.length,
+            ...(canFollowFolderLink(cache, dirPath, options.wakeWslDistro) ? FOLLOW_LINK : {})
           })
           if (!tracker.isCurrent(token) || signal.aborted || (canCommit && !canCommit())) {
             return 'superseded'
@@ -236,7 +241,8 @@ export function useFileExplorerDirectoryLoads(
         readDirectory: (dirPath) =>
           readFileExplorerDirectory(activeWorktreeId, worktreePath, dirPath, {
             paged: dirCacheRef.current[dirPath]?.paged,
-            minEntries: dirCacheRef.current[dirPath]?.children.length
+            minEntries: dirCacheRef.current[dirPath]?.children.length,
+            ...(canFollowFolderLink(dirCacheRef.current, dirPath, false) ? FOLLOW_LINK : {})
           }),
         maxConcurrentReads: fileExplorerRefreshConcurrency(
           getFileExplorerOperationOwner(activeWorktreeId)
