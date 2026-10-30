@@ -8,18 +8,16 @@ import {
   seedStore,
   TEST_REPO
 } from '@/store/slices/store-test-helpers'
-import {
-  drawTabsFromMain,
-  type TabsDrawnFromMain
-} from '@/store/slices/tabs-drawn-from-main.test-fixture'
+import { drawTabsFromMain } from '@/store/slices/tabs-drawn-from-main.test-fixture'
+import type * as Frames from '@/store/slices/tabs-drawn-from-main.test-fixture'
 import { createGlobalSettingsFixture } from '../../../shared/global-settings-test-fixture'
 import type { GlobalSettings } from '../../../shared/global-settings-types'
 import { registerStructuredSelectionCatalogStore } from './structured-agent-session-selection-controller'
 import type { AppState } from '@/store/types'
 import type { pasteDraftWhenAgentReady } from './agent-paste-draft'
 import type { waitForAgentReady } from './agent-ready-wait'
-import type { createStructuredAgentSessionLaunchIntent as createIntent } from './launch-structured-agent-session'
-import type { launchStructuredAgentSession } from './structured-agent-session-launch-create-call'
+import type { createStructuredAgentSessionLaunchIntent as create } from './launch-structured-agent-session'
+import type { launchStructuredAgentSession as launch } from './structured-agent-session-launch-create-call'
 import type { refreshLocalStructuredSessionTabs as refreshTabs } from '@/runtime/local-structured-session-tabs-sync/inventory-refresh'
 import type { toast } from 'sonner'
 import type * as LaunchErrors from '@/lib/structured-agent-session-launch-errors'
@@ -28,18 +26,13 @@ const mockCreateTab = vi.hoisted(() => vi.fn<AppState['createTab']>())
 const mockWaitForAgentReady = vi.hoisted(() => vi.fn<typeof waitForAgentReady>())
 const mockPasteDraftWhenAgentReady = vi.hoisted(() => vi.fn<typeof pasteDraftWhenAgentReady>())
 const mockCreateStructuredCodexSessionLaunchIntent = vi.hoisted(() =>
-  vi.fn<
-    (...args: Parameters<typeof createIntent>) => Omit<ReturnType<typeof createIntent>, 'agent'>
-  >()
+  vi.fn<(...args: Parameters<typeof create>) => Omit<ReturnType<typeof create>, 'agent'>>()
 )
+type LaunchIntent = ReturnType<typeof structuredLaunchIntent>
 const mockRetryStructuredAgentSessionLaunchIntent = vi.hoisted(() =>
-  vi.fn<
-    (intent: ReturnType<typeof structuredLaunchIntent>) => ReturnType<typeof structuredLaunchIntent>
-  >()
+  vi.fn<(intent: LaunchIntent) => LaunchIntent>()
 )
-const mockLaunchStructuredCodexSession = vi.hoisted(() =>
-  vi.fn<typeof launchStructuredAgentSession>()
-)
+const mockLaunchStructuredCodexSession = vi.hoisted(() => vi.fn<typeof launch>())
 type TabSnapshotFixture = { worktree: string; tabs: { type: 'agent-session'; sessionId: string }[] }
 const mockRefreshLocalStructuredSessionTabs = vi.hoisted(() =>
   vi.fn<(...args: Parameters<typeof refreshTabs>) => Promise<TabSnapshotFixture[]>>()
@@ -63,7 +56,14 @@ export function liveStore() {
   return owner.store
 }
 const state = () => liveStore().getState()
-export let main: TabsDrawnFromMain
+export function currentLaunchSettings(): GlobalSettings {
+  const settings = state().settings
+  if (settings === null) {
+    throw new Error('structured launch settings not seeded')
+  }
+  return settings
+}
+export let main: Frames.TabsDrawnFromMain
 let restoreCatalog: (() => void) | undefined
 function launchScenarioSettings(): GlobalSettings {
   return createGlobalSettingsFixture({
@@ -178,8 +178,8 @@ vi.mock('@/lib/worktree-runtime-owner', () => ({
   getExecutionHostIdForWorktree: () =>
     state().repos[0]?.connectionId
       ? `ssh:${state().repos[0].connectionId}`
-      : state().settings.activeRuntimeEnvironmentId
-        ? `runtime:${state().settings.activeRuntimeEnvironmentId}`
+      : currentLaunchSettings().activeRuntimeEnvironmentId
+        ? `runtime:${currentLaunchSettings().activeRuntimeEnvironmentId}`
         : 'local',
   runtimeEnvironmentIdOrLocalUnlessTwin: () => null
 }))

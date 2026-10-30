@@ -8,6 +8,7 @@ import {
   mockToastError,
   structuredLaunchIntent,
   liveStore,
+  currentLaunchSettings,
   main,
   mockCallStructuredAgentSession,
   mockCreateSupport,
@@ -107,7 +108,7 @@ describe('structured chat adoption guard on the launch path', () => {
       const store = liveStore()
       store.setState({
         settings: {
-          ...store.getState().settings,
+          ...currentLaunchSettings(),
           activeRuntimeEnvironmentId: host === 'local' ? null : 'web-runtime'
         }
       })
@@ -249,7 +250,7 @@ describe('structured chat adoption guard on the launch path', () => {
         await import('../../../shared/agent-launch-picker')
       store.setState({
         settings: {
-          ...store.getState().settings,
+          ...currentLaunchSettings(),
           nativeChatSessionOptions: {
             [agent]: {
               model: 'saved-unknown-model',
