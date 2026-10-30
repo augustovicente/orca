@@ -1,22 +1,27 @@
 import './rpc/unused-default-rpc-methods.test-fixture'
 
-import { mkdir } from 'node:fs/promises'
-import { join } from 'node:path'
+import { mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { runProcess } from '@orca/process-host'
+import { readMetadata } from '../../cli/runtime/metadata'
 import { computeAgentSessionPayloadFingerprint } from '../../shared/agent-session-mutation-envelope'
 import { agentJournalItemKey } from '../../shared/agent-session-journal-item-key'
 import { formatOrcaSessionAddress } from '../../shared/orca-session-address'
 import { testOrcaSessionId } from '../../shared/orca-session-address-test-fixture'
+import { findTransport } from '../../shared/runtime-bootstrap'
 import { codexTurnLifecycleIdentity } from '../codex/codex-structured-journal-translation-turns'
 import { structuredAgentSessionProviderRetryPending } from '../native-chat/agent-session-wire/structured-agent-session-provider-retry'
 import { idOf, isRecord, resultOf } from './rpc/orchestration-session-caller-test-fixture'
+import { captureStructuredWorkerArchive } from './rpc/methods/orchestration-structured-worker-lifecycle'
 import { createLongPollServer } from './runtime-rpc-long-poll-server.test-fixture'
-import { operationId } from './structured-chat-coordinator-fake-codex-fixture'
+import { operationId, providerFaults } from './structured-chat-coordinator-fake-codex-fixture'
 import {
   COORDINATOR,
   PEER_CHAT,
   WAIT,
+  codex,
   coordinatorRunAndTask,
   db,
   host,
@@ -146,21 +151,41 @@ export function registerStructuredChatCliRetry(input: {
   entry: string
   database: typeof OrchestrationDb
 }): void {
-  let server: ReturnType<typeof createLongPollServer>
-  let home: string
+  let server: ReturnType<typeof createLongPollServer> | undefined
+  let home = ''
+  let rpcDirectory = ''
 
   beforeEach(async () => {
+    server = undefined
+    home = ''
+    rpcDirectory = ''
     expect(db).toBeInstanceOf(input.database)
+    rpcDirectory = await mkdtemp(join(process.platform === 'win32' ? tmpdir() : '/tmp', 'oc-'))
     home = join(root, 'cli-home')
     await mkdir(home)
-    server = createLongPollServer({ runtime, userDataPath: root, enableWebSocket: false })
+    server = createLongPollServer({ runtime, userDataPath: rpcDirectory, enableWebSocket: false })
     await server.start()
+    const metadata = readMetadata(rpcDirectory)
+    expect(metadata.runtimeId).toBe(runtime.getRuntimeId())
+    expect(metadata.pid).toBe(process.pid)
+    const transport = findTransport(metadata, process.platform === 'win32' ? 'named-pipe' : 'unix')
+    expect(transport).not.toBeNull()
+    if (process.platform !== 'win32') {
+      expect(dirname(transport!.endpoint)).toBe(rpcDirectory)
+      expect(Buffer.byteLength(transport!.endpoint, 'utf8')).toBeLessThan(104)
+    }
     structuredWorkerIdentities.clear()
   })
   afterEach(async () => {
     vi.useRealTimers()
-    await server?.stop()
-    structuredWorkerIdentities.clear()
+    try {
+      await server?.stop()
+      if (rpcDirectory) {
+        await rm(rpcDirectory, { recursive: true, force: true })
+      }
+    } finally {
+      structuredWorkerIdentities.clear()
+    }
   })
 
   async function cli(sessionId: string, args: string[]): Promise<Record<string, unknown>> {
@@ -180,10 +205,10 @@ export function registerStructuredChatCliRetry(input: {
         CODEX_HOME: join(home, 'codex'),
         CLAUDE_CONFIG_DIR: join(home, 'claude'),
         ORCA_E2E_HOME_DIR: home,
-        ORCA_E2E_USER_DATA_DIR: root,
+        ORCA_E2E_USER_DATA_DIR: rpcDirectory,
         ORCA_DISABLE_MACOS_LOGIN_SHELL: '1',
         ORCA_BACKGROUND_LAUNCH: '1',
-        ORCA_USER_DATA_PATH: root,
+        ORCA_USER_DATA_PATH: rpcDirectory,
         ORCA_AGENT_SESSION_ID: sessionId,
         SystemRoot: process.env.SystemRoot,
         ComSpec: process.env.ComSpec,
@@ -433,8 +458,8 @@ export function registerStructuredChatCliRetry(input: {
     45_000
   )
 
-  it('stops an owned worker in backoff through CLI, releases it and reads its preserved archive without restart', async () => {
-    await openChat(COORDINATOR)
+  it('stops an owned worker in backoff through CLI, releases it and reads its already captured output without restart', async () => {
+    const coordinator = await openChat(COORDINATOR)
     const chat = await openChat(PEER_CHAT)
     await fullAccess(PEER_CHAT)
     const { taskId } = await coordinatorRunAndTask()
@@ -469,27 +494,140 @@ export function registerStructuredChatCliRetry(input: {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     await ended(PEER_CHAT, chat, t, true)
     expect(structuredAgentSessionProviderRetryPending(journal(PEER_CHAT))).toBe(true)
+    const originalJournal = journal(PEER_CHAT)
+    const coordinatorJournal = journal(COORDINATOR)
+    const coordinatorLease = host.deps.store.getRecord(COORDINATOR)!.lease
+    const workerLease = host.deps.store.getRecord(PEER_CHAT)!.lease
+    const resource = db.getWorkerTerminalResourceByOwner(started.dispatch.id)!
+    const worker = db.getWorkerDispatch(started.dispatch.id)!
+    const dispatch = db.getDispatchContextById(started.dispatch.id)!
+    expect(resource).toMatchObject({
+      origin_dispatch_id: started.dispatch.id,
+      owner_dispatch_id: started.dispatch.id,
+      terminal_handle: identity.handle,
+      pane_key: identity.paneKey,
+      process_incarnation: identity.processIncarnation,
+      worktree_id: identity.worktreeId,
+      host_scope: JSON.stringify(identity.hostScope),
+      ownership_state: 'owned',
+      release_state: 'not_requested',
+      archive_source: null,
+      archive_status: null
+    })
+    expect(worker).toMatchObject({
+      dispatch_id: started.dispatch.id,
+      state: 'ready',
+      agent_terminal_handle: identity.handle,
+      worktree_id: identity.worktreeId
+    })
+    expect(dispatch).toMatchObject({
+      id: started.dispatch.id,
+      assignee_handle: identity.handle,
+      assignee_pane_key: identity.paneKey,
+      process_incarnation: identity.processIncarnation,
+      host_scope: JSON.stringify(identity.hostScope)
+    })
+    const connections = [...codex.connections]
+    const providerStarts = providerFaults.starts
+    const turnStarts = providerFaults.turnStarts
+    function expectNoReplacementOrHiddenWrite(): void {
+      expect(codex.connections).toHaveLength(connections.length)
+      for (const [index, connection] of connections.entries()) {
+        expect(codex.connections[index]).toBe(connection)
+        expect(hidden(connection)).toHaveLength(0)
+      }
+      expect(providerFaults.starts).toBe(providerStarts)
+      expect(providerFaults.turnStarts).toBe(turnStarts)
+    }
+    function expectCoordinatorOwnership(): void {
+      expect(host.hasSession(COORDINATOR)).toBe(true)
+      expect(journal(COORDINATOR)).toBe(coordinatorJournal)
+      expect(coordinator.closed).toBe(false)
+      expect(host.deps.store.getRecord(COORDINATOR)?.lease).toMatchObject({
+        claimStatus: 'live',
+        runtimeFence: coordinatorLease.runtimeFence,
+        ownerProcess: coordinatorLease.ownerProcess
+      })
+    }
+    function expectLiveArchiveInput(): void {
+      expect(db.getWorkerTerminalResourceByOwner(started.dispatch.id)).toEqual(resource)
+      expect(db.getWorkerDispatch(started.dispatch.id)).toEqual(worker)
+      expect(db.getDispatchContextById(started.dispatch.id)).toEqual(dispatch)
+      expect(structuredWorkerIdentities.get(identity.handle)).toBe(identity)
+      expect(structuredWorkerIdentities.getBySessionId(PEER_CHAT)).toBe(identity)
+      expect(host.hasSession(PEER_CHAT)).toBe(true)
+      expect(journal(PEER_CHAT)).toBe(originalJournal)
+      expect(host.deps.store.getRecord(PEER_CHAT)?.lease).toMatchObject({
+        sessionId: PEER_CHAT,
+        claimStatus: 'live',
+        runtimeFence: workerLease.runtimeFence,
+        ownerProcess: workerLease.ownerProcess
+      })
+      expect(chat.closed).toBe(false)
+      expect(structuredAgentSessionProviderRetryPending(originalJournal)).toBe(true)
+      expectNoReplacementOrHiddenWrite()
+      expectCoordinatorOwnership()
+    }
+    expectLiveArchiveInput()
+    expect(db.getWorkerTerminalArchive(started.dispatch.id)).toBeUndefined()
+    // API-prepared archive; this does not establish an ordinary ready-worker capture action.
+    const archive = await captureStructuredWorkerArchive(identity, 'codex')
+    expect(archive.processIncarnation).toBe(identity.processIncarnation)
+    expect(archive.messages.length).toBeGreaterThan(0)
+    expect(JSON.stringify(archive.messages)).toContain('finish the accepted request')
+    db.storeWorkerTerminalArchive({
+      dispatchId: started.dispatch.id,
+      resourceId: resource.id,
+      kind: 'structured_journal',
+      content: JSON.stringify(archive)
+    })
+    const capturedRow = db.getWorkerTerminalArchive(started.dispatch.id)!
+    expect(capturedRow).toMatchObject({
+      dispatch_id: started.dispatch.id,
+      resource_id: resource.id,
+      kind: 'structured_journal',
+      content: JSON.stringify(archive)
+    })
+    expect(JSON.parse(capturedRow.content)).toEqual(archive)
+    expectLiveArchiveInput()
     const stopped = await cli(COORDINATOR, ['worker-stop', '--dispatch', started.dispatch.id])
     expect(stopped).toMatchObject({ state: 'stopped', processAction: 'closed_agent_terminal' })
     expect(host.hasSession(PEER_CHAT)).toBe(false)
     expect(host.deps.store.getRecord(PEER_CHAT)?.lease.claimStatus).toBe('released')
+    expect(db.getWorkerTerminalArchive(started.dispatch.id)).toEqual(capturedRow)
     expect(
       await cli(COORDINATOR, ['worker-release', '--dispatch', started.dispatch.id])
     ).toMatchObject({
       state: 'released',
-      archive: { source: 'transcript', status: 'captured' }
+      archive: null
     })
     expect(db.getWorkerTerminalResourceByOwner(started.dispatch.id)?.release_state).toBe('released')
+    expect(db.getWorkerTerminalResourceByOwner(started.dispatch.id)?.id).toBe(resource.id)
+    expect(db.getWorkerTerminalArchive(started.dispatch.id)).toEqual(capturedRow)
     const read = await cli(COORDINATOR, ['worker-read', '--dispatch', started.dispatch.id])
     expect(read).toMatchObject({
+      dispatchId: started.dispatch.id,
+      provider: 'codex',
       source: 'transcript',
       archived: true,
-      status: { liveness: 'exited' }
+      status: { liveness: 'exited' },
+      transcript: { messages: archive.messages, returnedMessageCount: archive.messages.length }
     })
     expect(JSON.stringify(read.transcript)).toContain('finish the accepted request')
+    expect(db.getWorkerTerminalArchive(started.dispatch.id)).toEqual(capturedRow)
     await vi.advanceTimersByTimeAsync(90_000)
     expect(hidden(chat)).toHaveLength(0)
     expect(chat.closed).toBe(true)
     expect(db.getWorkerDispatch(started.dispatch.id)?.state).toBe('stopped')
+    expect(db.getWorkerTerminalArchive(started.dispatch.id)).toEqual(capturedRow)
+    expect(host.hasSession(PEER_CHAT)).toBe(false)
+    expect(host.deps.store.getRecord(PEER_CHAT)?.lease.claimStatus).toBe('released')
+    expect(db.getWorkerTerminalResourceByOwner(started.dispatch.id)).toMatchObject({
+      id: resource.id,
+      owner_dispatch_id: started.dispatch.id,
+      release_state: 'released'
+    })
+    expectNoReplacementOrHiddenWrite()
+    expectCoordinatorOwnership()
   }, 45_000)
 }

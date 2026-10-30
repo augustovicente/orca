@@ -1,4 +1,5 @@
 import type { Rig } from './structured-agent-session-codex-provider-retry-test-support'
+import type { StructuredAgentSessionRequestFailures } from './structured-agent-session-request-failures'
 import { registerCodexRetryRetirement } from './structured-agent-session-codex-provider-retry-retirement.spec'
 import { registerCodexRetryStop } from './structured-agent-session-codex-provider-retry-stop.spec'
 import { registerCodexRetryAdmission } from './structured-agent-session-codex-provider-retry-admission.spec'
@@ -307,7 +308,10 @@ export function registerCodexProviderRetry(get: () => Rig): void {
       )
       const readFailures = rig.host['clientDelivery'].requestFailures.observe
       const countedFailures = vi
-        .spyOn(rig.host['clientDelivery'].requestFailures, 'observe')
+        .spyOn<StructuredAgentSessionRequestFailures, 'observe'>(
+          rig.host['clientDelivery'].requestFailures,
+          'observe'
+        )
         .mockImplementation((id: string, current, rows, applied) => {
           count('failure-observe', `${id}:rows=${rows?.length ?? 'adoption'}`)
           return readFailures(id, current, rows, applied)

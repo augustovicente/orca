@@ -1,4 +1,5 @@
 import type { Rig } from './structured-agent-session-retry-completion-test-support'
+import type { StructuredAgentSessionRequestFailures } from './structured-agent-session-request-failures'
 import {
   journalOf,
   key,
@@ -554,7 +555,7 @@ export function registerRetryCompletion(get: () => Rig): void {
         expect(owner.abort.signal.aborted).toBe(false)
       }
       assertSlot()
-      const calls = vi.spyOn(failures, 'observe')
+      const calls = vi.spyOn<StructuredAgentSessionRequestFailures, 'observe'>(failures, 'observe')
       const callback = rig.host.deps.onRequestFailure!
       const observed = vi.spyOn(rig.host.deps, 'onRequestFailure').mockImplementation((failure) => {
         assertSlot()
