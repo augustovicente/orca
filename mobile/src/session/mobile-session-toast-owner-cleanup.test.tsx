@@ -56,6 +56,7 @@ vi.mock('./mobile-session-styles', () => ({ styles: { container: {}, kavInner: {
 vi.mock('./MobileSessionHeader', () => ({ MobileSessionHeader: () => null }))
 vi.mock('./MobileSessionContentRow', () => ({ MobileSessionContentRow: () => null }))
 vi.mock('./MobileSessionSheets', () => ({ MobileSessionSheets: () => null }))
+vi.mock('./MobileWorkerAutoCloseStrip', () => ({ MobileWorkerAutoCloseStrip: () => null }))
 vi.mock('./session-side-rail', () => ({
   useSessionSideRail: () => ({ backInRail: false, keysInRail: false })
 }))

@@ -16,6 +16,7 @@ import { TabSessionSurfaceSwitchMenuItems } from './TabSessionSurfaceSwitchMenuI
 import type { NativeChatTabSession } from './tab-session-history-switch'
 import { TAB_CONTEXT_MENU_CONTENT_CLASS } from './tab-context-menu-sizing'
 import { CopyTabIdMenuItem } from './CopyTabIdMenuItem'
+import { useAllowAutoClose } from './use-allow-auto-close'
 import { CloseSplitPaneMenuItem } from './CloseSplitPaneMenuItem'
 
 const TAB_COLORS = [
@@ -104,8 +105,6 @@ type SortableTabContextMenuProps = {
   onRenameOpen: () => void
   onSetTabColor: (tabId: string, color: string | null) => void
   onTogglePin: () => void
-  /** Set on an orchestration worker the user kept open; returns it to auto-close. */
-  onAllowAutoClose?: () => void
   /** Only terminal-backed agent tabs can switch view; structured chats have no terminal beneath them. */
   canToggleViewMode?: boolean
   /** Select the destination label/icon from the tab’s current chat/terminal view. */
@@ -134,7 +133,6 @@ export function SortableTabContextMenu({
   onRenameOpen,
   onSetTabColor,
   onTogglePin,
-  onAllowAutoClose,
   canToggleViewMode = false,
   isChatView = false,
   onToggleViewMode,
@@ -149,6 +147,13 @@ export function SortableTabContextMenu({
   const renameShortcut = useOptionalShortcutLabel('tab.rename')
   // Keep the route back from chat even while switching terminals into chat is disabled.
   const showTerminalViewSwitch = canToggleViewMode && isChatView && onToggleViewMode !== undefined
+  // Shown only on an orchestration worker the user kept open; returns it to auto-close.
+  const onAllowAutoClose = useAllowAutoClose({
+    open,
+    tabId: tab.id,
+    worktreeId: tab.worktreeId,
+    sessionId: nativeChat?.sessionId
+  })
 
   return (
     <DropdownMenu open={open} onOpenChange={onOpenChange} modal={false}>
@@ -204,7 +209,10 @@ export function SortableTabContextMenu({
         {onAllowAutoClose ? (
           <DropdownMenuItem onSelect={onAllowAutoClose}>
             <Timer className="size-3.5 shrink-0" />
-            {translate('components.tab-bar.allowAutoClose', 'Allow auto-close')}
+            {translate(
+              'components.tab.bar.SortableTabContextMenu.allowAutoClose',
+              'Allow Auto-Close'
+            )}
           </DropdownMenuItem>
         ) : null}
         <CopyTabIdMenuItem unifiedTabId={unifiedTabId} />

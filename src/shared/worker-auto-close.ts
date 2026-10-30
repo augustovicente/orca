@@ -1,0 +1,28 @@
+/** Kept open, or temporary with the host's deadline (null while it runs or works again); the host
+ *  answers null when nothing closes it. Hosts without orchestration.worker-keep-open.v1 lack the method. */
+export type WorkerAutoCloseState = { kept: true } | { kept: false; closesAt: string | null }
+
+export function readWorkerAutoCloseReply(result: unknown): WorkerAutoCloseState | null {
+  if (typeof result !== 'object' || result === null || !('autoClose' in result)) {
+    return null
+  }
+  const state = result.autoClose
+  if (typeof state !== 'object' || state === null || !('kept' in state)) {
+    return null
+  }
+  if (state.kept === true) {
+    return { kept: true }
+  }
+  const closesAt = 'closesAt' in state ? state.closesAt : null
+  return { kept: false, closesAt: typeof closesAt === 'string' ? closesAt : null }
+}
+
+/** m:ss until the host's deadline, never below 0:00. */
+export function formatWorkerAutoCloseCountdown(closesAt: string, nowMs: number): string {
+  const seconds = Math.max(0, Math.ceil((Date.parse(closesAt) - nowMs) / 1000))
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
+}
+
+// A temporary worker is polled often so the strip follows its finish and follow-up turns; anything else rarely.
+export const WORKER_AUTO_CLOSE_POLL_MS = 3_000
+export const WORKER_AUTO_CLOSE_IDLE_POLL_MS = 15_000

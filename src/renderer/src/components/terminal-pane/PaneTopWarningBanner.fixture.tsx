@@ -19,7 +19,7 @@ function WorkerPane({ title }: { title: string }): React.JSX.Element {
   )
 }
 
-const running = 'Temporary orchestration worker · Closes 2 min after it finishes'
+const running = 'Temporary orchestration worker · Closes 2 minutes after it finishes'
 const finished = 'Temporary orchestration worker finished · Closes in 1:42'
 
 export const workerRunning = defineFixture({

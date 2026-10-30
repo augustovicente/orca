@@ -23,7 +23,7 @@ function workerNotice(text: string) {
 }
 
 export const workerRunning = workerNotice(
-  'Temporary orchestration worker · Closes 2 min after it finishes'
+  'Temporary orchestration worker · Closes 2 minutes after it finishes'
 )
 export const workerFinished = workerNotice(
   'Temporary orchestration worker finished · Closes in 1:42'

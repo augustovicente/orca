@@ -5,6 +5,7 @@ import {
 } from '../../worker-terminal-ownership'
 import { isEquivalentPaneKey } from '../pane-key-match'
 import type { OrchestrationDb } from '../orchestration-db'
+import type { WorkerAutoCloseState } from '../../../../../shared/worker-auto-close'
 import { exposeUtcTimestamp, toSqliteUtcTimestamp } from '../utc-timestamp'
 import { retainTerminalResourceInTransaction } from './worker-terminal-archive'
 import {
@@ -109,9 +110,6 @@ export function allowWorkerTerminalAutoClose(
     throw error
   }
 }
-
-/** Kept, or temporary with the host's deadline (null while it runs or works again); null when nothing closes it. */
-export type WorkerAutoCloseState = { kept: true } | { kept: false; closesAt: string | null }
 
 export function getWorkerAutoCloseState(
   this: OrchestrationDb,
