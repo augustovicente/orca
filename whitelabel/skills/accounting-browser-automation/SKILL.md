@@ -1,14 +1,14 @@
 ---
 name: accounting-browser-automation
 description: >-
-  Automate repetitive work in accounting web portals using Orca's embedded browser:
+  Automate repetitive work in accounting web portals using o navegador integrado do app:
   login, navigate, extract tables, download reports, fill forms. Use for
   accounting firms' recurring portal tasks.
 ---
 
 # Accounting Browser Automation
 
-Use Orca's built-in browser commands (via `orca-cli`) for a snapshot-interact-re-snapshot loop:
+Use the browser commands of o app (via the integrated browser) for a snapshot-interact-re-snapshot loop:
 
 ```
 ORCA goto --url <portal-url> --json
