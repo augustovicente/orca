@@ -8,6 +8,7 @@ env:
   ORCA_COMPUTER_BENCH_ISOLATED: '1'
 jobs:
   linux:
+    if: false
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:

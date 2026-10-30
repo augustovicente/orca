@@ -12,6 +12,7 @@ def main():
             or os.environ.get("ORCA_COMPUTER_BENCH_ISOLATED") != "1"
             or os.environ.get("ORCA_BACKGROUND_LAUNCH") != "1"):
         raise SystemExit("input probe requires isolated CI")
+    sys.stdout.reconfigure(encoding="utf-8")
     import bench
     import trial_contract
     if sys.platform == "win32":
