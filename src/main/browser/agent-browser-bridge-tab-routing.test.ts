@@ -339,6 +339,48 @@ describe('AgentBrowserBridge', () => {
     ])
   })
 
+  it('rejects an unpinned ref from another tab snapshot until the current tab is snapshotted', async () => {
+    const tabs = new Map([
+      ['tab-a', 1],
+      ['tab-b', 2]
+    ])
+    const worktrees = new Map([
+      ['tab-a', 'wt-1'],
+      ['tab-b', 'wt-1']
+    ])
+    const wc1 = mockWebContents(1)
+    const wc2 = mockWebContents(2)
+    webContentsFromIdMock.mockImplementation((id: number) => (id === 1 ? wc1 : wc2))
+    const b = new AgentBrowserBridge(mockBrowserManager(tabs, worktrees))
+    b.setActiveTab(1, 'wt-1')
+    const clickSessions: string[] = []
+    answerAgentBrowserCommands(execFileMock, stdinWrites, (command, cb, args) => {
+      if (command[0] === 'click') {
+        clickSessions.push(args[args.indexOf('--session') + 1])
+      }
+      const data = command[0] === 'snapshot' ? { snapshot: '' } : {}
+      cb(null, JSON.stringify({ success: true, data }), '')
+    })
+
+    await b.snapshot('wt-1')
+    await b.tabSwitch(undefined, 'wt-1', 'tab-b')
+
+    await expect(b.click('@e2', 'wt-1')).rejects.toMatchObject({
+      code: 'browser_stale_ref',
+      message: expect.stringContaining(
+        'Run snapshot to get refs for page tab-b, or pass --page tab-a'
+      )
+    })
+    await expect(b.exec('click e2', 'wt-1')).rejects.toMatchObject({ code: 'browser_stale_ref' })
+    await b.exec('keyboard type e2', 'wt-1')
+    expect(clickSessions).toEqual([])
+
+    await b.click('@e2', undefined, 'tab-a')
+    await b.exec('snapshot -i', 'wt-1')
+    await b.click('@e2', 'wt-1')
+    expect(clickSessions).toEqual(['orca-tab-tab-a', 'orca-tab-tab-b'])
+  })
+
   it('queues tabSwitch behind in-flight commands on the current session', async () => {
     const tabs = new Map([
       ['tab-a', 1],
