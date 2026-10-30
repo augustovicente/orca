@@ -42,7 +42,6 @@ import {
   OrcadPeerDesktopsParamsSchema
 } from '../orcad-peer-desktops-contract'
 import { OrcadTerminalCensusParamsSchema } from '../orcad-terminal-census'
-import { pluginConsentRequestSchema } from '../plugins/approval/plugin-consent-request'
 import {
   AccountsUnsubscribeParams,
   AddClaudeFromConfigDirParams,
@@ -496,6 +495,7 @@ import { WorkerDispatchParams as WorkerDispatchParamsOfOrchestrationWorkerStopPa
 import {
   PluginInvokeCommandParams,
   PluginReadPanelEntryParams,
+  PluginRpcConsentParams,
   PluginSetEnabledParams,
   PluginsPanelActionParams
 } from './plugins-params'
@@ -1292,7 +1292,7 @@ export const RPC_PARAMS_BY_METHOD = {
   'pairing.getEndpoints': PairingGetEndpointsParamsSchema,
   'pairing.provisionRelay': PairingProvisionRelayParamsSchema,
   'pairing.registerDeviceKey': RegisterDeviceKeyParamsSchema,
-  'plugins.consent': pluginConsentRequestSchema,
+  'plugins.consent': PluginRpcConsentParams,
   'plugins.invokeCommand': PluginInvokeCommandParams,
   'plugins.list': null,
   'plugins.panelAction': PluginsPanelActionParams,

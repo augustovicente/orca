@@ -1,4 +1,4 @@
-import { isUtf8ByteLengthWithinLimit } from '../../../shared/utf8-byte-limits'
+import { isUtf8ByteLengthWithinLimit } from '../../../../../shared/utf8-byte-limits'
 import { useState } from 'react'
 import { Check, ListFilter, Pencil, Plus, Trash2 } from 'lucide-react'
 import {
@@ -6,7 +6,7 @@ import {
   MAX_JIRA_SAVED_FILTER_NAME_LENGTH,
   MAX_JIRA_SAVED_FILTERS,
   type JiraSavedFilter
-} from '../../../shared/jira/jira-saved-filters'
+} from '../../../../../shared/jira/jira-saved-filters'
 import { translate } from '@/i18n/i18n'
 import {
   Command,
