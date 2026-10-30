@@ -4,6 +4,7 @@ import {
   parseAgentJournalItemKey
 } from '../../shared/agent-session-journal-item-key'
 import type { AgentJournalRenderItem } from '../../shared/agent-session-journal-types'
+import type { StructuredAgentSessionLogger } from '../native-chat/agent-session-wire/structured-agent-session-logger'
 import type { AcpDialect } from './acp-dialects/acp-dialect'
 import type { AcpHistoryTurnIdentity, AcpLoadHistoryFrame } from './acp-history-replay'
 import {
@@ -16,7 +17,7 @@ import { catchUpAcpHistory } from './acp-history-catch-up'
 
 export async function setup(dialect: AcpDialect, identity: AcpHistoryTurnIdentity) {
   const fixture = await openAcpFixtureRig(dialect)
-  const warn = vi.fn()
+  const warn = vi.fn<StructuredAgentSessionLogger['warn']>()
   const catchUp = (frames: readonly AcpLoadHistoryFrame[]) =>
     catchUpAcpHistory({
       frames,
