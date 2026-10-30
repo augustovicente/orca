@@ -20,11 +20,15 @@ const mocks = vi.hoisted(() => ({
   hostRpc: vi.fn()
 }))
 
+const choices: AgentLaunchChoices = {}
+const hostStatuses = new Map<string, { status: { hostPlatform: string; capabilities: string[] } }>([
+  ['web-runtime', { status: { hostPlatform: 'linux', capabilities: [] } }]
+])
 const store = {
   activeRepoId: 'repo-1',
   activeWorktreeId: 'wt-1',
   settings: {
-    agentLaunchChoices: {} as AgentLaunchChoices,
+    agentLaunchChoices: choices,
     agentCmdOverrides: {} as Record<string, string>,
     agentDefaultArgs: {} as Record<string, string>,
     agentDefaultEnv: {} as Record<string, Record<string, string>>,
@@ -54,9 +58,7 @@ const store = {
   ptyIdsByTabId: {},
   sshConnectionStates: new Map(),
   sshStateByEnvironment: new Map(),
-  runtimeStatusByEnvironmentId: new Map([
-    ['web-runtime', { status: { hostPlatform: 'linux', capabilities: [] as string[] } }]
-  ]),
+  runtimeStatusByEnvironmentId: hostStatuses,
   transientClearedAgentStatusConnectionIds: {},
   allWorktrees: vi.fn(() => store.worktreesByRepo['repo-1']),
   createTab: mocks.createTab,
@@ -119,7 +121,7 @@ describe('launchAgentInNewTab paired web runtime', () => {
       activeRuntimeEnvironmentId: 'web-runtime'
     }
     store.runtimeStatusByEnvironmentId = new Map([
-      ['web-runtime', { status: { hostPlatform: 'linux', capabilities: [] as string[] } }]
+      ['web-runtime', { status: { hostPlatform: 'linux', capabilities: [] } }]
     ])
     store.tabsByWorktree = { 'wt-1': [{ id: 'tab-1' }] }
     mocks.createWebRuntimeSessionTerminal.mockResolvedValue({

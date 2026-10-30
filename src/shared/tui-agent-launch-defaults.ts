@@ -36,6 +36,7 @@ export type AgentLaunchProfileSettings = Partial<
     | 'agentLaunchChoices'
     | 'agentPermissionDefault'
     | 'agentPermissionOverrides'
+    | 'terminalWindowsShell'
   >
 >
 
@@ -288,7 +289,14 @@ export function composeAgentLaunchProfile(
           agent,
           settings,
           undefined,
-          platform === 'win32' ? 'powershell' : 'posix'
+          resolveStartupShell(
+            platform ?? agentPermissionHostPlatform(),
+            resolveLocalWindowsAgentStartupShell({
+              platform: platform ?? agentPermissionHostPlatform(),
+              isRemote: false,
+              terminalWindowsShell: settings.terminalWindowsShell
+            })
+          )
         )
       ])
     ),

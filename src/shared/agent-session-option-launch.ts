@@ -49,7 +49,7 @@ export function removeOverriddenAgentSessionArgs(
   if (modelId) {
     result = catalog.modelApply.removeAgentArgs?.(result) ?? result
   }
-  for (const option of launchOptionsFor(catalog, modelId).options) {
+  for (const option of launchOptionsFor(catalog, modelId, values).options) {
     const value = values[option.id]
     if (value !== undefined && option.apply.removeAgentArgs) {
       const settings = option.apply.cli?.find((form) => form.kind === 'settings')
@@ -67,7 +67,8 @@ export function removeOverriddenAgentSessionArgs(
 /** Without a model, the catalog's model-independent options still apply; nothing composes. */
 function launchOptionsFor(
   catalog: AgentSessionOptionCatalog,
-  modelId: string | null
+  modelId: string | null,
+  values: Readonly<Record<string, unknown>>
 ): { model: CatalogModel | null; options: CatalogOption[] } {
   const model = (modelId ? findCatalogModel(catalog, modelId) : null) ?? null
   const options = model?.options ?? catalog.unknownModelOptions ?? []
@@ -77,9 +78,12 @@ function launchOptionsFor(
       ...options,
       ...(catalog.unknownModelOptions ?? []).filter(
         (option) =>
-          option.kind.type === 'select' &&
-          option.kind.choices.length === 0 &&
-          !options.some((existing) => existing.id === option.id)
+          !options.some((existing) => existing.id === option.id) &&
+          ((option.kind.type === 'select' && option.kind.choices.length === 0) ||
+            (values[option.id] !== undefined &&
+              !option.apply.composedIntoModel &&
+              !!option.apply.cli?.length &&
+              !!option.apply.launchArgs))
       )
     ]
   }
@@ -133,7 +137,7 @@ function resolveModelOptionLaunch(
     return { args: [], appliedValues: {} }
   }
 
-  const { model, options: modelOptions } = launchOptionsFor(catalog, modelId)
+  const { model, options: modelOptions } = launchOptionsFor(catalog, modelId, values)
   const appliedValues: Record<string, SessionOptionValue> = {}
   const args: string[] = []
   const modelValues = yieldAgentChoicesToArgs(
@@ -227,6 +231,6 @@ export function composeAgentLaunchModel(
   if (!modelId || !catalog?.composeModelValue) {
     return modelId || undefined
   }
-  const { model, options } = launchOptionsFor(catalog, modelId)
+  const { model, options } = launchOptionsFor(catalog, modelId, values)
   return catalog.composeModelValue(modelId, launchModelValues(model, options, values, false))
 }

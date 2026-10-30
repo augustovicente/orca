@@ -3,9 +3,8 @@ import type {
   AgentChoicePatch
 } from '../../../../shared/agent-launch-choices'
 import type { TuiAgent } from '../../../../shared/tui-agent'
-import { composeAgentLaunchModel } from '../../../../shared/agent-session-option-launch'
+import { analyzeAgentChoiceArgs } from '../../../../shared/agent-choice-args'
 import { projectAgentLaunchProfile } from '../../../../shared/agent-launch-profile'
-import { sourceControlActionOptions } from '../../../../shared/source-control-action-launch-preferences'
 import type { AgentArgsChoice } from './AgentPermissionChoiceControls'
 
 export function agentModelChoiceChips(
@@ -14,46 +13,46 @@ export function agentModelChoiceChips(
   selected: AgentDedicatedChoices | undefined,
   onRemove: (patch: AgentChoicePatch, text: string) => string
 ): AgentArgsChoice[] {
-  return agent
-    ? Object.entries({ model: selected?.model, ...selected?.options }).flatMap(([key, chosen]) => {
-        if (!chosen) {
-          return []
+  if (!agent || !selected) {
+    return []
+  }
+  const projection = projectAgentLaunchProfile(
+    agent,
+    { agentPermissionDefault: 'own' },
+    {
+      target: 'terminal',
+      userArgs: '',
+      choices: selected
+    }
+  )
+  const analysis = analyzeAgentChoiceArgs(agent, projection.args)
+  return [...analysis.occurrences]
+    .sort((a, b) => Number(b.key === 'permissionMode') - Number(a.key === 'permissionMode'))
+    .flatMap(({ key, start, end }) => {
+      const chosen =
+        key === 'model'
+          ? selected.model
+          : key === 'permissionMode'
+            ? selected.permissionMode
+            : selected.options?.[key]
+      if (chosen === undefined) {
+        return []
+      }
+      return [
+        {
+          key,
+          label,
+          flag: projection.args.slice(start, end),
+          onRemove: (text: string) =>
+            onRemove(
+              key === 'model'
+                ? { model: null }
+                : key === 'permissionMode'
+                  ? { permissionMode: 'own' }
+                  : { options: { [key]: null } },
+              text
+            )
         }
-        const option =
-          sourceControlActionOptions(agent, selected?.model ?? '').find(
-            ({ option }) => option.id === key
-          )?.option ??
-          sourceControlActionOptions(agent, '').find(({ option }) => option.id === key)?.option
-        const flag = option?.apply.composedIntoModel
-          ? `${option.label} ${chosen}`
-          : projectAgentLaunchProfile(
-              agent,
-              { agentPermissionDefault: 'own' },
-              {
-                target: 'legacy-permission',
-                userArgs: '',
-                choices:
-                  key === 'model'
-                    ? {
-                        model: composeAgentLaunchModel(agent, {
-                          ...selected?.options,
-                          model: chosen
-                        })
-                      }
-                    : { options: { [key]: chosen } }
-              }
-            ).args
-        return flag
-          ? [
-              {
-                key,
-                label,
-                flag,
-                onRemove: (text: string) =>
-                  onRemove(key === 'model' ? { model: null } : { options: { [key]: null } }, text)
-              }
-            ]
-          : []
-      })
-    : []
+      ]
+    })
 }

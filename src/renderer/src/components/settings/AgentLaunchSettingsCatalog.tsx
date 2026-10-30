@@ -128,15 +128,16 @@ export function AgentLaunchSettingsCatalog({
   )
   // Agents whose chat program is here without their CLI, like a downloaded chat runtime, are installed for chat.
   const chatOnlyKey = useAppStore((state) => {
-    if (chatAgents.length === 0) {
+    if (detectionTarget.kind === 'ssh' || (local && !isNativeChatEnabled(local.settings))) {
       return ''
     }
     const context = resolveChatProgramContext(state, workspace)
-    return chatAgents
+    const selectedDetected = detectionTarget.kind === 'runtime' ? detected : installedHere
+    return chatProviderAgents(context.executionHostId, state.runtimeStatusByEnvironmentId)
       .filter(
         (agent) =>
-          !installedHere?.includes(agent) &&
-          readChatProgram(state, agent, context, installedHere) === 'available'
+          !selectedDetected?.includes(agent) &&
+          readChatProgram(state, agent, context, selectedDetected) === 'available'
       )
       .join(' ')
   })
@@ -381,26 +382,4 @@ export function AgentLaunchSettingsCatalog({
   )
 }
 
-export function AgentLaunchSettingsLoading(): React.JSX.Element {
-  return (
-    <fieldset disabled className="min-w-0 space-y-8">
-      <AgentDefaultSetting
-        defaultAgent="blank"
-        detectedIds={null}
-        enabledDetectedAgents={[]}
-        catalog={[]}
-        description={translate(
-          'settings.agents.hostDefaults',
-          'Defaults for new agents on the selected host.'
-        )}
-        onSetDefault={() => {}}
-      />
-      <AllAgentsPermissionSetting
-        choice={null}
-        withoutAutoChoice={null}
-        onChange={() => {}}
-        onChangeWithoutAuto={() => {}}
-      />
-    </fieldset>
-  )
-}
+export { AgentLaunchSettingsLoading } from './AgentLaunchSettingsLoading'

@@ -51,6 +51,7 @@ function createRuntime(
   settings: Record<string, unknown> = {}
 ) {
   const runtime = new OrcaRuntimeService(
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: this operation fixture supplies only getSettings; terminal scope and PTY dependencies are installed below.
     {
       getSettings: () => ({
         disabledTuiAgents: [],

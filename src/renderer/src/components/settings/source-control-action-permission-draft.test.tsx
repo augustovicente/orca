@@ -456,9 +456,14 @@ it.each([
   expect(screen.getByRole('textbox', { name: 'Arguments' })).toHaveProperty('value', '--verbose')
 })
 
-it.each(['host-private', 'sonnet'])(
-  'keeps a saved %s Fast badge removable without offering a Fast select',
-  async (model) => {
+it.each([
+  { model: 'host-private', fastMode: 'true' },
+  { model: 'host-private', fastMode: 'false' },
+  { model: 'sonnet', fastMode: 'true' },
+  { model: 'sonnet', fastMode: 'false' }
+])(
+  'keeps a saved $model Fast=$fastMode badge removable without offering a Fast select',
+  async ({ model, fastMode }) => {
     write.mockClear()
     const saved = {
       value: normalizeSourceControlAiSettings({
@@ -470,7 +475,7 @@ it.each(['host-private', 'sonnet'])(
             launchPreferences: {
               agentId: 'claude',
               model,
-              options: { fastMode: 'true' }
+              options: { fastMode }
             }
           }
         }
@@ -500,7 +505,7 @@ it.each(['host-private', 'sonnet'])(
     })
     expect(args).toContain('"theme":"light"')
     expect(args).toContain('--add-dir docs')
-    expect(args).not.toContain('"fastMode":true')
+    expect(args).not.toContain('"fastMode"')
   }
 )
 
@@ -729,7 +734,7 @@ it('labels effort from the effective action model after dropping the previous de
       agent="claude"
       value="--verbose"
       preferences={{ agentId: 'claude', model: 'sonnet' }}
-      defaults={{ claude: { model: 'opus', options: { effort: 'high' } } }}
+      agentLaunchChoices={{ claude: { model: 'opus', options: { effort: 'high' } } }}
       onArgsChange={() => {}}
       onPreferencesChange={() => {}}
     />,
@@ -738,4 +743,31 @@ it('labels effort from the effective action model after dropping the previous de
   expect(screen.getByRole('combobox', { name: 'Same as Claude · Default' })).toBeTruthy()
   expect(screen.queryByRole('combobox', { name: 'Same as Claude · High' })).toBeNull()
   view.unmount()
+})
+
+it('labels a same-model effort reset with the prospective inherited value and writes that reset', async () => {
+  const write = vi.fn()
+  render(
+    <SourceControlActionArguments
+      agent="claude"
+      value="--verbose"
+      preferences={{ agentId: 'claude', model: 'opus', options: { effort: 'low' } }}
+      agentLaunchChoices={{ claude: { model: 'opus', options: { effort: 'high' } } }}
+      onArgsChange={vi.fn()}
+      onPreferencesChange={write}
+    />,
+    { wrapper: TooltipProvider }
+  )
+  const effort = screen.getByRole('combobox', { name: 'Low' })
+  await userEvent.click(effort)
+  await userEvent.click(screen.getByRole('option', { name: 'Same as Claude · High' }))
+  expect(write).toHaveBeenCalledOnce()
+  expect(write.mock.lastCall?.[0]).toMatchObject({
+    agentId: 'claude',
+    modelSelection: {
+      base: 'default',
+      model: { agentId: 'claude', value: 'opus' },
+      options: { effort: { agentId: 'claude', value: null } }
+    }
+  })
 })

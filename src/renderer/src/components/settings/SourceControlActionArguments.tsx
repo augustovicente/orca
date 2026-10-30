@@ -10,8 +10,8 @@ import type {
   SourceControlActionRecipe
 } from '../../../../shared/source-control-ai-actions'
 import {
-  agentPermissionChoices,
   agentPermissionArgs,
+  agentPermissionChoices,
   resolveAgentPermission
 } from '../../../../shared/tui-agent-permission-choice'
 import { agentArgsSetPermission } from '../../../../shared/tui-agent-permission-lift'
@@ -109,12 +109,18 @@ export function SourceControlActionArguments({
   const select = (permissionMode: typeof choice | 'default'): void => {
     commit({ permissionMode })
   }
-  const chips = agentModelChoiceChips(agent, label, selected, commit)
+  const chips = agentModelChoiceChips(
+    agent,
+    label,
+    loose && selected ? { ...selected, permissionMode: undefined } : selected,
+    commit
+  )
+  const { effort: _currentEffort, ...resetOptions } = selected?.options ?? {}
   const defaultChoices = agent
     ? resolveAgentChoiceLayers({
         agent,
         defaults: defaults?.[agent],
-        action: selected,
+        action: { ...selected, options: resetOptions },
         argumentOwner: 'launch',
         userArgs: value
       })
@@ -248,19 +254,7 @@ export function SourceControlActionArguments({
                 onArgsChange(text, true)
               }
             }}
-            choiceChips={[
-              ...(flag && !loose
-                ? [
-                    {
-                      key: 'permissionMode',
-                      label,
-                      flag,
-                      onRemove: (text: string) => commit({ permissionMode: 'own' }, text)
-                    }
-                  ]
-                : []),
-              ...chips
-            ]}
+            choiceChips={chips}
             note={
               loose
                 ? translate(

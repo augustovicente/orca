@@ -1,3 +1,5 @@
+import { resolveLocalWindowsAgentStartupShell } from './windows-terminal-shell'
+import { resolveStartupShell } from './tui-agent-startup-shell'
 import { agentLaunchChoiceUpdates } from './agent-launch-choice-updates'
 import { agentPermissionHostPlatform, permissionEnvNameMatches } from './agent-permission-env'
 import {
@@ -79,12 +81,26 @@ export function legacyPermissionsUpdates(
 export function legacyArgumentsUpdates(
   settings: AgentLaunchSettingsSource,
   agent: TuiAgent,
-  value: string
+  value: string,
+  platform: NodeJS.Platform = agentPermissionHostPlatform()
 ): AgentLaunchSettingsSource {
+  const shell = resolveStartupShell(
+    platform,
+    resolveLocalWindowsAgentStartupShell({
+      platform,
+      isRemote: false,
+      terminalWindowsShell: settings.terminalWindowsShell
+    })
+  )
   if (settings.agentLaunchChoices !== undefined) {
-    return agentLaunchChoiceUpdates(settings, agent, { userArgs: value }, 'terminal')
+    return agentLaunchChoiceUpdates(
+      settings,
+      agent,
+      { userArgs: value },
+      { target: 'terminal', shell }
+    )
   }
-  if (value.trim() === resolveTuiAgentLaunchArgs(agent, settings).trim()) {
+  if (value.trim() === resolveTuiAgentLaunchArgs(agent, settings, undefined, shell).trim()) {
     return {}
   }
   const lifted = liftAgentPermissionArgs(agent, value)
@@ -96,7 +112,7 @@ export function legacyArgumentsUpdates(
     ...(lifted.choice
       ? choiceUpdate(settings, agent, lifted.choice)
       : agentPermissionArgs(agent, resolveAgentPermission(agent, settings).choice) &&
-          resolveTuiAgentLaunchArgs(agent, settings).trim() !==
+          resolveTuiAgentLaunchArgs(agent, settings, undefined, shell).trim() !==
             (settings.agentDefaultArgs?.[agent]?.trim() ?? '')
         ? choiceUpdate(settings, agent, 'own')
         : {})
@@ -116,6 +132,21 @@ export function legacyLaunchTextUpdates(
     return updates
   }
   const published = composeAgentLaunchProfile(settings, platform)
+  const same = (left: Record<string, unknown>, right: Record<string, unknown>) =>
+    Object.keys(left).length === Object.keys(right).length &&
+    Object.entries(left).every(([key, value]) => value === right[key])
+  if (
+    (updates.agentDefaultArgs === undefined ||
+      same(updates.agentDefaultArgs, published.agentDefaultArgs)) &&
+    (updates.agentDefaultEnv === undefined ||
+      (Object.keys(updates.agentDefaultEnv).length ===
+        Object.keys(published.agentDefaultEnv).length &&
+        Object.entries(updates.agentDefaultEnv).every(([agent, env]) =>
+          same(env ?? {}, published.agentDefaultEnv[agent] ?? {})
+        )))
+  ) {
+    return {}
+  }
   const args: Partial<Record<TuiAgent, string>> = {}
   const envs: Partial<Record<TuiAgent, Record<string, string>>> = {}
   let overrides = settings.agentPermissionOverrides
@@ -131,7 +162,8 @@ export function legacyLaunchTextUpdates(
       const change = legacyArgumentsUpdates(
         { ...settings, agentLaunchChoices, agentPermissionOverrides: overrides },
         agent,
-        updates.agentDefaultArgs[agent] ?? ''
+        updates.agentDefaultArgs[agent] ?? '',
+        platform
       )
       agentLaunchChoices = change.agentLaunchChoices ?? agentLaunchChoices
       if (Object.hasOwn(updates.agentDefaultArgs, agent)) {

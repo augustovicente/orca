@@ -162,11 +162,14 @@ export async function prepareDirectWorkItemAgentLaunch(args: {
           })
   const structuredLaunch = plan?.route === 'structured-native-chat'
 
-  const preferences = await ensureAgentLaunchPreferences(latestStore, {
-    kind: 'git-worktree',
-    worktreeId: args.worktreeId,
-    repoId: args.repoId
-  })
+  const preferences =
+    !structuredLaunch && effectiveAgent !== null
+      ? await ensureAgentLaunchPreferences(latestStore, {
+          kind: 'git-worktree',
+          worktreeId: args.worktreeId,
+          repoId: args.repoId
+        })
+      : undefined
   const { startupPlan, draftLaunchedNatively, startupPlanFailed } = structuredLaunch
     ? { startupPlan: null, draftLaunchedNatively: false, startupPlanFailed: false }
     : buildDirectWorkItemStartup({
@@ -180,7 +183,7 @@ export async function prepareDirectWorkItemAgentLaunch(args: {
           ? {
               ...latestStore.settings,
               agentLaunchChoices:
-                preferences.agentLaunchChoices ?? latestStore.settings.agentLaunchChoices
+                preferences?.agentLaunchChoices ?? latestStore.settings.agentLaunchChoices
             }
           : null,
         launchHost: resolveDirectWorkItemLaunchHost(hostArgs),

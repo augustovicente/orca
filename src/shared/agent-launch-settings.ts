@@ -1,3 +1,6 @@
+import { resolveLocalWindowsAgentStartupShell } from './windows-terminal-shell'
+import { resolveStartupShell } from './tui-agent-startup-shell'
+import { agentPermissionHostPlatform } from './agent-permission-env'
 import { isTuiAgent } from './tui-agent-config'
 import { agentLaunchChoiceUpdates } from './agent-launch-choice-updates'
 import { projectAgentLaunchProfile } from './agent-launch-profile'
@@ -47,6 +50,7 @@ export type AgentLaunchSettingsSource = Partial<
     | 'agentPermissionDefault'
     | 'agentPermissionOverrides'
     | 'nativeChatPermissionMode'
+    | 'terminalWindowsShell'
   >
 >
 
@@ -102,7 +106,16 @@ export function projectAgentLaunchSettings(
   settings: AgentLaunchSettingsSource,
   platform?: NodeJS.Platform
 ): AgentLaunchSettings {
-  const composed = composeAgentLaunchProfile(settings, platform)
+  const hostPlatform = platform ?? agentPermissionHostPlatform()
+  const shell = resolveStartupShell(
+    hostPlatform,
+    resolveLocalWindowsAgentStartupShell({
+      platform: hostPlatform,
+      isRemote: false,
+      terminalWindowsShell: settings.terminalWindowsShell
+    })
+  )
+  const composed = composeAgentLaunchProfile(settings, hostPlatform)
   const permissionMode = resolveAgentPermissionModeSummary(composed)
   return {
     defaultTuiAgent: settings.defaultTuiAgent ?? null,
@@ -142,7 +155,8 @@ export function projectAgentLaunchSettings(
                 .filter(isTuiAgent)
                 .map((agent) => [
                   agent,
-                  projectAgentLaunchProfile(agent, settings, { target: 'legacy-permission' }).args
+                  projectAgentLaunchProfile(agent, settings, { target: 'legacy-permission', shell })
+                    .args
                 ])
             )
           }
@@ -156,6 +170,14 @@ export function agentLaunchSettingsMutationUpdates(
   mutation: AgentLaunchSettingsMutation,
   platform: NodeJS.Platform
 ): AgentLaunchSettingsSource {
+  const shell = resolveStartupShell(
+    platform,
+    resolveLocalWindowsAgentStartupShell({
+      platform,
+      isRemote: false,
+      terminalWindowsShell: settings.terminalWindowsShell
+    })
+  )
   switch (mutation.type) {
     case 'default':
       return buildDefaultAgentSettingsUpdate(mutation.agent)
@@ -223,11 +245,11 @@ export function agentLaunchSettingsMutationUpdates(
           settings,
           mutation.agent,
           { userArgs: mutation.value },
-          'terminal'
+          { target: 'terminal', shell }
         )
       }
       if (hasTypedAgentPermission(settings)) {
-        return legacyArgumentsUpdates(settings, mutation.agent, mutation.value)
+        return legacyArgumentsUpdates(settings, mutation.agent, mutation.value, platform)
       }
       return {
         agentDefaultArgs: normalizeTuiAgentArgsRecord({
@@ -241,7 +263,7 @@ export function agentLaunchSettingsMutationUpdates(
           settings,
           mutation.agent,
           { userArgs: mutation.value },
-          'legacy-permission'
+          { target: 'legacy-permission', shell }
         )
       }
       if (!hasTypedAgentPermission(settings)) {

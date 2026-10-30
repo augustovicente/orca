@@ -1,3 +1,4 @@
+import type { AgentStartupShell } from './tui-agent-startup-shell'
 import { reconcileAgentChoiceArgs } from './agent-choice-reconciliation'
 import {
   AGENT_LAUNCH_CHOICE_KEYS,
@@ -19,12 +20,15 @@ export function agentLaunchChoiceUpdates(
   settings: AgentLaunchSettingsSource,
   agent: TuiAgent,
   input: { patch?: AgentChoicePatch; userArgs?: string },
-  legacy?: 'terminal' | 'legacy-permission'
+  legacy?: { target: 'terminal' | 'legacy-permission'; shell: AgentStartupShell }
 ): AgentLaunchSettingsSource {
   if (
     legacy &&
     input.userArgs?.trim() ===
-      projectAgentLaunchProfile(agent, settings, { target: legacy }).args.trim()
+      projectAgentLaunchProfile(agent, settings, {
+        target: legacy.target,
+        shell: legacy.shell
+      }).args.trim()
   ) {
     return {}
   }
@@ -33,17 +37,34 @@ export function agentLaunchChoiceUpdates(
     agent,
     userArgs: input.userArgs ?? settings.agentDefaultArgs?.[agent] ?? '',
     choices: {
-      ...(legacy ? {} : settings.agentLaunchChoices?.[agent]),
-      ...(legacy === 'terminal' ? {} : { permissionMode })
+      ...settings.agentLaunchChoices?.[agent],
+      ...(legacy?.target === 'terminal' ? {} : { permissionMode })
     },
-    keys: AGENT_LAUNCH_CHOICE_KEYS,
+    keys: legacy
+      ? new Set([
+          ...AGENT_LAUNCH_CHOICE_KEYS,
+          ...Object.keys(settings.agentLaunchChoices?.[agent]?.options ?? {})
+        ])
+      : AGENT_LAUNCH_CHOICE_KEYS,
     mode: input.patch ? 'choice-edit' : 'arguments-edit',
-    patch: input.patch
+    patch: input.patch,
+    ...(legacy && settings.agentLaunchChoices?.[agent]
+      ? {
+          publication: {
+            shell: legacy.shell,
+            generatedArgs: projectAgentLaunchProfile(agent, settings, {
+              target: legacy.target,
+              shell: legacy.shell,
+              userArgs: ''
+            }).args
+          }
+        }
+      : {})
   })
   const removedPermission =
-    legacy === 'terminal' &&
+    legacy?.target === 'terminal' &&
     agentPermissionArgs(agent, permissionMode) &&
-    resolveTuiAgentLaunchArgs(agent, settings).trim() !==
+    resolveTuiAgentLaunchArgs(agent, settings, undefined, legacy?.shell).trim() !==
       (settings.agentDefaultArgs?.[agent]?.trim() ?? '')
   const nextPermission =
     result.choices.permissionMode ?? (removedPermission ? 'own' : permissionMode)

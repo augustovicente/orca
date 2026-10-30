@@ -1,3 +1,7 @@
+import { structuredLaunchSeedOptions } from '../../shared/native-chat/input/native-chat-session-option-defaults'
+import { claudeStructuredSpawnOptions } from '../claude/claude-structured-spawn-options'
+import { resolveAgentLaunchCommand } from '../../shared/tui-agent-launch-command'
+import { tokenizeStartupCommand } from '../../shared/tui-agent-startup-shell'
 import { Store } from '../persistence/loading-store/store'
 import {
   resolveTuiAgentLaunchArgs,
@@ -529,3 +533,95 @@ describe('durable execution-host launch settings', () => {
 vi.mock('../claude/agent-view-service', () => ({
   getClaudeAgentViewService: () => ({ reconcile: async () => {} })
 }))
+
+it('conserves the canonical tuple through durable legacy edit, reopen, terminal/native consumption and removal', async () => {
+  for (const target of ['arguments', 'user-arguments', 'whole-map'] as const) {
+    const { store, readState } = await fixture()
+    store.updateSettings({
+      agentPermissionDefault: 'own',
+      agentDefaultArgs: { claude: '--verbose', codex: '--search' },
+      agentDefaultEnv: { claude: { KEEP: 'owner' } },
+      agentLaunchChoices: { claude: { model: String.raw`org\model`, options: { effort: 'high' } } },
+      nativeChatSessionOptions: {
+        claude: { model: 'sonnet', valuesByModel: { sonnet: { effort: 'low' } } }
+      }
+    })
+    const controller = new RuntimeClientSettingsController(store)
+    const publication = controller.getAgentLaunch()
+    const text =
+      target === 'user-arguments'
+        ? publication.agentPermission?.userArgs.claude
+        : publication.agentDefaultArgs.claude
+    if (!text) {
+      throw new Error('missing legacy publication')
+    }
+    const edit = async (value: string) =>
+      target === 'whole-map'
+        ? controller.update({
+            agentDefaultArgs: { ...controller.get().agentDefaultArgs, claude: value }
+          })
+        : controller.mutateAgentLaunch({ type: target, agent: 'claude', value })
+    await edit(`${text} --debug`)
+    await store.flushPendingOrThrowAsync()
+    const saved = readState()
+    const reloaded = new Store({
+      serializedState: JSON.stringify(saved),
+      dataFile: join(saved.settings.workspaceDir, `canonical-${target}.json`)
+    })
+    try {
+      const settings = reloaded.getSettings()
+      expect(settings.agentLaunchChoices?.claude).toEqual({
+        model: String.raw`org\model`,
+        options: { effort: 'high' }
+      })
+      expect(settings.agentDefaultArgs?.claude).toBe('--verbose --debug')
+      expect(settings.agentDefaultArgs?.codex).toBe('--search')
+      expect(settings.agentDefaultEnv?.claude).toEqual({ KEEP: 'owner' })
+      const seed = structuredLaunchSeedOptions(settings, 'claude')
+      expect(seed).toMatchObject({ model: String.raw`org\model`, effort: 'high' })
+      const native = claudeStructuredSpawnOptions({
+        launch: {
+          options: { extraArgs: { model: 'configured-raw', 'add-dir': 'docs' } },
+          resumesTranscript: false
+        },
+        saved: seed,
+        effortFlag: 'supported',
+        flagSettingsControl: 'supported'
+      })
+      expect(native.sdkOptions.model).toBe(String.raw`org\model`)
+      expect(native.sdkOptions.effort).toBe('high')
+      expect(native.sdkOptions.extraArgs).toEqual({ 'add-dir': 'docs' })
+      const terminal = resolveAgentLaunchCommand({
+        agent: 'claude',
+        cmdOverrides: {},
+        platform: 'darwin',
+        shell: 'posix',
+        agentArgs: settings.agentDefaultArgs?.claude,
+        sessionOptions: seed
+      })
+      if (!terminal.ok) {
+        throw new Error(terminal.error)
+      }
+      expect(tokenizeStartupCommand(terminal.command, 'posix')).toMatchObject({
+        ok: true,
+        tokens: [
+          'claude',
+          '--model',
+          String.raw`org\model`,
+          '--effort',
+          'high',
+          '--verbose',
+          '--debug'
+        ]
+      })
+      await edit('--verbose --debug')
+      expect(store.getSettings().agentLaunchChoices?.claude).toBeUndefined()
+      expect(structuredLaunchSeedOptions(store.getSettings(), 'claude')).toMatchObject({
+        model: 'sonnet',
+        effort: 'low'
+      })
+    } finally {
+      await reloaded.freezeWritesAsync()
+    }
+  }
+})

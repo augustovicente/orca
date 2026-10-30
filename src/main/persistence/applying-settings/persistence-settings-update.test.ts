@@ -5,6 +5,7 @@ import {
   createStore,
   writeDataFile,
   readDataFile,
+  readPersistedState,
   collectPropertyPaths,
   makeRepo
 } from '../persistence-test-harness'
@@ -529,8 +530,8 @@ describe('Store', () => {
     expect(composeAgentLaunchProfile(store.getSettings()).agentDefaultArgs.codex).toBe(
       '--dangerously-bypass-approvals-and-sandbox'
     )
-    expect((readDataFile() as PersistedState).settings.agentDefaultArgs?.opencode).toBe('')
-    expect((readDataFile() as PersistedState).settings.agentLaunchChoices?.opencode).toEqual({
+    expect(readPersistedState().settings.agentDefaultArgs?.opencode).toBe('')
+    expect(readPersistedState().settings.agentLaunchChoices?.opencode).toEqual({
       model: 'opencode/gpt-5'
     })
     expect((readDataFile() as PersistedState).settings.agentDefaultArgs?.kilo).toBe('')

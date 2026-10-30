@@ -241,15 +241,17 @@ export function AgentLaunchChoiceEditor({
     )
     return result.userArgs
   }
-  const chips = agentModelChoiceChips(agent, label, choices, commit)
-  if (permission?.flag && !permission.argsSetPermission) {
-    chips.push({
-      key: 'permissionMode',
-      label,
-      flag: permission.flag,
-      onRemove: (raw) => commit({ permissionMode: 'own' }, raw)
-    })
-  }
+  const chips = agentModelChoiceChips(
+    agent,
+    label,
+    {
+      ...choices,
+      ...(!permission?.argsSetPermission && permission?.choice
+        ? { permissionMode: permission.choice }
+        : {})
+    },
+    commit
+  )
   return (
     <div
       ref={editorRef}
