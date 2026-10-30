@@ -34,7 +34,7 @@ vi.mock('node:child_process', async (original) => {
   const { promisify } = await import('node:util')
   const actual = await original<typeof childProcess>()
   const originalAsync = promisify(actual.execFile)
-  const execFile = vi.fn<typeof actual.execFile>((...args) => {
+  const execFile = vi.fn((...args: Parameters<typeof actual.execFile>) => {
     seam.probes++
     return actual.execFile(...args)
   })

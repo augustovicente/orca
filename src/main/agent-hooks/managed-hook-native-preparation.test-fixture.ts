@@ -90,7 +90,7 @@ vi.mock('node:child_process', async (original) => {
   const { promisify } = await import('node:util')
   const actual = await original<typeof ChildProcess>()
   const asyncExec = promisify(actual.execFile)
-  const execFile = vi.fn<typeof actual.execFile>((...args) => {
+  const execFile = vi.fn((...args: Parameters<typeof actual.execFile>) => {
     trace.probes++
     return actual.execFile(...args)
   })
@@ -119,7 +119,7 @@ export function resetNativePreparationTrace() {
   trace.probes = 0
 }
 
-export async function diagnosticInstall<T>(name: string, run: () => Promise<T>): Promise<T> {
+export async function diagnosticInstall<T>(name: string, run: () => T | Promise<T>): Promise<T> {
   const started = performance.now()
   const probes = trace.probes
   const report = (outcome: { result: T } | { error: string }) =>

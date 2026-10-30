@@ -94,7 +94,9 @@ describe.skipIf(process.platform === 'win32')('remote physical file publication'
     handlers = new Map()
     registerWslHookFsHandlers(
       // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: Registration only uses onRequest; calls run the actual registered handlers.
-      { onRequest: (method, handler) => handlers.set(method, handler) } as RelayDispatcher,
+      {
+        onRequest: (method: string, handler: MethodHandler) => handlers.set(method, handler)
+      } as unknown as RelayDispatcher,
       home
     )
     legacy = false
