@@ -210,6 +210,7 @@ export class ClaudeConversationNaming {
                 if (generation.connection?.exitVerdict.root !== 'exited') {
                   throw new Error('Claude naming cannot use an unproven transcript writer')
                 }
+                delivered.add(generation)
               }
             }
             const owner = [...operation.generations].find(

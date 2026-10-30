@@ -231,58 +231,71 @@ it('joins already-issued root cleanup after startup expiry even when delivery an
   expect(closeDatabase).toHaveBeenCalledOnce()
 })
 
-it('joins a retiring writer but refuses an unproven root before issuing outside metadata', async ({
-  onTestFinished
-}) => {
-  const entered = Promise.withResolvers<void>()
-  const rootExit = Promise.withResolvers<boolean>()
-  let retry = false
-  const warn = vi.fn()
-  const fixture = await createClaudeNamingRuntime({
-    deps: { logger: { warn, error: vi.fn() } },
-    beforeClose: () => {
-      entered.resolve()
-      return retry ? Promise.resolve(true) : rootExit.promise
+it.each([true, false])(
+  'joins a retiring writer before outside metadata (root proven=%s)',
+  async (proven, { onTestFinished }) => {
+    const entered = Promise.withResolvers<void>()
+    const rootExit = Promise.withResolvers<boolean>()
+    let retry = false
+    const warn = vi.fn()
+    const fixture = await createClaudeNamingRuntime({
+      deps: { logger: { warn, error: vi.fn() } },
+      beforeClose: () => {
+        entered.resolve()
+        return retry ? Promise.resolve(true) : rootExit.promise
+      }
+    })
+    const append = vi.spyOn(transcriptNaming, 'renameClaudeTranscript')
+    onTestFinished(async () => {
+      retry = true
+      rootExit.resolve(true)
+      await fixture.dispose()
+      vi.restoreAllMocks()
+    })
+    await writeNativeNamingConversation(fixture.file, fixture.nativeId, fixture.root)
+    const host = await fixture.install()
+    expect(await fixture.create()).toMatchObject({ ok: true })
+    expect(await fixture.send()).toMatchObject({ ok: true })
+    await vi.waitFor(() => expect(fixture.native.connections[0]?.sent).toHaveLength(1))
+    const adapter = host.deps.adapter
+    if (!adapter.closeSession) {
+      throw new Error('expected the runtime close boundary')
     }
-  })
-  const append = vi.spyOn(transcriptNaming, 'renameClaudeTranscript')
-  onTestFinished(async () => {
-    retry = true
-    rootExit.resolve(true)
-    await fixture.dispose()
-    vi.restoreAllMocks()
-  })
-  await writeNativeNamingConversation(fixture.file, fixture.nativeId, fixture.root)
-  const host = await fixture.install()
-  expect(await fixture.create()).toMatchObject({ ok: true })
-  expect(await fixture.send()).toMatchObject({ ok: true })
-  await vi.waitFor(() => expect(fixture.native.connections[0]?.sent).toHaveLength(1))
-  const adapter = host.deps.adapter
-  if (!adapter.closeSession) {
-    throw new Error('expected the runtime close boundary')
-  }
-  const closing = adapter.closeSession(HOST_TEST_SESSION)
-  await entered.promise
-  await host.setUserConversationName(HOST_TEST_SESSION, 'Refused until proven', 'rename')
-  expect(append).not.toHaveBeenCalled()
-  rootExit.resolve(false)
-  expect(await closing).toBe(false)
-  await vi.waitFor(() =>
-    expect(warn).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({ scope: 'provider-session-rename' })
+    const closing = adapter.closeSession(HOST_TEST_SESSION)
+    await entered.promise
+    await host.setUserConversationName(HOST_TEST_SESSION, 'Refused until proven', 'rename')
+    expect(append).not.toHaveBeenCalled()
+    rootExit.resolve(proven)
+    expect(await closing).toBe(proven)
+    if (proven) {
+      await vi.waitFor(async () =>
+        expect(await nativeNamingTitle(fixture.file)).toBe('Refused until proven')
+      )
+      await stopStructuredAgentSessionRuntime()
+      expect(warn).not.toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ scope: 'provider-session-rename' })
+      )
+      expect(append).toHaveBeenCalledOnce()
+      return
+    }
+    await vi.waitFor(() =>
+      expect(warn).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ scope: 'provider-session-rename' })
+      )
     )
-  )
-  expect(fixture.native.connections[0]?.exitVerdict.root).toBe('live')
-  expect(await nativeNamingTitle(fixture.file)).toBe('Old')
-  expect(append).not.toHaveBeenCalled()
-  retry = true
-  expect(await adapter.closeSession(HOST_TEST_SESSION)).toBe(true)
-  await host.setUserConversationName(HOST_TEST_SESSION, 'After proven exit', 'rename')
-  await vi.waitFor(async () =>
-    expect(await nativeNamingTitle(fixture.file)).toBe('After proven exit')
-  )
-})
+    expect(fixture.native.connections[0]?.exitVerdict.root).toBe('live')
+    expect(await nativeNamingTitle(fixture.file)).toBe('Old')
+    expect(append).not.toHaveBeenCalled()
+    retry = true
+    expect(await adapter.closeSession(HOST_TEST_SESSION)).toBe(true)
+    await host.setUserConversationName(HOST_TEST_SESSION, 'After proven exit', 'rename')
+    await vi.waitFor(async () =>
+      expect(await nativeNamingTitle(fixture.file)).toBe('After proven exit')
+    )
+  }
+)
 
 it('detaches a quit-before-ready follow-up without waiting for post-join closeAll', async ({
   onTestFinished
