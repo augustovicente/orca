@@ -37,7 +37,10 @@ import { getStructuredAgentLaunchStatus } from './structured-agent-session-launc
 import { useNativeChatProvisionalLaunch } from '@/components/native-chat/use-native-chat-provisional-launch'
 import { renderHook } from '@testing-library/react'
 import { recheckUnconfirmedStructuredAgentLaunches } from './agent-session/launch/structured-agent-session-launch-unconfirmed-recheck'
-import { settleStructuredAgentSessionSendsFromJournal } from '@/components/native-chat/structured-agent-session-message-sender'
+import {
+  settleStructuredAgentSessionSendsFromJournal,
+  resetStructuredAgentSessionSendsForTests
+} from '@/components/native-chat/structured-agent-session-message-sender'
 import {
   registerStructuredSelectionCatalogStore,
   structuredSessionSelectionController,
@@ -63,7 +66,6 @@ import {
   getStructuredAgentSessionReadOwner,
   findStructuredAgentSessionReadOwner
 } from '@/components/native-chat/structured-agent-session-read-owner'
-import { resetStructuredAgentSessionSendsForTests } from '@/components/native-chat/structured-agent-session-message-sender'
 import {
   getStructuredAgentSessionPendingSends,
   getStructuredAgentSessionSendNotice

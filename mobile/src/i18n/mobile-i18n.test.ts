@@ -40,12 +40,12 @@ describe('activateMobileUiLocale', () => {
     const sentence = () =>
       agentSessionFailureSentence({ kind: 'unconfirmed' }, 'row', {}, sayMobileAgentSessionFailure)
     expect(sentence()).toBe("Couldn't confirm whether this was sent. It hasn't been resent.")
-    const italian = activateMobileUiLocale('it')
-    pending.get('it')?.({
-      session: { failure: { unconfirmed: 'Il risultato resta sconosciuto.' } }
+    const spanish = activateMobileUiLocale('es')
+    pending.get('es')?.({
+      session: { failure: { unconfirmed: 'El resultado sigue siendo desconocido.' } }
     })
-    await italian
-    expect(sentence()).toBe('Il risultato resta sconosciuto.')
+    await spanish
+    expect(sentence()).toBe('El resultado sigue siendo desconocido.')
   })
 
   it('falls back to English when a catalog cannot load', async () => {
