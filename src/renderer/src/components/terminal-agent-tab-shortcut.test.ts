@@ -82,7 +82,7 @@ describe('effective agent menu shortcuts', () => {
     })
   })
   const labels = (keys: KeybindingOverrides, platform: NodeJS.Platform = 'darwin') =>
-    agentMenuShortcutLabels('wt', keys, platform, 'terminal-first')
+    agentMenuShortcutLabels('wt', keys, platform)
 
   it.each(['darwin', 'win32', 'linux'] as const)(
     'shows fallback and distinct keys once on %s',
@@ -111,9 +111,9 @@ describe('effective agent menu shortcuts', () => {
       earlier: 'Mod+Alt+BracketLeft',
       own: 'Ctrl+Alt+BracketLeft',
       key: '[',
-      code: 'Digit8',
+      code: 'BracketLeft',
       altKey: true,
-      visible: true
+      visible: false
     }
   ])('projects matcher overlap rather than conflict-identity equality: $own', (test) => {
     const keys: KeybindingOverrides = {
@@ -136,6 +136,15 @@ describe('effective agent menu shortcuts', () => {
         matchShortcut: (id) => id === 'tab.newTerminal'
       })
     ).toEqual({ actionId: null, agent: null })
+  })
+
+  it('does not label a chord that a main-process window shortcut claims first', () => {
+    const result = labels({
+      'tab.newAgent': [],
+      'tab.newAgent.codex': ['Mod+Equal'],
+      'tab.newAgent.claude': ['Mod+Shift+C']
+    })
+    expect([...result]).toEqual([['claude', '⌘⇧C']])
   })
 
   it('keeps explicit keys when inventory is unknown without acquiring and hides disabled keys', () => {

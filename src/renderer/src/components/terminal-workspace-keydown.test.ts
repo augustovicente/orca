@@ -3,7 +3,11 @@
 import { act, cleanup, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { handleSwitchTabAcrossAllTypes } from '../hooks/ipc-tab-switch'
-import { switchFloatingWorkspaceTab } from '@/lib/floating-workspace-terminal-actions'
+import {
+  createFloatingWorkspaceTerminalTab,
+  switchFloatingWorkspaceTab
+} from '@/lib/floating-workspace-terminal-actions'
+import { showTerminalShortcutCaptureNotification } from '@/lib/terminal-shortcut-capture-notification'
 import { dispatchWorkspaceTabCommand } from '@/lib/workspace-tab-commands'
 import type { Tab } from '../../../shared/tab-types'
 import { useRunningTerminalCloseConfirmStore } from '@/store/running-terminal-close-confirm'
@@ -577,6 +581,39 @@ describe('agent shortcut delivery and deferred ownership', () => {
   })
   afterEach(cleanup)
 
+  it.each([false, true])(
+    'opens a terminal from a focused terminal through the shared resolver (floating: %s)',
+    async (floating) => {
+      const actual = await vi.importActual<typeof AgentTabShortcuts>(
+        './terminal-agent-tab-shortcut'
+      )
+      mocks.resolveAgentShortcut.mockImplementation(actual.resolveTerminalAgentTabShortcut)
+      mocks.floatingFocused = floating
+      const press = (repeat: boolean): KeyboardEvent => {
+        const target = document.createElement('textarea')
+        target.classList.add('xterm-helper-textarea')
+        const event = new KeyboardEvent('keydown', {
+          key: 't',
+          code: 'KeyT',
+          metaKey: true,
+          cancelable: true,
+          repeat
+        })
+        Object.defineProperty(event, 'target', { value: target })
+        handleTerminalWorkspaceKeyDown(event, controller, 'darwin')
+        return event
+      }
+      expect(press(true).defaultPrevented).toBe(false)
+      expect(press(false).defaultPrevented).toBe(true)
+      expect(showTerminalShortcutCaptureNotification).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ actionId: 'tab.newTerminal' })
+      )
+      expect(createFloatingWorkspaceTerminalTab).toHaveBeenCalledTimes(floating ? 1 : 0)
+      expect(controller.handleNewTab).toHaveBeenCalledTimes(floating ? 0 : 1)
+      expect(mocks.launchAgentInNewTab).not.toHaveBeenCalled()
+    }
+  )
+
   it('omits an undelivered double-tap gesture while a real ordinary chord still launches', async () => {
     const actual = await vi.importActual<typeof AgentTabShortcuts>('./terminal-agent-tab-shortcut')
     mocks.resolveAgentShortcut.mockImplementation(actual.resolveTerminalAgentTabShortcut)
@@ -589,11 +626,9 @@ describe('agent shortcut delivery and deferred ownership', () => {
       window.dispatchEvent(new KeyboardEvent('keyup', { key: 'Control', code: 'ControlLeft' }))
     }
     expect(mocks.launchAgentInNewTab).not.toHaveBeenCalled()
-    expect(
-      agentMenuShortcutLabels(controller.activeWorktreeId!, keys, 'linux', 'orca-first').get(
-        'codex'
-      )
-    ).toBe('Ctrl+⇧+X')
+    expect(agentMenuShortcutLabels(controller.activeWorktreeId!, keys, 'linux').get('codex')).toBe(
+      'Ctrl+⇧+X'
+    )
     window.dispatchEvent(
       new KeyboardEvent('keydown', {
         key: 'x',

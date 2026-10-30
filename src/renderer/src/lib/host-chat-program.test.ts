@@ -84,7 +84,7 @@ it('acquires inactive B independently of detection, preserves unknown truth and 
     runtimeDetectedAgentIds: {},
     settings: { ...current.settings!, defaultTuiAgent: 'grok', nativeChatProviders: { grok: true } }
   }))
-  expect(agentMenuShortcutLabels('known-chat', {}, 'darwin', 'orca-first').get('grok')).toBe('⌘⌥T')
+  expect(agentMenuShortcutLabels('known-chat', {}, 'darwin').get('grok')).toBe('⌘⌥T')
   const state = useAppStore.getState()
   const lease = holdChatProgramFacts(chat.resolveChatProgramContext(state, workspace))
   rpc.subscribe.mock.calls.at(-1)![3].onEvent(frame('grok', 'future-program'))

@@ -139,8 +139,7 @@ it.each(['wt', 'folder:f1'])(
           'tab.newAgent.codex': ['Mod+Shift+X'],
           'tab.newAgent.opencode': ['Mod+Shift+O']
         },
-        'darwin',
-        'terminal-first'
+        'darwin'
       )
     ]).toEqual([['codex', '⌘⇧X']])
   }

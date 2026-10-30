@@ -97,7 +97,7 @@ it('projects live shortcuts only in the + picker and preserves its loading prese
           <DropdownMenu defaultOpen modal={false}>
             <DropdownMenuTrigger>New tab</DropdownMenuTrigger>
             <DropdownMenuContent>
-              <AgentLaunchPickerMenu model={model} entries={[entry]} runLaunch={launch} />
+              <AgentLaunchPickerMenu entries={[entry]} runLaunch={launch} />
             </DropdownMenuContent>
           </DropdownMenu>
         </TooltipProvider>

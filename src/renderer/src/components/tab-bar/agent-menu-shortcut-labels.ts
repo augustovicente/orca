@@ -2,23 +2,34 @@ import {
   formatKeybindingList,
   getEffectiveKeybindingsForAction,
   keybindingMatchesAction,
-  keybindingMatchesInput,
   parseKeybinding,
-  platformModifiers,
-  type TerminalShortcutPolicy
+  platformModifiers
 } from '../../../../shared/keybindings'
+import { resolveWindowShortcutAction } from '../../../../shared/window-shortcut-policy'
+import { getShortcutPlatform } from '@/lib/shortcut-platform'
+import { useAppStore } from '@/store'
 import {
   readAgentTabShortcutActions,
   resolveAgentTabShortcutAction
 } from '../terminal-agent-tab-shortcut'
 import type { KeybindingOverrides } from '../../../../shared/keybindings'
 import type { TuiAgent } from '../../../../shared/tui-agent'
+import type { NewTabAgentMenuModel } from './new-tab-agent-menu-model'
+
+export function useAgentMenuShortcutLabels(
+  model: NewTabAgentMenuModel | undefined
+): Map<TuiAgent, string> | undefined {
+  const keybindings = useAppStore((s) => s.keybindings)
+  const worktreeId = model?.state === 'settled' ? model.pickerContext?.workspace.worktreeId : null
+  return worktreeId
+    ? agentMenuShortcutLabels(worktreeId, keybindings, getShortcutPlatform())
+    : undefined
+}
 
 export function agentMenuShortcutLabels(
   worktreeId: string,
   keybindings: KeybindingOverrides,
-  platform: NodeJS.Platform,
-  terminalShortcutPolicy: TerminalShortcutPolicy | undefined
+  platform: NodeJS.Platform
 ): Map<TuiAgent, string> {
   const actions = readAgentTabShortcutActions(worktreeId, keybindings).map((action) => ({
     ...action
@@ -39,24 +50,16 @@ export function agentMenuShortcutLabels(
       if (!parsed || parsed.doubleTapModifier) {
         continue
       }
+      // Numpad chords require their physical code; other keys match their own name.
       const key =
         parsed.key === 'NumpadAdd' ? '+' : parsed.key === 'NumpadSubtract' ? '-' : parsed.key
-      // AltGr punctuation can come from a text key; numpad chords require their physical code.
-      const codes = parsed.key.startsWith('Numpad') ? [parsed.key] : [parsed.key, 'Digit8']
-      const opensAgent = codes.some((code) => {
-        const input = { key, code, ...platformModifiers(parsed, platform) }
-        if (!keybindingMatchesInput(binding, input, platform)) {
-          return false
-        }
-        return (
-          resolveAgentTabShortcutAction(actions, (actionId) =>
-            keybindingMatchesAction(actionId, input, platform, keybindings, {
-              context: 'app',
-              terminalShortcutPolicy
-            })
-          )?.agent === agent
-        )
-      })
+      const input = { key, code: parsed.key, ...platformModifiers(parsed, platform) }
+      // Main claims its window shortcuts before the workspace listener sees the key.
+      const opensAgent =
+        !resolveWindowShortcutAction(input, platform, keybindings, { context: 'app' }) &&
+        resolveAgentTabShortcutAction(actions, (actionId) =>
+          keybindingMatchesAction(actionId, input, platform, keybindings, { context: 'app' })
+        )?.agent === agent
       if (opensAgent) {
         const label = formatKeybindingList([binding], platform)
         labels.set(agent, [...new Set([...(labels.get(agent) ?? []), label])])
