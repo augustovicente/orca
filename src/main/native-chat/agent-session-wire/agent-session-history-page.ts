@@ -22,6 +22,7 @@ import {
   type AgentSessionSubagentRosterEntry
 } from '../../../shared/agent-session-wire'
 import type { AgentSessionJournal } from '../agent-session-journal/journal-store'
+import type { AgentSessionHistoryJournal } from './structured-agent-session-journal-views'
 import { projectJournalBatch } from './agent-session-journal-batch'
 import { CLIENT_HISTORY_READER } from './agent-session-item-wire-form'
 import {
@@ -39,11 +40,6 @@ export { AGENT_SESSION_HISTORY_MAX_PAGE_BYTES } from './agent-session-history-pa
 
 /** In-process only: both scopes window by own-agent rows; own-agent also excludes other producers. */
 export type AgentSessionHistoryScope = 'every-agent' | 'own-agent'
-
-export type AgentSessionHistoryJournal = Pick<
-  AgentSessionJournal,
-  'publicRead' | 'snapshot' | 'readSince' | 'canonicalItemId'
->
 
 /** Window by own-agent rows, retaining contiguous subagent work and whole sibling groups within byte bounds. */
 function conversationWindow(

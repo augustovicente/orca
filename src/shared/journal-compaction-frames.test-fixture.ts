@@ -17,7 +17,7 @@ import {
   serializeJournalRow,
   type JournalRow
 } from '../main/native-chat/agent-session-journal/journal-row-schema'
-import type { AgentSessionHistoryJournal } from '../main/native-chat/agent-session-wire/agent-session-history-page'
+import type { AgentSessionHistoryJournal } from '../main/native-chat/agent-session-wire/structured-agent-session-journal-views'
 import {
   readAgentSessionHistory,
   readAgentSessionHydrationPage
