@@ -3,6 +3,7 @@ import { View, StyleSheet } from 'react-native'
 import { MobileSourceControlPanel } from '../source-control/MobileSourceControlPanel'
 import { MobileFileExplorerPanel } from '../files/MobileFileExplorerPanel'
 import { mobilePrSidebarStyles } from '../components/pr-sidebar/mobile-pr-sidebar-styles'
+import { mobileEditionSupports } from '../mobile-edition'
 import { useMobileColorScheme } from '../theme/use-mobile-color-scheme'
 import { useMobileDockResize } from './use-mobile-dock-resize'
 import type { ActivePanel } from './session-panel-host'
@@ -63,6 +64,9 @@ const DockPanelContent = memo(function DockPanelContent({
 }: DockPanelContentProps) {
   // Reuse the source-control hub so dock icon switches retain commit draft, visited tabs and scroll.
   if (activePanel === 'sourceControl' || activePanel === 'pr') {
+    if (!mobileEditionSupports(activePanel === 'pr' ? 'hostedReview' : 'sourceControl')) {
+      return null
+    }
     return (
       <MobileSourceControlPanel
         hostId={hostId}

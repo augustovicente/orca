@@ -5,6 +5,7 @@ import {
 } from '../../../../src/navigation/workspace-execution-host'
 import { useLocalSearchParams } from 'expo-router'
 import { firstParam } from '../../../../src/navigation/route-param-reader'
+import { mobileEditionSupports } from '../../../../src/mobile-edition'
 import {
   shellScreenRoute,
   shellScreenRouteKey
@@ -27,9 +28,13 @@ export default withWorkspaceRoute(function MobileSourceControlScreen() {
   const name = firstParam(params.name)
   const origin = firstParam(params.origin)
   const tab = firstParam(params.tab)
+  const executionHost = useWorkspaceExecutionHost()
 
   // Omit absent name/origin/tab and empty param record: screen defaults differ from explicitly empty labels/lenses.
-  const executionHost = useWorkspaceExecutionHost()
+  if (!mobileEditionSupports('sourceControl')) {
+    return <PageRouteUnavailableScreen hostId={hostId ?? ''} />
+  }
+
   const routeParams = {
     ...(name === '' ? {} : { name }),
     ...(origin === '' ? {} : { origin }),

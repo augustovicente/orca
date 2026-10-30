@@ -9,6 +9,7 @@ import {
 } from './session-panel-host'
 import { MobileAgentIcon } from '../components/MobileAgentIcon'
 import { useMobileTranslation } from '../i18n/use-mobile-translation'
+import { mobileEditionSupports } from '../mobile-edition'
 import {
   useWorkspaceExecutionHost,
   workspaceRouteHref,
@@ -173,6 +174,12 @@ export function useMobileSessionPanelRouteActions(scope: MobileSessionPresentati
   }, [])
 
   const handlePanelTap = (tapped: Exclude<ActivePanel, null>) => {
+    if (
+      (tapped === 'sourceControl' && !mobileEditionSupports('sourceControl')) ||
+      (tapped === 'pr' && !mobileEditionSupports('hostedReview'))
+    ) {
+      return
+    }
     const action = resolvePanelAction({ canDock: canDockPanel, tapped, current: activePanel })
     if (action.kind === 'dock') {
       setActivePanel(action.next)
@@ -204,11 +211,13 @@ export function useMobileSessionPanelRouteActions(scope: MobileSessionPresentati
   }
   const showAgentSessionHistoryAction =
     !isFolderWorkspaceRoute && !isFloatingWorkspaceRoute && agentSessionHistorySupported === true
-  const showChecksAction = shouldShowSessionHeaderChecksAction({
-    isFolderWorkspaceRoute: isFolderWorkspaceRoute || isFloatingWorkspaceRoute,
-    repoContextLoaded: prRepoContextLoaded,
-    hostedChecksSupported: prIsGithubRepo
-  })
+  const showChecksAction =
+    mobileEditionSupports('hostedReview') &&
+    shouldShowSessionHeaderChecksAction({
+      isFolderWorkspaceRoute: isFolderWorkspaceRoute || isFloatingWorkspaceRoute,
+      repoContextLoaded: prRepoContextLoaded,
+      hostedChecksSupported: prIsGithubRepo
+    })
   const showHeaderMoreButton = showAgentSessionHistoryAction || showChecksAction
   const createTabBusy = creating || creatingBrowser || creatingMarkdown
   return {

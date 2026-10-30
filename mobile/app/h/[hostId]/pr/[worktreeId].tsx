@@ -1,5 +1,7 @@
 import { Redirect, useLocalSearchParams } from 'expo-router'
 import { firstParam } from '../../../../src/navigation/route-param-reader'
+import { PageRouteUnavailableScreen } from '../../../../src/mobile-web-shell/PageRouteUnavailableScreen'
+import { mobileEditionSupports } from '../../../../src/mobile-edition'
 
 // Redirect legacy deep links to Source Control’s PR tab; wide SessionDockColumn opens that hub directly with initialTab="pr".
 export default function PrRedirect() {
@@ -10,6 +12,9 @@ export default function PrRedirect() {
     origin?: string | string[]
     executionHost?: string | string[]
   }>()
+  if (!mobileEditionSupports('hostedReview')) {
+    return <PageRouteUnavailableScreen hostId={firstParam(params.hostId) ?? ''} />
+  }
   return (
     <Redirect
       href={{

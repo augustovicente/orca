@@ -2,6 +2,8 @@ import { withWorkspaceRoute } from '../../../../src/navigation/workspace-route'
 import { useLocalSearchParams } from 'expo-router'
 import { MobileSourceControlPanel } from '../../../../src/source-control/MobileSourceControlPanel'
 import { firstParam } from '../../../../src/navigation/route-param-reader'
+import { mobileEditionSupports } from '../../../../src/mobile-edition'
+import { PageRouteUnavailableScreen } from '../../../../src/mobile-web-shell/PageRouteUnavailableScreen'
 import { parseSourceControlHubTab } from '../../../../src/source-control/mobile-source-control-hub-tab'
 import { useSessionScreenHandlers } from '../../../../src/session/session-screen-handlers'
 
@@ -19,6 +21,11 @@ export default withWorkspaceRoute(function MobileSourceControlScreen() {
   const worktreeId = firstParam(params.worktreeId)
   const origin = firstParam(params.origin)
   const session = useSessionScreenHandlers(hostId, worktreeId)
+
+  if (!mobileEditionSupports('sourceControl')) {
+    return <PageRouteUnavailableScreen hostId={hostId} />
+  }
+
   return (
     <MobileSourceControlPanel
       hostId={hostId}

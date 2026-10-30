@@ -5,6 +5,7 @@ import {
 } from '../../../../src/navigation/workspace-execution-host'
 import { useLocalSearchParams } from 'expo-router'
 import { firstReviewParam } from '../../../../src/session/mobile-diff-review-screen-model'
+import { mobileEditionSupports } from '../../../../src/mobile-edition'
 import {
   shellScreenRoute,
   shellScreenRouteKey
@@ -26,6 +27,10 @@ export default withWorkspaceRoute(function MobileDiffReviewScreen() {
   const hostId = firstReviewParam(params.hostId)
   const worktreeId = firstReviewParam(params.worktreeId)
   const executionHost = useWorkspaceExecutionHost()
+
+  if (!mobileEditionSupports('sourceControl')) {
+    return <PageRouteUnavailableScreen hostId={hostId} />
+  }
 
   // Carry screen query params unchanged, omitting empty values: screen normalizers distinguish absence from empty scope/file/area.
   const routeParams: Record<string, string> = {

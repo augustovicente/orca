@@ -5,6 +5,7 @@ import type { HostProfile } from '../transport/types'
 import { colors, radii, spacing } from '../theme/mobile-theme'
 import { themedStyleSheet } from '../theme/themed-styles'
 import { useMobileColorScheme } from '../theme/use-mobile-color-scheme'
+import { mobileEditionSupports } from '../mobile-edition'
 
 type Props = {
   connectedHosts: HostProfile[]
@@ -35,7 +36,7 @@ export function MobileHomeQuickActions(props: Props) {
             {t('components.homeQuickActions.pairDesktop', 'Pair Desktop')}
           </Text>
         </Pressable>
-        {props.onCreateWorkspace ? (
+        {props.onCreateWorkspace && mobileEditionSupports('gitWorkflows') ? (
           <Pressable
             accessibilityRole="button"
             accessibilityState={{ disabled: !canCreateWorkspace }}

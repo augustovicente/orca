@@ -1,4 +1,5 @@
 import { translate } from '../i18n/mobile-i18n'
+import { mobileEditionSupports } from '../mobile-edition'
 
 // Keep native/page stack declarations in sync.
 export const HOST_STACK_SCREENS = [
@@ -14,48 +15,68 @@ export const HOST_STACK_SCREENS = [
       return translate('navigation.hostStackScreens.editHost', 'Edit host')
     }
   },
-  {
-    name: '[hostId]/accounts',
-    get title() {
-      return translate('navigation.hostStackScreens.accounts', 'Accounts')
-    }
-  },
-  {
-    name: '[hostId]/tasks',
-    get title() {
-      return translate('navigation.hostStackScreens.tasks', 'Tasks')
-    }
-  },
+  ...(mobileEditionSupports('agentPicker')
+    ? [
+        {
+          name: '[hostId]/accounts',
+          get title() {
+            return translate('navigation.hostStackScreens.accounts', 'Accounts')
+          }
+        }
+      ]
+    : []),
+  ...(mobileEditionSupports('taskProviders')
+    ? [
+        {
+          name: '[hostId]/tasks',
+          get title() {
+            return translate('navigation.hostStackScreens.tasks', 'Tasks')
+          }
+        }
+      ]
+    : []),
   {
     name: '[hostId]/session/[worktreeId]',
     get title() {
       return translate('navigation.hostStackScreens.terminal', 'Terminal')
     }
   },
-  {
-    name: '[hostId]/source-control/[worktreeId]',
-    get title() {
-      return translate('navigation.hostStackScreens.sourceControl', 'Source Control')
-    }
-  },
+  ...(mobileEditionSupports('sourceControl')
+    ? [
+        {
+          name: '[hostId]/source-control/[worktreeId]',
+          get title() {
+            return translate('navigation.hostStackScreens.sourceControl', 'Source Control')
+          }
+        }
+      ]
+    : []),
   {
     name: '[hostId]/agent-history/[worktreeId]',
     get title() {
       return translate('navigation.hostStackScreens.agentSessionHistory', 'Agent Session History')
     }
   },
-  {
-    name: '[hostId]/review/[worktreeId]',
-    get title() {
-      return translate('navigation.hostStackScreens.changes', 'Changes')
-    }
-  },
-  {
-    name: '[hostId]/pr/[worktreeId]',
-    get title() {
-      return translate('navigation.hostStackScreens.pullRequest', 'Pull Request')
-    }
-  },
+  ...(mobileEditionSupports('sourceControl')
+    ? [
+        {
+          name: '[hostId]/review/[worktreeId]',
+          get title() {
+            return translate('navigation.hostStackScreens.changes', 'Changes')
+          }
+        }
+      ]
+    : []),
+  ...(mobileEditionSupports('hostedReview')
+    ? [
+        {
+          name: '[hostId]/pr/[worktreeId]',
+          get title() {
+            return translate('navigation.hostStackScreens.pullRequest', 'Pull Request')
+          }
+        }
+      ]
+    : []),
   // Declare catch-all last for its title; named children must match first. Undeclared routes would render with group options anyway.
   {
     name: '[hostId]/[...page]',
