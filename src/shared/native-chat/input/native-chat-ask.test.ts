@@ -321,11 +321,42 @@ describe('async questions', () => {
     expect(scanner.append(message('b', [asyncCall('A', 'QA')]))).toHaveLength(1)
   })
 
+  it('keeps notice replay and dedupe separate from the blocking and human boundaries', () => {
+    const scanner = createPendingAskScanner()
+    scanner.append(
+      message('asked', [asyncCall('same-call', 'A?'), call('AskUserQuestion', QUESTIONS_INPUT)])
+    )
+    const pending = scanner.current().contributors
+    expect(scanner.current().blocking).not.toBeNull()
+    const notice = userRow('notice', {
+      from: { kind: 'agent', senders: [], orchestration: null },
+      blocks: [{ type: 'text', text: 'Blue' }]
+    })
+    expect(isDeliveredNativeChatUserMessage(notice)).toBe(false)
+    scanner.append(notice)
+    expect(scanner.current().contributors).toBe(pending)
+    expect(scanner.current().blocking).toBeNull()
+    expect(scanner.append(message('replay', [asyncCall('same-call', 'duplicate')]))).toEqual([])
+    scanner.append({ ...notice, id: 'legacy-human', from: undefined })
+    expect(scanner.current().contributors).toEqual([])
+    expect(scanner.append(message('new', [asyncCall('same-call', 'new question')]))).toHaveLength(1)
+    expect(
+      scanPendingAsks([message('asked', [asyncCall('same-call', 'A?')]), notice]).contributors
+    ).toEqual(pending)
+  })
+
   it.each(['queued', 'unsent', 'stoppedBeforeStart', 'awaitsRetry', 'sentWhileStopping'] as const)(
     'stays open while a human row is marked %s',
     (flag) => {
       const asked = message('a', [asyncCall('call-a', 'A?'), result()])
-      expect(titles([asked, userRow('waiting', { [flag]: true })])).toEqual(['A?'])
+      const waiting = userRow('waiting', { [flag]: true })
+      expect(extractPendingAsk([asked, waiting])?.questions.map((q) => q.question)).toEqual(['A?'])
+      const scanner = createPendingAskScanner()
+      scanner.append(asked)
+      const pending = scanner.current().contributors
+      scanner.append(waiting)
+      expect(scanner.current().contributors).toBe(pending)
+      expect(isDeliveredNativeChatUserMessage(waiting)).toBe(false)
       expect(extractPendingAsk([asked, userRow('sent')])).toBeNull()
     }
   )

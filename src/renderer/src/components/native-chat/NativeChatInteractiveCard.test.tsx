@@ -635,6 +635,40 @@ describe('terminal async contributors through the production hooks and card', ()
   })
   afterEach(cleanup)
 
+  it('retains terminal choices across an agent notice until legacy human input', () => {
+    const q1 = row('one', 'Q1?')
+    const notice: NativeChatMessage = {
+      id: 'mail',
+      role: 'user',
+      timestamp: 2,
+      source: 'transcript',
+      blocks: [{ type: 'text', text: 'You have 1 orchestration message.' }],
+      from: {
+        kind: 'agent',
+        senders: [
+          {
+            party: { address: 'term_a', terminalHandle: 'term_a', orcaSessionId: null },
+            name: 'Coder'
+          }
+        ],
+        orchestration: {
+          message: 'mail-notice',
+          mailbox: 'term_b',
+          dispatchId: null,
+          messages: [{ messageId: 'mail-1', runId: 'run-1', from: 'term_a' }]
+        }
+      }
+    }
+    const view = render(cardElement(true, [q1]))
+    fireEvent.click(screen.getByRole('button', { name: /Spaces/ }))
+    view.rerender(cardElement(true, [q1, notice]))
+    expect(screen.getByText('Q1?')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Spaces/ })).toHaveAttribute('aria-pressed', 'true')
+    view.rerender(cardElement(true, [q1, notice, { ...notice, id: 'human', from: undefined }]))
+    expect(composerShown()).toBe(true)
+    expect(mocks.sendAnswer).not.toHaveBeenCalled()
+  })
+
   it('filters Q1 before grouping Q2 and never writes Cancel, including window movement', () => {
     const q1 = row('one', 'Q1?')
     const q2 = row('two', 'Q2?')

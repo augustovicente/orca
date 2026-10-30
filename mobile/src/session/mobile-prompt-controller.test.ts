@@ -324,6 +324,63 @@ describe('async occurrences through the phone controller and rendered card actio
   const titles = () => getController().nativeChatAsk?.questions.map((q) => q.question)
 
   it.each(['structured', 'terminal'])(
+    'keeps an agent notice answerable and retires only human input through the %s view',
+    async (kind) => {
+      const tab = kind === 'structured' ? structuredTab : terminalTab
+      const q1 = row('one')
+      const notice: NativeChatMessage = {
+        id: 'mail',
+        role: 'user',
+        timestamp: 2,
+        source: 'transcript',
+        blocks: [{ type: 'text', text: 'You have 1 orchestration message.' }],
+        from: {
+          kind: 'agent',
+          senders: [
+            {
+              party: { address: 'term_a', terminalHandle: 'term_a', orcaSessionId: null },
+              name: 'Coder'
+            }
+          ],
+          orchestration: {
+            message: 'mail-notice',
+            mailbox: 'term_b',
+            dispatchId: null,
+            messages: [{ messageId: 'mail-1', runId: 'run-1', from: 'term_a' }]
+          }
+        }
+      }
+      session.messages = [q1, notice]
+      await render({ tab })
+      expect(titles()).toEqual(['Q1?'])
+      await act(async () => {
+        await askAnswer([{ indices: [1] }])
+      })
+      if (kind === 'structured') {
+        expect(structuredSession.sendWithOutcome).toHaveBeenCalledWith('> Q1?\n\nBlue')
+        expect(titles()).toEqual(['Q1?'])
+      } else {
+        expect(client.sendRequest).toHaveBeenCalledWith(
+          'terminal.send',
+          expect.objectContaining({
+            text: '\x1b[200~> Q1?\r\rBlue\x1b[201~',
+            enter: true,
+            requireWriteSettlement: true
+          }),
+          expect.any(Object)
+        )
+      }
+      const q2 = row('two', 'Q2?')
+      session.messages = [q1, notice, q2]
+      await render({ tab })
+      expect(titles()).toContain('Q2?')
+      session.messages = [q1, notice, q2, { ...notice, id: 'human', from: undefined }]
+      await render({ tab })
+      expect(titles()).toBeUndefined()
+    }
+  )
+
+  it.each(['structured', 'terminal'])(
     'retains exact cancelled calls through edits, prefix/ID replay, paging and new equal rows (%s)',
     async (kind) => {
       const tab = kind === 'structured' ? structuredTab : terminalTab

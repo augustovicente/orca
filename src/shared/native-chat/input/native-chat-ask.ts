@@ -141,10 +141,11 @@ export function extractPendingMessageReplyAsk(
   return aggregateAsyncQuestions(scanPendingAsks(messages).contributors)
 }
 
-/** A user row the agent received; a queued, unsent or withdrawn send answers nothing yet. */
+/** Delivered human input only; agent notices and pending sends answer no async question. */
 export function isDeliveredNativeChatUserMessage(message: NativeChatMessage): boolean {
   return (
     message.role === 'user' &&
+    message.from?.kind !== 'agent' &&
     message.queued !== true &&
     message.unsent !== true &&
     message.stoppedBeforeStart !== true &&
@@ -260,10 +261,7 @@ export function createPendingAskScanner(): {
     // reset the FIFO or one orphan strands later answered asks forever (#11761). Claude tool results decode as role tool.
     const interrupted = isInterruptedStatusMessage(message)
     if (message.role === 'user' || interrupted) {
-      if (
-        interrupted ||
-        (isDeliveredNativeChatUserMessage(message) && message.from?.kind !== 'agent')
-      ) {
+      if (interrupted || isDeliveredNativeChatUserMessage(message)) {
         interrupt()
       } else {
         resetBlocking()
