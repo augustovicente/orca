@@ -1,3 +1,4 @@
+import type { PendingSessionSelection } from './pending-session-selection'
 import {
   structuredAgentSessionPaneKey,
   structuredAgentSessionTabId
@@ -291,9 +292,7 @@ it.each([false, true])(
     function Joined() {
       const active = useRef('first'),
         selected = useRef<string | null>('first')
-      const pending = useRef<import('./pending-session-selection').PendingSessionSelection | null>(
-        null
-      )
+      const pending = useRef<PendingSessionSelection | null>(null)
       const tabs = useRef(rows)
       const open = useMobileStructuredSessionOpening({
         hostId: 'host-1',

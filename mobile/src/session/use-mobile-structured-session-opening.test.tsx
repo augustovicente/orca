@@ -1,3 +1,4 @@
+import type * as OpenMobileStructuredSessionModule from './open-mobile-structured-session'
 import { createElement } from 'react'
 import { act, create, type ReactTestRenderer } from 'react-test-renderer'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -15,7 +16,7 @@ vi.mock('../navigation/workspace-route-handoff', () => ({
   useWorkspaceRouteHandoff: () => ({ push: mocks.push })
 }))
 vi.mock('./open-mobile-structured-session', async (original) => ({
-  ...(await original<typeof import('./open-mobile-structured-session')>()),
+  ...(await original<typeof OpenMobileStructuredSessionModule>()),
   openMobileStructuredSession: mocks.open
 }))
 const source: StructuredSessionOpenSource = {

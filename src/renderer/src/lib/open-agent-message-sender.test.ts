@@ -5,22 +5,25 @@ import type {
   AgentMessageSender
 } from '../../../shared/agent-session/agent-session-message-source'
 
-const mocks = vi.hoisted(() => ({
-  rpc: vi.fn(),
-  focus: vi.fn(),
-  remoteFocus: vi.fn(),
-  info: vi.fn(),
-  toast: vi.fn(),
-  reveal: vi.fn(),
-  activate: vi.fn(),
-  group: vi.fn(),
-  type: vi.fn(),
-  state: {
-    activeWorktreeId: 'wt-chat',
-    activeWorkspaceExecutionHostId: 'local' as const,
-    unifiedTabsByWorktree: {} as Record<string, Tab[]>
+const mocks = vi.hoisted(() => {
+  const unifiedTabsByWorktree: Record<string, Tab[]> = {}
+  return {
+    rpc: vi.fn(),
+    focus: vi.fn(),
+    remoteFocus: vi.fn(),
+    info: vi.fn(),
+    toast: vi.fn(),
+    reveal: vi.fn(),
+    activate: vi.fn(),
+    group: vi.fn(),
+    type: vi.fn(),
+    state: {
+      activeWorktreeId: 'wt-chat',
+      activeWorkspaceExecutionHostId: 'local' as const,
+      unifiedTabsByWorktree
+    }
   }
-}))
+})
 vi.mock('sonner', () => ({ toast: { error: mocks.toast, info: mocks.info } }))
 vi.mock('@/store', () => ({
   useAppStore: {

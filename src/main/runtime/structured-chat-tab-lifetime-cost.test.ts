@@ -12,12 +12,15 @@ import { fixture } from '../persistence/loading-store/profile-state-delayed-auth
 import { loadChatTabLayout, withChatTabChanges } from './agent-session/agent-session-tab-layout'
 import { getDefaultWorkspaceSession } from '../../shared/constants'
 
-const queueProbe = vi.hoisted(() => ({
-  enabled: false,
-  copies: 0,
-  visits: 0,
-  queues: [] as { pendingOpens: () => readonly unknown[] }[]
-}))
+const queueProbe = vi.hoisted(() => {
+  const queues: Pick<ReturnType<typeof createChatTabLayoutQueue>, 'pendingOpens'>[] = []
+  return {
+    enabled: false,
+    copies: 0,
+    visits: 0,
+    queues
+  }
+})
 vi.mock('./agent-session-tab-layout-queue', async (original) => {
   const module = await original<typeof ChatTabLayoutQueueModule>()
   return {

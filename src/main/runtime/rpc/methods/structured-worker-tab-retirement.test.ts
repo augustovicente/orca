@@ -165,7 +165,7 @@ describe('structured worker stop retires the chat tab', () => {
   it('cannot turn a proven stop into a retained one when the prune throws', async () => {
     installHost()
     const identity = registerIdentity()
-    const runtime = {
+    const runtime: NonNullable<Parameters<typeof stopStructuredWorker>[2]> = {
       captureStructuredAgentSessionPresentation: () => ({
         raw: { worktreeId: WORKTREE, tabId: 'agent-session:session-1' },
         saved: []
@@ -179,7 +179,7 @@ describe('structured worker stop retires the chat tab', () => {
       retireStructuredAgentSessionTabFromSnapshot: vi.fn(() => {
         throw new Error('snapshot is wedged')
       })
-    } as unknown as OrcaRuntimeService
+    }
 
     await expect(stopStructuredWorker(identity, 'd1', runtime)).resolves.toEqual({
       stopped: true,
@@ -293,23 +293,10 @@ describe('structured worker release retires the chat tab', () => {
       })
     } as unknown as OrchestrationDb
 
+    const { runtime } = await runtimeShowingStructuredTab()
     await expect(
       completeWorkerTerminalRelease({
-        runtime: {
-          ensureStructuredAgentSessionHost: async () => {},
-          notifyMessageArrived: vi.fn(),
-          captureStructuredAgentSessionPresentation: () => ({
-            raw: { worktreeId: WORKTREE, tabId: 'agent-session:session-1' },
-            saved: []
-          }),
-          currentLocalStructuredSessionPresentation: () => ({
-            worktreeId: WORKTREE,
-            tabId: 'agent-session:session-1'
-          }),
-          removeCapturedStructuredSessionSavedTabs: vi.fn(),
-          forgetStructuredSessionMail: vi.fn(),
-          retireStructuredAgentSessionTabFromSnapshot: vi.fn()
-        } as unknown as OrcaRuntimeService,
+        runtime,
         db,
         dispatchId: 'd2',
         resource
