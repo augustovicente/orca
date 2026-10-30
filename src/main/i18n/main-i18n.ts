@@ -2,6 +2,9 @@ import { getSystemLanguageDetection } from './system-language'
 import type { i18n as I18nInstance } from 'i18next'
 
 import { createOrcaI18n } from '../../shared/orca-i18n-instance'
+import { ORCA_EDITION_ID } from '../../shared/edition'
+import { mergeCopyOverlay } from '../../shared/edition-copy'
+import copyOverlayPt from '../../../whitelabel/copy/pt.json'
 import { DEFAULT_UI_LOCALE, resolveUiLocale, type SupportedUiLocale } from '../../shared/ui-locale'
 import { UI_LANGUAGE_SYSTEM, type UiLanguage } from '../../shared/ui-language'
 
@@ -17,7 +20,18 @@ const LAZY_LOCALE_LOADERS: Record<
   fr: () => import('../../renderer/src/i18n/locales/fr.json'),
   ja: () => import('../../renderer/src/i18n/locales/ja.json'),
   ko: () => import('../../renderer/src/i18n/locales/ko.json'),
-  pt: () => import('../../renderer/src/i18n/locales/pt.json'),
+  pt: () =>
+    import('../../renderer/src/i18n/locales/pt.json').then((mod) => {
+      if (ORCA_EDITION_ID === 'contadorca') {
+        return {
+          default: mergeCopyOverlay(
+            mod.default as Record<string, unknown>,
+            copyOverlayPt as Record<string, unknown>
+          )
+        }
+      }
+      return mod
+    }),
   ru: () => import('../../renderer/src/i18n/locales/ru.json'),
   tr: () => import('../../renderer/src/i18n/locales/tr.json'),
   zh: () => import('../../renderer/src/i18n/locales/zh.json'),

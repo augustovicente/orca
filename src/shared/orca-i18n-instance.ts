@@ -10,6 +10,8 @@ import { isPseudoLocalizationLocale, pseudoLocalizeString } from './pseudo-local
 import { DEFAULT_UI_LOCALE } from './ui-locale'
 import type { PluginLanguagePackRegistration } from './plugins/artifacts/plugin-language-pack-artifact'
 import { replacePluginLanguagePackResources } from './plugins/plugin-language-pack-i18n-resources'
+import { ORCA_EDITION_ID } from './edition'
+import { createEditionCopyTransform } from './edition-copy'
 
 export type OrcaI18n = {
   i18n: I18nInstance
@@ -30,9 +32,16 @@ export function createOrcaI18n(options: {
   englishResources: Record<string, unknown>
   modules?: Module[]
   initOptions?: InitOptions
+  /** Optional transform applied to translated strings (before pseudo-localization). Defaults to the edition transform. */
+  transform?: (value: string, language?: string) => string
 }): OrcaI18n {
   const i18n = i18next.createInstance()
   let pluginLanguagePacks: readonly PluginLanguagePackRegistration[] = []
+  const transform =
+    options.transform ??
+    (ORCA_EDITION_ID === 'contadorca'
+      ? (value: string, language?: string) => createEditionCopyTransform(language)(value)
+      : (value: string) => value)
 
   const backend: BackendModule = {
     type: 'backend',
@@ -83,7 +92,10 @@ export function createOrcaI18n(options: {
           ? one
           : fallback
       const value = i18n.t(key, { defaultValue, ...rest })
-      return isPseudoLocalizationLocale(i18n.language) ? pseudoLocalizeString(value) : value
+      const transformed = transform(value, i18n.language)
+      return isPseudoLocalizationLocale(i18n.language)
+        ? pseudoLocalizeString(transformed)
+        : transformed
     },
     setPluginLanguagePacks: (packs) => {
       if (packs === pluginLanguagePacks) {

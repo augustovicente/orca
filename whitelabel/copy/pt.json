@@ -1,0 +1,53 @@
+{
+  "rendererRecovery": {
+    "title": "O app continua falhando ao carregar",
+    "genericDetail": "Isso costuma ser um problema de driver de vídeo ou de instalação. Recarregue para tentar novamente, ou saia e reinicie o app.",
+    "crashLoopDetail": "O app tentou se recuperar {{recoveryCount}} vezes consecutivas sem sucesso."
+  },
+  "startupFailure": {
+    "title": "Não foi possível iniciar o app",
+    "finishFailed": "O app não conseguiu concluir a inicialização: {{detail}}"
+  },
+  "notifications": {
+    "test": {
+      "title": "As notificações do app estão ativadas",
+      "body": "Esta é uma notificação de teste do app."
+    }
+  },
+  "settings": {
+    "appearance": {
+      "language": {
+        "description": "Escolha o idioma usado pela interface do app."
+      },
+      "menuBarIcon": {
+        "description": "Mantém um atalho do app e um indicador de atividade na barra de menus do macOS."
+      }
+    },
+    "agents": {
+      "permissionOwnLegacyDescription": "O app não adiciona nenhuma flag de permissão nos terminais; os chats usam Configurações → Chat.",
+      "permissionsDescription": "O que os assistentes podem fazer sem pedir sua aprovação. Assistentes com argumentos de inicialização personalizados os mantêm."
+    }
+  },
+  "app": {
+    "recoverableError": {
+      "rootTitle": "O app encontrou um erro de renderização.",
+      "rootDescription": "O shell do aplicativo não conseguiu concluir a renderização. Tente novamente para remontá-lo, ou reinicie o app se o erro persistir."
+    }
+  },
+  "tray": {
+    "minimizeNotice": {
+      "body": "O app continua em execução na bandeja do sistema"
+    }
+  },
+  "worktree": {
+    "nestedRemoval": {
+      "title": "Excluir espaço de trabalho e pastas dos clientes?",
+      "description": "Isso exclui permanentemente \"{{name}}\", todas as pastas dos clientes aninhadas listadas abaixo e todos os arquivos nelas, incluindo alterações não salvas. Seus terminais e assistentes serão interrompidos."
+    }
+  },
+  "workspace": {
+    "links": {
+      "empty": "Mantenha juntas todas as revisões e tarefas deste espaço de trabalho."
+    }
+  }
+}
