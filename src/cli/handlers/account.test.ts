@@ -62,7 +62,8 @@ vi.mock('../../shared/windows-console-input', () => ({
 
 import { ACCOUNT_HANDLERS } from './account'
 import type { HandlerContext } from '../dispatch'
-import type { RuntimeClient } from '../runtime-client'
+import { RuntimeClientError, type RuntimeClient } from '../runtime-client'
+import { reportCliError } from '../cli-error'
 import {
   getCmdExePath,
   WINDOWS_BATCH_UNSAFE_ARGUMENTS_ERROR,
@@ -169,7 +170,7 @@ describe('account CLI handlers', () => {
 
   afterEach(() => {
     Object.defineProperty(process, 'platform', originalPlatform)
-    logSpy.mockRestore()
+    vi.restoreAllMocks()
     if (originalElectronRunAsNode === undefined) {
       delete process.env.ELECTRON_RUN_AS_NODE
     } else {
@@ -238,7 +239,11 @@ describe('account CLI handlers', () => {
     )
     spawnProcessMock.mockImplementation(() => helpChild('--standalone'))
 
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {})
     await ACCOUNT_HANDLERS['account add'](context('opencode', true))
+    expect(warn).not.toHaveBeenCalled()
+    expect(errorLog).not.toHaveBeenCalled()
 
     expect(spawnProcessMock).toHaveBeenCalledTimes(1)
     const [probe] = spawnProcessMock.mock.calls[0]
@@ -258,6 +263,113 @@ describe('account CLI handlers', () => {
       expect.objectContaining({ env: probe.env })
     )
   })
+
+  it.each(['v1', 'missing', 'unsafe'])(
+    'retains Windows preparation diagnosis with %s fallback and recovers through a safe first suffix',
+    async (fallback) => {
+      Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
+      callMock.mockResolvedValue({ result: { capabilities: [DATA_ACCOUNT_RUNTIME_CAPABILITY] } })
+      const preferred = String.raw`C:\Users\A&B\AppData\Roaming\npm\opencode2.cmd`
+      const generic =
+        fallback === 'unsafe'
+          ? String.raw`C:\Users\A&B\AppData\Roaming\npm\opencode.cmd`
+          : String.raw`C:\tools\opencode.cmd`
+      const resolved = new Map([
+        ['opencode2', preferred],
+        ['opencode', generic]
+      ])
+      resolveCliCommandMock.mockImplementation(
+        (command: string) => resolved.get(command) ?? command
+      )
+      spawnProcessMock.mockImplementation(() => {
+        if (fallback === 'missing') {
+          throw new Error('ENOENT')
+        }
+        return helpChild('Usage: opencode auth login [url]\n--help Show help\n')
+      })
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const failure = await ACCOUNT_HANDLERS['account add'](context('opencode', true)).catch(
+        (error: unknown) => error
+      )
+      expect(failure).toBeInstanceOf(RuntimeClientError)
+      if (!(failure instanceof Error)) {
+        throw new Error('Expected account-add failure')
+      }
+      expect(resolveCliCommandMock.mock.calls.map(([name]) => name)).toEqual([
+        'opencode2',
+        'opencode'
+      ])
+      expect(spawnProcessMock).toHaveBeenCalledTimes(fallback === 'unsafe' ? 0 : 1)
+      if (fallback !== 'unsafe') {
+        expect(spawnProcessMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            program: getCmdExePath(),
+            args: ['/d', '/c', '@', generic, 'auth', 'login', '--help']
+          })
+        )
+        expect(existsSync(spawnProcessMock.mock.calls[0][0].env.XDG_DATA_HOME)).toBe(false)
+      }
+      expect(spawnMock).not.toHaveBeenCalled()
+      expect(callMock.mock.calls.map(([method]) => method)).toEqual(['status.get'])
+      expect(warn).not.toHaveBeenCalled()
+      expect(errorLog).not.toHaveBeenCalled()
+      expect(logSpy).not.toHaveBeenCalled()
+      reportCliError(failure, false)
+      expect(errorLog).toHaveBeenCalledExactlyOnceWith(failure.message)
+      reportCliError(failure, true)
+      expect(logSpy).toHaveBeenCalledTimes(1)
+      expect(JSON.parse(logSpy.mock.calls[0][0]).error.message).toBe(failure.message)
+      expect(failure.message).toContain(preferred)
+      if (fallback === 'unsafe') {
+        expect(failure.message).toContain(generic)
+      }
+      expect(failure.message).toContain('Windows could not start')
+      expect(failure.message).toContain(WINDOWS_BATCH_UNSAFE_CHARACTERS_LABEL)
+      expect(failure.message).toContain('full absolute path')
+      expect(failure.message).toContain(
+        String.raw`npm install --prefix C:\tools\orca-opencode2 @opencode/cli`
+      )
+      expect(failure.message).toContain('first match')
+      expect(failure.message).toContain('move/rename only its suffixed opencode2 launchers')
+      expect(failure.message).toContain('shared npm PATH directories unchanged')
+      expect(failure.message).not.toContain(WINDOWS_BATCH_UNSAFE_ARGUMENTS_ERROR)
+      expect(failure.message).not.toContain('Usage:')
+      if (fallback === 'v1') {
+        // External discovery now exposes the safe first suffix; the old generic v1 is unchanged.
+        const safe = String.raw`C:\tools\orca-opencode2\node_modules\.bin\opencode2.cmd`
+        resolved.set('opencode2', safe)
+        expect(resolved.get('opencode')).toBe(generic)
+        spawnProcessMock
+          .mockClear()
+          .mockImplementation(() =>
+            helpChild('--standalone  Run with a private server instead of the background service')
+          )
+        logSpy.mockClear()
+        errorLog.mockClear()
+        await ACCOUNT_HANDLERS['account add'](context('opencode', true))
+        expect(spawnProcessMock).toHaveBeenCalledExactlyOnceWith(
+          expect.objectContaining({
+            args: ['/d', '/c', '@', safe, 'auth', 'login', '--help']
+          })
+        )
+        expect(spawnMock).toHaveBeenCalledExactlyOnceWith(
+          getCmdExePath(),
+          ['/d', '/c', '@', safe, 'auth', 'login', '--standalone'],
+          expect.anything()
+        )
+        const loginEnv = spawnMock.mock.calls[0][2].env
+        expect(callMock).toHaveBeenLastCalledWith('accounts.addDataFromHome', {
+          provider: 'opencode',
+          sourceDataHome: loginEnv.XDG_DATA_HOME,
+          label: 'opencode'
+        })
+        expect(existsSync(loginEnv.XDG_DATA_HOME)).toBe(false)
+        expect(errorLog).not.toHaveBeenCalled()
+        expect(warn).not.toHaveBeenCalled()
+      }
+    }
+  )
 
   it('uses Codex device auth and keeps JSON stdout clean', async () => {
     await ACCOUNT_HANDLERS['account add'](context('codex', true))
