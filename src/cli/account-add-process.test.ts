@@ -20,7 +20,6 @@ const eventSchema = z.object({
   kind: z.enum(['probe', 'login', 'stopped', 'survived', 'owned', 'escaped', 'stopping']),
   pid: z.number(),
   started: z.string(),
-  at: z.number(),
   dataHomeExists: z.boolean()
 })
 
@@ -102,7 +101,7 @@ const args = process.argv.slice(2);
 const probe = args.includes('--help');
 fs.mkdirSync(process.env.XDG_DATA_HOME, {recursive:true});
 const record = kind => fs.appendFileSync(${JSON.stringify(eventsPath)}, JSON.stringify({
-  name, args, kind, pid:process.pid, at:Date.now(),
+  name, args, kind, pid:process.pid,
   started:process.platform === 'win32' ? '' : cp.execFileSync('/bin/ps', ['-p', String(process.pid), '-o', 'lstart='], {encoding:'utf8'}).trim(),
   dataHome:process.env.XDG_DATA_HOME,
   configHome:process.env.XDG_CONFIG_HOME, database:process.env.OPENCODE_DB,
@@ -341,11 +340,6 @@ it.skipIf(process.platform === 'win32').each(['timeout', 'natural', 'cancel'])(
       ).toEqual([lifecycle === 'cancel' ? 143 : 0, null])
       expect(fixtureProcessAlive(escaped)).toBe(true)
       const events = fixture.events()
-      console.info('probe scope evidence', {
-        lifecycle,
-        elapsedMs: Date.now() - events[0].at,
-        escapedAlive: fixtureProcessAlive(escaped)
-      })
       const owned = events.find(({ kind }) => kind === 'owned')
       if (lifecycle !== 'natural') {
         expect(owned).toBeDefined()

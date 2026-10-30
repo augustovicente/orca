@@ -76,8 +76,11 @@ it('Windows automatic timeout joins tracked tree lifetime beyond the caller wait
     })
     return second
   })
-  signalTree.mockImplementation(
-    () => new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 5_000))
+  let finishCallerWait!: (signaled: boolean) => void
+  signalTree.mockReturnValue(
+    new Promise<boolean>((resolve) => {
+      finishCallerWait = resolve
+    })
   )
   let finishKill!: () => void
   inFlightKill.mockReturnValue(
@@ -88,6 +91,8 @@ it('Windows automatic timeout joins tracked tree lifetime beyond the caller wait
   const owner = session()
   const pending = resolveOpenCodeLoginCommand({}, owner)
   await vi.advanceTimersByTimeAsync(15_000)
+  // Complete the five-second caller wait while the tracked tree operation remains live.
+  finishCallerWait(false)
   first.emit('exit', null)
   await vi.advanceTimersByTimeAsync(2_000)
   expect(spawn).toHaveBeenCalledTimes(1)
