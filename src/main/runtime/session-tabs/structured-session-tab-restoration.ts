@@ -1,3 +1,7 @@
+import {
+  admitStructuredSessionTabPublication,
+  type StructuredSessionTabPublicationInput
+} from './structured-session-tab-publication'
 import type { OrcaRuntimeWithScheduleMobileSessionTabsChanged as ScheduleMobileSessionTabsChangedMethods } from './session-tabs-change-publication'
 import { defaultAgentChatLabel } from '../../../shared/agent-session/agent-session-chat-label'
 import { OrcaRuntimeWithGetStructuredAgentSessionCreateSupport } from './structured-session-create-support'
@@ -30,6 +34,7 @@ import type { TerminalWorkspaceLaunchScope } from '../runtime-legacy-worker-term
 import { parseAppSshPtyId } from '../../../shared/ssh-pty-id'
 import type { PtyProcessInspection } from '../../providers/pty-process-inspection'
 import type { StructuredAgentId } from '../../../shared/agent-session-provider-handle'
+import { mobileChatTabId } from '../agent-session/agent-session-tab-identity'
 
 export type AgentLaunchScope = Parameters<
   OrcaRuntimeWithRestoreStructuredAgentSessionTabsOnce['getAgentLaunchPlatformForWorkspace']
@@ -93,38 +98,30 @@ export abstract class OrcaRuntimeWithRestoreStructuredAgentSessionTabsOnce exten
     }
   }
 
-  async publishStructuredAgentSessionTab(input: {
-    workspaceId: string
-    sessionId: string
-    agent: StructuredAgentId
-    activate: boolean
-    notify?: boolean
-    /** The host tab id a create reserved; a session that already has a tab keeps its own. */
-    tabId?: string
-    /** This machine's window made the create; its own open places the tab. */
-    placedByWindow?: boolean
-    /** Where the creating paired client opens the chat. */
-    /** A ChatTabPlacement, typed in place: this file is at its line limit. */
-    placement?: { groupId?: string; afterTabId?: string }
-  }): Promise<void> {
-    const host = getStructuredAgentSessionHost()
-    if (typeof host?.setSessionTabVisibility === 'function') {
-      // Restore-index failures (newer records/disk errors) are reported without preventing tab open.
-      await host
-        .setSessionTabVisibility(input.sessionId, true, ...(input.tabId ? [input.tabId] : []))
-        .catch((error: unknown) => {
-          host.deps.logger.warn('recording an opened chat tab failed', {
-            scope: 'tab-visibility-open',
-            sessionId: input.sessionId,
-            error
-          })
-        })
-    }
+  async publishStructuredAgentSessionTab(
+    input: StructuredSessionTabPublicationInput
+  ): Promise<void> {
+    const { tabId, current } = await admitStructuredSessionTabPublication(input, () =>
+      this.restoreStructuredAgentSessionTabs()
+    )
     // Window creates retain the window's own placement decision.
     if (!(ORCA_LAYOUT_OWNER_IS_MAIN && input.placedByWindow)) {
-      this.saveWindowlessAgentSessionTab(input.workspaceId, input)
+      this.saveWindowlessAgentSessionTab(input.workspaceId, {
+        ...input,
+        ...(tabId ? { tabId } : {})
+      })
     }
     this.projectStructuredAgentSessionTab(input)
+    input.capture?.({
+      tableId: current ?? null,
+      presentation: {
+        raw: this.currentLocalStructuredSessionPresentation(input.sessionId),
+        saved:
+          ORCA_LAYOUT_OWNER_IS_MAIN && input.placedByWindow
+            ? []
+            : [{ worktreeId: input.workspaceId, tabId }]
+      }
+    })
   }
 
   /** The runtime's own snapshot of a chat tab. Records nothing: the caller owns the store write. */
@@ -136,7 +133,7 @@ export abstract class OrcaRuntimeWithRestoreStructuredAgentSessionTabsOnce exten
     notify?: boolean
   }): void {
     const existing = this.mobileSessionTabsByWorktree.get(input.workspaceId)
-    const id = `agent-session:${input.sessionId}`
+    const id = mobileChatTabId(input.sessionId)
     if (existing?.tabs.some((tab) => tab.id === id)) {
       // Background republish does not write/emit; healing missing client mirrors needs activate or explicit republish.
       if (!input.activate) {

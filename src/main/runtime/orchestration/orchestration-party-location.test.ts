@@ -91,7 +91,43 @@ describe('where a sender opens', () => {
     expect(locate(`orca_session_id:${ROOT}`, { records: clearedChat() })).toEqual({
       location: { kind: 'chat', sessionId: LIVE, worktreeId: 'wt-chat' }
     })
-    expect(locate(`orca_session_id:${ROOT}`)).toEqual({ location: null, lost: 'chat' })
+    expect(locate(`orca_session_id:${ROOT}`)).toEqual({ location: null })
+  })
+
+  it('distinguishes a missing root from an unreadable record, missing successor or cycle', () => {
+    const records = clearedChat()
+    const getRecord = records.getRecord
+    expect(
+      locate(`orca_session_id:${ROOT}`, {
+        records: { ...records, getRecord: () => null, isSessionUnreadable: () => true }
+      })
+    ).toEqual({ location: null })
+    expect(
+      locate(`orca_session_id:${ROOT}`, {
+        records: { ...records, getRecord: () => null }
+      })
+    ).toEqual({ location: null, lost: 'chat' })
+    expect(
+      locate(`orca_session_id:${ROOT}`, {
+        records: {
+          ...records,
+          getRecord: () => {
+            throw new Error('unreadable')
+          }
+        }
+      })
+    ).toEqual({ location: null })
+    expect(
+      locate(`orca_session_id:${ROOT}`, {
+        records: { ...records, getRecord: (id) => (id === ROOT ? getRecord(id) : null) }
+      })
+    ).toEqual({ location: null })
+    const root = getRecord(ROOT)
+    expect(
+      locate(`orca_session_id:${ROOT}`, {
+        records: { ...records, getRecord: () => root }
+      })
+    ).toEqual({ location: null })
   })
 
   it('opens a terminal this run issued at its handle', () => {
@@ -154,7 +190,7 @@ describe('where a sender opens', () => {
     resolveParty.mockImplementationOnce(() => {
       throw new OrchestrationError(CODES.notLive, 'lost its identity')
     })
-    expect(locate(`orca_session_id:${ROOT}`)).toEqual({ location: null, lost: 'chat' })
+    expect(locate(`orca_session_id:${ROOT}`)).toEqual({ location: null })
     resolveParty.mockImplementationOnce(() => {
       throw new Error('database is locked')
     })

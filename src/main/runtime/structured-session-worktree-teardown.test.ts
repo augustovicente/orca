@@ -63,8 +63,6 @@ function installHost(options: {
   visible?: string[]
   /** Detached chats are ordinary idle-sweep results; they remain workspace members without a live child. */
   detached?: Set<string>
-  /** Death evidence lands during tab-restore transaction, between the close observation and the sweep re-read. */
-  exitsDuringTabRestore?: Set<string>
 }): { closed: string[]; visible: Set<string> } {
   const held = new Set(
     options.records
@@ -82,6 +80,7 @@ function installHost(options: {
   }
   hostRef.current = {
     deps: {
+      logger: { warn: vi.fn() },
       store: {
         listRecords: () => options.records,
         listConversations: () => options.records.map(agentSessionConversationView),
@@ -93,15 +92,13 @@ function installHost(options: {
         getSessionTabId: (sessionId: string) => (visible.has(sessionId) ? `tab-${sessionId}` : null)
       }
     },
+    getSessionTabId: (sessionId: string) => (visible.has(sessionId) ? `tab-${sessionId}` : null),
     hasSession: (sessionId: string) => held.has(sessionId),
     getPersistedVisibleSessionTabIndex: () => ({ present: true, sessionIds: [...visible] }),
     setSessionTabVisibility: async (sessionId: string, isVisible: boolean) => {
       if (!isVisible) {
         visible.delete(sessionId)
         return
-      }
-      if (options.exitsDuringTabRestore?.has(sessionId)) {
-        recordExit(sessionId)
       }
       visible.add(sessionId)
     },
@@ -116,9 +113,7 @@ function installHost(options: {
       if (options.unverifiable?.has(sessionId)) {
         return
       }
-      if (!options.exitsDuringTabRestore?.has(sessionId)) {
-        recordExit(sessionId)
-      }
+      recordExit(sessionId)
       if (options.settledThenThrows?.has(sessionId)) {
         throw new Error('the event sink could not be flushed')
       }
@@ -150,8 +145,26 @@ function destructiveDeps(extra: { allowUnverifiedStop?: boolean; timeoutMs?: num
 /** Keys are pinned to the real runtime; each stub narrows its own args to what the case drives. */
 type TeardownRuntimeStubs = Partial<Record<keyof TeardownRuntime, unknown>>
 
+function presentationRuntime() {
+  const retired = new Set<string>()
+  const raw = (sessionId: string) =>
+    retired.has(sessionId) ? null : { worktreeId: WORKTREE, tabId: `raw-${sessionId}` }
+  return {
+    captureStructuredAgentSessionPresentation: (sessionId: string) => ({
+      raw: raw(sessionId),
+      saved: []
+    }),
+    currentLocalStructuredSessionPresentation: raw,
+    removeCapturedStructuredSessionSavedTabs: () => {},
+    retireStructuredAgentSessionTabFromSnapshot: (sessionId: string) => {
+      retired.add(sessionId)
+      return true
+    }
+  }
+}
+
 function runtimeDouble(hooks: TeardownRuntimeStubs): TeardownRuntime {
-  return Object.assign(Object.create(null), hooks)
+  return Object.assign(Object.create(null), presentationRuntime(), hooks)
 }
 
 function livePtyProvider(): IPtyProvider {
@@ -252,19 +265,6 @@ describe('worktree teardown and structured agent sessions', () => {
     warn.mockRestore()
   })
 
-  it('drops the chat tab for a session the sweep proves exited after the close gave up', async () => {
-    // Exit evidence may arrive during tab rollback; the sweep re-read must undo the restored tab when it proves exit.
-    const host = installHost({
-      records: [record('s1', WORKTREE)],
-      visible: ['s1'],
-      exitsDuringTabRestore: new Set(['s1'])
-    })
-    await expect(killAllProcessesForWorktree(WORKTREE, destructiveDeps())).resolves.toMatchObject({
-      structuredStopped: 1
-    })
-    expect([...host.visible]).toEqual([])
-  })
-
   it('names the force escape hatch in the refusal, like the unstopped-PTY gate', async () => {
     installHost({ records: [record('s1', WORKTREE)], stuck: new Set(['s1']) })
     await expect(killAllProcessesForWorktree(WORKTREE, destructiveDeps())).rejects.toThrow(/force/i)
@@ -339,9 +339,12 @@ describe('worktree teardown and structured agent sessions', () => {
     // Later exit evidence can prove a child gone after close threw or restored its tab.
     const retired: string[] = []
     const runtime = {
+      ...presentationRuntime(),
       stopTerminalsForWorktree: async () => ({ stopped: 0 }),
       retireStructuredAgentSessionTabFromSnapshot: (sessionId: string) => {
-        retired.push(sessionId)
+        if (!retired.includes(sessionId)) {
+          retired.push(sessionId)
+        }
         return true
       }
     } as never
@@ -451,6 +454,7 @@ describe('worktree teardown and structured agent sessions', () => {
     // `structured=0` for chats it just ended.
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const runtime = {
+      ...presentationRuntime(),
       stopTerminalsForWorktree: async () => {
         throw new Error('the terminal sweep died')
       }
@@ -610,6 +614,7 @@ describe('worktree teardown and structured agent sessions', () => {
     // Serializing again would starve terminal stops and let force-delete remove files with open PTY handles.
     let terminalSweeps = 0
     const runtime = {
+      ...presentationRuntime(),
       stopTerminalsForWorktree: async () => {
         terminalSweeps += 1
         return { stopped: 2 }
@@ -631,6 +636,7 @@ describe('worktree teardown and structured agent sessions', () => {
     installHost({ records: [record('s1', WORKTREE)], closeGate })
     let terminalSweepStarted = false
     const runtime = {
+      ...presentationRuntime(),
       stopTerminalsForWorktree: async () => {
         terminalSweepStarted = true
         return { stopped: 0 }
@@ -662,9 +668,12 @@ describe('worktree teardown and structured agent sessions', () => {
     // Durable index hiding alone leaves the live snapshot tab able to reattach this session.
     const retired: string[] = []
     const runtime = {
+      ...presentationRuntime(),
       stopTerminalsForWorktree: async () => ({ stopped: 0 }),
       retireStructuredAgentSessionTabFromSnapshot: (sessionId: string) => {
-        retired.push(sessionId)
+        if (!retired.includes(sessionId)) {
+          retired.push(sessionId)
+        }
         return true
       }
     } as never

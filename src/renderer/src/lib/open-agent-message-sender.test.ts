@@ -1,3 +1,8 @@
+import type {
+  StructuredSessionOpenSource,
+  StructuredSessionOpenDeps
+} from '../../../shared/open-structured-agent-session'
+import type { RuntimeClientTarget } from '../../../shared/runtime-client-target'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 type TabsByWorktree = Record<
@@ -10,7 +15,7 @@ const mocks = vi.hoisted(() => ({
   focusRenderer: vi.fn(),
   focusRuntime: vi.fn(),
   paneUnavailable: vi.fn(),
-  activateChat: vi.fn(async () => true),
+  activateChat: vi.fn(async (..._args: unknown[]) => true),
   gone: vi.fn(),
   hostCannotOpen: vi.fn(),
   unavailable: vi.fn(),
@@ -31,14 +36,38 @@ vi.mock('@/components/terminal-pane/terminal-handle-links', () => ({
 vi.mock('@/components/terminal-pane/stale-agent-row', () => ({
   showAgentPaneUnavailable: mocks.paneUnavailable
 }))
-vi.mock('./activate-ai-vault-structured-session', () => ({
-  activateAiVaultStructuredSession: mocks.activateChat,
-  structuredSessionOpenFeedback: {
-    gone: mocks.gone,
-    hostCannotOpen: mocks.hostCannotOpen,
-    unavailable: mocks.unavailable
+vi.mock('./activate-ai-vault-structured-session', async () => {
+  const { resolveStructuredSessionOpenSource } =
+    await import('../../../shared/open-structured-agent-session')
+  return {
+    openDesktopStructuredSession: async (
+      source: StructuredSessionOpenSource,
+      host: RuntimeClientTarget,
+      _deps: unknown,
+      locate: StructuredSessionOpenDeps['locate']
+    ) => {
+      const target = await resolveStructuredSessionOpenSource(source, locate)
+      if ('kind' in target) {
+        if (target.kind === 'failed') {
+          if (target.failure.reason === 'gone') {
+            mocks.gone()
+          } else {
+            mocks.toastError(
+              structuredSessionOpenMessage(target.failure.reason, source.agent ?? '')
+            )
+          }
+        }
+        return target
+      }
+      await mocks.activateChat(
+        { structuredSession: { workspaceId: target.worktreeId, sessionId: target.sessionId } },
+        undefined,
+        host
+      )
+      return { kind: 'opened', target, tab: { id: target.sessionId, sessionId: target.sessionId } }
+    }
   }
-}))
+})
 vi.mock('./worktree-runtime-owner', async (original) => ({
   ...(await original<Record<string, unknown>>()),
   getKnownExecutionHostIdForWorktree: () => (mocks.missingOwner ? null : 'runtime:env-host'),
@@ -51,7 +80,7 @@ vi.mock('@/store', () => ({
 import { RuntimeRpcCallError } from '@/runtime/runtime-rpc-result'
 import { RUNTIME_COMPAT_BLOCK_CODE } from '@/runtime/runtime-protocol-compat'
 import type { AgentMessageSource } from '../../../shared/agent-session/agent-session-message-source'
-import { AGENT_SESSION_WRITE_NOTICE_COPY } from '../../../shared/agent-session-write-notice-copy'
+import { structuredSessionOpenMessage } from '../../../shared/open-structured-agent-session'
 import { testOrcaSessionId } from '../../../shared/orca-session-address-test-fixture'
 import { openAgentMessageSender } from './open-agent-message-sender'
 
@@ -96,10 +125,9 @@ function versionBlock(): Error {
   return Object.assign(new Error('update needed'), { code: RUNTIME_COMPAT_BLOCK_CODE })
 }
 
-// Existing sentences, each translated whole: the cause and what to do, or which Orca to update.
-const UNREACHABLE = `${AGENT_SESSION_WRITE_NOTICE_COPY.unreachable} ${AGENT_SESSION_WRITE_NOTICE_COPY.tryAgain}`
-const UPDATE = AGENT_SESSION_WRITE_NOTICE_COPY.updateOrcaToOpenChat
-const OLDER_HOST = AGENT_SESSION_WRITE_NOTICE_COPY.unsupported
+const UNREACHABLE = structuredSessionOpenMessage('unreachable', 'Sender')
+const UPDATE = structuredSessionOpenMessage('unsupported', 'Sender')
+const OLDER_HOST = UPDATE
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -228,7 +256,7 @@ describe("opening a message's sender", () => {
   it('says it could not reach a sender the host cannot place, never that it is gone', async () => {
     mocks.callRuntimeRpc.mockResolvedValue({ location: null })
     await open(dispatch)
-    expect(mocks.toastError).toHaveBeenCalledWith(UNREACHABLE)
+    expect(mocks.toastError).toHaveBeenCalledWith(structuredSessionOpenMessage('unknown', 'Sender'))
     expect(mocks.paneUnavailable).not.toHaveBeenCalled()
     expect(mocks.gone).not.toHaveBeenCalled()
   })
