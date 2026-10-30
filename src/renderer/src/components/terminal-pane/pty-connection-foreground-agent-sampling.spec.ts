@@ -464,11 +464,12 @@ export function registerPtyConnectionForegroundAgentSamplingTests(): void {
         expect(mockStoreState.paneForegroundAgentByPaneKey[cacheKey]).toEqual({
           agent: 'codex',
           agentEvidence: 'process-read',
+          routingTrusted: true,
           shellForeground: false
         })
       })
 
-      it('seeds a launch record when the prior read named a different agent', async () => {
+      it('keeps the current process when daemon launch metadata names a different agent', async () => {
         vi.useFakeTimers()
         const ptyId = 'pty-parked-reattach-other-agent'
         const tabId = `tab-${ptyId}`
@@ -488,8 +489,8 @@ export function registerPtyConnectionForegroundAgentSamplingTests(): void {
         })
 
         expect(mockStoreState.paneForegroundAgentByPaneKey[cacheKey]).toEqual({
-          agent: 'codex',
-          agentEvidence: 'launch-record',
+          agent: 'claude',
+          agentEvidence: 'process-read',
           shellForeground: false
         })
       })

@@ -198,7 +198,7 @@ export function registerPtyConnectionNotificationSettingsGatingTests(): void {
       )
     })
 
-    it('shares one raw store subscriber for agent-complete notification settings across panes', async () => {
+    it('shares notification settings alongside one selected presentation subscriber per pane', async () => {
       const { connectPanePty } = await import('./pty-connection')
       transportFactoryQueue.push(createMockTransport('pty-1'), createMockTransport('pty-2'))
 
@@ -215,10 +215,10 @@ export function registerPtyConnectionNotificationSettingsGatingTests(): void {
       )
       await flushAsyncTicks()
 
-      expect(storeSubscribers).toHaveLength(1)
+      expect(storeSubscribers).toHaveLength(3)
 
       firstBinding.dispose()
-      expect(storeSubscribers).toHaveLength(1)
+      expect(storeSubscribers).toHaveLength(2)
       secondBinding.dispose()
       expect(storeSubscribers).toHaveLength(0)
     })

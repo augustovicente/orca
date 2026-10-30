@@ -155,7 +155,8 @@ describe('remote runtime pane binding ownership', () => {
           worktreeId: 'wt-1',
           paneTransportsRef: { current: new Map([[1, transport]]) },
           isVisibleRef: { current: true },
-          updateTabPtyId: store.getState().updateTabPtyId
+          updateTabPtyId: store.getState().updateTabPtyId,
+          clearRuntimePaneTitle: store.getState().clearRuntimePaneTitle
         },
         activePanePtyBinding: old,
         bindProcessExitState: vi.fn(),
@@ -164,6 +165,7 @@ describe('remote runtime pane binding ownership', () => {
         syncHiddenRendererPtyDelivery: vi.fn(),
         syncPanePtyLayoutBinding: vi.fn(),
         writeInputModeGround: vi.fn(),
+        paneForegroundAgentTracker: { onCommandStarted: vi.fn() },
         agentCompletionCoordinator: { startProcessTracking: vi.fn() }
       } as unknown as ConnectPanePtySession
       installPanePtyVisibilityBind(session)

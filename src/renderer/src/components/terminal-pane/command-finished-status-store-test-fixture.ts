@@ -14,6 +14,7 @@ export function createCommandFinishedStatusStore(): {
       settings: null,
       tabsByWorktree: {},
       sortEpoch: 0,
+      paneForegroundAgentByPaneKey: {},
       acknowledgedAgentsByPaneKey: {},
       activityClearedAtByPaneKey: {},
       manuallyUnreadTurnsByPaneKey: {},

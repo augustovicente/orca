@@ -25,6 +25,8 @@ function setup(existing: AgentStatusEntry) {
   const state = {
     agentStatusByPaneKey: { [PANE_KEY]: existing },
     recentlyRetiredAgentStatusPaneKeys: {},
+    paneForegroundAgentByPaneKey: {},
+    agentLaunchConfigByPaneKey: {},
     recentlyClosedAgentStatusTabIds: {}
   } as unknown as AppState
   const requestFreshness = vi.fn()

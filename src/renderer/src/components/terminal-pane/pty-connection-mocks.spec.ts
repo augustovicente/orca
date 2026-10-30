@@ -83,9 +83,10 @@ vi.mock('./terminal-webgl-atlas-recovery', () => ({
 vi.mock('@/store', () => {
   const observe = (state: AppState): AppState => {
     const onSelection = fixture.current().onStoreSelection
+    const isStoreKey = (key: PropertyKey): key is keyof AppState => Object.hasOwn(state, key)
     return onSelection
       ? new Proxy(state, {
-          get(target, key, receiver) {
+          get(target, key) {
             if (
               key === 'paneForegroundAgentByPaneKey' ||
               key === 'agentStatusByPaneKey' ||
@@ -94,7 +95,7 @@ vi.mock('@/store', () => {
             ) {
               onSelection()
             }
-            return Reflect.get(target, key, receiver)
+            return isStoreKey(key) ? target[key] : undefined
           }
         })
       : state

@@ -137,12 +137,17 @@ export function installSleepingRecordAccess(session: ConnectPanePtySession): voi
         // Daemon launch metadata can outlive its process; it requests confirmation without authorizing bytes.
         const state = useAppStore.getState()
         const current = state.paneForegroundAgentByPaneKey[session.cacheKey]
-        // Why: re-mounting a parked pane must not demote this session's own read of the same agent.
-        const keepsRead =
-          current?.agent === metadata.launchAgent && current.agentEvidence === 'process-read'
+        if (
+          session.disposed ||
+          state.recentlyRetiredAgentStatusPaneKeys[session.cacheKey] !== undefined ||
+          current?.shellForeground ||
+          current?.agentEvidence === 'process-read'
+        ) {
+          return
+        }
         state.setPaneForegroundAgent(session.cacheKey, {
           agent: metadata.launchAgent,
-          agentEvidence: keepsRead ? 'process-read' : 'launch-record',
+          agentEvidence: 'launch-record',
           shellForeground: false
         })
       }

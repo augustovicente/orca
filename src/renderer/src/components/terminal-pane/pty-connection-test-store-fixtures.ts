@@ -52,6 +52,7 @@ export function createInitialStoreState(getState: () => StoreState): StoreState 
     agentStatusByPaneKey: {},
     retainedAgentsByPaneKey: {},
     paneForegroundAgentByPaneKey: {},
+    recentlyRetiredAgentStatusPaneKeys: {},
     sleepingAgentSessionsByPaneKey: {},
     suppressedPtyExitIds: {},
     agentLaunchConfigByPaneKey: {},
@@ -66,11 +67,15 @@ export function createInitialStoreState(getState: () => StoreState): StoreState 
     observeTerminalGitHubPullRequestLink: vi.fn(),
     recordTerminalInput: vi.fn(),
     correctAgentStatusIdentity: vi.fn(
-      (paneKey: string, entry: AgentStatusEntry, foreground: PaneForegroundAgentEntry) => {
+      (
+        paneKey: string,
+        entry: AgentStatusEntry,
+        foreground: PaneForegroundAgentEntry | undefined
+      ) => {
         if (
           getState().agentStatusByPaneKey[paneKey] === entry &&
           getState().paneForegroundAgentByPaneKey[paneKey] === foreground &&
-          foreground.agentEvidence === 'process-read' &&
+          foreground?.agentEvidence === 'process-read' &&
           !foreground.shellForeground
         ) {
           getState().agentStatusByPaneKey[paneKey] = normalizeCompatibleAgentStatusEntryForOwner(

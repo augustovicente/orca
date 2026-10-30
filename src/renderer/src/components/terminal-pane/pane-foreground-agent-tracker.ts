@@ -34,6 +34,20 @@ export function createPaneForegroundAgentTracker(
     hasAgentExpectation = false
   }
 
+  const publishInconclusiveForeground = (): void => {
+    const current = deps.getPublishedEntry?.()
+    deps.publish(
+      current?.agentEvidence === 'launch-record' && !current.shellForeground
+        ? {
+            agent: current.agent,
+            agentEvidence: 'launch-record',
+            shellForeground: false,
+            routingRevoked: true
+          }
+        : { agent: null, shellForeground: false }
+    )
+  }
+
   const trackablePtyId = (): string | null => {
     const ptyId = deps.getPtyId()
     return ptyId && deps.isTrackablePtyId(ptyId) ? ptyId : null
@@ -42,18 +56,6 @@ export function createPaneForegroundAgentTracker(
   const cancelPendingRead = (): void => reads.cancel()
   const scheduleRead = (delay: number, retryIndex: number, reason: ForegroundReadReason): void =>
     reads.schedule(delay, retryIndex, reason)
-
-  const hasPendingRead = (): boolean =>
-    reads.scheduledReason !== null || reads.activeReason !== null
-  const hasCommandReadInFlight = (): boolean =>
-    reads.scheduledReason === 'command' ||
-    reads.activeReason === 'command' ||
-    reads.scheduledReason === 'command-finished' ||
-    reads.activeReason === 'command-finished'
-  const hasBoundaryReadInFlight = (): boolean =>
-    hasCommandReadInFlight() ||
-    reads.scheduledReason === 'accepted-input' ||
-    reads.activeReason === 'accepted-input'
 
   // Release retained capabilities when a read ends; superseded reads delegate settlement to their successor.
   const releaseRetainedCapability = (hadReadInFlight: boolean): void => {
@@ -147,10 +149,12 @@ export function createPaneForegroundAgentTracker(
     if (settledReason === 'command') {
       if (remoteEvidenceVerdict !== null && remoteEvidenceVerdict !== 'live') {
         hasAgentExpectation = false
+        deps.onVisibleForegroundSettled?.('inconclusive')
         return
       }
       hasAgentExpectation = false
-      deps.publish({ agent: null, shellForeground: false })
+      publishInconclusiveForeground()
+      deps.onVisibleForegroundSettled?.('inconclusive')
       return
     }
     if (settledReason === 'visible-pty') {
@@ -172,12 +176,14 @@ export function createPaneForegroundAgentTracker(
       if (processName === null) {
         if (remoteEvidenceVerdict !== null && remoteEvidenceVerdict !== 'live') {
           deps.onCommandFinishedUnavailable?.()
+          deps.onVisibleForegroundSettled?.('inconclusive')
           return
         }
         // Unverifiable inspection is not shell proof; retire stale routing after the bounded D ladder without asserting shell truth.
         clearAgentEvidence()
-        deps.publish({ agent: null, shellForeground: false })
+        publishInconclusiveForeground()
         deps.onCommandFinishedUnavailable?.()
+        deps.onVisibleForegroundSettled?.('inconclusive')
         return
       }
       if ((hasForegroundAgentEvidence || hasKnownAgentEvidence) && !isShellProcess(processName)) {
@@ -195,13 +201,13 @@ export function createPaneForegroundAgentTracker(
 
   return {
     // A higher-authority command read still promises confirmation when visibility schedules nothing.
-    hasReadInFlight: hasPendingRead,
+    hasReadInFlight: () => reads.hasReadInFlight(),
     onVisiblePtyBound(expectsAgent = false) {
       // Lower-authority visibility recovery must not cancel command-boundary reads that own the exit decision.
-      if (hasBoundaryReadInFlight()) {
+      if (reads.hasBoundaryReadInFlight()) {
         return false
       }
-      const hadReadBeforeVisibleBind = hasPendingRead()
+      const hadReadBeforeVisibleBind = reads.hasReadInFlight()
       cancelPendingRead()
       if (!trackablePtyId()) {
         releaseRetainedCapability(hadReadBeforeVisibleBind)
@@ -215,7 +221,7 @@ export function createPaneForegroundAgentTracker(
       return true
     },
     onAcceptedCommandBoundary() {
-      if (disposed || hasBoundaryReadInFlight()) {
+      if (disposed || reads.hasBoundaryReadInFlight()) {
         return
       }
       cancelPendingRead()
@@ -228,9 +234,8 @@ export function createPaneForegroundAgentTracker(
     onCommandStarted(requireConfirmation = false) {
       startupSampled = false
       // Keep an accepted submit's read while applying the actual OSC lifecycle boundary.
-      const acceptedReadPending =
-        reads.scheduledReason === 'accepted-input' || reads.activeReason === 'accepted-input'
-      const hadReadBeforeCommandStart = hasPendingRead()
+      const acceptedReadPending = reads.hasAcceptedInputRead()
+      const hadReadBeforeCommandStart = reads.hasReadInFlight()
       if (!acceptedReadPending) {
         cancelPendingRead()
       }
@@ -242,18 +247,13 @@ export function createPaneForegroundAgentTracker(
       }
       const alreadyHasKnownIdentity = deps.hasKnownAgentIdentity?.() === true
       hasAgentExpectation = requireConfirmation || acceptedReadPending
-      if (reads.scheduledReason === 'accepted-input') {
-        reads.scheduledReason = 'command'
-      }
-      if (reads.activeReason === 'accepted-input') {
-        reads.activeReason = 'command'
-      }
+      reads.promoteAcceptedInputToCommand()
       if (alreadyHasKnownIdentity) {
         hasKnownAgentEvidence = true
       }
       // New commands invalidate routing authority; launch/hook expectations and remote markers supply no identity before fresh host evidence.
       if (deps.isRemotePtyId?.(ptyId) !== true) {
-        deps.publish({ agent: null, shellForeground: false })
+        publishInconclusiveForeground()
       }
       if (!acceptedReadPending) {
         scheduleRead(FOREGROUND_COMMAND_READS.settleMs, 0, 'command')
@@ -264,7 +264,7 @@ export function createPaneForegroundAgentTracker(
         disposed ||
         startupSampled ||
         hasForegroundAgentEvidence ||
-        hasPendingRead() ||
+        reads.hasReadInFlight() ||
         !trackablePtyId()
       ) {
         return
@@ -281,7 +281,7 @@ export function createPaneForegroundAgentTracker(
         hasKnownAgentEvidence = true
       }
       // Any identity read cancelled by rapid 133;C→D needs reconfirmation; trusting D could latch shell state and permanently hide a reattached agent.
-      const hadReadBeforeCommandFinish = hasPendingRead()
+      const hadReadBeforeCommandFinish = reads.hasReadInFlight()
       cancelPendingRead()
       if (!trackablePtyId()) {
         releaseRetainedCapability(hadReadBeforeCommandFinish)
@@ -304,13 +304,13 @@ export function createPaneForegroundAgentTracker(
       const published = deps.getPublishedEntry?.()
       if (
         disposed ||
-        hasCommandReadInFlight() ||
+        reads.hasCommandReadInFlight() ||
         published?.agentEvidence !== 'process-read' ||
         resolveCompatibleAgentTypeForOwner(process.agent, published.agent) !== published.agent
       ) {
         return
       }
-      const hadVisibleRead = hasPendingRead()
+      const hadVisibleRead = reads.hasReadInFlight()
       cancelPendingRead()
       clearAgentEvidence()
       startupSampled = false
@@ -322,7 +322,7 @@ export function createPaneForegroundAgentTracker(
       deps.onConfirmedShellForeground?.('process-exit')
     },
     dispose() {
-      const hadReadAtDispose = hasPendingRead()
+      const hadReadAtDispose = reads.hasReadInFlight()
       disposed = true
       cancelPendingRead()
       releaseRetainedCapability(hadReadAtDispose)

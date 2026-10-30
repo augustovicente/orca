@@ -2,6 +2,7 @@ import {
   normalizeCompatibleAgentStatusEntryForOwner,
   shareCompatibleTitleIdentityGroup
 } from '../../../../../shared/agent-title-owner'
+import { resolveAgentStatusPaneOwner } from '../../../../../shared/agent-status-identity'
 import { resolvePaneKey } from '../../../lib/agent-status-pane-ownership'
 import type { AgentStatusSlice } from './agent-status-slice-contract'
 import type { AgentStatusRuntime } from './agent-status-runtime'
@@ -177,28 +178,31 @@ export function createAgentStatusLiveActions(
   const correctAgentStatusIdentity: AgentStatusSlice['correctAgentStatusIdentity'] = (
     paneKey,
     expectedEntry,
-    expectedForeground
+    expectedForeground,
+    expectedLaunch
   ) => {
     let corrected = false
     set((state, changedPaneKeys) => {
       const entry = state.agentStatusByPaneKey[paneKey]
       const foreground = state.paneForegroundAgentByPaneKey[paneKey]
+      const launch = state.agentLaunchConfigByPaneKey[paneKey]
+      const owner = resolveAgentStatusPaneOwner(state, paneKey)
       if (
         !entry ||
         entry !== expectedEntry ||
         foreground !== expectedForeground ||
-        foreground?.agentEvidence !== 'process-read' ||
-        foreground.shellForeground ||
+        launch !== expectedLaunch ||
+        !owner ||
         state.recentlyRetiredAgentStatusPaneKeys[paneKey] !== undefined ||
         isRecentlyClosedAgentStatusTab(
           state.recentlyClosedAgentStatusTabIds,
           getTabIdFromPaneKey(paneKey)
         ) ||
-        !shareCompatibleTitleIdentityGroup(entry.agentType, foreground.agent)
+        !shareCompatibleTitleIdentityGroup(entry.agentType, owner)
       ) {
         return state
       }
-      const next = normalizeCompatibleAgentStatusEntryForOwner(entry, foreground.agent)
+      const next = normalizeCompatibleAgentStatusEntryForOwner(entry, owner)
       if (next === entry) {
         return state
       }

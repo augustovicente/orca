@@ -3,37 +3,58 @@ import { createTestStore } from '../store-test-helpers'
 
 const PANE = 'tab-1:1'
 
-describe('process-backed compatible status identity correction', () => {
+describe('exact-pane compatible status identity correction', () => {
   afterEach(() => vi.useRealTimers())
 
-  it('changes only compatible identity/title and preserves the accepted turn and attention', () => {
-    vi.useFakeTimers()
-    const store = createTestStore()
-    store
-      .getState()
-      .setAgentStatus(PANE, { state: 'done', agentType: 'pi', prompt: 'task' }, 'Pi ready')
-    store.getState().setPaneForegroundAgent(PANE, {
-      agent: 'omp',
-      agentEvidence: 'process-read',
-      shellForeground: false
-    })
-    const before = store.getState()
-    const entry = before.agentStatusByPaneKey[PANE]
-    const foreground = before.paneForegroundAgentByPaneKey[PANE]
-    expect(before.correctAgentStatusIdentity(PANE, entry, foreground)).toBe(true)
-    const after = store.getState()
-    expect(after.agentStatusByPaneKey[PANE]).toEqual({
-      ...entry,
-      agentType: 'omp',
-      terminalTitle: 'OMP ready'
-    })
-    expect(after.agentStatusEpoch).toBe(before.agentStatusEpoch)
-    expect(after.sortEpoch).toBe(before.sortEpoch)
-    expect(after.unreadAgentCompletionPanes).toBe(before.unreadAgentCompletionPanes)
-    expect(after.correctAgentStatusIdentity(PANE, entry, foreground)).toBe(false)
-  })
+  it.each(['process-read', 'launch-record', 'registered-launch'] as const)(
+    'preserves the accepted turn and attention on late %s correction',
+    (evidence) => {
+      vi.useFakeTimers()
+      const store = createTestStore()
+      store
+        .getState()
+        .setAgentStatus(PANE, { state: 'done', agentType: 'pi', prompt: 'task' }, 'Pi ready')
+      if (evidence === 'registered-launch') {
+        store
+          .getState()
+          .registerAgentLaunchConfig(
+            PANE,
+            { agentCommand: 'omp', agentArgs: '', agentEnv: {} },
+            { agentType: 'omp' }
+          )
+      } else {
+        store.getState().setPaneForegroundAgent(PANE, {
+          agent: 'omp',
+          agentEvidence: evidence,
+          shellForeground: false
+        })
+      }
+      const before = store.getState()
+      const entry = before.agentStatusByPaneKey[PANE]
+      const foreground = before.paneForegroundAgentByPaneKey[PANE]
+      const launch = before.agentLaunchConfigByPaneKey[PANE]
+      expect(before.correctAgentStatusIdentity(PANE, entry, foreground, launch)).toBe(true)
+      const after = store.getState()
+      expect(after.agentStatusByPaneKey[PANE]).toEqual({
+        ...entry,
+        agentType: 'omp',
+        terminalTitle: 'OMP ready'
+      })
+      expect(after.agentStatusEpoch).toBe(before.agentStatusEpoch)
+      expect(after.sortEpoch).toBe(before.sortEpoch)
+      expect(after.unreadAgentCompletionPanes).toBe(before.unreadAgentCompletionPanes)
+      expect(after.correctAgentStatusIdentity(PANE, entry, foreground, launch)).toBe(false)
+      if (launch) {
+        const corrected = after.agentStatusByPaneKey[PANE]
+        after.registerAgentLaunchConfig(PANE, launch.launchConfig, { agentType: 'pi' })
+        expect(
+          store.getState().correctAgentStatusIdentity(PANE, corrected, foreground, launch)
+        ).toBe(false)
+      }
+    }
+  )
 
-  it('rejects replaced rows, replaced evidence, retired panes and non-process hints', () => {
+  it('rejects replaced rows, replaced evidence, retired panes and incompatible owners', () => {
     vi.useFakeTimers()
     const store = createTestStore()
     store.getState().setAgentStatus(PANE, { state: 'working', agentType: 'pi', prompt: '' })

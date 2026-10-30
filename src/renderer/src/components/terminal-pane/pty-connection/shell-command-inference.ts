@@ -3,6 +3,10 @@ import { useAppStore } from '@/store'
 import type { AgentType } from '../../../../../shared/agent-status-types'
 import { AGENT_INTERRUPT_SETTLE_MS } from '../../../../../shared/agent-interrupt-intent'
 import { resolveCompatibleAgentTypeForOwner } from '../../../../../shared/agent-title-owner'
+import {
+  resolveAgentStatusPaneEvidence,
+  resolveAgentStatusPaneOwner
+} from '../../../../../shared/agent-status-identity'
 import { titleAfterInferredInterrupt } from '../../../../../shared/terminal-pane-title-reset'
 
 import {
@@ -28,29 +32,24 @@ export function installShellCommandInference(session: ConnectPanePtySession): vo
   }
   const paneEvidence = () => {
     const state = useAppStore.getState()
-    const foreground = state.paneForegroundAgentByPaneKey[session.cacheKey]
-    const retired = state.recentlyRetiredAgentStatusPaneKeys?.[session.cacheKey] !== undefined
-    const processAgent =
-      !retired && !foreground?.shellForeground && foreground?.agentEvidence === 'process-read'
-        ? (foreground.agent ?? undefined)
-        : undefined
-    const hook =
-      !retired && !foreground?.shellForeground
-        ? state.agentStatusByPaneKey[session.cacheKey]
-        : undefined
-    const launch =
-      !retired && !foreground?.shellForeground
-        ? (state.agentLaunchConfigByPaneKey[session.cacheKey]?.identity.agentType ??
-          (!foreground && !hook && !session.handledExitPtyId
-            ? (session.paneStartup?.launchAgent ?? session.paneStartup?.initialAgentStatus?.agent)
-            : undefined))
-        : undefined
-    const hookAgent = hook?.agentType === 'unknown' ? undefined : hook?.agentType
-    return { processAgent, hook, hookAgent, launch }
+    const { processAgent, hookAgent, launchAgent } = resolveAgentStatusPaneEvidence(
+      state,
+      session.cacheKey
+    )
+    const hook = state.agentStatusByPaneKey[session.cacheKey]
+    return { processAgent, hook, hookAgent, launch: launchAgent }
   }
   session.getAuthoritativePaneAgent = (): AgentType | undefined => {
-    const { processAgent, hookAgent, launch } = paneEvidence()
-    return processAgent ?? resolveCompatibleAgentTypeForOwner(hookAgent, launch) ?? launch
+    const state = useAppStore.getState()
+    return (
+      resolveAgentStatusPaneOwner(state, session.cacheKey) ??
+      (!state.paneForegroundAgentByPaneKey[session.cacheKey] &&
+      !state.agentStatusByPaneKey[session.cacheKey] &&
+      state.recentlyRetiredAgentStatusPaneKeys[session.cacheKey] === undefined &&
+      !session.handledExitPtyId
+        ? (session.paneStartup?.launchAgent ?? session.paneStartup?.initialAgentStatus?.agent)
+        : undefined)
+    )
   }
   // Display identity survives inter-turn Done; GPU policy requires live pane evidence.
   session.getPaneScopedRendererOwner = (): AgentType | undefined => {

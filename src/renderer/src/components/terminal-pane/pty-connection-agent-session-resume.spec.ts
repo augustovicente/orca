@@ -321,7 +321,7 @@ export function registerPtyConnectionAgentSessionResumeTests(): void {
           }
         },
         agentLaunchConfigByPaneKey: {
-          [paneKey]: { launchConfig }
+          [paneKey]: { launchConfig, identity: { agentType: 'codex' } }
         },
         sleepingAgentSessionsByPaneKey: {}
       } as StoreState
@@ -488,6 +488,7 @@ export function registerPtyConnectionAgentSessionResumeTests(): void {
         },
         agentLaunchConfigByPaneKey: {
           [paneKey]: {
+            identity: { agentType: 'codex' },
             launchConfig: {
               agentCommand: "codex '--model' 'stale'",
               agentArgs: '--model stale',

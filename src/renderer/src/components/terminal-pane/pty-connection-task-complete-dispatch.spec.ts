@@ -196,6 +196,7 @@ export function registerPtyConnectionTaskCompleteDispatchTests(): void {
       transportFactoryQueue.push(transport)
       const paneKey = makePaneKey('tab-1', LEAF_1)
       mockStoreState.agentLaunchConfigByPaneKey[paneKey] = {
+        identity: { agentType: 'codex' },
         launchConfig: {
           agentArgs: '',
           agentEnv: {}
@@ -236,6 +237,7 @@ export function registerPtyConnectionTaskCompleteDispatchTests(): void {
     it('normalizes Pi-compatible remote titles to authoritative OMP launch identity', async () => {
       const { connectPanePty } = await import('./pty-connection')
       const transport = createMockTransport('pty-omp')
+      transport.connect.mockResolvedValue({ id: 'tab-pty', isReattach: true, launchAgent: 'omp' })
       transportFactoryQueue.push(transport)
       enableActiveRuntimeEnvironment()
       mockStoreState.tabsByWorktree = {
@@ -249,6 +251,10 @@ export function registerPtyConnectionTaskCompleteDispatchTests(): void {
       const deps = createDeps()
 
       connectPanePty(...mockPanePtyArgs(pane, manager, deps))
+      await flushAsyncTicks(20)
+      expect(mockStoreState.paneForegroundAgentByPaneKey[makePaneKey('tab-1', LEAF_1)]).toEqual(
+        expect.objectContaining({ agent: 'omp', agentEvidence: 'launch-record' })
+      )
 
       const titleHandler = createdTransportOptions[0]?.onTitleChange as
         | ((title: string, rawTitle: string) => void)
@@ -315,6 +321,7 @@ export function registerPtyConnectionTaskCompleteDispatchTests(): void {
     it('keeps GPU rendering enabled for OMP titles whose cwd is Gemini', async () => {
       const { connectPanePty } = await import('./pty-connection')
       const transport = createMockTransport('pty-omp-gemini-cwd')
+      transport.connect.mockResolvedValue({ id: 'tab-pty', isReattach: true, launchAgent: 'omp' })
       transportFactoryQueue.push(transport)
       enableActiveRuntimeEnvironment()
       mockStoreState.tabsByWorktree = {
@@ -327,6 +334,10 @@ export function registerPtyConnectionTaskCompleteDispatchTests(): void {
       const deps = createDeps()
 
       connectPanePty(...mockPanePtyArgs(pane, manager, deps))
+      await flushAsyncTicks(20)
+      expect(mockStoreState.paneForegroundAgentByPaneKey[makePaneKey('tab-1', LEAF_1)]).toEqual(
+        expect.objectContaining({ agent: 'omp', agentEvidence: 'launch-record' })
+      )
 
       const titleHandler = createdTransportOptions[0]?.onTitleChange as
         | ((title: string, rawTitle: string) => void)
@@ -335,6 +346,12 @@ export function registerPtyConnectionTaskCompleteDispatchTests(): void {
         throw new Error('Expected onTitleChange to be registered')
       }
 
+      mockStoreState.agentStatusByPaneKey[makePaneKey('tab-1', LEAF_1)] = {
+        state: 'working',
+        prompt: '',
+        agentType: 'pi',
+        updatedAt: Date.now()
+      }
       manager.setPaneGpuRendering.mockClear()
 
       titleHandler('\u280b Pi', '\u280b π: gemini')

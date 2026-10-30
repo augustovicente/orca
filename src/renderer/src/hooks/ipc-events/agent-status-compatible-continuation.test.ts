@@ -32,9 +32,13 @@ describe('compatible status continuation after process correction', () => {
     mocks.observe.mockReset()
   })
 
-  it.each([false, true])(
-    'settles IPC turns and the next turn across an OSC read gap (metadata=%s)',
-    (metadata) => {
+  it.each([
+    { metadata: false, evidence: 'process-read' as const },
+    { metadata: true, evidence: 'process-read' as const },
+    { metadata: false, evidence: 'launch-record' as const }
+  ])(
+    'settles IPC turns and the next turn across an OSC read gap ($metadata, $evidence)',
+    ({ metadata, evidence }) => {
       vi.useFakeTimers()
       const store = createTestStore()
       store.setState({
@@ -84,7 +88,7 @@ describe('compatible status continuation after process correction', () => {
       expect(apply(frame('working'))).toBe('applied')
       store.getState().setPaneForegroundAgent(PANE, {
         agent: 'omp',
-        agentEvidence: 'process-read',
+        agentEvidence: evidence,
         shellForeground: false
       })
       const before = store.getState()
@@ -107,7 +111,9 @@ describe('compatible status continuation after process correction', () => {
       })
       // Actual OSC start temporarily clears local foreground proof before its confirmation settles.
       tracker.onCommandStarted(true)
-      expect(store.getState().paneForegroundAgentByPaneKey[PANE].agent).toBeNull()
+      expect(store.getState().paneForegroundAgentByPaneKey[PANE].agent).toBe(
+        evidence === 'launch-record' ? 'omp' : null
+      )
       expect(apply(frame('done'))).toBe('applied')
       expect(store.getState().agentStatusByPaneKey[PANE]).toMatchObject({
         agentType: 'omp',

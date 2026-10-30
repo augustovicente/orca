@@ -14,6 +14,36 @@ export class PaneForegroundReadScheduler {
 
   constructor(private readonly read: ReadForeground) {}
 
+  hasReadInFlight(): boolean {
+    return this.scheduledReason !== null || this.activeReason !== null
+  }
+
+  hasCommandReadInFlight(): boolean {
+    return (
+      this.scheduledReason === 'command' ||
+      this.activeReason === 'command' ||
+      this.scheduledReason === 'command-finished' ||
+      this.activeReason === 'command-finished'
+    )
+  }
+
+  hasAcceptedInputRead(): boolean {
+    return this.scheduledReason === 'accepted-input' || this.activeReason === 'accepted-input'
+  }
+
+  hasBoundaryReadInFlight(): boolean {
+    return this.hasCommandReadInFlight() || this.hasAcceptedInputRead()
+  }
+
+  promoteAcceptedInputToCommand(): void {
+    if (this.scheduledReason === 'accepted-input') {
+      this.scheduledReason = 'command'
+    }
+    if (this.activeReason === 'accepted-input') {
+      this.activeReason = 'command'
+    }
+  }
+
   cancel(): void {
     this.generation += 1
     if (this.timer !== null) {

@@ -1,4 +1,5 @@
 import { resolvePaneTitleDecision } from '../terminal-title-evidence'
+import { resolvePaneRendererPolicy } from '../terminal-renderer-policy'
 import { useAppStore } from '@/store'
 import { shouldSeedCacheTimerOnInitialTitle } from '../cache-timer-seeding'
 import {
@@ -70,16 +71,28 @@ export function installTitleSpawnBell(session: ConnectPanePtySession): void {
       const ownerChanged = displayOwner !== nextDisplayOwner || rendererOwner !== nextRendererOwner
       displayOwner = nextDisplayOwner
       rendererOwner = nextRendererOwner
-      if (entry && foreground) {
-        state.correctAgentStatusIdentity(key, entry, foreground)
+      if (entry) {
+        state.correctAgentStatusIdentity(key, entry, foreground, launch)
       }
-      if (ownerChanged && lastTitle && lastTitle.ptyId === session.transport.getPtyId()) {
-        const liveTitle =
-          useAppStore.getState().runtimePaneTitlesByTabId?.[session.deps.tabId]?.[session.pane.id]
-        if (liveTitle === lastTitle.displayTitle) {
+      if (ownerChanged) {
+        const current = useAppStore.getState()
+        const liveTitle = current.runtimePaneTitlesByTabId?.[session.deps.tabId]?.[session.pane.id]
+        if (
+          lastTitle &&
+          lastTitle.ptyId === session.transport.getPtyId() &&
+          liveTitle === lastTitle.displayTitle
+        ) {
           presentTitle(lastTitle.title, lastTitle.rawTitle)
         } else {
           lastTitle = null
+          session.manager.setPaneGpuRendering(
+            session.pane.id,
+            resolvePaneRendererPolicy({
+              rawTitle: liveTitle ?? null,
+              ownerAgentType: session.getPaneScopedRendererOwner(),
+              userGpuMode: current.settings?.terminalGpuAcceleration ?? 'auto'
+            }).gpuEnabled
+          )
         }
       }
     })

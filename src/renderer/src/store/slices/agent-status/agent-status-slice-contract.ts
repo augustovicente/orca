@@ -91,11 +91,12 @@ export type AgentStatusSlice = {
     metadata?: AgentStatusMetadata
   ) => void
 
-  /** Correct compatible display identity against the exact current row and admitted process evidence. */
+  /** Correct compatible display identity against the exact current row and applicable process/applied-launch evidence. */
   correctAgentStatusIdentity: (
     paneKey: string,
     expectedEntry: AgentStatusEntry,
-    expectedForeground: PaneForegroundAgentEntry
+    expectedForeground: PaneForegroundAgentEntry | undefined,
+    expectedLaunch?: AgentLaunchConfigRegistryEntry
   ) => boolean
 
   /** Publish ordered status batch once; generated/tab titles publish separately (three writes, not 2N). */

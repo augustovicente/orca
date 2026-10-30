@@ -1,6 +1,4 @@
-import { normalizeCompatibleAgentTitleForOwner } from '../../../../../shared/agent-title-owner'
 import { canonicalOrchestrationForRow } from '@/runtime/visible-agent-orchestration'
-import { sameAgentStatusTerminalOwner } from '../../../../../shared/agent-status-terminal-owner'
 import type { AppState } from '../../types'
 import { resolveAgentStatusLiveEntryMainAgent } from './agent-status-live-entry-main-agent'
 import { resolveAgentStatusLiveEntryStateHistory } from '../../../../../shared/agent-status-live-entry-state-history'
@@ -14,7 +12,7 @@ import {
   type SleepingAgentSessionRecord
 } from '../../../../../shared/agent-session-resume'
 import {
-  resolveAgentStatusIdentity,
+  resolveAgentStatusFrameIdentity,
   resolveAgentStatusPaneOwner,
   shouldSuppressInheritedTerminalStatus
 } from '../../../../../shared/agent-status-identity'
@@ -83,30 +81,21 @@ export function buildAgentStatusLiveEntry(
   if (existing && updatedAt < existing.updatedAt && !timing?.allowOlderTimestamp) {
     return { entry: null, reason: 'stale' }
   }
-  const observedAgentType = resolveAgentStatusPaneOwner(state, paneKey)
-  const reportedTitle = terminalTitle ?? existing?.terminalTitle
-  const effectiveTitle = reportedTitle
-    ? normalizeCompatibleAgentTitleForOwner(reportedTitle, observedAgentType)
-    : reportedTitle
   const { history, lastCompletedAssistantMessage, stateObservedAt } =
     resolveAgentStatusLiveEntryStateHistory(existing, payload, updatedAt)
-  const identity = resolveAgentStatusIdentity({
-    existing:
-      existing &&
-      sameAgentStatusTerminalOwner(
-        { connectionId: existing.connectionId ?? null, worktreeId: existing.worktreeId },
-        {
-          connectionId:
-            (routing?.connectionId === undefined ? existing.connectionId : routing.connectionId) ??
-            null,
-          worktreeId: routing?.worktreeId ?? existing.worktreeId
-        }
-      )
-        ? { ...existing, agentPresence: metadata?.paneOwner }
-        : undefined,
+  const identity = resolveAgentStatusFrameIdentity({
+    existing,
+    terminalOwner: {
+      connectionId:
+        (routing?.connectionId === undefined ? existing?.connectionId : routing.connectionId) ??
+        null,
+      worktreeId: routing?.worktreeId ?? existing?.worktreeId
+    },
     incoming: payload.agentType,
-    observedAgentType,
+    incomingOwner: metadata?.paneOwner,
     incomingSession: metadata?.providerSession?.id,
+    observedAgentType: resolveAgentStatusPaneOwner(state, paneKey),
+    terminalTitle,
     now: updatedAt
   })
   const commandCodeNewTurn =
@@ -249,7 +238,7 @@ export function buildAgentStatusLiveEntry(
           ? { connectionId: state.sleepingAgentSessionsByPaneKey[paneKey].connectionId }
           : {}),
     tabId: statusTabId,
-    terminalTitle: effectiveTitle,
+    terminalTitle: identity.terminalTitle,
     stateHistory: history,
     toolName: payload.toolName,
     toolInput: payload.toolInput,

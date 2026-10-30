@@ -1,4 +1,9 @@
-import { resolveCompatibleAgentTypeForOwner } from './agent-title-owner'
+import {
+  normalizeCompatibleAgentTitleForOwner,
+  resolveCompatibleAgentTypeForOwner
+} from './agent-title-owner'
+import { sameAgentStatusTerminalOwner } from './agent-status-terminal-owner'
+import type { AgentStatusEntry } from './agent-status-types'
 import {
   AGENT_STATUS_STALE_AFTER_MS,
   isFreshNonDoneAgentStatus,
@@ -48,33 +53,75 @@ function isActiveExistingIdentity(
   return isFreshNonDoneAgentStatus(existing, now, staleAfterMs)
 }
 
-/** The accepted hook row spans pending process reads; shell proof and retirement end its applicability. */
-export function resolveAgentStatusPaneOwner(
-  state: {
-    paneForegroundAgentByPaneKey: Record<
-      string,
-      { agent: AgentType | null; agentEvidence?: string; shellForeground: boolean }
-    >
-    agentStatusByPaneKey: Record<string, { agentType?: AgentType }>
-    agentLaunchConfigByPaneKey: Record<string, { identity?: { agentType?: AgentType } }>
-    recentlyRetiredAgentStatusPaneKeys: Record<string, unknown>
-  },
-  paneKey: string
-): AgentType | undefined {
+type PaneIdentityState = {
+  paneForegroundAgentByPaneKey: Record<
+    string,
+    {
+      agent: AgentType | null
+      agentEvidence?: string
+      shellForeground: boolean
+    }
+  >
+  agentStatusByPaneKey: Record<string, { agentType?: AgentType }>
+  agentLaunchConfigByPaneKey: Record<string, { identity?: { agentType?: AgentType } }>
+  recentlyRetiredAgentStatusPaneKeys: Record<string, unknown>
+}
+
+/** Applied launch and accepted hook identity span inconclusive reads; shell proof and retirement end applicability. */
+export function resolveAgentStatusPaneEvidence(state: PaneIdentityState, paneKey: string) {
   const foreground = state.paneForegroundAgentByPaneKey[paneKey]
   if (
     state.recentlyRetiredAgentStatusPaneKeys[paneKey] !== undefined ||
     foreground?.shellForeground
   ) {
-    return undefined
+    return {}
   }
   const hook = state.agentStatusByPaneKey[paneKey]?.agentType
-  const launch = state.agentLaunchConfigByPaneKey[paneKey]?.identity?.agentType
-  return (
-    (foreground?.agentEvidence === 'process-read' ? (foreground.agent ?? undefined) : undefined) ??
-    resolveCompatibleAgentTypeForOwner(hook === 'unknown' ? undefined : hook, launch) ??
-    launch
-  )
+  const processAgent = foreground?.agentEvidence === 'process-read' ? foreground.agent : undefined
+  const launchAgent =
+    foreground?.agentEvidence === 'launch-record'
+      ? (foreground.agent ?? undefined)
+      : state.agentLaunchConfigByPaneKey[paneKey]?.identity?.agentType
+  return { processAgent, launchAgent, hookAgent: hook === 'unknown' ? undefined : hook }
+}
+
+export function resolveAgentStatusPaneOwner(
+  state: PaneIdentityState,
+  paneKey: string
+): AgentType | undefined {
+  const { processAgent, launchAgent, hookAgent } = resolveAgentStatusPaneEvidence(state, paneKey)
+  return processAgent ?? resolveCompatibleAgentTypeForOwner(hookAgent, launchAgent) ?? launchAgent
+}
+
+/** Resolve accepted identity and title together while keeping reporter ownership raw at admission. */
+export function resolveAgentStatusFrameIdentity(args: {
+  existing?: AgentStatusEntry
+  incoming?: AgentType
+  incomingOwner?: AgentProcessPresence
+  incomingSession?: string
+  observedAgentType?: AgentType
+  terminalOwner: { connectionId: string | null; worktreeId?: string }
+  terminalTitle?: string
+  now: number
+}) {
+  const existing = args.existing
+  const reportedTitle = args.terminalTitle ?? existing?.terminalTitle
+  return {
+    ...resolveAgentStatusIdentity({
+      ...args,
+      existing:
+        existing &&
+        sameAgentStatusTerminalOwner(
+          { connectionId: existing.connectionId ?? null, worktreeId: existing.worktreeId },
+          args.terminalOwner
+        )
+          ? { ...existing, agentPresence: args.incomingOwner }
+          : undefined
+    }),
+    terminalTitle: reportedTitle
+      ? normalizeCompatibleAgentTitleForOwner(reportedTitle, args.observedAgentType)
+      : reportedTitle
+  }
 }
 
 export function resolveAgentStatusIdentity(args: {
