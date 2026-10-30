@@ -240,7 +240,7 @@ export function createPendingAskScanner(): {
   // Two counters track pending’s FIFO depth without retaining a queue entry per call.
   let outstanding = 0
   let pendingDepth = -1
-  // Each async question stays open past its immediate result until the agent receives a message.
+  // Async questions await the person's message, not an orchestration notice from another agent.
   let contributors: AsyncQuestionContributor[] = []
   const asyncSlots = new Map<string, number>()
   const asyncCallIds = new Set<string>()
@@ -260,7 +260,10 @@ export function createPendingAskScanner(): {
     // reset the FIFO or one orphan strands later answered asks forever (#11761). Claude tool results decode as role tool.
     const interrupted = isInterruptedStatusMessage(message)
     if (message.role === 'user' || interrupted) {
-      if (interrupted || isDeliveredNativeChatUserMessage(message)) {
+      if (
+        interrupted ||
+        (isDeliveredNativeChatUserMessage(message) && message.from?.kind !== 'agent')
+      ) {
         interrupt()
       } else {
         resetBlocking()
