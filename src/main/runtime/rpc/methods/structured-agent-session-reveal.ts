@@ -15,6 +15,10 @@ import {
   requireStructuredAgentAudience,
   requireStructuredHost
 } from './structured-agent-session-gate'
+import {
+  structuredSessionSurfaceIsCurrent,
+  type StructuredSessionSurface
+} from '../../agent-session/structured-agent-session-close'
 import { RevealParams } from './structured-agent-session-schemas'
 
 export const STRUCTURED_AGENT_SESSION_REVEAL_METHODS = [
@@ -29,6 +33,7 @@ export const STRUCTURED_AGENT_SESSION_REVEAL_METHODS = [
       }
       requireStructuredCapability(ctx)
       await ensureStructuredHostInstalled(ctx)
+      let publication: StructuredSessionSurface | null = null
       let revealed: StructuredAgentSessionReveal
       try {
         const host = requireStructuredHost(ctx)
@@ -53,9 +58,22 @@ export const STRUCTURED_AGENT_SESSION_REVEAL_METHODS = [
         workspaceId: revealed.workspaceId,
         sessionId: revealed.sessionId,
         agent: revealed.agent,
+        capture: (surface) => {
+          publication = surface
+        },
         activate: params.navigation !== 'caller',
         ...(params.navigation ? { navigation: params.navigation } : {})
       })
+      if (
+        !structuredSessionSurfaceIsCurrent(
+          requireStructuredHost(ctx),
+          revealed.sessionId,
+          publication,
+          ctx.runtime
+        )
+      ) {
+        throw new Error('Chat tab publication was superseded')
+      }
       if (
         caller?.kind === 'paired-device' &&
         !ctx.runtime.reopenMobileSessionTabForClient(

@@ -68,6 +68,15 @@ async function createWorker() {
     getOrchestrationHeartbeatMinutes: () => 5,
     getTerminalOrchestrationCliCommand: () => 'orca',
     orchestrationSenderNames: { nameOf: () => 'Coordinator' },
+    captureStructuredAgentSessionPresentation: (id: string) => ({
+      raw: { worktreeId: 'workspace-1', tabId: `agent-session:${id}` },
+      saved: []
+    }),
+    currentLocalStructuredSessionPresentation: (id: string) => ({
+      worktreeId: 'workspace-1',
+      tabId: `agent-session:${id}`
+    }),
+    removeCapturedStructuredSessionSavedTabs: vi.fn(),
     forgetStructuredSessionMail: vi.fn(),
     retireStructuredAgentSessionTabFromSnapshot: vi.fn(() => true)
   }
@@ -155,5 +164,9 @@ it('reports a preamble as undelivered after startup exhaustion and retires the f
   expect(rig.host.hasSession(sessionId)).toBe(false)
   expect(rig.store.listVisibleSessionIds()).not.toContain(sessionId)
   expect(workerRuntime.forgetStructuredSessionMail).toHaveBeenCalledWith(sessionId)
-  expect(workerRuntime.retireStructuredAgentSessionTabFromSnapshot).toHaveBeenCalledWith(sessionId)
+  expect(workerRuntime.retireStructuredAgentSessionTabFromSnapshot).toHaveBeenCalledWith(
+    sessionId,
+    `agent-session:${sessionId}`,
+    'workspace-1'
+  )
 })

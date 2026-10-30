@@ -21,7 +21,11 @@ const sources: StructuredSessionOpenSource[] = [
     agent: 'codex'
   },
   { kind: 'notification', sessionId: 'historical', worktreeId: 'old' },
-  { kind: 'sender', address: 'dispatch:worker', messageIds: ['mail-1'] }
+  {
+    kind: 'sender',
+    party: { address: 'dispatch:worker', terminalHandle: null, orcaSessionId: null },
+    messageIds: ['mail-1']
+  }
 ]
 function rig() {
   let rows: StructuredSessionOpenTab[] = []
@@ -59,10 +63,14 @@ it.each(sources)(
       target,
       tab: row
     })
-    expect(events).toEqual(['refresh', 'reveal', 'refresh', 'activate'])
+    expect(events).toEqual(
+      source.kind === 'history'
+        ? ['refresh', 'refresh', 'reveal', 'refresh', 'activate']
+        : ['refresh', 'reveal', 'refresh', 'activate']
+    )
     expect(deps.activate).toHaveBeenCalledWith(row, target)
     expect(deps.locate).toHaveBeenCalledWith(
-      source.kind === 'sender' ? source.address : 'orca_session_id:historical',
+      source.kind === 'sender' ? source.party.address : 'orca_session_id:historical',
       source.kind === 'sender' ? ['mail-1'] : []
     )
   }
@@ -70,7 +78,12 @@ it.each(sources)(
 it('selects an existing chat without reveal and treats refresh as advisory', async () => {
   const r = rig()
   r.rows([row])
-  expect(await openStructuredAgentSession(sources[0]!, r.deps)).toMatchObject({ kind: 'opened' })
+  expect(
+    await openStructuredAgentSession(
+      { kind: 'history', structuredSession: { sessionId: 'current', workspaceId: 'owner' } },
+      r.deps
+    )
+  ).toMatchObject({ kind: 'opened' })
   expect(r.events).toEqual(['activate'])
   r.rows([])
   r.deps.refresh = vi.fn(async () => {

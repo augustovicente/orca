@@ -39,7 +39,10 @@ import { structuredWorkerOwned } from '../../structured-worker-custody'
 import type { StructuredWorkerIdentity } from '../../structured-worker-identity'
 import type { WorkerTerminalReleaseState } from '../../orchestration/worker-terminal-ownership'
 import { releaseStructuredWorkerSession } from './orchestration-structured-worker-session'
-import { closeStructuredAgentSessionChild } from '../../agent-session/structured-agent-session-close'
+import {
+  closeStructuredAgentSessionChild,
+  type StructuredSessionSurfaceRuntime
+} from '../../agent-session/structured-agent-session-close'
 import {
   chatAssigneeJournal,
   type StructuredJournalSource
@@ -70,10 +73,8 @@ export type StructuredWorkerStopOutcome = {
 export async function stopStructuredWorker(
   identity: StructuredWorkerIdentity,
   dispatchId: string,
-  runtime?: Pick<
-    OrcaRuntimeService,
-    'forgetStructuredSessionMail' | 'retireStructuredAgentSessionTabFromSnapshot'
-  >
+  runtime?: StructuredSessionSurfaceRuntime &
+    Pick<OrcaRuntimeService, 'forgetStructuredSessionMail'>
 ): Promise<StructuredWorkerStopOutcome> {
   const closed = new Set<string>()
   // Any close this stop issued, so a later session's failure cannot erase an earlier close.

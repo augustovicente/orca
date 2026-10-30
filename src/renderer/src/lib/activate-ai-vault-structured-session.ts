@@ -1,13 +1,16 @@
 import {
   openStructuredAgentSession,
-  structuredSessionOpenMessage,
   structuredSessionOpenFailure,
   type StructuredSessionOpenSource,
   type StructuredSessionOpenResult,
-  type StructuredSessionOpenDeps
+  type StructuredSessionOpenDeps,
+  type StructuredSessionOpenTarget,
+  type StructuredSessionOpenTab
 } from '../../../shared/open-structured-agent-session'
 import type { OrchestrationPartyLocationResult } from '../../../shared/orchestration-caller-status'
 import { findStructuredAgentSessionTab } from './agent-session/structured-agent-session-tab-activation'
+import { showAgentPaneUnavailable } from '@/components/terminal-pane/stale-agent-row'
+import { translate } from '@/i18n/i18n'
 import { toast } from 'sonner'
 import type { AiVaultSession } from '../../../shared/ai-vault-types'
 import { activateAndRevealWorktree } from './worktree-activation'
@@ -28,13 +31,17 @@ const STRUCTURED_SESSION_RESTORE_TIMEOUT_MS = 5_000
 
 /** Keep distinct remedies: retry unreachable hosts, stop on a confirmed missing record, or update incompatible hosts/adapters. Failure to answer never proves a chat is gone. */
 export type StructuredSessionRevealOutcome =
-  | 'revealed'
+  | StructuredSessionOpenTarget
   | 'gone'
   | 'host-cannot-open'
   | 'unreachable'
 
 type StructuredSessionActivationDeps = {
   activate: typeof activateStructuredAgentSessionById
+  tabs: (
+    target: { sessionId: string; worktreeId: string },
+    owner: RuntimeClientTarget
+  ) => readonly StructuredSessionOpenTab[]
   refresh: (worktreeId: string, target?: RuntimeClientTarget) => Promise<void>
   reveal: (target: {
     worktreeId: string
@@ -50,13 +57,39 @@ export const structuredSessionOpenFeedback: Pick<
   StructuredSessionActivationDeps,
   'unavailable' | 'gone' | 'hostCannotOpen'
 > = {
-  unavailable: (agent = '') => toast.error(structuredSessionOpenMessage('unreachable', agent)),
-  gone: (agent = '') => toast.error(structuredSessionOpenMessage('gone', agent)),
-  hostCannotOpen: (agent = '') => toast.error(structuredSessionOpenMessage('unsupported', agent))
+  unavailable: () =>
+    toast.error(
+      translate(
+        'auto.lib.activateAiVaultStructuredSession.unavailable',
+        'The structured agent session is not available yet. Retry in a moment.'
+      )
+    ),
+  gone: () =>
+    toast.error(
+      translate(
+        'auto.lib.activateAiVaultStructuredSession.gone',
+        'This chat is no longer on this host, so it cannot be reopened here.'
+      )
+    ),
+  hostCannotOpen: () =>
+    toast.error(
+      translate(
+        'auto.lib.activateAiVaultStructuredSession.hostCannotOpen',
+        "This chat can't be reopened until Orca is updated."
+      )
+    )
 }
 
 const defaultDeps: StructuredSessionActivationDeps = {
   activate: activateStructuredAgentSessionById,
+  tabs: (target, owner) => {
+    const tab = findStructuredAgentSessionTab(useAppStore.getState().unifiedTabsByWorktree, {
+      workspaceId: target.worktreeId,
+      sessionId: target.sessionId,
+      target: owner
+    })
+    return tab ? [{ id: tab.id, sessionId: tab.entityId, agent: tab.agentSessionAgent }] : []
+  },
   refresh: refreshStructuredSessionTabs,
   reveal: revealStructuredSession,
   ...structuredSessionOpenFeedback
@@ -116,38 +149,30 @@ export async function openDesktopStructuredSession(
     locate:
       locate ??
       (async (address, messageIds) => {
-        if (deps !== defaultDeps) {
-          return { reason: 'unsupported', beforeEffects: true }
-        }
         try {
-          return await callRuntimeRpc<OrchestrationPartyLocationResult>(
-            owner,
-            'orchestration.partyLocation',
-            { address, ...(messageIds.length ? { messageIds } : {}) },
-            { timeoutMs: STRUCTURED_SESSION_RESTORE_TIMEOUT_MS }
+          return await withStructuredSessionRestoreTimeout(
+            callRuntimeRpc<OrchestrationPartyLocationResult>(
+              owner,
+              'orchestration.partyLocation',
+              { address, ...(messageIds.length ? { messageIds } : {}) },
+              { timeoutMs: STRUCTURED_SESSION_RESTORE_TIMEOUT_MS }
+            )
           )
         } catch (error) {
           return structuredSessionOpenFailure(error)
         }
       }),
-    tabs: (target) => {
-      if (deps !== defaultDeps) {
-        return [{ id: target.sessionId, sessionId: target.sessionId }]
-      }
-      const tab = findStructuredAgentSessionTab(useAppStore.getState().unifiedTabsByWorktree, {
-        workspaceId: target.worktreeId,
-        sessionId: target.sessionId,
-        target: owner
-      })
-      return tab ? [{ id: tab.id, sessionId: tab.entityId }] : []
-    },
-    activate: (_tab, target) => deps.activate({ ...target, ...(host ? { target: host } : {}) }),
-    refresh: (target) =>
-      host ? deps.refresh(target.worktreeId, host) : deps.refresh(target.worktreeId),
+    tabs: (target) => deps.tabs(target, owner),
+    activate: (tab, target) =>
+      deps
+        .tabs(target, owner)
+        .some((row) => row.id === tab.id && row.sessionId === target.sessionId) &&
+      deps.activate({ ...target, target: owner }),
+    refresh: (target) => deps.refresh(target.worktreeId, owner),
     reveal: async (target) => {
-      const outcome = await deps.reveal({ ...target, ...(host ? { target: host } : {}) })
-      return outcome === 'revealed'
-        ? target
+      const outcome = await deps.reveal({ ...target, target: owner })
+      return typeof outcome === 'object'
+        ? outcome
         : {
             reason: outcome === 'host-cannot-open' ? 'unsupported' : outcome,
             beforeEffects: outcome !== 'unreachable'
@@ -163,13 +188,15 @@ export async function openDesktopStructuredSession(
       activateAndRevealWorktree(workspace)
     }
   } else if (result.kind === 'failed') {
-    const agent = source.agent ?? ''
+    const agent = source.kind === 'sender' ? (source.displayName ?? '') : (source.agent ?? '')
     if (result.failure.reason === 'gone') {
-      deps.gone(agent)
+      if (result.failure.surface === 'terminal') {
+        showAgentPaneUnavailable()
+      } else {
+        deps.gone(agent)
+      }
     } else if (result.failure.reason === 'unsupported') {
       deps.hostCannotOpen(agent)
-    } else if (result.failure.reason === 'unknown' && deps === defaultDeps) {
-      toast.error(structuredSessionOpenMessage('unknown', agent))
     } else {
       deps.unavailable(agent)
     }
@@ -238,13 +265,15 @@ export async function revealStructuredSession(target: {
     return 'unreachable'
   }
   if (result?.ok === true) {
-    return 'revealed'
+    return { sessionId: result.sessionId, worktreeId: result.workspaceId, agent: result.agent }
   }
   // Distinguish a missing record from an existing record the host cannot open; only the first means gone.
   return result?.refusal?.code === 'agent_session_identity_required' ? 'gone' : 'host-cannot-open'
 }
 
-type AgentSessionRevealReply = { ok?: boolean; refusal?: { code?: string } }
+type AgentSessionRevealReply =
+  | { ok: true; sessionId: string; workspaceId: string; agent: string }
+  | { ok: false; refusal: { code?: string } }
 
 async function refreshStructuredSessionTabs(
   worktreeId: string,

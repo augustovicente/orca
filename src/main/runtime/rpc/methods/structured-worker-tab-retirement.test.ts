@@ -37,7 +37,10 @@ const HOST_SCOPE = { kind: 'local', hostId: 'local' } as const
 
 function installHost(options: { closeThrows?: boolean; lease?: Partial<AgentSessionLease> } = {}) {
   let attached = true
-  const setSessionTabVisibility = vi.fn(async () => {})
+  let visible = true
+  const setSessionTabVisibility = vi.fn(async (_id: string, show: boolean) => {
+    visible = show
+  })
   const close = vi.fn(async () => {
     if (options.closeThrows) {
       throw new Error('close is queued for retry')
@@ -45,6 +48,9 @@ function installHost(options: { closeThrows?: boolean; lease?: Partial<AgentSess
     attached = false
   })
   const { host, store } = hostTestState()
+  vi.spyOn(host, 'getSessionTabId').mockImplementation((id) =>
+    visible ? `structured-agent-session-${id}` : null
+  )
   vi.spyOn(host, 'setSessionTabVisibility').mockImplementation(setSessionTabVisibility)
   vi.spyOn(host, 'close').mockImplementation(close)
   vi.spyOn(host, 'hasSession').mockImplementation(() => attached)
@@ -160,6 +166,15 @@ describe('structured worker stop retires the chat tab', () => {
     installHost()
     const identity = registerIdentity()
     const runtime = {
+      captureStructuredAgentSessionPresentation: () => ({
+        raw: { worktreeId: WORKTREE, tabId: 'agent-session:session-1' },
+        saved: []
+      }),
+      currentLocalStructuredSessionPresentation: () => ({
+        worktreeId: WORKTREE,
+        tabId: 'agent-session:session-1'
+      }),
+      removeCapturedStructuredSessionSavedTabs: vi.fn(),
       forgetStructuredSessionMail: vi.fn(),
       retireStructuredAgentSessionTabFromSnapshot: vi.fn(() => {
         throw new Error('snapshot is wedged')
@@ -170,7 +185,11 @@ describe('structured worker stop retires the chat tab', () => {
       stopped: true,
       closeAttempted: true
     })
-    expect(runtime.retireStructuredAgentSessionTabFromSnapshot).toHaveBeenCalledWith(SESSION)
+    expect(runtime.retireStructuredAgentSessionTabFromSnapshot).toHaveBeenCalledWith(
+      SESSION,
+      'agent-session:session-1',
+      WORKTREE
+    )
   })
 
   it('settles a runtime that has no tab surface at all', async () => {
@@ -279,6 +298,15 @@ describe('structured worker release retires the chat tab', () => {
         runtime: {
           ensureStructuredAgentSessionHost: async () => {},
           notifyMessageArrived: vi.fn(),
+          captureStructuredAgentSessionPresentation: () => ({
+            raw: { worktreeId: WORKTREE, tabId: 'agent-session:session-1' },
+            saved: []
+          }),
+          currentLocalStructuredSessionPresentation: () => ({
+            worktreeId: WORKTREE,
+            tabId: 'agent-session:session-1'
+          }),
+          removeCapturedStructuredSessionSavedTabs: vi.fn(),
           forgetStructuredSessionMail: vi.fn(),
           retireStructuredAgentSessionTabFromSnapshot: vi.fn()
         } as unknown as OrcaRuntimeService,

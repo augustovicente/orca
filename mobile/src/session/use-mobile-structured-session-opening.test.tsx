@@ -38,8 +38,7 @@ it.each(['stable', 'newer-pick', 'execution-host', 'unmount'] as const)(
     const selected = { current: 'source' }
     const pending = { current: null }
     const switchSessionTab = vi.fn()
-    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: this hook reads exactly these view, client and selection members; the remaining controller members are not exercised.
-    const scope = {
+    const scope: Parameters<typeof useMobileStructuredSessionOpening>[0] = {
       hostId: 'host',
       worktreeId: 'workspace',
       client: createFakeRpcClient(),
@@ -49,8 +48,18 @@ it.each(['stable', 'newer-pick', 'execution-host', 'unmount'] as const)(
       activeSessionTabIdRef: { current: 'source' },
       selectedSessionTabIdRef: selected,
       pendingSelectionRef: pending,
-      sessionTabsRef: { current: [{ id: 'source' }] }
-    } as Parameters<typeof useMobileStructuredSessionOpening>[0]
+      sessionTabsRef: {
+        current: [
+          {
+            type: 'terminal',
+            id: 'source',
+            title: 'Source',
+            terminal: 'terminal-source',
+            isActive: true
+          }
+        ]
+      }
+    }
     let open: ((source: StructuredSessionOpenSource) => Promise<void>) | undefined
     function Probe() {
       open = useMobileStructuredSessionOpening(scope)

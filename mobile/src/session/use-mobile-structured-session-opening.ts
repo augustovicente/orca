@@ -15,7 +15,19 @@ import type { useMobileSessionTabSwitching } from './use-mobile-session-tab-swit
 import type { MobileSessionKeyboardStateModel } from './use-mobile-session-keyboard-state'
 
 export function useMobileStructuredSessionOpening(
-  scope: MobileSessionKeyboardStateModel & ReturnType<typeof useMobileSessionTabSwitching>
+  scope: Pick<
+    MobileSessionKeyboardStateModel & ReturnType<typeof useMobileSessionTabSwitching>,
+    | 'hostId'
+    | 'worktreeId'
+    | 'client'
+    | 'connState'
+    | 'showToast'
+    | 'switchSessionTab'
+    | 'activeSessionTabIdRef'
+    | 'selectedSessionTabIdRef'
+    | 'pendingSelectionRef'
+    | 'sessionTabsRef'
+  >
 ) {
   const executionHost = useWorkspaceExecutionHost()
   const router = useWorkspaceRouteHandoff()
@@ -51,7 +63,19 @@ export function useMobileStructuredSessionOpening(
       if (!client || connState !== 'connected') {
         return
       }
-      const result = await openMobileStructuredSession({ client, source, current })
+      const result = await openMobileStructuredSession({
+        client,
+        source,
+        current,
+        inventory: {
+          worktreeId,
+          tabs: scope.sessionTabsRef.current.flatMap((tab) =>
+            tab.type === 'agent-session'
+              ? [{ id: tab.id, sessionId: tab.sessionId, agent: tab.agent }]
+              : []
+          )
+        }
+      })
       if (!current()) {
         return
       }
@@ -71,7 +95,13 @@ export function useMobileStructuredSessionOpening(
           switchSessionTab(tab, { activate: false })
         }
       } else if (result.kind === 'failed') {
-        showToast(structuredSessionOpenMessage(result.failure.reason, source.agent ?? ''), 3_000)
+        showToast(
+          structuredSessionOpenMessage(
+            result.failure.reason,
+            source.kind === 'sender' ? (source.displayName ?? '') : (source.agent ?? '')
+          ),
+          3_000
+        )
       }
     },
     [

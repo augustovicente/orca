@@ -48,7 +48,8 @@ describe('agentSession.reveal', () => {
       workspaceId: 'workspace-from-record',
       sessionId: SESSION,
       agent: 'claude',
-      activate: true
+      activate: true,
+      capture: expect.any(Function)
     })
   })
 

@@ -26,7 +26,12 @@ const target = { worktreeId: 'workspace-1', sessionId: 'session-1' }
 
 beforeEach(() => {
   vi.clearAllMocks()
-  mocks.call.mockResolvedValue({ ok: true })
+  mocks.call.mockResolvedValue({
+    ok: true,
+    sessionId: target.sessionId,
+    workspaceId: target.worktreeId,
+    agent: 'codex'
+  })
   mocks.supports.mockResolvedValue(true)
   mocks.environmentIdFor.mockReturnValue(null)
 })
@@ -34,7 +39,7 @@ beforeEach(() => {
 describe('revealStructuredSession', () => {
   it('asks a local host without a capability round trip', async () => {
     // The local host shares this build; probing it would only add a round trip.
-    await expect(revealStructuredSession(target)).resolves.toBe('revealed')
+    await expect(revealStructuredSession(target)).resolves.toEqual({ ...target, agent: 'codex' })
 
     expect(mocks.supports).not.toHaveBeenCalled()
     expect(mocks.call).toHaveBeenCalledWith(
@@ -48,7 +53,7 @@ describe('revealStructuredSession', () => {
   it('negotiates against the host that owns the workspace, not the local one', async () => {
     mocks.environmentIdFor.mockReturnValue('env-1')
 
-    await expect(revealStructuredSession(target)).resolves.toBe('revealed')
+    await expect(revealStructuredSession(target)).resolves.toEqual({ ...target, agent: 'codex' })
 
     expect(mocks.supports).toHaveBeenCalledWith(
       'env-1',
@@ -65,7 +70,10 @@ describe('revealStructuredSession', () => {
 
   it('keeps a known recipient target when the active workspace would resolve locally', async () => {
     const host = { kind: 'environment', environmentId: 'recipient-host' } as const
-    await expect(revealStructuredSession({ ...target, target: host })).resolves.toBe('revealed')
+    await expect(revealStructuredSession({ ...target, target: host })).resolves.toEqual({
+      ...target,
+      agent: 'codex'
+    })
     expect(mocks.supports).toHaveBeenCalledWith(
       'recipient-host',
       STRUCTURED_AGENT_SESSION_REVEAL_RUNTIME_CAPABILITY,
@@ -150,5 +158,19 @@ describe('revealStructuredSession', () => {
     mocks.call.mockRejectedValue(new Error('structured_session_restore_timeout'))
 
     await expect(revealStructuredSession(target)).resolves.toBe('unreachable')
+  })
+})
+
+it('returns the actual revealed identity/workspace/provider for reconciliation', async () => {
+  mocks.call.mockResolvedValue({
+    ok: true,
+    sessionId: 'successor',
+    workspaceId: 'actual-owner',
+    agent: 'claude'
+  })
+  expect(await revealStructuredSession(target)).toEqual({
+    sessionId: 'successor',
+    worktreeId: 'actual-owner',
+    agent: 'claude'
   })
 })

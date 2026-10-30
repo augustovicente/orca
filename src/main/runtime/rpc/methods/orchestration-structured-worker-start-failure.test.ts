@@ -93,6 +93,15 @@ function fakes() {
       processIncarnation: 'structured:x',
       hostScope: { kind: 'local', hostId: 'local' }
     }),
+    captureStructuredAgentSessionPresentation: (sessionId: string) => ({
+      raw: { worktreeId: WORKTREE, tabId: `agent-session:${sessionId}` },
+      saved: []
+    }),
+    currentLocalStructuredSessionPresentation: (sessionId: string) => ({
+      worktreeId: WORKTREE,
+      tabId: `agent-session:${sessionId}`
+    }),
+    removeCapturedStructuredSessionSavedTabs: vi.fn(),
     forgetStructuredSessionMail: vi.fn(),
     validateOrchestrationAgentLauncher: vi.fn(),
     getTerminalProcessIncarnation: vi.fn(() => 'inc_1'),
@@ -149,6 +158,10 @@ describe('a structured worker-start that fails after the session exists', () => 
     const sessionId = host.closed[0] as string
     // Hide durable restore before retiring live state, or the dead tab returns next launch.
     expect(host.visibility).toContainEqual([sessionId, false])
-    expect(retireStructuredAgentSessionTabFromSnapshot).toHaveBeenCalledWith(sessionId)
+    expect(retireStructuredAgentSessionTabFromSnapshot).toHaveBeenCalledWith(
+      sessionId,
+      `agent-session:${sessionId}`,
+      WORKTREE
+    )
   })
 })

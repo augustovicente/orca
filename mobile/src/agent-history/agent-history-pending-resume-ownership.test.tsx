@@ -447,7 +447,7 @@ it.each(['opened', 'old-host', 'timeout', 'unsupported-agent'] as const)(
     state.session = {
       ...ownedSession(),
       agent: mode === 'unsupported-agent' ? 'qoder' : 'codex',
-      sessionId: mode === 'opened' ? null : 'provider-session',
+      sessionId: mode === 'opened' ? '' : 'provider-session',
       structuredSession: { sessionId: 'native-root', workspaceId: 'owned-worktree' }
     }
     let revealed = false

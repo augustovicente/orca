@@ -20,8 +20,7 @@ import type { StructuredAgentSessionCloseCause } from '../../native-chat/agent-s
 import {
   chatTabId,
   withChatTabChanges,
-  type ChatTabChange,
-  type ChatTabPlacement
+  type ChatTabChange
 } from '../agent-session/agent-session-tab-layout'
 import { createChatTabLayoutQueue } from '../agent-session-tab-layout-queue'
 import type { WindowLayoutCommand, LayoutCommandRunOptions } from '../runtime-layout-apply'
@@ -32,7 +31,7 @@ import {
   capturedStructuredSessionSavedTabChanges,
   windowlessStructuredSessionTabSaveEligible
 } from './structured-session-tab-presentation'
-import type { StructuredAgentId } from '../../../shared/agent-session-provider-handle'
+import type { StructuredSessionTabPublicationInput as ChatPublication } from './structured-session-tab-publication'
 import {
   closeCapturedStructuredSession,
   type StructuredSessionSurface
@@ -243,21 +242,22 @@ export abstract class OrcaRuntimeWithCloseStructuredAgentSessionTab extends Orca
   /** Saves a chat's tab in a windowless host's layout, where it is listed from once read there. */
   protected saveWindowlessAgentSessionTab(
     worktreeId: string,
-    chat: {
-      sessionId: string
-      agent: StructuredAgentId
-      placement?: ChatTabPlacement
-      tabId?: string
+    chat: Pick<ChatPublication, 'sessionId' | 'agent' | 'placement' | 'tabId'> & {
+      eligible?: () => boolean
     }
   ): void {
     const tabId = chat.tabId ?? chatTabId(chat.sessionId)
-    this.changeWindowlessChatTabs(worktreeId, [{ open: { ...chat, tabId } }], () =>
-      windowlessStructuredSessionTabSaveEligible(
-        chat.sessionId,
-        tabId,
-        this.getWorkspaceSessionForWorktree(worktreeId),
-        worktreeId
-      )
+    this.changeWindowlessChatTabs(
+      worktreeId,
+      [{ open: { ...chat, tabId } }],
+      () =>
+        chat.eligible?.() !== false &&
+        windowlessStructuredSessionTabSaveEligible(
+          chat.sessionId,
+          tabId,
+          this.getWorkspaceSessionForWorktree(worktreeId),
+          worktreeId
+        )
     )
   }
 

@@ -61,9 +61,9 @@ export class AuthorityRuntime extends OrcaRuntimeService {
 
 export async function authorityProfile(
   ids: string[] = [B],
-  options: { visible?: string[]; records?: string[] } = {}
+  options: { visible?: string[]; records?: string[] } = {},
+  profile = createStore()
 ) {
-  const profile = createStore()
   initOrcaProfilePaths()
   const group = profile.createProjectGroup({
     name: 'Chats',
@@ -111,7 +111,7 @@ export async function authorityProfile(
   if (saved) {
     profile.setWorkspaceSession(saved)
   }
-  profile.flushOrThrow()
+  await profile.flushPendingOrThrowAsync()
   return { profile, workspace, groupId: group.id, folderId: folder.id }
 }
 

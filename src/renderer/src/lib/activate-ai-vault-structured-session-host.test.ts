@@ -17,6 +17,10 @@ const mocks = vi.hoisted(() => {
     }
   }
 })
+vi.mock('sonner', () => ({ toast: { error: vi.fn() } }))
+vi.mock('@/runtime/local-structured-session-tabs-sync/inventory-refresh', () => ({
+  refreshLocalStructuredSessionWorktreeTabs: async () => undefined
+}))
 vi.mock('@/store', () => ({
   useAppStore: {
     getState: () => ({
@@ -68,7 +72,7 @@ beforeEach(() => {
       // The paired mirror, rather than the local snapshot apply, publishes the revealed tab.
       mocks.state.unifiedTabsByWorktree.workspace.push(tab('right-remote', 'runtime:remote-2'))
     }
-    return { ok: true }
+    return { ok: true, sessionId: 'sender', workspaceId: 'workspace', agent: 'claude' }
   })
 })
 
@@ -99,8 +103,8 @@ it.each([false, true])(
       expect.any(Number)
     )
     expect(mocks.call.mock.calls.map(([host, method]) => [host, method])).toEqual([
-      [TARGET, 'orchestration.partyLocation'],
       [TARGET, 'session.tabs.list'],
+      [TARGET, 'orchestration.partyLocation'],
       [TARGET, 'agentSession.reveal'],
       [TARGET, 'session.tabs.list'],
       [TARGET, 'session.tabs.activate']
@@ -110,3 +114,46 @@ it.each([false, true])(
     expect(mocks.activateTab).toHaveBeenCalledWith('right-remote', { worktreeId: 'workspace' })
   }
 )
+
+it('a listed exact History view selects while lookup is unavailable and never starts it', async () => {
+  mocks.state.unifiedTabsByWorktree.workspace.push(tab('right-remote', 'runtime:remote-2'))
+  mocks.call.mockImplementation(async (_host, method) => {
+    if (method === 'orchestration.partyLocation') {
+      return new Promise(() => {})
+    }
+    return { ok: true }
+  })
+  await activateAiVaultStructuredSession(
+    { structuredSession: { sessionId: 'sender', workspaceId: 'workspace' } },
+    undefined,
+    TARGET
+  )
+  expect(mocks.activateTab).toHaveBeenCalledWith('right-remote', { worktreeId: 'workspace' })
+  expect(mocks.call.mock.calls.map((call) => call[1])).toEqual(['session.tabs.activate'])
+})
+
+it('bounds a missing local History lookup and releases coalescing for a legitimate retry', async () => {
+  vi.useFakeTimers()
+  try {
+    mocks.state.unifiedTabsByWorktree = {}
+    mocks.call.mockImplementation(async (_host, method) =>
+      method === 'orchestration.partyLocation' ? new Promise(() => {}) : { ok: true }
+    )
+    const session = { structuredSession: { sessionId: 'missing', workspaceId: 'workspace' } }
+    const first = activateAiVaultStructuredSession(session, undefined, { kind: 'local' })
+    const second = activateAiVaultStructuredSession(session, undefined, { kind: 'local' })
+    await vi.advanceTimersByTimeAsync(5001)
+    await Promise.all([first, second])
+    expect(
+      mocks.call.mock.calls.filter((call) => call[1] === 'orchestration.partyLocation')
+    ).toHaveLength(1)
+    const retry = activateAiVaultStructuredSession(session, undefined, { kind: 'local' })
+    await vi.advanceTimersByTimeAsync(5001)
+    await retry
+    expect(
+      mocks.call.mock.calls.filter((call) => call[1] === 'orchestration.partyLocation')
+    ).toHaveLength(2)
+  } finally {
+    vi.useRealTimers()
+  }
+})
