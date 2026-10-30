@@ -1,8 +1,10 @@
 import { useId, useRef, useState, type PointerEvent } from 'react'
+import { agentMenuShortcutLabels } from '../tab-bar/agent-menu-shortcut-labels'
+import { getShortcutPlatform } from '@/lib/shortcut-platform'
+import { useAppStore } from '@/store'
 import { Input } from '@/components/ui/input'
 import { DropdownMenuItem, DropdownMenuShortcut } from '@/components/ui/dropdown-menu'
 import { AgentIcon } from '@/lib/agent-catalog'
-import { useOptionalShortcutLabel } from '@/hooks/useShortcutLabel'
 import { translate } from '@/i18n/i18n'
 import { AgentLaunchSetupButton } from './AgentLaunchSetupButton'
 import type { NewTabAgentMenuModel } from '../tab-bar/use-new-tab-agent-menu-rows'
@@ -36,14 +38,15 @@ function keepSetupFocus(event: PointerEvent<HTMLDivElement>) {
 }
 
 export function AgentLaunchPickerMenu({
-  model,
   disabled,
   runLaunch,
   entries,
   hideSearch,
-  onSelectAgent
+  onSelectAgent,
+  worktreeId
 }: {
   model: NewTabAgentMenuModel
+  worktreeId?: string
   disabled?: boolean
   runLaunch: Launch
   entries: AgentPickerEntry[]
@@ -53,7 +56,11 @@ export function AgentLaunchPickerMenu({
   const [query, setQuery] = useState('')
   const [openSetup, setOpenSetup] = useState<string | null>(null)
   const root = useRef<HTMLDivElement>(null)
-  const shortcut = useOptionalShortcutLabel('tab.newAgent')
+  const keybindings = useAppStore((s) => s.keybindings)
+  const policy = useAppStore((s) => s.settings?.terminalShortcutPolicy)
+  const shortcutLabels = worktreeId
+    ? agentMenuShortcutLabels(worktreeId, keybindings, getShortcutPlatform(), policy)
+    : undefined
   const setups = searchAgentPickerSetups(entries, query)
   const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean)
   const visible = entries.filter((entry) =>
@@ -114,11 +121,7 @@ export function AgentLaunchPickerMenu({
           disabled={disabled}
           runLaunch={runLaunch}
           onSelectAgent={onSelectAgent}
-          shortcut={
-            model.state === 'settled' && model.defaultTuiAgent === entry.agent
-              ? (shortcut ?? undefined)
-              : undefined
-          }
+          shortcut={shortcutLabels?.get(entry.agent)}
         />
       ))}
       {!visible.length && !setups.length ? (

@@ -251,6 +251,7 @@ export function ProjectedAgentMenuItems({
       {pickerEntries ? (
         <AgentLaunchPickerMenu
           model={model}
+          worktreeId={model.pickerContext?.workspace.worktreeId}
           entries={pickerEntries}
           runLaunch={runLaunch}
           onSelectAgent={onSelectPickerAgent}
