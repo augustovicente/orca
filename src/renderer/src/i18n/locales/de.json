@@ -19577,8 +19577,7 @@
       "interruptedContinue": {
         "continue": "Fortfahren",
         "failed": "Dieser Chat konnte nicht fortgesetzt werden. Erneut versuchen oder eine Nachricht senden.",
-        "explanation": "Beim Fortfahren prüft der Agent zuerst, ob sein letzter Schritt abgeschlossen wurde.",
-        "unconfirmed": "Es konnte nicht bestätigt werden, ob {{agent}} „Fortfahren“ erhalten hat. Vor einem erneuten Versuch den Chat prüfen."
+        "explanation": "Beim Fortfahren prüft der Agent zuerst, ob sein letzter Schritt abgeschlossen wurde."
       },
       "antigravitySignIn": {
         "sentence": "Antigravity ist nicht angemeldet. Unter <settings>Einstellungen → Konten → Antigravity</settings> anmelden. Danach die Nachricht erneut senden."

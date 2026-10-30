@@ -115,7 +115,7 @@ type Props = {
   isWorking?: boolean
   target?: RuntimeClientTarget
   transport?: NativeChatStructuredComposerTransport
-  pending?: readonly { phase: 'sending' | 'recorded' }[]
+  pending?: Parameters<typeof useNativeChatInterruptedContinuation>[0]['pending']
 }
 
 function Harness(props: Props): React.JSX.Element {
