@@ -136,3 +136,55 @@ it('keeps outside actions and finite focus order while releasing a retained visu
     root.remove()
   }
 })
+
+it('yields to a higher sheet while an earlier card contact is still in flight', () => {
+  const root = document.createElement('div')
+  document.body.append(root)
+  const mount = document.createElement('div')
+  root.append(mount)
+  const renderer = createRoot(mount)
+  const dismiss = vi.fn()
+  const action = vi.fn()
+  const openerRef = { current: document.createElement('button') }
+  const contentRef = { current: document.createElement('div') }
+  const backRef = { current: document.createElement('button') }
+  const boundaryRefs = { current: [] }
+  const sheet = document.createElement('button')
+  contentRef.current.tabIndex = -1
+  sheet.addEventListener('click', action)
+  root.append(openerRef.current, backRef.current, contentRef.current, sheet)
+  function Scope({ obscured }: { obscured: boolean }) {
+    useDetailCardScope({
+      active: !obscured,
+      obscured,
+      openerRef,
+      contentRef,
+      backRef,
+      boundaryRefs,
+      dismiss
+    })
+    return null
+  }
+  const contact = (target: HTMLElement, type: string, pointerId: number) =>
+    target.dispatchEvent(
+      new PointerEvent(type, { pointerId, pointerType: 'touch', bubbles: true, cancelable: true })
+    )
+  try {
+    openerRef.current.focus()
+    act(() => renderer.render(<Scope obscured={false} />))
+    expect(contact(contentRef.current, 'pointerdown', 1)).toBe(true)
+    act(() => renderer.render(<Scope obscured />))
+    sheet.focus()
+    expect(contentRef.current.inert).toBe(true)
+    expect(contact(sheet, 'pointerdown', 2)).toBe(true)
+    expect(contact(contentRef.current, 'pointerup', 1)).toBe(true)
+    expect(contact(sheet, 'pointerup', 2)).toBe(true)
+    sheet.click()
+    expect(action).toHaveBeenCalledTimes(1)
+    expect(dismiss).not.toHaveBeenCalled()
+    expect(document.activeElement).toBe(sheet)
+  } finally {
+    act(() => renderer.unmount())
+    root.remove()
+  }
+})
