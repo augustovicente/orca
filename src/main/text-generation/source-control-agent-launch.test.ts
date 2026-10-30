@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events'
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -59,7 +59,9 @@ describe('spawnSourceControlAgent', () => {
       cwd
     })
     expect(lastSpawnSpec()).toMatchObject({ cwd: process.cwd() })
-    expect(lastSpawnSpec().args).toContain(program)
+    const command = lastSpawnSpec().args?.at(-1)
+    expect(command).toBeDefined()
+    expect(realpathSync(command!)).toBe(realpathSync(program))
   })
 
   it.each([

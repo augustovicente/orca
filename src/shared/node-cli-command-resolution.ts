@@ -1,5 +1,5 @@
 import { homedir } from 'node:os'
-import { delimiter, dirname, isAbsolute, join, resolve } from 'node:path'
+import { delimiter, dirname, isAbsolute, join, sep } from 'node:path'
 import { firstWindowsPathEnvKey, isNativeExecutable } from './cli-runtime-pairing-inputs'
 import { getFnmDefaultAliasDirectories } from './fnm-default-alias-dirs'
 import { getNvmVersionDirectories, nvmVersionDirectories } from './nvm-version-directories'
@@ -39,10 +39,21 @@ function splitPath(
     .filter(Boolean)
 }
 
+// The filesystem must traverse symlink/.. components before resolving the parent directory.
+function appendCliPath(directory: string, entry: string): string {
+  return entry ? `${directory}${directory.endsWith(sep) ? '' : sep}${entry}` : directory
+}
+
 function lookupPathDirectories(pathEnv: string | null | undefined, cwd?: string): string[] {
-  return cwd === undefined
-    ? splitPath(pathEnv)
-    : (pathEnv?.split(delimiter).map((entry) => resolve(cwd, entry)) ?? [])
+  if (cwd === undefined) {
+    return splitPath(pathEnv)
+  }
+  const directory = isAbsolute(cwd) ? cwd : appendCliPath(process.cwd(), cwd)
+  return (
+    pathEnv
+      ?.split(delimiter)
+      .map((entry) => (isAbsolute(entry) ? entry : appendCliPath(directory, entry))) ?? []
+  )
 }
 
 function* allowedCliReads<T>(
@@ -63,7 +74,7 @@ function* firstRunnable(
 ): CliFsReads<string | null> {
   for (const directory of directories) {
     for (const executableName of executableNames) {
-      const path = join(directory, executableName)
+      const path = appendCliPath(directory, executableName)
       if ((yield { kind: 'runnable', platform, path }) === true) {
         return path
       }

@@ -1,7 +1,11 @@
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { runProcess } from '@orca/process-host'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { resolveCliCommandAsync } from '../../shared/node-cli-command-async-resolution'
+import { resolveCliCommand, resolveCliCommands } from '../../shared/node-cli-command-resolution'
+import { createProviderSpawnSpec } from '../provider-process/provider-process-supervisor'
 import { generateConversationNameFromContext } from './commit-message-text-generation'
 
 let root: string
@@ -15,6 +19,52 @@ afterEach(() => {
 })
 
 describe.skipIf(process.platform === 'win32')('installed one-shot naming CLI', () => {
+  it.each(['absolute PATH', 'relative PATH', 'symlink cwd'])(
+    'preserves the original supervisor executable with %s containing symlink/..',
+    async (input) => {
+      mkdirSync(join(root, 'actual', 'nested'), { recursive: true })
+      mkdirSync(join(root, 'actual', 'bin'))
+      mkdirSync(join(root, 'bin'))
+      symlinkSync(join(root, 'actual', 'nested'), join(root, 'link'))
+      writeFileSync(join(root, 'actual', 'bin', 'cx'), '#!/bin/sh\necho Fix login flow\n', {
+        mode: 0o755
+      })
+      writeFileSync(join(root, 'bin', 'cx'), '#!/bin/sh\necho Different executable\n', {
+        mode: 0o755
+      })
+      const cwd = input === 'symlink cwd' ? join(root, 'link') : root
+      // Keep the traversal literal: lexical normalization changes which executable runs.
+      const pathEnv =
+        input === 'absolute PATH'
+          ? `${root}/link/../bin`
+          : input === 'relative PATH'
+            ? 'link/../bin'
+            : '../bin'
+      const env = { PATH: pathEnv }
+      const original = await runProcess({
+        ...createProviderSpawnSpec({ command: 'cx', args: [], cwd }, env, process.platform, {
+          lifetime: 'one-shot'
+        }),
+        timeoutMs: 5000
+      })
+      expect(original).toMatchObject({ code: 0, stdout: 'Fix login flow\n', timedOut: false })
+      await expect(
+        generateConversationNameFromContext(
+          { firstPrompt: 'Fix login' },
+          { agentId: 'custom', model: '', customAgentCommand: 'cx' },
+          { kind: 'local', cwd, env }
+        )
+      ).resolves.toMatchObject({ success: true, name: original.stdout.trim() })
+      const options = { pathEnv, cwd, homePath: root }
+      const expected = input === 'absolute PATH' ? `${pathEnv}/cx` : `${cwd}/${pathEnv}/cx`
+      expect([
+        resolveCliCommand('cx', options),
+        await resolveCliCommandAsync('cx', options),
+        resolveCliCommands(['cx'], options).get('cx')
+      ]).toEqual([expected, expected, expected])
+    }
+  )
+
   it.each(['codex', 'claude'] as const)(
     'names a chat with %s installed only under nvm, using its sibling Node',
     async (agentId) => {
