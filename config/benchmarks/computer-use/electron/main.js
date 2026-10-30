@@ -4,6 +4,10 @@ const fs = require('node:fs')
 const path = require('node:path')
 const dir = process.env.BENCH_STATE_DIR
 const instance = process.env.BENCH_INSTANCE
+process.on('uncaughtException', (error) => {
+  console.error(error)
+  app.exit(1)
+})
 if (process.env.ORCA_COMPUTER_BENCH_ISOLATED !== '1') {
   process.exit(1)
 }
@@ -18,8 +22,15 @@ app.whenReady().then(() => {
   })
   ipcMain.on('st', (_event, state) => {
     const data = JSON.stringify({ ...state, instance, activeForm: w.isFocused(), pid: process.pid })
-    fs.writeFileSync(path.join(dir, 'state.json.tmp'), data)
-    fs.renameSync(path.join(dir, 'state.json.tmp'), path.join(dir, 'state.json'))
+    try {
+      fs.writeFileSync(path.join(dir, 'state.json.tmp'), data)
+      fs.renameSync(path.join(dir, 'state.json.tmp'), path.join(dir, 'state.json'))
+    } catch (error) {
+      // Windows readers can briefly deny replacement; the next state tick retries.
+      if (!['EACCES', 'EPERM', 'EBUSY'].includes(error.code)) {
+        throw error
+      }
+    }
   })
   w.loadURL(
     `data:text/html,${encodeURIComponent(`<html><head><title>BenchElectron</title></head>

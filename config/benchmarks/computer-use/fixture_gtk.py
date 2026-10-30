@@ -26,6 +26,7 @@ def named(widget, name):
     return widget
 
 
+Gtk.Settings.get_default().set_property("gtk-entry-select-on-focus", False)
 win = Gtk.Window(title="BenchTarget")
 win.set_default_size(760, 560)
 win.move(60, 60)

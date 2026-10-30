@@ -2,8 +2,11 @@ name: Computer-use task benchmark
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
     paths:
       - 'config/benchmarks/computer-use/**'
+      - 'native/computer-use-linux/**'
+      - 'native/computer-use-windows/**'
       - '.github/workflows/computer-task-benchmark.yml'
   workflow_dispatch:
 
@@ -11,7 +14,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: computer-task-benchmark-${{ github.ref }}
+  group: computer-task-benchmark-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -25,6 +28,7 @@ env:
 
 jobs:
   contract:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft != true
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -40,6 +44,7 @@ jobs:
       - run: python -m unittest discover -s config/benchmarks/computer-use -p 'test_*.py'
 
   linux:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft != true
     runs-on: ubuntu-latest
     timeout-minutes: 40
     strategy:
@@ -96,6 +101,7 @@ jobs:
           if-no-files-found: warn
 
   windows:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft != true
     runs-on: windows-latest
     timeout-minutes: 40
     strategy:
