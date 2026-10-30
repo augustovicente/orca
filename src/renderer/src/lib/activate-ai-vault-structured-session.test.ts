@@ -90,6 +90,6 @@ it('keeps simultaneous different hosts independent and ignores terminal History'
       })
     ])
   ).toEqual([true, true])
+  expect(await activateAiVaultStructuredSession({}, parts)).toBe(false)
   expect(parts.activate).toHaveBeenCalledTimes(2)
-  expect(await activateAiVaultStructuredSession({ structuredSession: null }, parts)).toBe(false)
 })

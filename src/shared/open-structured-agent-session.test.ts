@@ -31,7 +31,7 @@ function rig() {
   let rows: StructuredSessionOpenTab[] = []
   const events: string[] = []
   const deps: StructuredSessionOpenDeps = {
-    locate: vi.fn(async () => ({ location: { kind: 'chat', ...target } })),
+    locate: vi.fn(async () => ({ location: { kind: 'chat' as const, ...target } })),
     tabs: () => rows,
     refresh: vi.fn(async () => {
       events.push('refresh')

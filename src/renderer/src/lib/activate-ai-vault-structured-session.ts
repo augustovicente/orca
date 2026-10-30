@@ -99,7 +99,7 @@ const defaultDeps: StructuredSessionActivationDeps = {
 
 /** Read only structuredSession so history clicks and drag payloads follow the same reveal path. */
 export async function activateAiVaultStructuredSession(
-  session: Pick<AiVaultSession, 'structuredSession'> & Partial<Pick<AiVaultSession, 'agent'>>,
+  session: Pick<AiVaultSession, 'structuredSession'> & { agent?: string },
   deps: StructuredSessionActivationDeps = defaultDeps,
   target?: RuntimeClientTarget
 ): Promise<boolean> {

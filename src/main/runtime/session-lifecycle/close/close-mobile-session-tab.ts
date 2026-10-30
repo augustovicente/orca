@@ -1,19 +1,16 @@
 import { OrcaRuntimeWithCloseMobileRowInMainLayout } from './close-mobile-row-in-main-layout'
-import type {
-  RuntimeMobileSessionTerminalTab,
-  RuntimeSessionTabCloseReason
-} from '../../../../shared/runtime-types'
-import type { RuntimePtyTabCloseAuthority } from '../../runtime-terminal-state-records'
+import type { RuntimeMobileSessionTerminalTab } from '../../../../shared/runtime-types'
 import {
   adjudicateAbsentMobileSessionTabClose,
   resolveMobileSessionLifecycleCloseContext,
   type MobileSessionLifecycleCloseHost
 } from '../../mobile-session-lifecycle-close-adjudication'
-import type { MobileSessionTabCloseOutcome } from '../../mobile-session-tab-close-outcome'
 import {
   committedMobileSessionTabClose,
   delegatedMobileSessionTabClose,
-  refusedMobileSessionTabClose
+  refusedMobileSessionTabClose,
+  type MobileSessionTabCloseOutcome,
+  type MobileSessionTabCloseOptions
 } from '../../mobile-session-tab-close-outcome'
 import { getRuntimeBrowserPageRegistry } from '../../runtime-browser-page-registry'
 import type { RuntimeEdgeCommandSurface } from '../../runtime-edge-command-controller'
@@ -22,6 +19,7 @@ import { retireHeadlessMobileSessionEditorTab } from '../../mobile-session-edito
 import { LOCAL_EXECUTION_HOST_ID } from '../../../../shared/execution-host'
 import { ORCA_LAYOUT_OWNER_IS_MAIN } from '../../../../shared/layout-owner-switch'
 import { closeMobileStructuredSessionPresentation } from '../../session-tabs/structured-session-tab-presentation'
+import type { OrcaRuntimeWithCloseStructuredAgentSessionTab as ChatPresentation } from '../../session-tabs/structured-session-tab-close'
 
 export abstract class OrcaRuntimeWithCloseMobileSessionTab extends OrcaRuntimeWithCloseMobileRowInMainLayout {
   abstract retireStructuredAgentSessionTabFromSnapshot(
@@ -30,20 +28,24 @@ export abstract class OrcaRuntimeWithCloseMobileSessionTab extends OrcaRuntimeWi
     expectedWorktreeId?: string
   ): boolean
 
+  abstract currentLocalStructuredSessionPresentation(
+    ...args: Parameters<ChatPresentation['currentLocalStructuredSessionPresentation']>
+  ): ReturnType<ChatPresentation['currentLocalStructuredSessionPresentation']>
+
+  abstract captureStructuredAgentSessionPresentation(
+    ...args: Parameters<ChatPresentation['captureStructuredAgentSessionPresentation']>
+  ): ReturnType<ChatPresentation['captureStructuredAgentSessionPresentation']>
+
+  abstract removeCapturedStructuredSessionSavedTabs(
+    ...args: Parameters<ChatPresentation['removeCapturedStructuredSessionSavedTabs']>
+  ): ReturnType<ChatPresentation['removeCapturedStructuredSessionSavedTabs']>
+
   declare browserTabClose: RuntimeEdgeCommandSurface['browserTabClose']
 
   async closeMobileSessionTab(
     worktreeSelector: string,
     tabId: string,
-    options: {
-      reason?: RuntimeSessionTabCloseReason
-      expectedPublicationEpoch?: string
-      expectedTerminalHandle?: string
-      clientNavigationId?: string
-      localPtyTeardownOwnedExternally?: boolean
-      expectedPtyCloseAuthority?: RuntimePtyTabCloseAuthority
-      force?: boolean
-    } = {}
+    options: MobileSessionTabCloseOptions = {}
   ): Promise<MobileSessionTabCloseOutcome> {
     const graphEpoch = options.clientNavigationId ? this.captureReadyGraphEpoch() : null
     const explicitWorktreeId = this.getExplicitSessionWorktreeIdSelector(worktreeSelector)

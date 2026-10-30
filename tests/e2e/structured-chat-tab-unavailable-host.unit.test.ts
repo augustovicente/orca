@@ -1,4 +1,4 @@
-import './rpc/unused-default-rpc-methods.test-fixture'
+import '../../src/main/runtime/rpc/unused-default-rpc-methods.test-fixture'
 import { expect, it, vi } from 'vitest'
 import { readFileSync, writeFileSync } from 'node:fs'
 import {
@@ -8,19 +8,19 @@ import {
   B,
   C,
   root
-} from './structured-agent-session-tab-authority.test-support'
-import { closeTestJournalHostDatabases } from '../native-chat/agent-session-journal/journal-host-database-test-support'
-import { journalDatabasePath } from '../native-chat/agent-session-journal/journal-host-database'
-import { getStructuredAgentSessionHost } from '../native-chat/agent-session-wire/structured-agent-session-registry'
-import { structuredAgentSessionHostRefusal } from './structured-agent-session-host-refusal'
-import { RpcDispatcher } from './rpc/dispatcher'
-import { SESSION_TAB_CLOSE_METHODS } from './rpc/methods/session-tab-close-methods'
-import { STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY } from '../../shared/protocol-version'
-import type { RuntimeMobileSessionTabsSnapshot } from '../../shared/runtime-types'
-import { createMobileCreateTestNotifier } from './orca-runtime-test-scenario-builders.spec'
-import { sessionTabClose } from '../../../mobile/src/session/mobile-session-write-operations'
-import { newReopenedChatTabId } from './agent-session/agent-session-tab-identity'
-vi.mock('../claude/claude-cli-flag-prewarm', () => ({
+} from '../../src/main/runtime/structured-agent-session-tab-authority.test-support'
+import { closeTestJournalHostDatabases } from '../../src/main/native-chat/agent-session-journal/journal-host-database-test-support'
+import { journalDatabasePath } from '../../src/main/native-chat/agent-session-journal/journal-host-database'
+import { getStructuredAgentSessionHost } from '../../src/main/native-chat/agent-session-wire/structured-agent-session-registry'
+import { structuredAgentSessionHostRefusal } from '../../src/main/runtime/structured-agent-session-host-refusal'
+import { RpcDispatcher } from '../../src/main/runtime/rpc/dispatcher'
+import { SESSION_TAB_CLOSE_METHODS } from '../../src/main/runtime/rpc/methods/session-tab-close-methods'
+import { STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY } from '../../src/shared/protocol-version'
+import type { RuntimeMobileSessionTabsSnapshot } from '../../src/shared/runtime-types'
+import { createMobileCreateTestNotifier } from '../../src/main/runtime/orca-runtime-test-scenario-builders.spec'
+import { sessionTabClose } from '../../mobile/src/session/mobile-session-write-operations'
+import { newReopenedChatTabId } from '../../src/main/runtime/agent-session/agent-session-tab-identity'
+vi.mock('../../src/main/claude/claude-cli-flag-prewarm', () => ({
   prewarmClaudeCliFlags: async () => undefined
 }))
 
@@ -320,6 +320,7 @@ it.each([10, 100])(
         counts.workspaces++
         yield entry
       }
+      return undefined
     })
     runtime.setNotifier({
       ...createMobileCreateTestNotifier(vi.fn()),

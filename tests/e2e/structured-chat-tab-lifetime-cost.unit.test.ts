@@ -1,16 +1,19 @@
 import { afterEach, expect, it, vi } from 'vitest'
-import type * as ChatTabLayoutQueueModule from './agent-session-tab-layout-queue'
-import type { RuntimeMobileSessionTabsSnapshot } from '../../shared/runtime-types'
+import type * as ChatTabLayoutQueueModule from '../../src/main/runtime/agent-session-tab-layout-queue'
+import type { RuntimeMobileSessionTabsSnapshot } from '../../src/shared/runtime-types'
 import {
   authorityProfile,
   openAuthorityRuntime
-} from './structured-agent-session-tab-authority.test-support'
-import { chatTabCommandsSettled } from './session-layout-apply.test-fixture'
-import { createChatTabLayoutQueue } from './agent-session-tab-layout-queue'
-import { applyWindowLayoutCommand } from './runtime-layout-apply'
-import { fixture } from '../persistence/loading-store/profile-state-delayed-authority-fixture'
-import { loadChatTabLayout, withChatTabChanges } from './agent-session/agent-session-tab-layout'
-import { getDefaultWorkspaceSession } from '../../shared/constants'
+} from '../../src/main/runtime/structured-agent-session-tab-authority.test-support'
+import { chatTabCommandsSettled } from '../../src/main/runtime/session-layout-apply.test-fixture'
+import { createChatTabLayoutQueue } from '../../src/main/runtime/agent-session-tab-layout-queue'
+import { applyWindowLayoutCommand } from '../../src/main/runtime/runtime-layout-apply'
+import { fixture } from '../../src/main/persistence/loading-store/profile-state-delayed-authority-fixture'
+import {
+  loadChatTabLayout,
+  withChatTabChanges
+} from '../../src/main/runtime/agent-session/agent-session-tab-layout'
+import { getDefaultWorkspaceSession } from '../../src/shared/constants'
 
 const queueProbe = vi.hoisted(() => {
   const queues: Pick<ReturnType<typeof createChatTabLayoutQueue>, 'pendingOpens'>[] = []
@@ -21,7 +24,7 @@ const queueProbe = vi.hoisted(() => {
     queues
   }
 })
-vi.mock('./agent-session-tab-layout-queue', async (original) => {
+vi.mock('../../src/main/runtime/agent-session-tab-layout-queue', async (original) => {
   const module = await original<typeof ChatTabLayoutQueueModule>()
   return {
     ...module,
@@ -55,13 +58,13 @@ afterEach(() => {
 })
 
 const layoutOwner = vi.hoisted(() => ({ main: false }))
-vi.mock('../../shared/layout-owner-switch', () => ({
+vi.mock('../../src/shared/layout-owner-switch', () => ({
   get ORCA_LAYOUT_OWNER_IS_MAIN() {
     return layoutOwner.main
   }
 }))
 
-vi.mock('../claude/claude-cli-flag-prewarm', () => ({
+vi.mock('../../src/main/claude/claude-cli-flag-prewarm', () => ({
   prewarmClaudeCliFlags: async () => undefined
 }))
 
@@ -114,8 +117,9 @@ it.each([10, 100])(
       tabs: [
         {
           type: 'terminal',
-          id: 'term-row',
+          id: 'term-tab::00000000-0000-4000-8000-000000000001',
           parentTabId: 'term-tab',
+          leafId: '00000000-0000-4000-8000-000000000001',
           title: 'terminal',
           isActive: false
         }
@@ -136,7 +140,7 @@ it.each([10, 100])(
       })
     }
     const { closeStructuredAgentSessionChild } =
-      await import('./agent-session/structured-agent-session-close')
+      await import('../../src/main/runtime/agent-session/structured-agent-session-close')
     await closeStructuredAgentSessionChild(ids[0]!, { runtime: rig.runtime })
     await chatTabCommandsSettled()
     expect(savedVisits).toBeLessThanOrEqual(8 * n)
@@ -224,12 +228,13 @@ it.each([10, 100])(
   'publishes actual renderer mappings through the window graph in order at %i chats with linear trigger work',
   async (n) => {
     const { buildMobileSessionTabSnapshots } =
-      await import('../../renderer/src/runtime/sync-runtime-graph/mobile-session-snapshots')
-    const { makeState } = await import('../../renderer/src/runtime/sync-runtime-graph-test-harness')
+      await import('../../src/renderer/src/runtime/sync-runtime-graph/mobile-session-snapshots')
+    const { makeState } =
+      await import('../../src/renderer/src/runtime/sync-runtime-graph-test-harness')
     const mappings =
-      await import('../../renderer/src/runtime/web-session-tabs-sync/tracking-mappings')
+      await import('../../src/renderer/src/runtime/web-session-tabs-sync/tracking-mappings')
     const { hostSessionTabIdByLocalKey } =
-      await import('../../renderer/src/runtime/web-session-tabs-sync/state')
+      await import('../../src/renderer/src/runtime/web-session-tabs-sync/state')
     const ids = Array.from({ length: n }, (_, i) => `mapped-${i.toString().padStart(5, '0')}`)
     const rig = await openAuthorityRuntime(await authorityProfile(ids, { visible: ids }))
     await rig.runtime.restoreStructuredAgentSessionTabs()
@@ -322,7 +327,7 @@ it.each([10, 100])(
       const current = await rig.runtime.listMobileSessionTabs(rig.workspace)
       expect(current.tabs[0]?.id).toBe(issued)
       const { projectSessionTabs } =
-        await import('../../shared/workspace-layout/old-client/old-client-session-tabs-projection')
+        await import('../../src/shared/workspace-layout/old-client/old-client-session-tabs-projection')
       const { loaded } = loadChatTabLayout(
         'local',
         rig.profile.getWorkspaceSession(),
@@ -381,9 +386,8 @@ it('keeps failed advisory legacy insertion and retention while the actual inner 
   layoutOwner.main = true
   const { store: profile, authority } = await fixture()
   const { root, B, holdStartup, rejectVisibility, savedIds } =
-    await import('./structured-agent-session-tab-authority.test-support')
-  const { installFakeAppEnvironment } =
-    await import('../../../config/scripts/vitest-host-ports-setup')
+    await import('../../src/main/runtime/structured-agent-session-tab-authority.test-support')
+  const { installFakeAppEnvironment } = await import('../../config/scripts/vitest-host-ports-setup')
   installFakeAppEnvironment({ getPath: () => root })
   const base = await authorityProfile([B], { visible: [B] }, profile)
   const { workspace } = base
@@ -391,7 +395,7 @@ it('keeps failed advisory legacy insertion and retention while the actual inner 
   expect(rig.store.getConversation(B)?.location.workspaceId).toBe(workspace)
   const releaseStartup = await holdStartup(rig)
   const { closeStructuredAgentSessionChild } =
-    await import('./agent-session/structured-agent-session-close')
+    await import('../../src/main/runtime/agent-session/structured-agent-session-close')
   await closeStructuredAgentSessionChild(B, { runtime: rig.runtime })
   await chatTabCommandsSettled()
   expect(savedIds(rig)).toEqual([])
@@ -461,7 +465,7 @@ it.each([
       createStructuredSweepProgress,
       closeStructuredSessionsForWorktree,
       retireStructuredSessionTabsForWorktree
-    } = await import('./structured-session-worktree-teardown')
+    } = await import('../../src/main/runtime/structured-session-worktree-teardown')
     const ids = Array.from({ length: s }, (_, i) => `sweep-${i.toString().padStart(5, '0')}`)
     const background = Array.from({ length: n }, (_, i) => `other-${i.toString().padStart(5, '0')}`)
     const rig = await openAuthorityRuntime(
@@ -469,8 +473,9 @@ it.each([
     )
     await rig.runtime.restoreStructuredAgentSessionTabs()
     await chatTabCommandsSettled()
-    const { root } = await import('./structured-agent-session-tab-authority.test-support')
-    const { folderWorkspaceKey } = await import('../../shared/workspace-scope')
+    const { root } =
+      await import('../../src/main/runtime/structured-agent-session-tab-authority.test-support')
+    const { folderWorkspaceKey } = await import('../../src/shared/workspace-scope')
     const other = folderWorkspaceKey(
       rig.profile.createFolderWorkspace({
         projectGroupId: rig.groupId,
@@ -594,6 +599,7 @@ it.each([
           counts.workspaces++
           yield entry
         }
+        return undefined
       }
     )
     const retitle = rig.runtime.refreshStructuredConversationTabTitle.bind(rig.runtime)
@@ -681,9 +687,9 @@ it.each([10, 100])(
     queueProbe.visits = 0
     const { store: profile, authority } = await fixture()
     const { root, B, rejectVisibility } =
-      await import('./structured-agent-session-tab-authority.test-support')
+      await import('../../src/main/runtime/structured-agent-session-tab-authority.test-support')
     const { installFakeAppEnvironment } =
-      await import('../../../config/scripts/vitest-host-ports-setup')
+      await import('../../config/scripts/vitest-host-ports-setup')
     installFakeAppEnvironment({ getPath: () => root })
     const ids = Array.from({ length: p }, (_, i) =>
       i === 0 ? B : `pending-${i.toString().padStart(5, '0')}`
@@ -702,7 +708,7 @@ it.each([10, 100])(
     await gate.started.promise
     const allow = vi.fn(rejectVisibility(rig))
     const { closeStructuredAgentSessionChild } =
-      await import('./agent-session/structured-agent-session-close')
+      await import('../../src/main/runtime/agent-session/structured-agent-session-close')
     try {
       for (const sessionId of ids) {
         await rig.runtime.publishStructuredAgentSessionTab({

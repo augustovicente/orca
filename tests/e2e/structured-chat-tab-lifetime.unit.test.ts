@@ -3,20 +3,20 @@ import {
   notificationPaneTab47713
 } from './structured-chat-tab-lifetime.test-fixture'
 import { expect, it, vi } from 'vitest'
-import { resolveActiveSessionTab } from '../../../../../mobile/src/session/active-session-tab'
-import { notificationPaneTab } from '../../../../../mobile/src/session/notification-pane-tab'
-import { STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY } from '../../../../shared/protocol-version'
+import { resolveActiveSessionTab } from '../../mobile/src/session/active-session-tab'
+import { notificationPaneTab } from '../../mobile/src/session/notification-pane-tab'
+import { STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY } from '../../src/shared/protocol-version'
 import {
   structuredAgentSessionPaneKey,
   structuredAgentSessionTabId
-} from '../../../../shared/structured-agent-session-projection'
+} from '../../src/shared/structured-agent-session-projection'
 import {
   HOST_TEST_LOCATION,
   HOST_TEST_SESSION
-} from '../../../native-chat/agent-session-wire/structured-agent-session-host-test-data'
-import { OrcaRuntimeService } from '../../orca-runtime'
-import { readPersistedTestAgentSessionStore } from '../../agent-session-record-store-test-harness'
-import { openTestJournalHostDatabase } from '../../../native-chat/agent-session-journal/journal-host-database-test-support'
+} from '../../src/main/native-chat/agent-session-wire/structured-agent-session-host-test-data'
+import { OrcaRuntimeService } from '../../src/main/runtime/orca-runtime'
+import { readPersistedTestAgentSessionStore } from '../../src/main/runtime/agent-session-record-store-test-harness'
+import { openTestJournalHostDatabase } from '../../src/main/native-chat/agent-session-journal/journal-host-database-test-support'
 import {
   WORKTREE,
   directory,
@@ -29,7 +29,7 @@ import {
   openHost,
   closeSession,
   send
-} from './structured-chat-tab-table.test-fixture'
+} from '../../src/main/runtime/rpc/methods/structured-chat-tab-table.test-fixture'
 
 const logical = `agent-session:${HOST_TEST_SESSION}`
 const phone = (pairedDeviceId: string) => ({

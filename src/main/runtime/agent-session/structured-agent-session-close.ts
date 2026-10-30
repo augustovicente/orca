@@ -90,7 +90,11 @@ export function captureStructuredSessionSurface(
         : {})
     }
   } catch (error) {
-    host.deps.logger.warn('reading the closing chat surface failed', { sessionId, error })
+    host.deps.logger.warn('reading the closing chat surface failed', {
+      scope: 'tab-close-capture',
+      sessionId,
+      error
+    })
     return null
   }
 }
@@ -156,7 +160,11 @@ export async function retireCapturedStructuredSessionSurface(
       return { committed: false }
     }
     failure = error
-    host.deps.logger.warn('recording a closed chat tab failed', { sessionId, error })
+    host.deps.logger.warn('recording a closed chat tab failed', {
+      scope: 'tab-close-hide',
+      sessionId,
+      error
+    })
   }
   if (!current(committed)) {
     return { committed: false }
@@ -177,7 +185,11 @@ export async function retireCapturedStructuredSessionSurface(
       host.notifySessionTabHidden?.(sessionId)
     }
   } catch (error) {
-    host.deps.logger.warn('cleaning up a closed chat presentation failed', { sessionId, error })
+    host.deps.logger.warn('cleaning up a closed chat presentation failed', {
+      scope: 'tab-close-presentation-cleanup',
+      sessionId,
+      error
+    })
   }
   return { committed, ...(failure === undefined ? {} : { error: failure }) }
 }
