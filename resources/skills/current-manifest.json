@@ -2,6 +2,38 @@
   "schemaVersion": 3,
   "skills": [
     {
+      "name": "accounting-browser-automation",
+      "sourcePath": "skills/accounting-browser-automation",
+      "packageDigest": "c65b7eb210f526fd2444f6ec6777458eeb953754070eb584c82c4b49bd6d6e44",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "size": 884,
+          "executable": false,
+          "classification": "text",
+          "exactSha256": "55c24b6d41ea485e2f76c78e3463cbc6194cc08520c33b86f1dfb0b99d8802b6",
+          "textNormalizedSha256": "55c24b6d41ea485e2f76c78e3463cbc6194cc08520c33b86f1dfb0b99d8802b6",
+          "identitySha256": "55c24b6d41ea485e2f76c78e3463cbc6194cc08520c33b86f1dfb0b99d8802b6"
+        }
+      ]
+    },
+    {
+      "name": "bank-reconciliation",
+      "sourcePath": "skills/bank-reconciliation",
+      "packageDigest": "2481d940c153e3ebf98959a484beea0a2e996569a5531ae6ae1d03df949ae62f",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "size": 568,
+          "executable": false,
+          "classification": "text",
+          "exactSha256": "bb80521448ac8ba6151ab0a18e599c9d70dcf2afa91a1a6245de181fcbf261ae",
+          "textNormalizedSha256": "bb80521448ac8ba6151ab0a18e599c9d70dcf2afa91a1a6245de181fcbf261ae",
+          "identitySha256": "bb80521448ac8ba6151ab0a18e599c9d70dcf2afa91a1a6245de181fcbf261ae"
+        }
+      ]
+    },
+    {
       "name": "computer-use",
       "sourcePath": "skills/computer-use",
       "packageDigest": "425634e3ebf27690cc613eaf17b6337b36769153ec6bca85dc4ebf65d4d6b8b4",
@@ -14,6 +46,22 @@
           "exactSha256": "2839933fd35216845461466403e6061488005f6df57126d0cd0f769ea45753f3",
           "textNormalizedSha256": "2839933fd35216845461466403e6061488005f6df57126d0cd0f769ea45753f3",
           "identitySha256": "2839933fd35216845461466403e6061488005f6df57126d0cd0f769ea45753f3"
+        }
+      ]
+    },
+    {
+      "name": "invoice-processing",
+      "sourcePath": "skills/invoice-processing",
+      "packageDigest": "85e7bd56ae63c1edf7b9ddb1f6f81ff2e1e8493ab17680089c298f63e2996a3a",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "size": 635,
+          "executable": false,
+          "classification": "text",
+          "exactSha256": "5e106df87c2b7745014968780070285a0bb5100f7da4be382c67d39206d73235",
+          "textNormalizedSha256": "5e106df87c2b7745014968780070285a0bb5100f7da4be382c67d39206d73235",
+          "identitySha256": "5e106df87c2b7745014968780070285a0bb5100f7da4be382c67d39206d73235"
         }
       ]
     },
@@ -158,6 +206,54 @@
           "exactSha256": "ce9a81cb2e6bbb8487107d2e088bf9fd6e0ba71ebc6bcc1929f827fde65fec6b",
           "textNormalizedSha256": "ce9a81cb2e6bbb8487107d2e088bf9fd6e0ba71ebc6bcc1929f827fde65fec6b",
           "identitySha256": "ce9a81cb2e6bbb8487107d2e088bf9fd6e0ba71ebc6bcc1929f827fde65fec6b"
+        }
+      ]
+    },
+    {
+      "name": "program-automation",
+      "sourcePath": "skills/program-automation",
+      "packageDigest": "36886655027987b9bf05c4d12a86abfb468889fa2ec44102d22f866b28ed2079",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "size": 630,
+          "executable": false,
+          "classification": "text",
+          "exactSha256": "ce8a9649acc2dd3b519ba63d1746a4e6185b927616f147b190d028b054200126",
+          "textNormalizedSha256": "ce8a9649acc2dd3b519ba63d1746a4e6185b927616f147b190d028b054200126",
+          "identitySha256": "ce8a9649acc2dd3b519ba63d1746a4e6185b927616f147b190d028b054200126"
+        }
+      ]
+    },
+    {
+      "name": "spreadsheet-manipulation",
+      "sourcePath": "skills/spreadsheet-manipulation",
+      "packageDigest": "4c0cebe6eac4c96ff113c813cfeeabaf77011008d838414b4ed142a1f5c1d8f1",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "size": 631,
+          "executable": false,
+          "classification": "text",
+          "exactSha256": "edeefee063894b0635ba8c0d499c40e60bf6304917817e48f8d73ee30c4e9caf",
+          "textNormalizedSha256": "edeefee063894b0635ba8c0d499c40e60bf6304917817e48f8d73ee30c4e9caf",
+          "identitySha256": "edeefee063894b0635ba8c0d499c40e60bf6304917817e48f8d73ee30c4e9caf"
+        }
+      ]
+    },
+    {
+      "name": "tax-filing",
+      "sourcePath": "skills/tax-filing",
+      "packageDigest": "e05c7fede3a983c1d9d1d7fe51d8bc9b2a9f832c998c7ceac44928a8ef76cbb4",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "size": 530,
+          "executable": false,
+          "classification": "text",
+          "exactSha256": "164e4d6409e642591c62021d24eb6506282e2b8324c50880d0bb74f78b9454ed",
+          "textNormalizedSha256": "164e4d6409e642591c62021d24eb6506282e2b8324c50880d0bb74f78b9454ed",
+          "identitySha256": "164e4d6409e642591c62021d24eb6506282e2b8324c50880d0bb74f78b9454ed"
         }
       ]
     }

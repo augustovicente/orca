@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { ActivityIndicator, Pressable, Text, View } from 'react-native'
 import { MobileLoadErrorState } from '../components/MobileLoadErrorState'
 import { useNativeVerbs } from '../mobile-web-shell/bridge/use-native-verbs'
+import { translate } from '../i18n/mobile-i18n'
 import { colors } from '../theme/mobile-theme'
 import type { MobileFileMedia } from './mobile-file-media'
 import { filePreviewStyles as styles } from './mobile-file-preview-styles'
@@ -18,7 +19,9 @@ export function MobilePdfHandoff({ media, title }: Props) {
   if (!verbs.canShareFile) {
     return (
       <View style={styles.state}>
-        <Text style={styles.stateText}>Update the Orca app to open PDFs on this device.</Text>
+        <Text style={styles.stateText}>
+          {translate('files.pdfHandoff.updateApp', 'Update the app to open PDFs on this device.')}
+        </Text>
       </View>
     )
   }
@@ -39,7 +42,10 @@ export function MobilePdfHandoff({ media, title }: Props) {
   if (state.status === 'error') {
     return (
       <MobileLoadErrorState
-        message="This PDF could not be opened. Check the desktop connection and try again."
+        message={translate(
+          'files.pdfHandoff.openFailed',
+          'This PDF could not be opened. Check the desktop connection and try again.'
+        )}
         onRetry={openPdf}
       />
     )
@@ -48,22 +54,26 @@ export function MobilePdfHandoff({ media, title }: Props) {
     return (
       <View style={styles.state}>
         <ActivityIndicator color={colors.textSecondary} />
-        <Text style={styles.stateText}>Opening PDF...</Text>
+        <Text style={styles.stateText}>
+          {translate('files.pdfHandoff.opening', 'Opening PDF…')}
+        </Text>
       </View>
     )
   }
   return (
     <View style={styles.state}>
       {state.status === 'opened' ? (
-        <Text style={styles.stateText}>Opened in your PDF viewer.</Text>
+        <Text style={styles.stateText}>
+          {translate('files.pdfHandoff.opened', 'Opened in your PDF viewer.')}
+        </Text>
       ) : null}
       <Pressable
         style={styles.pdfOpenButton}
         onPress={openPdf}
         accessibilityRole="button"
-        accessibilityLabel="Open PDF"
+        accessibilityLabel={translate('files.pdfHandoff.open', 'Open PDF')}
       >
-        <Text style={styles.stateText}>Open PDF</Text>
+        <Text style={styles.stateText}>{translate('files.pdfHandoff.open', 'Open PDF')}</Text>
       </Pressable>
     </View>
   )

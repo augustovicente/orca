@@ -850,7 +850,10 @@
         "description": "Lets each Codex account, and your own ~/.codex, resume conversations started on the others. Turn off to keep every account's history separate. Turning it off removes nothing already shared.",
         "unsupported": "Update Orca on {{host}} to change this setting there.",
         "updateFailed": "Could not update the setting on {{host}}."
-      }
+      },
+      "blankTerminal": "Blank Terminal",
+      "detected": "Detected",
+      "notDetected": "Not detected"
     },
     "followSymlinkedDirectoriesKeywords": {
       "symlink": "symlink",
@@ -23105,6 +23108,11 @@
     "disabledReason": {
       "needsPermission": "Agent needs permission",
       "statusStale": "Agent status is stale"
+    }
+  },
+  "contadorca": {
+    "clientHome": {
+      "placeholder": "Espaço do cliente"
     }
   }
 }

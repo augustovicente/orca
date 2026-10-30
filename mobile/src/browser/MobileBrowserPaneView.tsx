@@ -143,7 +143,7 @@ export function MobileBrowserPaneView(props: MobileBrowserPaneViewProps) {
         {/\.pdf(\?|#|$)/i.test(tab.url) ? (
           <MobileBrowserToolbarIconButton
             disabled={controlsDisabled}
-            label="Open PDF externally"
+            label={t('browser.openPdfExternally', 'Open PDF externally')}
             onPress={() => {
               openExternalLink(tab.url)
             }}

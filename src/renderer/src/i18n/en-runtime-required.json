@@ -2063,6 +2063,9 @@
       "tooLargeCount_other": "This view has {{count}} items — too large to render in Orca. Narrow the view's filter on GitHub."
     }
   },
+  "rendererRecovery": {
+    "title": "Orca keeps failing to load"
+  },
   "resourceManager": {
     "pty": {
       "localOwnedCount_one": "{{count}} Orca PTY on this computer",
@@ -2375,6 +2378,9 @@
       }
     }
   },
+  "startupFailure": {
+    "finishFailed": "Orca could not finish starting: {{detail}}"
+  },
   "stats": {
     "usageBreakdown": {
       "events_one": "{{count}} event",
@@ -2425,6 +2431,10 @@
       "count_one": "{{count}} running terminal",
       "count_other": "{{count}} running terminals"
     }
+  },
+  "tray": {
+    "activityWaiting": "Orca - activity waiting",
+    "openOrca": "Open Orca"
   },
   "updates": {
     "failure": {
