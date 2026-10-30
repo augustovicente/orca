@@ -116,11 +116,58 @@ describe('the relay’s foreground group as proof of a launched agent', () => {
     async (reason, capturedAgeMs, name, agent, found) => {
       const controller = {
         ...controllerAnswering(async () => ({ ...unverifiable(reason), capturedAgeMs })),
-        getForegroundProcess: async () => name
+        getForegroundProcess: async () => name,
+        confirmForegroundProcess: async () => name
       }
 
       await expect(
         readLaunchedAgentForeground(controller, POSIX_SSH, 'pty-1', agent)
+      ).resolves.toBe(found)
+    }
+  )
+
+  it('completes structural evidence with a name read now, never the tracker’s display cache', async () => {
+    // The tracker cached `codex` at 100ms; Codex exited at 101ms to a bash; the guard runs at 999ms.
+    const controller = {
+      ...controllerAnswering(async () => ({
+        ...unverifiable('ambiguous_foreground_group'),
+        capturedAgeMs: 999
+      })),
+      getForegroundProcess: async () => 'codex',
+      confirmForegroundProcess: async () => 'bash'
+    }
+
+    await expect(
+      readLaunchedAgentForeground(controller, POSIX_SSH, 'pty-1', 'codex')
+    ).resolves.toBe('shell')
+  })
+
+  it('keeps a host without a fresh read on its name: an older relay’s npm Codex `node`', async () => {
+    const { confirmForegroundProcess: _unsupported, ...controller } = {
+      ...controllerAnswering(async () => unverifiable('ambiguous_foreground_group')),
+      getForegroundProcess: async () => 'node'
+    }
+
+    await expect(
+      readLaunchedAgentForeground(controller, POSIX_SSH, 'pty-1', 'codex')
+    ).resolves.toBe('agent')
+  })
+
+  it.each([
+    // A 500ms-cached snapshot plus capture on a near-zero-latency link.
+    [600, 'agent'],
+    [5_000, 'unknown']
+  ] as const)(
+    'judges live evidence %ims old by the host’s age: %s',
+    async (capturedAgeMs, found) => {
+      const controller = {
+        ...controllerAnswering(async () => claudeInGroup(capturedAgeMs)),
+        getForegroundProcess: async () => 'claude',
+        confirmForegroundProcess: async () => 'claude'
+      }
+
+      await expect(
+        readLaunchedAgentForeground(controller, POSIX_SSH, 'pty-1', 'claude')
       ).resolves.toBe(found)
     }
   )

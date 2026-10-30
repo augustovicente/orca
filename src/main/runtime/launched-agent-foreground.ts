@@ -40,9 +40,8 @@ const NAME_COMPLETES_EVIDENCE: ReadonlySet<string> = new Set([
   'candidate_start_time_missing'
 ])
 
-// A relay's cached snapshot is up to one TTL old plus its capture time, which a busy host keeps under another TTL; the
-// cached-name hazard (the tracker's ~1s display cache) is about as long.
-const NAME_COMPLETION_MAX_AGE_MS = 2 * PROCESS_TABLE_SNAPSHOT_MAX_STALENESS_MS
+// A relay's cached snapshot is up to one TTL old plus its capture time, which a busy host keeps under another TTL.
+const EVIDENCE_MAX_AGE_MS = 2 * PROCESS_TABLE_SNAPSHOT_MAX_STALENESS_MS
 
 function isLaunchShell(processName: string): boolean {
   return isShellProcess(processName.replace(/^-/, ''))
@@ -61,7 +60,11 @@ function isLaunchedAgent(processName: string, agent: TuiAgent): boolean {
 export async function readLaunchedAgentForeground(
   controller: Pick<
     RuntimePtyController,
-    'getForegroundProcess' | 'confirmShellForeground' | 'inspectProcess' | 'listProcesses'
+    | 'getForegroundProcess'
+    | 'confirmForegroundProcess'
+    | 'confirmShellForeground'
+    | 'inspectProcess'
+    | 'listProcesses'
   > | null,
   host: { remote: boolean; windows: boolean },
   ptyId: string,
@@ -84,9 +87,11 @@ export async function readLaunchedAgentForeground(
     }
     const askedAt = Date.now()
     const evidence = (await controller.inspectProcess?.(ptyId))?.foregroundProcessEvidence
+    // The host's own capture age bounds every use; a capture begun after the read was asked is fresh however long ps took.
     const fresh =
       evidence !== undefined &&
-      Date.now() - evidence.capturedAgeMs >= askedAt - PROCESS_TABLE_SNAPSHOT_MAX_STALENESS_MS
+      (evidence.capturedAgeMs <= EVIDENCE_MAX_AGE_MS ||
+        Date.now() - evidence.capturedAgeMs >= askedAt - PROCESS_TABLE_SNAPSHOT_MAX_STALENESS_MS)
     if (
       fresh &&
       evidence.verdict === 'live' &&
@@ -96,7 +101,16 @@ export async function readLaunchedAgentForeground(
     ) {
       return 'agent'
     }
-    const foreground = await controller.getForegroundProcess(ptyId)
+    // Only evidence that saw an agent row it could not fence alone lets a name complete it.
+    const completable =
+      evidence?.verdict === 'unverifiable' &&
+      evidence.capturedAgeMs <= EVIDENCE_MAX_AGE_MS &&
+      NAME_COMPLETES_EVIDENCE.has(evidence.reason)
+    // The tracker's name can be its 1s display cache; for completion read it now where the host can.
+    const foreground =
+      completable && controller.confirmForegroundProcess
+        ? await controller.confirmForegroundProcess(ptyId)
+        : await controller.getForegroundProcess(ptyId)
     if (!foreground) {
       return 'unknown'
     }
@@ -106,17 +120,11 @@ export async function readLaunchedAgentForeground(
     ) {
       return 'shell'
     }
-    // Relays that send no evidence (older versions) keep the name; it may be the tracker's display cache.
+    // Legacy: relays that send no evidence (older versions) keep the possibly cached name.
     if (!evidence) {
       return 'agent'
     }
-    // Otherwise the name only completes evidence that saw an agent row but could not fence it alone, judged by the
-    // host's own capture age, which response latency cannot shrink.
-    if (
-      evidence.verdict !== 'unverifiable' ||
-      evidence.capturedAgeMs > NAME_COMPLETION_MAX_AGE_MS ||
-      !NAME_COMPLETES_EVIDENCE.has(evidence.reason)
-    ) {
+    if (!completable) {
       return 'unknown'
     }
     // Relays before same-agent dedupe call npm Codex's two rows ambiguous and name its `node` wrapper.
