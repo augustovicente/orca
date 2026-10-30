@@ -226,17 +226,6 @@ export abstract class OrcaRuntimeWithAdoptTerminalOrphansFromInventory extends O
     }
   }
 
-  /** Last time a person or client drove this terminal; orchestration mail does not count. */
-  getTerminalLastDrivingInputAt(handle: string): number | null {
-    let ptyId = this.getLivePtyForHandle(handle)?.pty.ptyId ?? null
-    try {
-      ptyId ??= this.resolveLiveLeafForHandle(handle)?.ptyId ?? null
-    } catch {
-      return null
-    }
-    return ptyId ? this.terminalRunFacts.readLastDrivingInputAt(ptyId) : null
-  }
-
   // Retained handles keep earned death certificates readable after liveness-gated lookups become stale.
   getTerminalLivenessVerdict(handle: string): PtyLivenessVerdict | null {
     const record = this.getLivePtyForHandle(handle)?.record ?? this.handles.get(handle)

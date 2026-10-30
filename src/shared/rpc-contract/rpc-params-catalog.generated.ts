@@ -485,7 +485,10 @@ import {
   RunUseParams
 } from './orchestration-runs-params'
 import { WorkerDispatchParams, WorkerReadParams } from './orchestration-worker-control-params'
-import { OrchestrationWorkerTerminalUserInputParams } from './orchestration-worker-release-params'
+import {
+  OrchestrationWorkerKeepOpenParams,
+  OrchestrationWorkerSubjectParams
+} from './orchestration-worker-release-params'
 import {
   WorkerDispatchParams as WorkerDispatchParamsOfOrchestrationWorkerReleaseSchemasParams,
   WorkerListParams,
@@ -1281,7 +1284,8 @@ export const RPC_PARAMS_BY_METHOD = {
   'orchestration.taskCreate': TaskCreateParams,
   'orchestration.taskList': TaskListParams,
   'orchestration.workerAbandon': WorkerDispatchParams,
-  'orchestration.workerChatTouch': OrchestrationWorkerTerminalUserInputParams,
+  'orchestration.workerAutoClose': OrchestrationWorkerSubjectParams,
+  'orchestration.workerKeepOpen': OrchestrationWorkerKeepOpenParams,
   'orchestration.workerList': WorkerListParams,
   'orchestration.workerRead': WorkerReadParams,
   'orchestration.workerRelease': WorkerDispatchParamsOfOrchestrationWorkerReleaseSchemasParams,
@@ -1289,7 +1293,7 @@ export const RPC_PARAMS_BY_METHOD = {
   'orchestration.workerShow': WorkerDispatchParams,
   'orchestration.workerStart': WorkerStartParams,
   'orchestration.workerStop': WorkerDispatchParamsOfOrchestrationWorkerStopParams,
-  'orchestration.workerTerminalUserInput': OrchestrationWorkerTerminalUserInputParams,
+  'orchestration.workerTerminalUserInput': OrchestrationWorkerSubjectParams,
   'pairing.delegatedMobileDevice.sync': DelegatedMobileDeviceSyncParamsSchema,
   'pairing.getEndpoints': PairingGetEndpointsParamsSchema,
   'pairing.provisionRelay': PairingProvisionRelayParamsSchema,

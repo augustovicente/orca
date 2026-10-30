@@ -58,9 +58,13 @@ import {
   withoutHiddenHosts
 } from '../runtime-visible-catalog'
 import { isWorkspaceNotificationMuted } from '../workspace-notification-mute'
-import { recordStructuredWorkerUserSend } from '../orchestration/structured-worker-user-send-takeover'
+import { WorkerAutoReleaseActivity } from '../orchestration/worker-auto-release-activity'
 
 export abstract class OrcaRuntimeWithGetWorktreePs extends OrcaRuntimeWithWorktreePsDependencies {
+  protected readonly workerAutoReleaseActivity = new WorkerAutoReleaseActivity(
+    () => this._orchestrationDb
+  )
+
   async getWorktreePs(
     limit = DEFAULT_WORKTREE_PS_LIMIT,
     sourceDefaultsSupported = true,
@@ -275,6 +279,7 @@ export abstract class OrcaRuntimeWithGetWorktreePs extends OrcaRuntimeWithWorktr
       // Structured chat has no CLI hooks; this projection drives first-work renaming.
       onSessionStatusChanged: (summary, options) => {
         this.onStructuredSessionStatusForMail(summary)
+        this.workerAutoReleaseActivity.observeChat(summary)
         nameChat(summary, options)
         void maybeAutoRenameWorkspaceOnFirstStructuredTurn(
           summary,
@@ -285,7 +290,6 @@ export abstract class OrcaRuntimeWithGetWorktreePs extends OrcaRuntimeWithWorktr
       ...(this.structuredAgentStatusSinkFn ? { statusSink: this.structuredAgentStatusSinkFn } : {}),
       conversationNaming: nameChat,
       onSessionTabHidden: (sessionId) => this.onStructuredSessionTabHidden(sessionId),
-      onUserSendAccepted: (sessionId) => recordStructuredWorkerUserSend(this, sessionId),
       assertNoTerminalWriter: (record) => this.assertStructuredChatAcquireAdmissible(record),
       attentionDelivery: createStructuredAttentionMobileDelivery({
         readNotificationSettings: () => this.requireStore().getSettings().notifications,

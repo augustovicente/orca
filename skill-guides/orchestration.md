@@ -64,7 +64,7 @@ Never:
 - Lost track? `ORCA orchestration inbox --terminal run:<run_id> --limit 50 --full --json`
   shows mail `check` already handled.
 
-Finished workers close on their own unless the user opened them. To keep one
+Finished workers close on their own unless the user chose Keep open. To keep one
 for a follow-up, run `ORCA orchestration worker-retain --dispatch <dispatch_id> --json`.
 If `worker-list` shows no `autoReleaseAt` for a finished worker, release it yourself.
 

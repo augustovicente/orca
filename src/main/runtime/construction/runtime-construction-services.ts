@@ -18,6 +18,7 @@ import type {
 } from '../runtime-terminal-contracts'
 import type { TitleDisplayClear } from '../runtime-worktree-status-projection'
 import type { OrchestrationDb } from '../orchestration/db/orchestration-db'
+import type { WorkerTerminalResourceRow } from '../orchestration/worker-terminal-ownership'
 import type { ResolvedWorktree } from '../runtime-worktree-path-identity'
 import type {
   RuntimeTerminalShow,
@@ -262,6 +263,9 @@ export abstract class RuntimeConstructionServices {
     mailboxHandle: string
   ): StructuredPointerTarget | null
   abstract getTerminalPaneKey(handle: string): string | null
+  abstract isWorkerAgentWorking(
+    resource: Pick<WorkerTerminalResourceRow, 'pane_key' | 'terminal_handle'>
+  ): boolean
   protected abstract getWorkspaceSessionForWorktree(
     worktreeId: string
   ): WorkspaceSessionState | null

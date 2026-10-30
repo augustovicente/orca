@@ -3,14 +3,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { reconcileRequestedWorkerTerminalReleases } from '../../../../orchestration/worker-terminal-release-reconciliation'
-import type { OrcaRuntimeService } from '../../../../orca-runtime'
 import { getWorkerTerminalAutoReleaseScheduler } from '../../../../orchestration/worker-terminal-auto-release-scheduler'
 import { createOrchestrationWorkerReleaseHarness } from './worker-release.test-support'
-import { recordStructuredWorkerUserSend } from '../../../../orchestration/structured-worker-user-send-takeover'
-import { ORCHESTRATION_WORKER_CHAT_TOUCH_CLIENT_CAPABILITY } from '../../../../../../shared/orchestration-runtime-capabilities'
+import { WorkerAutoReleaseActivity } from '../../../../orchestration/worker-auto-release-activity'
+import type { AgentPhase } from '../../../../../../shared/agent-transitions'
 
 const GRACE_MS = 2 * 60_000
-const CHAT_TOUCH = ORCHESTRATION_WORKER_CHAT_TOUCH_CLIENT_CAPABILITY
 
 describe('orchestration worker automatic release', () => {
   const h = createOrchestrationWorkerReleaseHarness()
@@ -83,155 +81,124 @@ describe('orchestration worker automatic release', () => {
     })
   })
 
-  it.each([
-    [
-      'worker-retain',
-      'orchestration.workerRetain',
-      (dispatchId: string) => ({ dispatch: dispatchId })
-    ],
-    ['user input', 'orchestration.workerTerminalUserInput', () => ({ paneKey: h.workerPaneKey })]
-  ] as const)(
-    'keeps a terminal the %s claimed before the deadline',
-    async (_kind, method, params) => {
-      setupWithFakeClock()
-      const { dispatchId } = await h.startSettledWorker()
+  it('keeps a terminal worker-retain claimed before the deadline', async () => {
+    setupWithFakeClock()
+    const { dispatchId } = await h.startSettledWorker()
 
-      await h.call(method, params(dispatchId))
-      await vi.advanceTimersByTimeAsync(2 * GRACE_MS)
+    await h.call('orchestration.workerRetain', { dispatch: dispatchId })
+    await vi.advanceTimersByTimeAsync(2 * GRACE_MS)
 
-      expect(h.runtime.closeTerminal).not.toHaveBeenCalled()
-      expect(h.db.getWorkerTerminalResourceByOwner(dispatchId)).toMatchObject({
-        release_state: 'retained',
-        auto_release_at: null
-      })
-    }
-  )
+    expect(h.runtime.closeTerminal).not.toHaveBeenCalled()
+    expect(h.db.getWorkerTerminalResourceByOwner(dispatchId)).toMatchObject({
+      release_state: 'retained',
+      auto_release_at: null
+    })
+  })
 
-  it('keeps a terminal the user saw while it worked, and still lets the coordinator release it', async () => {
+  it("closes a worker the user typed into on time; an older client's typing report keeps nothing", async () => {
+    setupWithFakeClock()
+    const { dispatchId } = await h.startSettledWorker()
+
+    await expect(
+      h.call('orchestration.workerTerminalUserInput', { paneKey: h.workerPaneKey })
+    ).resolves.toEqual({ changed: 0 })
+    await vi.advanceTimersByTimeAsync(GRACE_MS)
+
+    await vi.waitFor(() =>
+      expect(h.db.getWorkerTerminalResourceByOwner(dispatchId)?.release_state).toBe('released')
+    )
+  })
+
+  const keepOpen = (keep: boolean): Promise<unknown> =>
+    h.call('orchestration.workerKeepOpen', { paneKey: h.workerPaneKey, keep })
+
+  it('keeps a worker kept open while it ran past its finish, a coordinator release and reuse', async () => {
     setupWithFakeClock()
     const { taskId, dispatchId } = await h.startWorker()
     await expect(
-      h.call('orchestration.workerChatTouch', { paneKey: h.workerPaneKey })
-    ).resolves.toEqual({ changed: 1 })
+      h.call('orchestration.workerAutoClose', { paneKey: h.workerPaneKey })
+    ).resolves.toEqual({ autoClose: { kept: false, closesAt: null } })
+
+    await expect(keepOpen(true)).resolves.toEqual({ autoClose: { kept: true } })
     h.settle(taskId, dispatchId, 'succeeded')
+    await vi.advanceTimersByTimeAsync(2 * GRACE_MS)
+
+    expect(h.runtime.closeTerminal).not.toHaveBeenCalled()
+    await expect(
+      h.call('orchestration.workerRelease', { dispatch: dispatchId })
+    ).resolves.toMatchObject({ state: 'retained', reason: 'user_kept' })
+    await expect(h.startWorker({ terminal: 'term_worker' })).rejects.toThrow()
+    expect(h.runtime.closeTerminal).not.toHaveBeenCalled()
+    expect(h.db.getWorkerTerminalResourceByOwner(dispatchId)?.retained_reason).toBe('user_kept')
+  })
+
+  it('starts a fresh countdown when the user allows auto-close again', async () => {
+    setupWithFakeClock()
+    const { dispatchId } = await h.startSettledWorker()
+    await keepOpen(true)
+    await vi.advanceTimersByTimeAsync(GRACE_MS + 30_000)
+
+    await expect(keepOpen(false)).resolves.toEqual({
+      autoClose: { kept: false, closesAt: '2026-10-27T12:04:30Z' }
+    })
+    await vi.advanceTimersByTimeAsync(GRACE_MS - 1_000)
+    expect(h.runtime.closeTerminal).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(1_000)
+
+    await vi.waitFor(() =>
+      expect(h.db.getWorkerTerminalResourceByOwner(dispatchId)?.release_state).toBe('released')
+    )
+  })
+
+  function moved(from: AgentPhase, to: AgentPhase) {
+    return {
+      kind: 'moved' as const,
+      paneKey: h.workerPaneKey,
+      workspace: { worktreeId: 'wt', sshHostId: null },
+      from,
+      to,
+      at: Date.now(),
+      transition: null
+    }
+  }
+
+  it('holds the countdown while a follow-up turn works and restarts it when the agent rests', async () => {
+    setupWithFakeClock()
+    const activity = new WorkerAutoReleaseActivity(() => h.db)
+    await h.startSettledWorker()
+    await vi.advanceTimersByTimeAsync(60_000)
+
+    activity.observePane(moved('done', 'working'))
+    await expect(
+      h.call('orchestration.workerAutoClose', { paneKey: h.workerPaneKey })
+    ).resolves.toEqual({ autoClose: { kept: false, closesAt: null } })
+    await vi.advanceTimersByTimeAsync(2 * GRACE_MS)
+    expect(h.runtime.closeTerminal).not.toHaveBeenCalled()
+
+    activity.observePane(moved('working', 'done'))
+    await vi.advanceTimersByTimeAsync(GRACE_MS - 1_000)
+    expect(h.runtime.closeTerminal).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(1_000)
+    await vi.waitFor(() => expect(h.runtime.closeTerminal).toHaveBeenCalledTimes(1))
+  })
+
+  it('never closes an agent still working when its deadline comes', async () => {
+    setupWithFakeClock()
+    const working = vi.spyOn(h.runtime, 'isWorkerAgentWorking').mockReturnValue(true)
+    const { dispatchId } = await h.startSettledWorker()
 
     await vi.advanceTimersByTimeAsync(2 * GRACE_MS)
 
     expect(h.runtime.closeTerminal).not.toHaveBeenCalled()
     expect(h.db.getWorkerTerminalResourceByOwner(dispatchId)).toMatchObject({
-      ownership_state: 'owned',
-      release_state: 'retained',
+      release_state: 'not_requested',
       auto_release_at: null
     })
-    await h.call('orchestration.workerRelease', { dispatch: dispatchId })
-    expect(h.runtime.closeTerminal).toHaveBeenCalledTimes(1)
-  })
-
-  it('keeps a seen terminal reused for another Dispatch, since its pane reports only once', async () => {
-    setupWithFakeClock()
-    await h.startSettledWorker()
-    await h.call('orchestration.workerChatTouch', { paneKey: h.workerPaneKey })
-
-    const reuse = await h.startWorker({ terminal: 'term_worker' })
-    h.settle(reuse.taskId, reuse.dispatchId, 'succeeded')
-    await vi.advanceTimersByTimeAsync(2 * GRACE_MS)
-
-    expect(h.runtime.closeTerminal).not.toHaveBeenCalled()
-    expect(h.db.getWorkerTerminalResourceByOwner(reuse.dispatchId)).toMatchObject({
-      release_state: 'retained',
-      auto_release_at: null
-    })
-    await h.call('orchestration.workerRelease', { dispatch: reuse.dispatchId })
-    expect(h.runtime.closeTerminal).toHaveBeenCalledTimes(1)
-  })
-
-  it('arms a never-viewed terminal reused after a coordinator retained it for the prior Dispatch', async () => {
-    setupWithFakeClock()
-    const retained = await h.startSettledWorker()
-    await h.call('orchestration.workerRetain', { dispatch: retained.dispatchId })
-
-    const reuse = await h.startWorker({ terminal: 'term_worker' })
-    h.settle(reuse.taskId, reuse.dispatchId, 'succeeded')
+    expect(h.db.getWorkerTerminalArchive(dispatchId)).toBeUndefined()
+    working.mockReturnValue(false)
+    new WorkerAutoReleaseActivity(() => h.db).observePane(moved('working', 'done'))
     await vi.advanceTimersByTimeAsync(GRACE_MS)
-
     await vi.waitFor(() => expect(h.runtime.closeTerminal).toHaveBeenCalledTimes(1))
-  })
-
-  it('keeps a terminal the user typed into while its output was being captured', async () => {
-    setupWithFakeClock()
-    const { dispatchId } = await h.startSettledWorker()
-    const pendingRead = h.deferred<Awaited<ReturnType<OrcaRuntimeService['readTerminal']>>>()
-    vi.mocked(h.runtime.readTerminal).mockReturnValue(pendingRead.promise)
-
-    await vi.advanceTimersByTimeAsync(GRACE_MS)
-    await vi.waitFor(() => expect(h.runtime.readTerminal).toHaveBeenCalledTimes(1))
-    await h.call('orchestration.workerTerminalUserInput', { paneKey: h.workerPaneKey })
-    pendingRead.resolve({
-      handle: 'term_worker',
-      status: 'running',
-      tail: ['typed during capture'],
-      truncated: false,
-      nextCursor: '1'
-    })
-
-    await vi.waitFor(() =>
-      expect(h.db.getWorkerTerminalResourceByOwner(dispatchId)?.ownership_state).toBe('user_owned')
-    )
-    expect(h.runtime.closeTerminal).not.toHaveBeenCalled()
-  })
-
-  it.each(['before the deadline', 'while the automatic release captures output'] as const)(
-    'lets typing win %s when the renderer never reports takeover',
-    async (moment) => {
-      setupWithFakeClock()
-      const { dispatchId } = await h.startSettledWorker()
-      const pendingRead = h.deferred<Awaited<ReturnType<OrcaRuntimeService['readTerminal']>>>()
-      if (moment === 'before the deadline') {
-        await vi.advanceTimersByTimeAsync(30_000)
-      } else {
-        vi.mocked(h.runtime.readTerminal).mockReturnValue(pendingRead.promise)
-        await vi.advanceTimersByTimeAsync(GRACE_MS)
-        await vi.waitFor(() => expect(h.runtime.readTerminal).toHaveBeenCalledTimes(1))
-      }
-      vi.spyOn(h.runtime, 'getTerminalLastDrivingInputAt').mockReturnValue(Date.now())
-      pendingRead.resolve({
-        handle: 'term_worker',
-        status: 'running',
-        tail: ['typed during capture'],
-        truncated: false,
-        nextCursor: '1'
-      })
-      await vi.advanceTimersByTimeAsync(2 * GRACE_MS)
-
-      expect(h.runtime.closeTerminal).not.toHaveBeenCalled()
-      expect(h.db.getWorkerTerminalResourceByOwner(dispatchId)).toMatchObject({
-        ownership_state: 'user_owned',
-        auto_release_at: null
-      })
-    }
-  )
-
-  it('still releases on time when the last typing came before worker_done', async () => {
-    setupWithFakeClock()
-    const typedBeforeDone = Date.now()
-    vi.spyOn(h.runtime, 'getTerminalLastDrivingInputAt').mockReturnValue(typedBeforeDone)
-    await vi.advanceTimersByTimeAsync(1_000)
-    await h.startSettledWorker()
-
-    await vi.advanceTimersByTimeAsync(GRACE_MS)
-
-    await vi.waitFor(() => expect(h.runtime.closeTerminal).toHaveBeenCalledTimes(1))
-  })
-
-  it('lets an explicit worker-release close a terminal the user typed into', async () => {
-    setupWithFakeClock()
-    const { dispatchId } = await h.startSettledWorker()
-    vi.spyOn(h.runtime, 'getTerminalLastDrivingInputAt').mockReturnValue(Date.now())
-
-    await expect(
-      h.call('orchestration.workerRelease', { dispatch: dispatchId })
-    ).resolves.toMatchObject({ state: 'released' })
-    expect(h.runtime.closeTerminal).toHaveBeenCalledTimes(1)
   })
 
   it('does not arm a worker retained before it reported', async () => {
@@ -379,51 +346,18 @@ describe('orchestration worker automatic release', () => {
       return dispatchId
     }
 
-    // By session, as clients report; it resolves through the durable row with no live lease.
-    const touch = (): Promise<unknown> =>
-      h.call('orchestration.workerChatTouch', { sessionId: 's1' })
+    const keepChat = (keep: boolean): Promise<unknown> =>
+      h.call('orchestration.workerKeepOpen', { sessionId: 's1', keep })
 
-    it.each([
-      ['every connected client reports touches', [[CHAT_TOUCH]], '2026-10-27 12:02:00'],
-      ['a connected client cannot report touches', [[CHAT_TOUCH], []], null]
-    ] as const)('arms on worker_done only when %s', (_case, clients, deadline) => {
+    it('arms a chat worker on worker_done like a terminal worker', () => {
       setupWithFakeClock()
-      h.runtime.bindConnectedClientCapabilities(() => clients)
 
       const dispatchId = startSettledChatWorker()
 
-      expect(h.db.getWorkerTerminalResourceByOwner(dispatchId)?.auto_release_at).toBe(deadline)
+      expect(h.db.getWorkerTerminalResourceByOwner(dispatchId)?.auto_release_at).toBe(
+        '2026-10-27 12:02:00'
+      )
     })
-
-    it.each(['before the deadline', 'while the automatic release captures output'] as const)(
-      'keeps a finished chat the user touched %s',
-      async (moment) => {
-        setupWithFakeClock()
-        const dispatchId = startSettledChatWorker()
-        if (moment !== 'before the deadline') {
-          h.db.claimDueWorkerTerminalAutoReleases(Date.now() + GRACE_MS)
-        }
-
-        await expect(touch()).resolves.toEqual({ changed: 1 })
-
-        const resource = h.db.getWorkerTerminalResourceByOwner(dispatchId)!
-        expect(resource).toMatchObject({
-          ownership_state: 'owned',
-          release_state: 'retained',
-          auto_release_at: null
-        })
-        expect(
-          h.db.commitWorkerTerminalArchiveForRelease({
-            dispatchId,
-            resourceId: resource.id,
-            kind: 'transcript_pin',
-            content: '{}',
-            archiveSource: 'transcript',
-            archiveStatus: 'captured'
-          }).release_state
-        ).toBe('retained')
-      }
-    )
 
     function claimAndCommitChatRelease(dispatchId: string): string {
       h.db.claimDueWorkerTerminalAutoReleases(Date.now() + GRACE_MS)
@@ -439,80 +373,16 @@ describe('orchestration worker automatic release', () => {
       return resourceId
     }
 
-    it('lets a touch after the archive commit win until the close is admitted, then not', async () => {
+    it('lets Keep open after the archive commit win until the close is admitted, then not', async () => {
       setupWithFakeClock()
-      const touched = claimAndCommitChatRelease(startSettledChatWorker())
-      await expect(touch()).resolves.toEqual({ changed: 1 })
-      expect(h.db.admitWorkerChatReleaseClose(touched)).toBe(false)
+      const kept = claimAndCommitChatRelease(startSettledChatWorker())
+      await expect(keepChat(true)).resolves.toEqual({ autoClose: { kept: true } })
+      expect(h.db.admitWorkerChatReleaseClose(kept)).toBe(false)
 
       const closing = claimAndCommitChatRelease(startSettledChatWorker())
       expect(h.db.admitWorkerChatReleaseClose(closing)).toBe(true)
-      await expect(touch()).resolves.toEqual({ changed: 0 })
-    })
-
-    it('keeps a chat the user sent to after its automatic close committed the archive', () => {
-      setupWithFakeClock()
-      const dispatchId = startSettledChatWorker()
-      const resourceId = claimAndCommitChatRelease(dispatchId)
-
-      recordStructuredWorkerUserSend(h.runtime, 's1')
-
-      expect(h.db.admitWorkerChatReleaseClose(resourceId)).toBe(false)
-      expect(h.db.getWorkerTerminalResourceByOwner(dispatchId)).toMatchObject({
-        ownership_state: 'user_owned',
-        release_state: 'retained'
-      })
-    })
-
-    it('falls back to manual release when a client that cannot report touches joins before the close', () => {
-      setupWithFakeClock()
-      const dispatchId = startSettledChatWorker()
-      const resourceId = claimAndCommitChatRelease(dispatchId)
-      h.runtime.bindConnectedClientCapabilities(() => [[]])
-
-      expect(h.db.admitWorkerChatReleaseClose(resourceId)).toBe(false)
-
-      expect(h.db.getWorkerTerminalResourceByOwner(dispatchId)).toMatchObject({
-        ownership_state: 'owned',
-        release_state: 'not_requested',
-        auto_release_at: null
-      })
-      expect(h.db.getWorkerTerminalArchive(dispatchId)).toBeUndefined()
-    })
-
-    it('keeps a chat the user sent to while it was working, though they left before it settled', async () => {
-      setupWithFakeClock()
-      const { taskId, dispatchId } = startChatWorker()
-      recordStructuredWorkerUserSend(h.runtime, 's1')
-      h.settle(taskId, dispatchId, 'succeeded')
-
-      await vi.advanceTimersByTimeAsync(GRACE_MS)
-
-      expect(h.db.getWorkerTerminalResourceByOwner(dispatchId)).toMatchObject({
-        ownership_state: 'user_owned',
-        release_state: 'retained',
-        auto_release_at: null
-      })
-      expect(h.runtime.closeTerminal).not.toHaveBeenCalled()
-    })
-
-    it('keeps a chat the user saw while it worked, and ignores a touch on an explicit release', async () => {
-      setupWithFakeClock()
-      const { taskId, dispatchId } = startChatWorker()
-      await expect(touch()).resolves.toEqual({ changed: 1 })
-      h.settle(taskId, dispatchId, 'succeeded')
-      expect(h.db.getWorkerTerminalResourceByOwner(dispatchId)).toMatchObject({
-        release_state: 'retained',
-        auto_release_at: null
-      })
-
-      const released = startSettledChatWorker()
-      h.db.requestWorkerTerminalRelease(released)
-      await expect(touch()).resolves.toEqual({ changed: 0 })
-      expect(h.db.getWorkerTerminalResourceByOwner(released)).toMatchObject({
-        ownership_state: 'owned',
-        release_state: 'requested'
-      })
+      await keepChat(true)
+      expect(h.db.getWorkerTerminalResource(closing)?.release_state).toBe('releasing')
     })
   })
 })

@@ -76,7 +76,6 @@ export abstract class OrcaRuntimeWithTerminalDrivers extends OrcaRuntimeWithFitO
     serializedHostScope: string | null
   ): string | null
   abstract getTerminalLivenessVerdict(handle: string): PtyLivenessVerdict | null
-  abstract getTerminalLastDrivingInputAt(handle: string): number | null
   abstract checkTerminalAgentPresence(
     handle: string,
     exitedSince: number

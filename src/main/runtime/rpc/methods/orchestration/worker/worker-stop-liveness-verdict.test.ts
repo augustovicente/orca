@@ -144,7 +144,7 @@ describe('worker-stop against a terminal we lost contact with', () => {
     })
   })
 
-  it('does not close a pane after user input transfers ownership', async () => {
+  it('does not close a pane the user kept open', async () => {
     vi.spyOn(runtime, 'showTerminal').mockResolvedValue({
       handle: 'term_worker',
       worktreeId: 'repo::worktree',
@@ -163,17 +163,18 @@ describe('worker-stop against a terminal we lost contact with', () => {
     const dispatch = createWorker()
 
     await expect(
-      call('orchestration.workerTerminalUserInput', {
-        paneKey: 'tab_worker:bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+      call('orchestration.workerKeepOpen', {
+        paneKey: 'tab_worker:bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        keep: true
       })
-    ).resolves.toMatchObject({ changed: 1 })
+    ).resolves.toEqual({ autoClose: { kept: true } })
 
     await expect(
       call('orchestration.workerStop', { dispatch: dispatch.id })
     ).resolves.toMatchObject({
       state: 'stop_unknown',
       processAction: 'none',
-      lastError: 'The worker terminal is user_owned; no terminal was closed.'
+      lastError: 'The worker terminal is kept open by the user; no terminal was closed.'
     })
     expect(closeTerminal).not.toHaveBeenCalled()
   })
@@ -207,19 +208,6 @@ describe('worker-stop against a terminal we lost contact with', () => {
       lastError: 'The worker terminal is unproven; no terminal was closed.'
     })
     expect(closeTerminal).not.toHaveBeenCalled()
-  })
-
-  it('linearizes stop before a concurrent user takeover', () => {
-    const dispatch = createWorker()
-    expect(db.beginWorkerStop(dispatch.id, runtime.getRuntimeId()).disposition).toBe('stopping')
-
-    expect(db.markWorkerTerminalUserOwned('tab_worker:bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb')).toBe(
-      0
-    )
-    expect(db.getWorkerTerminalResourceByOwner(dispatch.id)).toMatchObject({
-      ownership_state: 'owned',
-      release_state: 'not_requested'
-    })
   })
 
   it('does not let abandon overwrite a stop in progress', () => {

@@ -11,6 +11,9 @@ import { getRuntimeDesktopSurface } from './runtime-desktop-surface'
 import type { AgentStatusStoreView } from './sidebar-inputs/workspace-activity-facts-producer'
 import { subscribeHookStatusTitles } from './terminal/layout/hook-status-title-subscription'
 import { TerminalWorkerTurnStops } from './orchestration/terminal-worker-turn-stops'
+import type { WorkerTerminalResourceRow } from './orchestration/worker-terminal-ownership'
+import { resolveStructuredWorkerIdentity } from './structured-worker-authority'
+import { getStructuredAgentSessionHost } from '../native-chat/agent-session-wire/structured-agent-session-registry'
 import {
   TerminalAgentPhonePush,
   type TerminalAgentWorkspaceLabels
@@ -78,6 +81,26 @@ export abstract class OrcaRuntimeWithAgentTransitions extends OrcaRuntimeWithMig
     super(...args)
     this.agentTransitions.subscribe((change) => this.terminalAgentPhonePush.observe(change))
     this.agentTransitions.subscribe((change) => this.terminalWorkerTurnStops.observe(change))
+    this.agentTransitions.subscribe((change) => this.workerAutoReleaseActivity.observePane(change))
+  }
+
+  /** Whether a worker's agent is in a turn now; an automatic close never takes one that is. */
+  isWorkerAgentWorking(
+    resource: Pick<WorkerTerminalResourceRow, 'pane_key' | 'terminal_handle'>
+  ): boolean {
+    const structured = resolveStructuredWorkerIdentity(
+      resource.terminal_handle,
+      this._orchestrationDb
+    )
+    if (structured) {
+      return (
+        getStructuredAgentSessionHost()?.readStatusSummary(structured.sessionId)?.status ===
+        'working'
+      )
+    }
+    return (
+      resource.pane_key !== null && this.agentTransitions.phaseOf(resource.pane_key) === 'working'
+    )
   }
 
   /** Attach after higher layers subscribe; also drive generated tab titles. */

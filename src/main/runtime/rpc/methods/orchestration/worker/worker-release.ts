@@ -1,12 +1,10 @@
 import { OrchestrationError } from '../../../../orchestration/orchestration-error'
-import type { OrcaRuntimeService } from '../../../../orca-runtime'
 import { defineMethod } from '../../../core'
 import {
   releaseFederatedWorker,
   retainFederatedWorker
 } from '../federation/federated-worker-release'
 import { ORCHESTRATION_WORKER_LIST_METHOD } from './worker-list-method'
-import { resolveStructuredWorkerIdentityForSession } from '../../../../structured-worker-authority'
 import { resolvePinnedFederatedServer } from './worker-observation'
 import { archiveSummary, exposeWorkerRetainReceipt } from './worker-terminal-resource-presentation'
 import {
@@ -17,7 +15,7 @@ import {
   WorkerDispatchParams,
   WorkerRetainParams
 } from '../../../../../../shared/rpc-contract/orchestration-worker-release-schemas-params'
-import { OrchestrationWorkerTerminalUserInputParams } from '../../../../../../shared/rpc-contract/orchestration-worker-release-params'
+import { ORCHESTRATION_WORKER_KEEP_OPEN_METHODS } from './worker-keep-open'
 
 export const ORCHESTRATION_WORKER_RELEASE_METHODS = [
   defineMethod({
@@ -128,52 +126,5 @@ export const ORCHESTRATION_WORKER_RELEASE_METHODS = [
     }
   }),
   ORCHESTRATION_WORKER_LIST_METHOD,
-  defineMethod({
-    name: 'orchestration.workerTerminalUserInput',
-    permission: 'workspace',
-    // Name structured workers by session id; resolve their private pane credential on the owning runtime instead of exposing it to renderers.
-    params: OrchestrationWorkerTerminalUserInputParams,
-    // Persist user takeover on the owning runtime so restart, SSH loss, viewing and remount cannot erase it.
-    handler: (params, { runtime }) => {
-      const paneKey = resolveUserWorkerPaneKey(runtime, params)
-      const changed = paneKey
-        ? runtime.getOrchestrationDb().markWorkerTerminalUserOwned(paneKey)
-        : 0
-      return { changed }
-    }
-  }),
-  defineMethod({
-    name: 'orchestration.workerChatTouch',
-    permission: 'workspace',
-    params: OrchestrationWorkerTerminalUserInputParams,
-    // Clients cannot tell workers apart, so every terminal or chat the user sees reports; the host keeps only workers.
-    handler: (params, { runtime }) => {
-      const db = runtime.getOrchestrationDb()
-      // Durable identity, not live authority: a closing chat's hidden tab must still be touchable.
-      const identity = params.sessionId
-        ? resolveStructuredWorkerIdentityForSession(params.sessionId, db)
-        : null
-      const paneKey = params.sessionId
-        ? identity?.paneKey
-        : resolveUserWorkerPaneKey(runtime, params)
-      const changed = paneKey ? db.markWorkerTouched(paneKey) : 0
-      // A chat is shown before its custody is recorded; the client reports it again until it is.
-      return identity && !db.getWorkerTerminalResourceByHandle(identity.handle)
-        ? { changed, pending: true as const }
-        : { changed }
-    }
-  })
+  ...ORCHESTRATION_WORKER_KEEP_OPEN_METHODS
 ]
-
-// A structured worker reports by session id; it has no pane of its own to name.
-function resolveUserWorkerPaneKey(
-  runtime: OrcaRuntimeService,
-  params: { paneKey?: string; sessionId?: string; terminal?: string }
-): string | null | undefined {
-  return (
-    params.paneKey ??
-    (params.sessionId
-      ? runtime.getStructuredWorkerPaneKeyForSession(params.sessionId)
-      : runtime.getTerminalPaneKey(params.terminal!))
-  )
-}

@@ -13,7 +13,6 @@ export type WorkerTerminalReleaseRuntime = Pick<
   | 'getTerminalPaneKey'
   | 'getTerminalProcessIncarnation'
   | 'getTerminalLivenessVerdict'
-  | 'getTerminalLastDrivingInputAt'
   | 'checkTerminalAgentPresence'
   | 'getOrchestrationDispatchAuthority'
   | 'ensureStructuredAgentSessionHost'
@@ -22,4 +21,5 @@ export type WorkerTerminalReleaseRuntime = Pick<
   | 'getExactWorkerProviderSession'
   | 'readTerminal'
   | 'notifyMessageArrived'
+  | 'isWorkerAgentWorking'
 >

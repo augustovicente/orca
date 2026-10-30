@@ -14,7 +14,7 @@ import {
 import type { WorkerTerminalReleaseRuntime } from '../../../../orchestration/worker-terminal-release-runtime'
 import { readRemoteAttachmentArchive } from './remote-attachment-archive-read'
 import { WorkerTerminalReleaseSingleFlight } from '../worker/worker-terminal-release-single-flight'
-import { yieldAutoReleaseToUserInput } from '../../../../orchestration/worker-terminal-auto-release-input-yield'
+import { yieldAutoReleaseToWorkingAgent } from '../../../../orchestration/worker-terminal-auto-release-working-yield'
 import { archiveSummary } from '../worker/worker-terminal-resource-presentation'
 import {
   releaseUnknownRecovery,
@@ -193,7 +193,7 @@ async function completeRemoteAttachmentRelease(
     ? current
     : !remoteAttachmentLeaseIsCurrent(runtime, attachment, observation, current)
       ? db.revertWorkerTerminalReleaseToRetained(resource.id, 'identity_unproven')
-      : yieldAutoReleaseToUserInput(runtime, current, observation.terminal.handle)
+      : yieldAutoReleaseToWorkingAgent(runtime, current)
   if (!isStillReleasing(releasing) || !output) {
     return {
       dispatchId: attachment.dispatch_id,

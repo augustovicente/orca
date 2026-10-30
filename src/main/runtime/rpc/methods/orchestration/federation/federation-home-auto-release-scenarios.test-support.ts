@@ -77,6 +77,21 @@ export function registerHomeAutoReleaseScenarios(args: {
     expect(harness.workerRuntime().closeTerminal).not.toHaveBeenCalled()
   })
 
+  it('leaves a worker the user kept open on the host when the home deadline fires', async () => {
+    const dispatchId = await settleOnOlderHost()
+    const paneKey = harness.workerDb().getWorkerTerminalResourceByOwner(dispatchId)!.pane_key!
+    expect(harness.workerDb().keepWorkerTerminalOpen(paneKey)).toBe(1)
+
+    await releaseDueAtHome()
+
+    expect(harness.workerRuntime().closeTerminal).not.toHaveBeenCalled()
+    expect(harness.workerDb().getWorkerTerminalResourceByOwner(dispatchId)).toMatchObject({
+      release_state: 'retained',
+      retained_reason: 'user_kept'
+    })
+    expect(harness.homeDb().getFederatedDispatch(dispatchId)?.home_auto_release_state).toBe('ended')
+  })
+
   it('releases once after a restart cut a claimed deadline short', async () => {
     const dispatchId = await settleOnOlderHost()
     vi.setSystemTime(Date.now() + GRACE_MS)
