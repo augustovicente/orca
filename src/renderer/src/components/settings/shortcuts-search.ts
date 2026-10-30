@@ -1,4 +1,5 @@
 import { KEYBINDING_DEFINITIONS } from '../../../../shared/keybindings'
+import { editionSupports } from '../../../../shared/edition'
 import type { SettingsSearchEntry } from './settings-search'
 import { translate } from '@/i18n/i18n'
 import { translateSearchKeyword } from './settings-search-keywords'
@@ -56,13 +57,14 @@ export function getShortcutsPaneSearchEntries(options?: {
 }): SettingsSearchEntry[] {
   const includeManagedBrowser = options?.includeManagedBrowser !== false
   const includeMobileEmulator = options?.includeMobileEmulator !== false
+  const mobileEmulatorAvailable = includeMobileEmulator && editionSupports('emulators')
   return [
     ...getShortcutDefinitionSearchEntries()
       .filter(
         ({ actionId }) =>
           (includeManagedBrowser ||
             (actionId !== 'tab.newBrowser' && actionId !== 'tab.newBrowserSplitRight')) &&
-          (includeMobileEmulator || actionId !== 'tab.newSimulator')
+          (mobileEmulatorAvailable || actionId !== 'tab.newSimulator')
       )
       .map(({ searchEntry }) => searchEntry),
     getTerminalShortcutPolicySearchEntry()

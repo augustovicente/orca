@@ -7,6 +7,7 @@ import { MobileEmulatorTabIntroCallout } from '../emulator-pane/MobileEmulatorTa
 import { ShellIcon } from './shell-icons'
 import { useAppStore } from '@/store'
 import { usePluginNewFiles } from '@/store/plugin-new-files'
+import { editionSupports } from '../../../../shared/edition'
 import { PluginContributionIcon } from '../plugins/PluginContributionIcon'
 import type { WindowsShellMenuEntry } from './tab-bar-windows-shell-options'
 import {
@@ -118,7 +119,11 @@ export function TabBarStaticCreateMenu({
       </DropdownMenuItem>
     ) : null
   const newSimulatorMenuItem =
-    !terminalOnly && mobileEmulatorEnabled && mobileEmulatorCreationEnabled && onNewSimulatorTab ? (
+    !terminalOnly &&
+    editionSupports('emulators') &&
+    mobileEmulatorEnabled &&
+    mobileEmulatorCreationEnabled &&
+    onNewSimulatorTab ? (
       workspaceHasSimulatorTab ? (
         <Tooltip>
           <TooltipTrigger asChild>
@@ -196,6 +201,7 @@ export function TabBarStaticCreateMenu({
   const mobileEmulatorIntroMenuBlock =
     showMobileEmulatorIntroCallout &&
     !terminalOnly &&
+    editionSupports('emulators') &&
     isMacOs &&
     mobileEmulatorEnabled &&
     mobileEmulatorCreationEnabled &&

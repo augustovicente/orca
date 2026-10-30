@@ -19,6 +19,7 @@ import {
 } from '@/lib/client-creation-action-error'
 import { FLOATING_TERMINAL_WORKTREE_ID } from '../../../shared/constants'
 import { translate } from '@/i18n/i18n'
+import { editionSupports } from '../../../shared/edition'
 import { getKeybindingContext } from './terminal-workspace-model'
 import { isAgentTerminalPreviewTarget } from './dashboard-popout/agent-terminal-preview-target'
 import { resolveTerminalAgentTabShortcut } from './terminal-agent-tab-shortcut'
@@ -146,7 +147,12 @@ export function handleTerminalWorkspaceKeyDown(
     }
     return
   }
-  if (!event.repeat && mobileEmulatorEnabled && matchShortcut('tab.newSimulator')) {
+  if (
+    !event.repeat &&
+    mobileEmulatorEnabled &&
+    editionSupports('emulators') &&
+    matchShortcut('tab.newSimulator')
+  ) {
     event.preventDefault()
     notifyTerminalCapture('tab.newSimulator')
     if (!ensureClientCreationActionAllowed(activeWorktreeId, 'mobile-emulator')) {

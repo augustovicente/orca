@@ -11,6 +11,7 @@ import {
   type ExecutionHostId
 } from '../../../../shared/execution-host'
 import type { RuntimeClientTarget } from '../../../../shared/runtime-client-target'
+import { editionSupports } from '../../../../shared/edition'
 import {
   normalizeTaskSourceContext,
   type TaskSourceContext
@@ -43,6 +44,9 @@ export function createCmdJTaskSearchRequests(args: {
   hostLabels: ReadonlyMap<string, string>
   signal: AbortSignal
 }): CmdJTaskSearchRequest[] {
+  if (!editionSupports('taskProviders')) {
+    return []
+  }
   const { query, settings, filter, signal, hostLabels } = args
   const state = useAppStore.getState()
   const providers = normalizeVisibleTaskProviders(settings?.visibleTaskProviders)

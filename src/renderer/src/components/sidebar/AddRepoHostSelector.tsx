@@ -10,7 +10,7 @@ import { cn } from '@/lib/utils'
 import type { SidebarHostOption } from './sidebar-host-options'
 import { getSidebarHostHealthLabel, shouldShowHostScopeControls } from './sidebar-host-options'
 import type { ExecutionHostId } from '../../../../shared/execution-host'
-
+import { editionSupports } from '../../../../shared/edition'
 import { describeRuntimeCompatBlock } from '@/lib/runtime-host-copy'
 import { translate } from '@/i18n/i18n'
 import { canConnectAddRepoHost, canSelectAddRepoHost } from './add-repo-host-availability'
@@ -59,7 +59,9 @@ export function AddRepoHostSelector({
 }: AddRepoHostSelectorProps): React.JSX.Element | null {
   const [addHostOpen, setAddHostOpen] = useState(false)
   const rows = useBoundedHostRows(hosts, new Set(selectedHostId ? [selectedHostId] : []))
-  const showHostSetupActions = Boolean(onAddSshHost || onAddRemoteServer || onAddWslHost)
+  const showSshOrRemoteHostSetup =
+    editionSupports('sshHosts') && Boolean(onAddSshHost || onAddRemoteServer)
+  const showHostSetupActions = showSshOrRemoteHostSetup || Boolean(onAddWslHost)
   if (!shouldShowHostScopeControls(hosts) && !showHostSetupActions) {
     return null
   }
@@ -143,7 +145,7 @@ export function AddRepoHostSelector({
                     </CommandItem>
                   </PopoverTrigger>
                   <PopoverContent align="start" side="right" className="w-72 p-1" sideOffset={8}>
-                    {onAddSshHost ? (
+                    {editionSupports('sshHosts') && onAddSshHost ? (
                       <button
                         type="button"
                         className="flex w-full flex-col rounded-sm px-2.5 py-2 text-left hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
@@ -167,7 +169,7 @@ export function AddRepoHostSelector({
                         </span>
                       </button>
                     ) : null}
-                    {onAddRemoteServer ? (
+                    {editionSupports('sshHosts') && onAddRemoteServer ? (
                       <button
                         type="button"
                         className="flex w-full flex-col rounded-sm px-2.5 py-2 text-left hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"

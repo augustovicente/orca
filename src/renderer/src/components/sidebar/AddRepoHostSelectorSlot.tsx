@@ -8,6 +8,7 @@ import {
   useWslHostsPaused
 } from './use-wsl-hosts-enabled'
 import { getWslHostsPausedShortLabel } from './wsl-host-row-status'
+import { editionSupports } from '../../../../shared/edition'
 
 export function AddRepoHostSelectorSlot({
   hostSelection
@@ -27,8 +28,10 @@ export function AddRepoHostSelectorSlot({
         onOpenChange={hostSelection.setHostSelectorOpen}
         onSelectHost={(hostId) => void hostSelection.handleSelectAddProjectHost(hostId)}
         onConnectHost={(hostId) => void hostSelection.handleConnectAddProjectHost(hostId)}
-        onAddSshHost={() => setAddRemoteHostMode('ssh')}
-        onAddRemoteServer={() => setAddRemoteHostMode('server')}
+        onAddSshHost={editionSupports('sshHosts') ? () => setAddRemoteHostMode('ssh') : undefined}
+        onAddRemoteServer={
+          editionSupports('sshHosts') ? () => setAddRemoteHostMode('server') : undefined
+        }
         onAddWslHost={wslHostsAcceptNewWork ? () => setAddRemoteHostMode('wsl') : undefined}
         wslHostsPausedNote={wslHostsPaused ? getWslHostsPausedShortLabel() : undefined}
         onOpenWslHostsSetting={openWslHostsExperimentalSetting}

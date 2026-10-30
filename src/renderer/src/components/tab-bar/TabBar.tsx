@@ -4,6 +4,7 @@ import { useTabStripDragScrollHandlers } from './tab-strip-drag-scroll'
 import type { TabBarProps } from './tab-bar-props'
 import type { TabBarItem } from './tab-bar-item-model'
 import { useTabBarRuntimeModel } from './use-tab-bar-runtime-model'
+import { editionSupports } from '../../../../shared/edition'
 import { useTabBarCreateMenuController } from './use-tab-bar-create-menu-controller'
 import { usePluginNewFileMenuOptions } from './use-plugin-new-file-menu-options'
 import { useTabBarItemProjection } from './use-tab-bar-item-projection'
@@ -31,7 +32,7 @@ function TabBarInner(props: TabBarProps): React.JSX.Element {
     resolvedGroupId: runtime.resolvedGroupId,
     showAgentLaunchItems: props.showAgentLaunchItems,
     terminalOnly,
-    mobileEmulatorEnabled: runtime.mobileEmulatorEnabled,
+    mobileEmulatorEnabled: runtime.mobileEmulatorEnabled && editionSupports('emulators'),
     managedBrowserCreationEnabled: runtime.managedBrowserCreationEnabled,
     mobileEmulatorCreationEnabled: runtime.mobileEmulatorCreationEnabled,
     workspaceHasSimulatorTab: runtime.workspaceHasSimulatorTab,

@@ -12,8 +12,9 @@ import type { WorktreeJumpPaletteStoreState } from './use-worktree-jump-palette-
 import type { WorktreeJumpPaletteLocalState } from './use-worktree-jump-palette-local-state'
 import type { WorktreeJumpPaletteFilter } from './use-worktree-jump-palette-filter'
 import { getRepoExecutionHostId } from '../../../shared/execution-host'
-const TASK_SEARCH_DEBOUNCE_MS = 600
+import { editionSupports } from '../../../shared/edition'
 
+const TASK_SEARCH_DEBOUNCE_MS = 600
 type Input = Pick<WorktreeJumpPaletteStoreState, 'visible' | 'repos' | 'settings'> &
   Pick<WorktreeJumpPaletteLocalState, 'query' | 'filter'> &
   Pick<WorktreeJumpPaletteFilter, 'hostOptions' | 'filterModel' | 'defaultHostId'>
@@ -59,7 +60,7 @@ export function useWorktreeJumpPaletteTaskSearch({
       )
     ]
   }
-  const searchEnabled = visible && isCmdJTaskSearchQuery(query)
+  const searchEnabled = visible && isCmdJTaskSearchQuery(query) && editionSupports('taskProviders')
   const requestKey = JSON.stringify([
     query.trim(),
     effectiveFilter,

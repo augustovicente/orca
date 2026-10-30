@@ -1,6 +1,7 @@
 import { resolveWorktreeBranchLabel } from '@/lib/worktree-default-display-name'
 import { resolvePaletteRepoForWorktree } from '@/lib/palette-repo-resolution'
 import { getGitHubPRCacheKey } from '../../../../shared/github/github-cache-key'
+import { editionSupports } from '../../../../shared/edition'
 import { getHostedReviewCacheKey } from '@/store/slices/hosted-review-cache-identity'
 import type { AppState } from '@/store/types'
 import type { HostedReviewInfo } from '../../../../shared/hosted-review'
@@ -27,10 +28,12 @@ export function buildWorktreeChecksReviewIndex({
   settings
 }: WorktreeChecksReviewIndexArgs): Map<Worktree, HostedReviewInfo | null> {
   const reviews = new Map<Worktree, HostedReviewInfo | null>()
+  if (!editionSupports('hostedReview')) {
+    return reviews
+  }
   if (!prCache || !hostedReviewCache) {
     return reviews
   }
-
   for (const worktree of worktrees) {
     const repo = resolvePaletteRepoForWorktree(worktree, EMPTY_REPO_MAP, repoByHostIdentity)
     if (!repo) {

@@ -12,6 +12,7 @@ import { buildDuplicatedBrowserTabOptions } from '@/lib/duplicate-browser-tab-op
 import { runtimeEnvironmentIdOrLocalUnlessTwin } from '@/lib/worktree-runtime-owner'
 import { browserWorkspaceHasRemoteOwner } from '@/runtime/remote-browser-tab-ownership'
 import { getClientCreationActionPolicy } from '@/lib/client-creation-action-policy'
+import { editionSupports } from '../../../../shared/edition'
 import type { TabGroupWorktreeSnapshot } from './useTabGroupItemProjections'
 import { translate } from '@/i18n/i18n'
 
@@ -44,20 +45,21 @@ export function useTabGroupCreationCommands({
         toast.error(error instanceof Error ? error.message : String(error))
       })
     },
-    newSimulatorTab: worktreeState.mobileEmulatorEnabled
-      ? () => {
-          if (getSimulatorTabForWorktree(worktreeId)) {
-            void ensureSimulatorTab(worktreeId, { surfacePane: true })
-            return
+    newSimulatorTab:
+      worktreeState.mobileEmulatorEnabled && editionSupports('emulators')
+        ? () => {
+            if (getSimulatorTabForWorktree(worktreeId)) {
+              void ensureSimulatorTab(worktreeId, { surfacePane: true })
+              return
+            }
+            void openMobileEmulatorTab(worktreeId, {
+              placement: 'rightSplit',
+              targetGroupId: groupId
+            }).catch((error) => {
+              toast.error(error instanceof Error ? error.message : String(error))
+            })
           }
-          void openMobileEmulatorTab(worktreeId, {
-            placement: 'rightSplit',
-            targetGroupId: groupId
-          }).catch((error) => {
-            toast.error(error instanceof Error ? error.message : String(error))
-          })
-        }
-      : undefined,
+        : undefined,
     openEntry: async (args: TabCreateEntryArgs) => {
       await openTabBarEntry(args)
     },

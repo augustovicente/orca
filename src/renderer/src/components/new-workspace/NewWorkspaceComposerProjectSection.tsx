@@ -6,6 +6,7 @@ import ProjectCombobox from '@/components/new-workspace/ProjectCombobox'
 import RunTargetCombobox from '@/components/new-workspace/RunTargetCombobox'
 import { translate } from '@/i18n/i18n'
 import { cn } from '@/lib/utils'
+import { editionSupports } from '../../../../shared/edition'
 import type {
   EphemeralVmRecipeOption,
   NeedsProjectHostOption,
@@ -41,8 +42,8 @@ type NewWorkspaceComposerProjectSectionProps = Pick<
   projectHostSetupOptions: NewWorkspaceComposerCardProps['projectHostSetupOptions']
   ephemeralVmRecipes: EphemeralVmRecipeOption[]
   handleProjectHostSetupChange: (setupId: string) => void
-  handleAddSshHost: () => void
-  handleAddRemoteServer: () => void
+  handleAddSshHost?: () => void
+  handleAddRemoteServer?: () => void
   handleConnectRunTargetHost: (option: NeedsProjectHostOption) => Promise<void>
   handleSetLocation: (option: NeedsProjectHostOption) => void
   sshStatusLabel: string
@@ -159,8 +160,8 @@ export function NewWorkspaceComposerProjectSection({
               recipes={ephemeralVmRecipes}
               recipeValue={selectedEphemeralVmRecipeId}
               onRecipeChange={onEphemeralVmRecipeChange}
-              onAddSshHost={handleAddSshHost}
-              onAddRemoteServer={handleAddRemoteServer}
+              onAddSshHost={editionSupports('sshHosts') ? handleAddSshHost : undefined}
+              onAddRemoteServer={editionSupports('sshHosts') ? handleAddRemoteServer : undefined}
               onConnectHost={handleConnectRunTargetHost}
               onSetLocation={handleSetLocation}
             />

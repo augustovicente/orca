@@ -17,7 +17,7 @@ import {
 import { translate } from '@/i18n/i18n'
 import { createLocalizedCatalog } from '@/i18n/localized-catalog'
 import { getNativeChatSplitQuickActions } from './native-chat-split-quick-actions'
-
+import { editionSupports } from '../../../../shared/edition'
 export type CmdJQuickActionRunResult =
   | { status: 'ok' }
   | {
@@ -155,26 +155,33 @@ export const getCmdJQuickActions = createLocalizedCatalog((): CmdJQuickAction[] 
     run: (ctx) => runWorkspaceAction(ctx, ctx.openNewTerminalTab)
   },
   ...getNativeChatSplitQuickActions(),
-  {
-    id: CREATE_WORKSPACE_QUICK_ACTION_ID,
-    kind: 'action',
-    title: translate('auto.components.cmd.j.quick.actions.52ac9da671', 'Create Worktree'),
-    description: translate(
-      'auto.components.cmd.j.quick.actions.0b1f25f796',
-      'Start a new worktree.'
-    ),
-    icon: FolderPlus,
-    verbKeywords: [
-      translate('auto.components.cmd.j.quick.actions.verbs.createWorktree', 'create worktree'),
-      translate('auto.components.cmd.j.quick.actions.verbs.addWorktree', 'add worktree'),
-      translate('auto.components.cmd.j.quick.actions.verbs.newWorktree', 'new worktree')
-    ],
-    isAvailable: () => ({ available: true }),
-    run: async (ctx) => {
-      ctx.openCreateWorkspace()
-      return { status: 'ok' }
-    }
-  },
+  ...(editionSupports('gitWorkflows')
+    ? [
+        {
+          id: CREATE_WORKSPACE_QUICK_ACTION_ID,
+          kind: 'action' as const,
+          title: translate('auto.components.cmd.j.quick.actions.52ac9da671', 'Create Worktree'),
+          description: translate(
+            'auto.components.cmd.j.quick.actions.0b1f25f796',
+            'Start a new worktree.'
+          ),
+          icon: FolderPlus,
+          verbKeywords: [
+            translate(
+              'auto.components.cmd.j.quick.actions.verbs.createWorktree',
+              'create worktree'
+            ),
+            translate('auto.components.cmd.j.quick.actions.verbs.addWorktree', 'add worktree'),
+            translate('auto.components.cmd.j.quick.actions.verbs.newWorktree', 'new worktree')
+          ],
+          isAvailable: () => ({ available: true }),
+          run: async (ctx) => {
+            ctx.openCreateWorkspace()
+            return { status: 'ok' }
+          }
+        } satisfies CmdJQuickAction
+      ]
+    : []),
   {
     id: 'delete-workspace',
     kind: 'action',

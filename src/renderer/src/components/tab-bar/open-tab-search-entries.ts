@@ -1,4 +1,5 @@
 import type { Repo } from '../../../../shared/repo-types'
+import { editionSupports } from '../../../../shared/edition'
 import type { Worktree } from '../../../../shared/worktree/types'
 import { buildSearchableBrowserPages } from '@/lib/browser-palette-page-entries'
 import type { SearchableBrowserPage } from '@/lib/browser-palette-search'
@@ -229,13 +230,15 @@ export function buildOpenTabSearchEntries(
       generatedTitlesEnabled: state.generatedTitlesEnabled
     }),
     browserPages: buildOpenTabSearchBrowserPages(state, scope),
-    simulatorTabs: buildSearchableSimulatorTabs({
-      ...scope,
-      unifiedTabsByWorktree: state.unifiedTabsByWorktree,
-      activeGroupIdByWorktree: state.activeGroupIdByWorktree,
-      groupsByWorktree: state.groupsByWorktree,
-      activeWorktreeId: state.activeWorktreeId,
-      activeTabType: state.activeTabType
-    })
+    simulatorTabs: editionSupports('emulators')
+      ? buildSearchableSimulatorTabs({
+          ...scope,
+          unifiedTabsByWorktree: state.unifiedTabsByWorktree,
+          activeGroupIdByWorktree: state.activeGroupIdByWorktree,
+          groupsByWorktree: state.groupsByWorktree,
+          activeWorktreeId: state.activeWorktreeId,
+          activeTabType: state.activeTabType
+        })
+      : []
   }
 }
