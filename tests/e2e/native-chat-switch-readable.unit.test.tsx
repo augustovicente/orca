@@ -1,6 +1,7 @@
 import { prepareReadableSwitchSource } from './helpers/native-chat-switch-readable-source'
 import { createRestTestRig } from '../../src/main/native-chat/agent-session-wire/structured-agent-session-rest-test-rig'
 import { HOST_TEST_SESSION } from '../../src/main/native-chat/agent-session-wire/structured-agent-session-host-test-data'
+import { parseAgentJournalItemKey } from '../../src/shared/agent-session-journal-item-key'
 import { setStructuredAgentSessionHost } from '../../src/main/native-chat/agent-session-wire/structured-agent-session-registry'
 import {
   setupMainOwnedWorkspace,
@@ -189,6 +190,11 @@ it.each(['readable'] as const)(
     if (!page.ok || !page.page.liveCursor) {
       throw new Error('missing imported history')
     }
+    expect(
+      page.page.items
+        .filter(({ body }) => body.kind === 'message')
+        .map(({ itemId }) => parseAgentJournalItemKey(itemId))
+    ).toEqual([expect.objectContaining({ provider: 'legacy', agent: 'codex', recordId: '#2' })])
     feed.cursor = page.page.liveCursor
     const read = Promise.withResolvers<AgentSessionHistoryResult>()
     mocks.call.mockImplementation(async (_target, method) => {

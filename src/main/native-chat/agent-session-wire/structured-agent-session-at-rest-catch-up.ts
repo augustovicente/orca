@@ -64,7 +64,7 @@ export async function catchUpStructuredSessionAtRest(input: {
   const stream = createReadStream(input.filePath, { signal: deadline.signal })
   for await (const { line } of splitTranscriptStreamLines(stream, 16 * 1024 * 1024)) {
     deadline.check()
-    const identity = tracker.identify(line, index++)
+    const currentLineIndex = index++
     const record = parseJsonObject(line)
     const payload = asRecord(record?.payload)
     if (record?.type === 'session_meta') {
@@ -123,10 +123,10 @@ export async function catchUpStructuredSessionAtRest(input: {
     if (!isCodexVisibleHistoryRecord(record, paginated)) {
       continue
     }
-    const message = decodeCodexTranscriptLine(line, `#${index - 1}`, { historyImport: true })
+    const message = decodeCodexTranscriptLine(line, `#${currentLineIndex}`, { historyImport: true })
     if (message) {
       retain({
-        identity,
+        identity: tracker.identify(line, currentLineIndex),
         body: legacyItemBody(message, LEGACY_IMPORT_BLOCK_LIMITS),
         ownerFence: 0,
         turnScope: {

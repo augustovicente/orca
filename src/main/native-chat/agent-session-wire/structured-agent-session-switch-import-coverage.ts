@@ -18,8 +18,11 @@ export function switchTranscriptNativeCoverage(input: {
   items: readonly JournalReplacementItem[]
   check: () => void
 }): ReadonlySet<string> {
-  const snapshot = input.journal.snapshot()
   const covered = new Set<string>()
+  if (!['claude', 'grok', 'opencode', 'opencode2'].includes(input.agent)) {
+    return covered
+  }
+  const snapshot = input.journal.snapshot()
   const segments: JournalReplacementItem[][] = []
   for (const item of input.items) {
     if (item.body.kind === 'message' && item.body.role === 'user') {
@@ -40,9 +43,6 @@ export function switchTranscriptNativeCoverage(input: {
         segment.forEach((item) => covered.add(agentJournalItemKey(item.identity)))
       }
     }
-    return covered
-  }
-  if (!['grok', 'opencode', 'opencode2'].includes(input.agent)) {
     return covered
   }
   const scope = {
