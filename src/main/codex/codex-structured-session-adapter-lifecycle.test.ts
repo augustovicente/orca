@@ -44,6 +44,12 @@ const USER_MESSAGE: AgentJournalMessageItem = {
   blocks: [{ type: 'text', text: 'ship it' }]
 }
 
+type PlanNotificationFixtureParams =
+  | { turn: { id: string } }
+  | { item: { type: 'plan'; id: string; text: string } }
+  | { itemId: string; delta: string }
+  | { turnId: string; item: { type: 'userMessage'; id: string; clientId: string } }
+
 type Route = (params: Record<string, unknown> | undefined) => unknown
 
 type FakeConnection = Omit<CodexAppServerConnection, 'closed'> & {
@@ -386,7 +392,7 @@ describe('acquired scheduled plan delivery', () => {
           connection.closeCount++
           return false
         }
-        const notify = (method: string, params: object) =>
+        const notify = (method: string, params: PlanNotificationFixtureParams) =>
           connection.handlers.onNotification?.(method, { threadId: THREAD_ID, ...params })
         notify('turn/started', { turn: { id: 'turn' } })
         notify('item/started', { item: { type: 'plan', id: 'plan', text: '' } })
@@ -563,7 +569,7 @@ it('retries an acquired plan after native drain without a notification head, the
       })
     ).resolves.toMatchObject({ state: 'admitted' })
     const connection = codex.connections[0]
-    const notify = (method: string, params: object) =>
+    const notify = (method: string, params: PlanNotificationFixtureParams) =>
       connection.handlers.onNotification?.(method, { threadId: THREAD_ID, ...params })
     notify('turn/started', { turn: { id: 'turn' } })
     await r.deferred.drained()
