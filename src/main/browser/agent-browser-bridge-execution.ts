@@ -106,7 +106,7 @@ export abstract class AgentBrowserBridgeExecution extends AgentBrowserBridgeTabs
         session.proxy.pointAtNextNode(false)
       }
     }
-    const translated = translateResult(stdout)
+    const translated = translateResult(stdout, execOptions)
 
     if (!translated.ok) {
       throw this.createCommandError(

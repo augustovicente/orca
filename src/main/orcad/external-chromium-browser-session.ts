@@ -200,7 +200,7 @@ export class ExternalChromiumBrowserSession {
     }
     let envelope: z.infer<typeof AgentBrowserEnvelope>
     try {
-      envelope = AgentBrowserEnvelope.parse(parseAgentBrowserJsonOutput(result.stdout))
+      envelope = AgentBrowserEnvelope.parse(parseAgentBrowserJsonOutput(result.stdout, options))
     } catch {
       const detail = result.stderr.trim() || `exit ${String(result.code)}`
       throw new BrowserError('browser_error', `Browser command failed: ${detail.slice(0, 1000)}`)

@@ -223,6 +223,18 @@ describe('AgentBrowserBridge', () => {
     ])
   })
 
+  it('returns a passthrough batch that stopped at its first step as that step', async () => {
+    // `batch --bail` whose first step fails replies with one entry, like Orca's own batches.
+    const reply =
+      '[{"command":["click","@e999"],"error":"Unknown ref: e999","result":null,"success":false}]'
+    answerAgentBrowserCommands(execFileMock, stdinWrites, (command, cb) =>
+      command[0] === 'batch' ? cb(new Error('Command failed'), reply, '') : cb(null, '{}', '')
+    )
+    await expect(bridge.exec('batch --bail "click @e999" "get url"')).resolves.toEqual([
+      { command: ['click', '@e999'], error: 'Unknown ref: e999', result: null, success: false }
+    ])
+  })
+
   it('ends stdin for passthrough commands so a bare batch does not wait for input', async () => {
     // Real agent-browser 0.39.4 reply to a batch whose stdin closed empty.
     const reply =

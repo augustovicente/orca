@@ -76,7 +76,7 @@ export abstract class AgentBrowserBridgeRawProcess extends AgentBrowserBridgeExe
             // Failed helpers can still return a structured error on stdout.
             if (stdout) {
               try {
-                const parsed = parseAgentBrowserJsonOutput(stdout)
+                const parsed = parseAgentBrowserJsonOutput(stdout, execOptions)
                 // A batch exits 1 when any step failed; its reply carries each step's outcome.
                 if (parsed.success) {
                   resolve(stdout)

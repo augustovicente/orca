@@ -11,14 +11,17 @@ export type AgentBrowserEnvelope = { success?: boolean; data?: unknown; error?: 
 
 type AgentBrowserBatchEntry = { result?: unknown }
 
-/** Parses --json output; a one-command batch reply becomes the single-command envelope. */
-export function parseAgentBrowserJsonOutput(stdout: string): AgentBrowserEnvelope {
+/** Parses --json output; Orca's own one-command batch reply becomes the single-command envelope. */
+export function parseAgentBrowserJsonOutput(
+  stdout: string,
+  { cliArgv = false }: { cliArgv?: boolean } = {}
+): AgentBrowserEnvelope {
   const parsed = JSON.parse(stdout)
   if (!Array.isArray(parsed)) {
     return withoutDaemonLifecycle(parsed)
   }
-  // Orca batches one command; a longer array is a passthrough `exec batch` reply whose steps report their own failures.
-  if (parsed.length !== 1) {
+  // An argv `batch` is the caller's own (`exec batch`); its steps report their own failures.
+  if (cliArgv) {
     return {
       success: true,
       data: parsed.map((entry: AgentBrowserBatchEntry) => ({
