@@ -9,7 +9,8 @@ import {
 } from '../../../shared/agent-session-wire-refusals'
 import {
   catchUpSwitchedCliTranscript,
-  type SwitchStoppedCliTurn
+  type SwitchStoppedCliTurn,
+  type SwitchTranscriptSource
 } from './structured-agent-session-switch-import'
 import { catchUpStructuredSessionAtRest } from './structured-agent-session-at-rest-catch-up'
 import type * as HostTypes from './structured-agent-session-host-types'
@@ -186,10 +187,8 @@ export function structuredAgentSessionSwitchSource(context: SwitchSourceContext)
     },
     refreshSwitchTranscript: async (
       sessionId: string,
-      source: {
-        sessionId: string
-        filePath: string
-        agent?: HostTypes.StructuredAgentSessionHostSession['params']['agent']
+      source: Omit<SwitchTranscriptSource, 'agent'> & {
+        agent?: SwitchTranscriptSource['agent']
       },
       deadline: AgentSessionSwitchDeadline,
       stopped?: SwitchStoppedCliTurn,

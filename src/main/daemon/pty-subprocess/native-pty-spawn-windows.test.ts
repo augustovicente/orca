@@ -1,3 +1,4 @@
+import '../mock-descendant-sweep'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { spawnNativeDaemonPty } from './native-pty-spawn'
 import { createDaemonPtySubprocessHandle } from './subprocess-handle'
@@ -17,7 +18,6 @@ const ptyJob = vi.hoisted(() => ({
 }))
 vi.mock('../../windows/windows-pty-job', () => ptyJob)
 
-import '../mock-descendant-sweep'
 import { TerminalHost } from '../terminal-host'
 import { TerminalSpawnGate } from '../terminal-spawn-gate'
 import { IMMEDIATE_KILL_PHYSICAL_EXIT_TIMEOUT_MS } from '../immediate-kill-reply-budget'
@@ -297,9 +297,7 @@ describe('Windows shell fallback over node-pty ConPTY', () => {
         spawnSubprocess: async (options) => {
           const work = new TerminalCreationWork()
           try {
-            trace('native-spawn:before')
             const spawned = await spawnNativeDaemonPty({ ...args, creationWork: work })
-            trace('native-spawn:after')
             return createDaemonPtySubprocessHandle({
               ...spawned,
               env: {},
@@ -309,33 +307,11 @@ describe('Windows shell fallback over node-pty ConPTY', () => {
               startupEvents: spawned.claimStartupEvents?.()
             })
           } finally {
-            trace('lower-finish:before')
             await work.finish()
-            trace('lower-finish:after')
-            let disposition: Awaited<typeof work.completion> | undefined
-            trace('lower-completion:before')
-            options.onCreationDisposition?.((disposition = await work.completion))
-            trace('lower-completion:after')
-            console.info('R110_H', outcome, 'lower-disposition', disposition?.kind)
-            trace('lower-reported')
+            options.onCreationDisposition?.(await work.completion)
           }
         }
       })
-      // Temporary scalar witnesses distinguish the original await from cleanup masking it.
-      const trace = (phase: string): void => {
-        console.info(
-          'R110_H',
-          outcome,
-          phase,
-          nodePty.spawn.mock.calls.length,
-          ptyJob.terminatePtyJob.mock.calls.length,
-          ptyJob.killConptyNow.mock.calls.length,
-          broken.exitSubscriberCount(),
-          gate.snapshot().terminals,
-          host.listSessions().length
-        )
-      }
-      trace('create:before')
       const creating = host.createOrAttach({
         sessionId: 'ordinary-conpty',
         cols: 80,
@@ -343,45 +319,24 @@ describe('Windows shell fallback over node-pty ConPTY', () => {
         streamClient: { onData() {}, onExit() {} }
       })
       const creationSettled = creating.then(
-        () => {
-          trace('create:fulfilled')
-          return null
-        },
-        (error: unknown) => {
-          trace('create:rejected')
-          return error
-        }
+        () => null,
+        (error: unknown) => error
       )
       try {
         if (outcome === 'observation-retry') {
-          trace('close-observation:before')
           await vi.waitFor(() => expect(ptyJob.killConptyNow).toHaveBeenCalledOnce())
-          trace('close-observation:after')
-          trace('creation-exit-budget:before')
           await vi.advanceTimersByTimeAsync(IMMEDIATE_KILL_PHYSICAL_EXIT_TIMEOUT_MS)
-          trace('creation-exit-budget:after')
-          trace('creation-rejection:before')
           expect(await creationSettled).toBeInstanceOf(Error)
-          trace('creation-rejection:after')
           expect(host.listSessions()).toEqual([])
           expect(gate.snapshot().terminals).toBe(1)
           // Let the automatic failed-create recovery also exhaust its bounded exit wait.
-          trace('recovery-exit-budget:before')
           await vi.advanceTimersByTimeAsync(IMMEDIATE_KILL_PHYSICAL_EXIT_TIMEOUT_MS)
-          trace('recovery-exit-budget:after')
           const requests = ptyJob.terminatePtyJob.mock.calls.length
           ptyJob.terminatePtyJob.mockImplementation(() => {
-            trace('observation-retry-job:request')
-            queueMicrotask(() => {
-              trace('observation-retry-job:exit-before')
-              broken.emitExit(137)
-              trace('observation-retry-job:exit-delivered')
-            })
+            queueMicrotask(() => broken.emitExit(137))
             return 'terminated'
           })
-          trace('observation-retry-dispose:before')
           await host.dispose()
-          trace('observation-retry-dispose:after')
           expect(ptyJob.terminatePtyJob.mock.calls.length).toBeGreaterThan(requests)
           expect(ptyJob.killConptyNow).toHaveBeenCalledOnce()
           expect(broken.kill).not.toHaveBeenCalled()
@@ -392,97 +347,61 @@ describe('Windows shell fallback over node-pty ConPTY', () => {
           expect(host.listSessions()).toEqual([])
           return
         }
-        trace('kill-observation:before')
         await vi.waitFor(() => expect(broken.kill).toHaveBeenCalledOnce())
-        trace('kill-observation:after')
         expect(nodePty.spawn).toHaveBeenCalledOnce()
         expect(host.listSessions()).toEqual([])
         if (outcome === 'physical-exit') {
           broken.emitExit(137)
-          trace('replacement-observation:before')
           await vi.waitFor(() => expect(nodePty.spawn).toHaveBeenCalledTimes(2))
-          trace('replacement-observation:after')
           replacement.emitData(CONPTY_PRELUDE)
         } else {
-          trace('startup-deadline:before')
           await vi.advanceTimersByTimeAsync(CONPTY_STARTUP_DECISION_LIMIT_MS)
-          trace('startup-deadline:after')
         }
-        trace('creating:before')
         const created = await creating
-        trace('creating:after')
         expect(created.isNew).toBe(true)
         expect(created.pid).toBe(outcome === 'physical-exit' ? replacement.pid : broken.pid)
         expect(nodePty.spawn).toHaveBeenCalledTimes(outcome === 'physical-exit' ? 2 : 1)
         expect(gate.snapshot().terminals).toBe(1)
         if (outcome === 'deadline') {
           ptyJob.terminatePtyJob.mockReturnValue('unavailable')
-          trace('first-dispose:start')
           const disposing = host.dispose().then(
-            () => {
-              trace('first-dispose:fulfilled')
-              return null
-            },
-            (error: unknown) => {
-              trace('first-dispose:rejected')
-              return error
-            }
+            () => null,
+            (error: unknown) => error
           )
-          trace('dispose-job-observation:before')
           await vi.waitFor(() =>
             expect(
               ptyJob.terminatePtyJob.mock.calls.filter(([proc]) => proc === broken).length
             ).toBeGreaterThan(1)
           )
-          trace('dispose-job-observation:after')
           expect(gate.snapshot().terminals).toBe(1)
           expect(host.listSessions()).toHaveLength(1)
-          trace('disposal-exit-budget:before')
           await vi.advanceTimersByTimeAsync(IMMEDIATE_KILL_PHYSICAL_EXIT_TIMEOUT_MS)
-          trace('disposal-exit-budget:after')
-          trace('disposal-rejection:before')
           expect(await disposing).toBeInstanceOf(Error)
-          trace('disposal-rejection:after')
           expect(gate.snapshot().terminals).toBe(1)
           expect(host.listSessions()).toHaveLength(1)
           // The same owner's force request must reach the now-available job after the timeout.
           const requests = ptyJob.terminatePtyJob.mock.calls.length
           ptyJob.terminatePtyJob.mockImplementation(() => {
-            trace('deadline-retry-job:request')
-            queueMicrotask(() => {
-              trace('deadline-retry-job:exit-before')
-              broken.emitExit(137)
-              trace('deadline-retry-job:exit-delivered')
-            })
+            queueMicrotask(() => broken.emitExit(137))
             return 'terminated'
           })
-          trace('retry-dispose:start')
           const retrying = host.dispose()
-          trace('retry-job-observation:before')
           await vi.waitFor(() =>
             expect(ptyJob.terminatePtyJob.mock.calls.length).toBeGreaterThan(requests)
           )
-          trace('retry-job-observation:after')
-          trace('retry-dispose:before')
           await retrying
-          trace('retry-dispose:after')
           expect(broken.kill).toHaveBeenCalledOnce()
           expect(broken.destroy).not.toHaveBeenCalled()
         } else {
-          trace('physical-exit-dispose:before')
           await host.dispose()
-          trace('physical-exit-dispose:after')
         }
         expect(gate.snapshot().terminals).toBe(0)
         expect(host.listSessions()).toEqual([])
         expect(process.kill).not.toHaveBeenCalled()
       } finally {
-        trace('finally:entered')
         broken.emitExit(137)
         replacement.emitExit(137)
-        trace('final-dispose:before')
         await host.dispose()
-        trace('final-dispose:after')
       }
     }
   )

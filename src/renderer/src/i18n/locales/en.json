@@ -20082,6 +20082,7 @@
           "showAsTerminal": "Show as terminal"
         },
         "switch": {
+          "legacyCopy": "A copy of this {{agent}} conversation opens in a new terminal. The original chat stays open.",
           "toCli": "Switch to CLI",
           "toNativeChat": "Switch to native chat",
           "toCliTooltip": "Switch to CLI: stops {{agent}} in native chat and continues the same conversation in a terminal.",

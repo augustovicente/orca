@@ -1,6 +1,7 @@
 import { retainStructuredSwitchSource } from './structured-agent-session-switch-retention'
 import { structuredSessionSwitchFailure } from './structured-agent-session-switch-failure'
 import {
+  captureStructuredSwitchWorkCheck,
   prepareStructuredSessionSwitch,
   requireStructuredSwitchRecord
 } from './structured-agent-session-switch-preparation'
@@ -35,6 +36,7 @@ import { agentLaunchMovesHostWindow } from './agent-launch-tab-publication'
 import { interruptWorkingAgent } from '../../terminal-agent-interrupt'
 import { mainAgentState } from '../../../../shared/main-agent-status'
 import { captureSwitchStoppedCliTurn } from '../../../native-chat/agent-session-wire/structured-agent-session-switch-import'
+import { worktreeIdsEqual } from '../../../../shared/worktree/id'
 export async function executeStructuredSessionSwitch(
   params: z.infer<typeof SwitchToChatParams> | z.infer<typeof SwitchToTerminalParams>,
   ctx: RpcContext,
@@ -44,7 +46,8 @@ export async function executeStructuredSessionSwitch(
   let sessionId = params.sessionId
   const selectionCurrent = ctx.runtime.captureSessionSwitchSelection(
     undefined,
-    params.execution?.viewerSelection
+    params.execution?.viewerSelection,
+    true
   )
   let commandOwned = false
   const operation = (async (): Promise<AgentSessionSwitchResult> => {
@@ -109,7 +112,8 @@ export async function executeStructuredSessionSwitch(
           ? {
               agent: create!.agent,
               sessionId: adopt.providerHandle.nativeId,
-              filePath: adopt.transcriptPath
+              filePath: adopt.transcriptPath,
+              source: adopt.source
             }
           : retainedSource?.cliForkSource
         const stopped = before
@@ -184,20 +188,7 @@ export async function executeStructuredSessionSwitch(
           await host.adoptSwitch(conversation?.commandKey ?? params.sessionId, sessionId)
         }
         const record = requireStructuredSwitchRecord(host, sessionId)
-        const workCurrent = host.captureSwitchWork(sessionId, deadline)
-        const check = () => {
-          deadline.check()
-          if (!workCurrent()) {
-            host.deps.logger.warn('switch destination was superseded by newer work', {
-              scope: 'session-switch',
-              sessionId,
-              direction
-            })
-            throw agentSessionRefusalError('agent_session_operation_invalid', {
-              reason: 'messagesUnsettled'
-            })
-          }
-        }
+        const check = captureStructuredSwitchWorkCheck(host, sessionId, deadline, direction)
         if (
           source ||
           nativeConversationContent(await host.journalSnapshot(sessionId)) === 'saved'
@@ -229,7 +220,10 @@ export async function executeStructuredSessionSwitch(
         if (!revealed.readable && revealed.openRefusal) {
           throw new AgentSessionRefusalError(revealed.openRefusal)
         }
-        const placement = (close ? close.placement() : create?.tabPlacement) ?? {}
+        const replaceSource =
+          close && worktreeIdsEqual(close.source.worktreeId, record.location.workspaceId)
+        const placement =
+          (replaceSource ? close.placement() : close ? undefined : create?.tabPlacement) ?? {}
         await ctx.runtime.publishStructuredAgentSessionTab({
           ...revealed,
           activate: true,
@@ -244,11 +238,11 @@ export async function executeStructuredSessionSwitch(
             placement,
             activate: true,
             viewerSelection: execution.viewerSelection,
-            ...(close ? { source: close.source } : {})
+            ...(replaceSource ? { source: close.source } : {})
           }
         })
         deadline.check()
-        if (close) {
+        if (replaceSource) {
           await close.retire()
         }
         deadline.check()
@@ -263,8 +257,15 @@ export async function executeStructuredSessionSwitch(
       },
       {
         direction,
+        onAccepted: selectionCurrent.accept,
         conversationKey: conversation?.commandKey,
         allowUncreated: Boolean(create),
+        destinationCurrent: (result) => {
+          const record = host.deps.store.getRecord(result.sessionId)
+          return record
+            ? ctx.runtime.currentSessionSwitchDestination(record.location.workspaceId, result)
+            : undefined
+        },
         onRetained:
           direction === 'terminal'
             ? (check) =>

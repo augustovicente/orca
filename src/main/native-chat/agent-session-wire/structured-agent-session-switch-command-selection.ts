@@ -38,6 +38,8 @@ export function selectStructuredSessionSwitchCommand(args: {
   onRetained?: (check: () => void) => Promise<void>
   allowUncreated?: boolean
   conversationKey?: string
+  destinationCurrent?: (result: AgentSessionSwitchResult) => boolean | undefined
+  onAccepted?: () => void
 }): SwitchCommand {
   const { host, commands, isDisposed, id, invocationId, direction, deadline, run, onRetained } =
     args
@@ -46,15 +48,27 @@ export function selectStructuredSessionSwitchCommand(args: {
   const prior =
     (args.conversationKey ? commands.get(args.conversationKey) : undefined) ?? commands.get(id)
   if (prior) {
-    if (
-      prior.invocationId === invocationId ||
-      (prior.direction === direction &&
-        (!prior.settled ||
-          (prior.result?.status === 'completed' &&
-            prior.deadline.remaining() > 0 &&
-            !prior.deadline.signal.aborted &&
-            (!prior.workCurrent || prior.workCurrent()))))
-    ) {
+    const replay = prior.invocationId === invocationId
+    const join = prior.direction === direction && !prior.settled
+    const completed =
+      !replay &&
+      !join &&
+      prior.direction === direction &&
+      prior.settled &&
+      prior.result?.status === 'completed'
+    const destinationCurrent = completed ? args.destinationCurrent?.(prior.result!) : undefined
+    if (completed && destinationCurrent === undefined) {
+      throw agentSessionRefusalError('agent_session_ownership_unknown', {
+        reason: 'ownerUnproven'
+      })
+    }
+    const reusable =
+      completed &&
+      destinationCurrent === true &&
+      prior.deadline.remaining() > 0 &&
+      !prior.deadline.signal.aborted &&
+      (!prior.workCurrent || prior.workCurrent())
+    if (replay || join || reusable) {
       commands.set(id, prior)
       if (args.conversationKey) {
         commands.set(args.conversationKey, prior)
@@ -78,6 +92,7 @@ export function selectStructuredSessionSwitchCommand(args: {
   if (!host.context().deps.store.getRecord(id) && !args.allowUncreated) {
     throw new AgentSessionRefusalError(AGENT_SESSION_NOT_ATTACHED)
   }
+  args.onAccepted?.()
   const command: SwitchCommand = {
     invocationId,
     generation: invocationId,

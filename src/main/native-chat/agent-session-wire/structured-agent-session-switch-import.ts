@@ -5,8 +5,10 @@ import {
   usablePiHistoryClaim
 } from '../../pi/rpc-history-journal-view'
 import { createHash } from 'node:crypto'
+import { join } from 'node:path'
 import type { AgentType } from '../../../shared/agent-status-types'
-type SwitchTranscriptSource = { agent: AgentType; sessionId: string; filePath: string }
+import { getSystemCodexHomePath } from '../../codex/codex-home-paths'
+import type { AdoptedTranscriptSource } from '../agent-session-journal/adopted-transcript-source'
 import { agentJournalItemKey } from '../../../shared/agent-session-journal-item-key'
 import { AGENT_JOURNAL_THREAD_SCOPE } from '../../../shared/agent-session-journal-types'
 import { agentSessionRefusalError } from '../../../shared/agent-session-wire-refusals'
@@ -14,6 +16,14 @@ import type { AgentSessionSwitchDeadline } from '../../../shared/agent-session-s
 import type { AgentSessionJournal } from '../agent-session-journal/journal-store'
 import { prepareLegacyTranscriptImport } from '../agent-session-journal/journal-legacy-import'
 import type { JournalReplacementItem } from '../agent-session-journal/journal-epoch-replacement'
+
+export type SwitchTranscriptSource = {
+  agent: AgentType
+  sessionId: string
+  filePath: string
+  codexHome?: string | null
+  source?: AdoptedTranscriptSource
+}
 
 export type SwitchStoppedCliTurn = {
   sessionId: string
@@ -31,7 +41,13 @@ async function prepare(
     agent: source.agent,
     piAfterEntry,
     sessionId: source.sessionId,
-    options: { filePath: source.filePath }
+    options: {
+      filePath: source.filePath,
+      source: source.source,
+      ...(source.agent === 'codex' && source.codexHome !== undefined
+        ? { codexSessionsDirs: [join(source.codexHome ?? getSystemCodexHomePath(), 'sessions')] }
+        : {})
+    }
   })
   deadline.check()
   if (!prepared.ok) {

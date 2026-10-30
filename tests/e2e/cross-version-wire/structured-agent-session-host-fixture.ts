@@ -1,4 +1,5 @@
 import { vi } from 'vitest'
+import type { Mock } from 'vitest'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -21,11 +22,12 @@ import {
   STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY
 } from '../../../src/shared/protocol-version'
 
+type StructuredHostCalls = Record<string, ReturnType<typeof vi.fn>> & {
+  getRecord: Mock<(sessionId: string) => AgentSessionRecord | null>
+}
+
 // Use per-method spies so every skew can prove which call reached the host.
-export function structuredHostStub(
-  sessionId: string,
-  workspaceId: string
-): Record<string, ReturnType<typeof vi.fn>> {
+export function structuredHostStub(sessionId: string, workspaceId: string): StructuredHostCalls {
   return {
     getRecord: vi.fn<(sessionId: string) => AgentSessionRecord | null>(() => null),
     switchToTerminal: vi.fn<StructuredAgentSessionHost['switchToTerminal']>(async () => undefined),
@@ -135,9 +137,7 @@ export function structuredHostStub(
 }
 
 // Install the nested host shape, but assert against the flat spy map.
-export function installableHost(
-  hostCalls: Record<string, ReturnType<typeof vi.fn>>
-): StructuredAgentSessionHost {
+export function installableHost(hostCalls: StructuredHostCalls): StructuredAgentSessionHost {
   const host = {
     ...hostCalls,
     // The catalog read checks the session's record for a floating chat's own folder; none here.

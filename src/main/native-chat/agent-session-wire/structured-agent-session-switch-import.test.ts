@@ -1,7 +1,8 @@
-import { mkdtemp, rm, writeFile, readFile, copyFile } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile, readFile, copyFile, mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { writeCodexHistoryFixture } from '../agent-session-journal/codex-history-test-fixture'
 import { agentSessionSwitchDeadline } from '../../../shared/agent-session-switch-execution'
 import {
   claudeProviderHandle,
@@ -169,5 +170,84 @@ it.each([
     const final = completed.snapshot()
     await catchUpSwitchedCliTranscript({ journal: completed, source, fence: 1, deadline, stopped })
     expect(completed.snapshot()).toEqual(final)
+  }
+)
+
+it.each(['adopted-active', 'retained-archive'] as const)(
+  'keeps account-qualified paginated ancestry through capture and final refresh: %s',
+  async (route) => {
+    const sessions = join(root, 'account', 'sessions')
+    const archive = join(root, 'account', 'archived_sessions')
+    await mkdir(sessions, { recursive: true })
+    await mkdir(archive)
+    const parentId = '01a17c7f-6f58-7a73-b87a-a8702ff2da17'
+    const childId = '01a17c81-30d1-72f0-b84e-002ddfe6fd47'
+    const parent = await writeCodexHistoryFixture(
+      route === 'retained-archive' ? archive : sessions,
+      parentId,
+      ['prior completed']
+    )
+    const child = await writeCodexHistoryFixture(sessions, childId, ['current'], parent.position)
+    const source = {
+      agent: 'codex' as const,
+      sessionId: childId,
+      filePath: child.filePath,
+      ...(route === 'adopted-active'
+        ? {
+            source: { providerSessionId: childId, workspaceCwd: root, conversationStore: sessions }
+          }
+        : { codexHome: join(root, 'account') })
+    }
+    const stopped = await captureSwitchStoppedCliTurn(source, true, deadline)
+    expect(stopped).toMatchObject({ sessionId: childId })
+    const journal = await journals.open({
+      ...options(),
+      identity: { ...options().identity, providerHandle: codexProviderHandle(childId) }
+    })
+    expect(
+      await importLegacyTranscriptIntoJournal({
+        journal,
+        agent: 'codex',
+        sessionId: childId,
+        fence: 1,
+        options: { filePath: child.filePath, codexSessionsDirs: [sessions] }
+      })
+    ).toMatchObject({ ok: true, replaced: true })
+    const messages = journal.snapshot().items
+    expect(
+      messages.filter(({ body }) => body.kind === 'message').map(({ body }) => body)
+    ).toMatchObject([
+      { blocks: [{ text: 'prior completed' }] },
+      { blocks: [{ text: 'prior completed answer' }] },
+      { blocks: [{ text: 'current' }] },
+      { blocks: [{ text: 'current answer' }] }
+    ])
+    await catchUpSwitchedCliTranscript({ journal, source, fence: 1, deadline, stopped })
+    expect(journal.snapshot().items.filter(({ body }) => body.kind !== 'turn')).toEqual(messages)
+    expect(
+      journal
+        .snapshot()
+        .items.filter(({ body }) => body.kind === 'turn')
+        .map(({ body }) => body)
+    ).toEqual([expect.objectContaining({ state: 'interrupted', turnId: stopped!.turnId })])
+    const refreshed = journal.snapshot()
+    await catchUpSwitchedCliTranscript({ journal, source, fence: 1, deadline })
+    expect(journal.snapshot()).toEqual(refreshed)
+    await expect(
+      captureSwitchStoppedCliTurn(
+        {
+          ...source,
+          source: undefined,
+          codexHome: join(root, 'wrong-account')
+        },
+        true,
+        deadline
+      )
+    ).rejects.toMatchObject({
+      refusal: {
+        code: 'agent_session_identity_required',
+        details: { reason: 'transcriptUnreadable' }
+      }
+    })
   }
 )

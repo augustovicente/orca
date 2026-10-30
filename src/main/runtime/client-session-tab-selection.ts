@@ -23,25 +23,36 @@ export class ClientSessionTabSelectionStore {
   private persistListener: ((state: PersistedMobileClientTabSelections) => void) | null = null
 
   private hostNavigationRevision = 0
-  private hostSelectionRequest = 0
+  private hostSelectionRequest = { issued: 0, accepted: 0 }
 
   /** Only explicit host-target navigation supersedes the host's delayed selection. */
   noteHostNavigation(): void {
     this.hostNavigationRevision++
   }
 
-  captureHostSelection(): (consume?: boolean) => boolean {
+  captureHostSelection(deferAcceptance = false) {
     const revision = this.hostNavigationRevision
-    const request = ++this.hostSelectionRequest
+    const request = ++this.hostSelectionRequest.issued
     let pending = true
-    return (consume = false) => {
-      const current =
-        pending && revision === this.hostNavigationRevision && request === this.hostSelectionRequest
-      if (current && consume) {
-        pending = false
-      }
-      return current
+    const accept = () => {
+      this.hostSelectionRequest.accepted = Math.max(this.hostSelectionRequest.accepted, request)
     }
+    if (!deferAcceptance) {
+      accept()
+    }
+    return Object.assign(
+      (consume = false) => {
+        const current =
+          pending &&
+          revision === this.hostNavigationRevision &&
+          request === this.hostSelectionRequest.accepted
+        if (current && consume) {
+          pending = false
+        }
+        return current
+      },
+      { accept }
+    )
   }
 
   // Persist across host restart so phones do not snap back to the first tab.

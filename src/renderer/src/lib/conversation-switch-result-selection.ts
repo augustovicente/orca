@@ -2,7 +2,11 @@ import type { AgentSessionSwitchResult } from '../../../shared/agent-session-swi
 import type { RuntimeClientTarget } from '../../../shared/runtime-client-target'
 import { toWebTerminalSurfaceTabId } from '../../../shared/terminal-surface-id'
 import { refreshWebRuntimeSessionTabsSnapshot } from '@/runtime/web-runtime-session-snapshot'
-import { activateStructuredAgentSessionById } from './agent-session/structured-agent-session-tab-activation'
+import {
+  activateStructuredAgentSessionById,
+  findStructuredAgentSessionTab
+} from './agent-session/structured-agent-session-tab-activation'
+import { useAppStore } from '@/store'
 import { presentAgentLaunchTab } from './agent-launch-tab-presentation'
 import { conversationSwitchViewerSelectionCurrent } from './conversation-switch-selection'
 import type { ConversationSwitch } from './conversation-switch-state'
@@ -14,7 +18,14 @@ export async function presentConversationSwitchResult(
   result: Extract<AgentSessionSwitchResult, { status: 'completed' }>,
   viewerSelection: string
 ): Promise<void> {
-  await refreshWebRuntimeSessionTabsSnapshot(target.environmentId, args.workspaceId, {
+  const workspaceId =
+    (args.direction === 'chat'
+      ? findStructuredAgentSessionTab(useAppStore.getState().unifiedTabsByWorktree, {
+          sessionId: result.sessionId,
+          target
+        })?.worktreeId
+      : undefined) ?? args.workspaceId
+  await refreshWebRuntimeSessionTabsSnapshot(target.environmentId, workspaceId, {
     acceptCurrentSnapshot: true,
     afterCurrentInFlight: true
   }).catch(() => {})
@@ -23,7 +34,7 @@ export async function presentConversationSwitchResult(
   }
   if (args.direction === 'chat') {
     activateStructuredAgentSessionById({
-      worktreeId: args.workspaceId,
+      worktreeId: workspaceId,
       sessionId: result.sessionId,
       target,
       callerOnly: true,

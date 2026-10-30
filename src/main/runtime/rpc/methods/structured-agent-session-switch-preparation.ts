@@ -99,3 +99,25 @@ export function requireStructuredSwitchRecord(host: StructuredAgentSessionHost, 
   }
   return record
 }
+
+export function captureStructuredSwitchWorkCheck(
+  host: StructuredAgentSessionHost,
+  sessionId: string,
+  deadline: AgentSessionSwitchDeadline,
+  direction: 'chat' | 'terminal'
+): () => void {
+  const workCurrent = host.captureSwitchWork(sessionId, deadline)
+  return () => {
+    deadline.check()
+    if (!workCurrent()) {
+      host.deps.logger.warn('switch destination was superseded by newer work', {
+        scope: 'session-switch',
+        sessionId,
+        direction
+      })
+      throw agentSessionRefusalError('agent_session_operation_invalid', {
+        reason: 'messagesUnsettled'
+      })
+    }
+  }
+}

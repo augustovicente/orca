@@ -15,19 +15,28 @@ import type { Tab } from '../../../../shared/tab-types'
 
 export function findStructuredAgentSessionTab(
   unifiedTabsByWorktree: Readonly<Record<string, readonly Tab[]>>,
-  args: { workspaceId: string; sessionId: string; target?: RuntimeClientTarget }
+  args: { sessionId: string } & (
+    | { workspaceId: string; target?: RuntimeClientTarget }
+    | { workspaceId?: undefined; target: RuntimeClientTarget }
+  )
 ): Tab | null {
-  return (
-    unifiedTabsByWorktree[args.workspaceId]?.find(
+  const workspaceIds =
+    args.workspaceId === undefined ? Object.keys(unifiedTabsByWorktree) : [args.workspaceId]
+  for (const workspaceId of workspaceIds) {
+    const tab = unifiedTabsByWorktree[workspaceId]?.find(
       (candidate) =>
-        candidate.worktreeId === args.workspaceId &&
+        candidate.worktreeId === workspaceId &&
         candidate.contentType === 'agent-session' &&
         candidate.entityId === args.sessionId &&
         (!args.target ||
           structuredAgentSessionOwnerForTab(useAppStore.getState(), candidate) ===
             executionHostIdForStructuredTarget(args.target))
-    ) ?? null
-  )
+    )
+    if (tab) {
+      return tab
+    }
+  }
+  return null
 }
 
 export function activateStructuredAgentSessionTab(args: {

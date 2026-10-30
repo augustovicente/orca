@@ -34,22 +34,29 @@ export function createStructuredAgentSessionSwitchCommands(
           direction: SwitchCommand['direction']
           onRetained?: (check: () => void) => Promise<void>
           allowUncreated?: boolean
+          destinationCurrent?: (result: AgentSessionSwitchResult) => boolean | undefined
+          onAccepted?: () => void
         }
       ): Promise<AgentSessionSwitchResult> => {
-        const selected = await deadline.wait(
-          host.serialize(options.conversationKey ?? id, async () =>
-            selectStructuredSessionSwitchCommand({
-              host,
-              commands,
-              isDisposed,
-              id,
-              invocationId,
-              deadline,
-              run,
-              ...options
-            })
+        const selected = await deadline
+          .wait(
+            host.serialize(options.conversationKey ?? id, async () =>
+              selectStructuredSessionSwitchCommand({
+                host,
+                commands,
+                isDisposed,
+                id,
+                invocationId,
+                deadline,
+                run,
+                ...options
+              })
+            )
           )
-        )
+          .catch((error: unknown) => {
+            deadline.dispose()
+            throw error
+          })
         if (selected.deadline !== deadline) {
           deadline.dispose()
         }

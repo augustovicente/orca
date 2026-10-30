@@ -76,12 +76,13 @@ export abstract class OrcaRuntimeWithRestoreStructuredAgentSessionTabsOnce exten
 
   captureSessionSwitchSelection(
     _worktreeId?: string,
-    viewerSelection?: string
-  ): (consume?: boolean) => boolean {
+    viewerSelection?: string,
+    deferAcceptance = false
+  ) {
     // A window request is transported to its viewer; it grants no host-view authority.
     return viewerSelection !== undefined
-      ? () => false
-      : this.clientSessionTabSelections.captureHostSelection()
+      ? Object.assign((_consume = false) => false, { accept: () => {} })
+      : this.clientSessionTabSelections.captureHostSelection(deferAcceptance)
   }
 
   async publishStructuredAgentSessionTab(input: {
