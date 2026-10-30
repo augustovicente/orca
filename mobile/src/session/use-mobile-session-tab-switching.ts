@@ -39,24 +39,6 @@ export function useMobileSessionTabSwitching(scope: MobileSessionKeyboardStateMo
     },
     [showToast]
   )
-  const activateTab = useCallback(
-    (tabId: string) =>
-      client
-        ? activateMobileSessionTab(client, {
-            worktree: `id:${worktreeId}`,
-            tabId,
-            notifyClients: false,
-            navigation: 'caller',
-            intent: 'user'
-          })
-            .then((response) => {
-              reportActivation(response)
-              return response.ok
-            })
-            .catch(() => false)
-        : Promise.resolve(false),
-    [client, worktreeId, reportActivation]
-  )
   // Why: unsubscribe restores old dims (clears phone-fit banner); resubscribe phone-fits the new one.
   const switchTab = useCallback(
     (handle: string) => {
@@ -80,10 +62,22 @@ export function useMobileSessionTabSwitching(scope: MobileSessionKeyboardStateMo
         unsubscribeTerminal(handle)
       }
       subscribeToTerminal(handle)
-      return matchingTab ? activateTab(matchingTab.id) : Promise.resolve(false)
+      if (client) {
+        if (matchingTab) {
+          void activateMobileSessionTab(client, {
+            worktree: `id:${worktreeId}`,
+            tabId: matchingTab.id,
+            notifyClients: false,
+            navigation: 'caller',
+            intent: 'user'
+          })
+            .then(reportActivation)
+            .catch(() => {})
+        }
+      }
     },
     [
-      activateTab,
+      client,
       defaultTerminalHandlesToLiveInput,
       reportActivation,
       sessionTabs,
@@ -100,7 +94,8 @@ export function useMobileSessionTabSwitching(scope: MobileSessionKeyboardStateMo
       }
       if (tab.type === 'terminal') {
         if (typeof tab.terminal === 'string') {
-          return switchTab(tab.terminal)
+          switchTab(tab.terminal)
+          return
         }
         terminalDiagnosticsRef.current.tabSwitch('terminal', tab.id, true)
         triggerSelection()
@@ -113,7 +108,18 @@ export function useMobileSessionTabSwitching(scope: MobileSessionKeyboardStateMo
         }
         activeHandleRef.current = null
         setActiveHandle(null)
-        return activateTab(tab.id)
+        if (client) {
+          void activateMobileSessionTab(client, {
+            worktree: `id:${worktreeId}`,
+            tabId: tab.id,
+            notifyClients: false,
+            navigation: 'caller',
+            intent: 'user'
+          })
+            .then(reportActivation)
+            .catch(() => {})
+        }
+        return
       }
 
       triggerSelection()
@@ -127,28 +133,37 @@ export function useMobileSessionTabSwitching(scope: MobileSessionKeyboardStateMo
       }
       activeHandleRef.current = null
       setActiveHandle(null)
-      const activation = activateTab(tab.id)
+      if (client) {
+        void activateMobileSessionTab(client, {
+          worktree: `id:${worktreeId}`,
+          tabId: tab.id,
+          notifyClients: false,
+          navigation: 'caller',
+          intent: 'user'
+        })
+          .then(reportActivation)
+          .catch(() => {})
+      }
       if (tab.type === 'browser') {
-        return activation
+        return
       }
       if (tab.type === 'file') {
         void readFileTab(tab)
-        return activation
+        return
       }
       if (tab.type === 'agent-session') {
-        return activation
+        return
       }
       const cached = markdownDocs.get(tab.id)
       if (cached?.status === 'ready' && cached.isDirty) {
-        return activation
+        return
       }
       // Revisit rereads clean desktop saves because tab snapshots lack a reliable document version; preserve phone drafts.
       void readMarkdownTab(tab)
-      return activation
     },
     [
       activeSessionTabId,
-      activateTab,
+      client,
       fileDocs,
       markdownDocs,
       readFileTab,

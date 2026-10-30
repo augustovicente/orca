@@ -1,3 +1,4 @@
+import { parseOrcaSessionAddress } from '../../../src/shared/orca-session-address'
 import { createElement } from 'react'
 import { act, create, type ReactTestRenderer } from 'react-test-renderer'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -63,7 +64,7 @@ const refused = (code: string): RpcResponse => ({
 const chat: MobileSessionTab = {
   type: 'agent-session',
   id: 'agent-session:live',
-  sessionId: 'live',
+  sessionId: 'live-session',
   agent: 'codex',
   title: 'Worker',
   isActive: false
@@ -228,11 +229,11 @@ it('uses record authority, passive caller reveal and actual destination inventor
   const send = vi.fn(async (method: string) =>
     reply(
       method === 'orchestration.partyLocation'
-        ? { location: { kind: 'chat', sessionId: 'live', worktreeId: 'stale' } }
+        ? { location: { kind: 'chat', sessionId: 'live-session', worktreeId: 'stale' } }
         : method === 'agentSession.reveal'
           ? {
               ok: true,
-              sessionId: 'live',
+              sessionId: 'live-session',
               workspaceId: 'destination',
               agent: 'codex',
               readable: false
@@ -254,12 +255,12 @@ it('uses record authority, passive caller reveal and actual destination inventor
   ])
   expect(send.mock.calls[1]).toEqual([
     'agentSession.reveal',
-    { sessionId: 'live', navigation: 'caller' },
+    { sessionId: 'live-session', navigation: 'caller' },
     expect.objectContaining({ timeoutMs: expect.any(Number), budgetSpansConnect: true })
   ])
   expect(h.navigate).toHaveBeenCalledWith(
     'destination',
-    structuredAgentSessionPaneKey(chat.id, 'live')
+    structuredAgentSessionPaneKey(chat.id, 'live-session')
   )
   act(() => bridge.listener({ ...bridge.route!, params: {} }))
   expect(h.selected).not.toHaveBeenCalled()
@@ -299,14 +300,18 @@ it.each(['forbidden', 'method_not_found'])(
       senders: [
         {
           ...from.senders[0],
-          party: { address: 'orca:root', orcaSessionId: 'live', terminalHandle: null }
+          party: {
+            address: 'orca:root',
+            orcaSessionId: parseOrcaSessionAddress('orca_session_id:live-session'),
+            terminalHandle: null
+          }
         }
       ]
     }
     await act(async () => h.open(chatFrom))
     expect(h.navigate).toHaveBeenLastCalledWith(
       'destination',
-      structuredAgentSessionPaneKey(chat.id, 'live')
+      structuredAgentSessionPaneKey(chat.id, 'live-session')
     )
     expect(send.mock.calls.some(([method]) => method === 'agentSession.reveal')).toBe(false)
   }
@@ -318,7 +323,7 @@ it('uses resolved live identity after a strict old reveal refusal, not the root 
       ? refused('invalid_argument')
       : reply(
           method === 'orchestration.partyLocation'
-            ? { location: { kind: 'chat', sessionId: 'live', worktreeId: 'stale' } }
+            ? { location: { kind: 'chat', sessionId: 'live-session', worktreeId: 'stale' } }
             : { snapshots: [{ worktree: 'destination', tabs: [chat] }] }
         )
   )
@@ -326,7 +331,7 @@ it('uses resolved live identity after a strict old reveal refusal, not the root 
   await act(async () => h.open())
   expect(h.navigate).toHaveBeenCalledWith(
     'destination',
-    structuredAgentSessionPaneKey(chat.id, 'live')
+    structuredAgentSessionPaneKey(chat.id, 'live-session')
   )
   expect(send.mock.calls.filter(([method]) => method === 'agentSession.reveal')).toHaveLength(1)
 })
@@ -393,7 +398,9 @@ it('budgets connection and response stages against one attempt deadline and reti
   const h = mount(send)
   h.open()
   expect(send.mock.calls[0][2]).toEqual({ timeoutMs: 5000, budgetSpansConnect: true })
-  await act(async () => vi.advanceTimersByTimeAsync(5000))
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(5000)
+  })
   expect(h.toast).toHaveBeenCalledOnce()
   h.open()
   expect(send).toHaveBeenCalledTimes(2)
@@ -405,11 +412,11 @@ it('reports destination activation failure once through the real receiving switc
       ? refused('unavailable')
       : reply(
           method === 'orchestration.partyLocation'
-            ? { location: { kind: 'chat', sessionId: 'live', worktreeId: 'destination' } }
+            ? { location: { kind: 'chat', sessionId: 'live-session', worktreeId: 'destination' } }
             : method === 'agentSession.reveal'
               ? {
                   ok: true,
-                  sessionId: 'live',
+                  sessionId: 'live-session',
                   workspaceId: 'destination',
                   agent: 'codex',
                   readable: true

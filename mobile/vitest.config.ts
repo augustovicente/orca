@@ -11,7 +11,7 @@ export default defineConfig({
     // A faithful Node stand-in for the native module, rather than a mock in every test that reaches it.
     alias: [
       {
-        find: /(?:^|\/)mobile-agent-icon-assets$/,
+        find: /^\.\/mobile-agent-icon-assets$/,
         replacement: fileURLToPath(
           new URL('./src/test-support/mobile-agent-icon-assets-node.ts', import.meta.url)
         )

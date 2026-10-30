@@ -59,7 +59,10 @@ vi.mock('lucide-react-native', () => ({
   Wrench: 'Wrench',
   Terminal: 'Terminal'
 }))
-export const proseRenders = vi.hoisted(() => ({ count: 0 }))
+const proseRenders = vi.hoisted(() => ({ count: 0 }))
+export function proseRenderCount() {
+  return proseRenders.count
+}
 vi.mock('../../../components/MobileMarkdown', async () => {
   const React = await import('react')
   return {

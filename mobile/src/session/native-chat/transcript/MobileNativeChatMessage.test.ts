@@ -1,3 +1,4 @@
+import './mobile-agent-message-renderer.test-fixture'
 import { stubRpcClient } from '../../../transport/rpc-client-test-stub'
 import { createElement } from 'react'
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer'
@@ -18,8 +19,6 @@ import {
   agentMessageSenderLabel
 } from '../../../../../src/shared/agent-session/agent-message-presentation'
 import type { AgentMessageSource } from '../../../../../src/shared/agent-session/agent-session-message-source'
-
-import './mobile-agent-message-renderer.test-fixture'
 
 import { MobileNativeChatMessage } from './MobileNativeChatMessage'
 import {

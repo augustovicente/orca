@@ -1,7 +1,8 @@
 import { createElement } from 'react'
+import { parseOrcaSessionAddress } from '../../../../../src/shared/orca-session-address'
 import { act, create, type ReactTestRenderer } from 'react-test-renderer'
 import { describe, expect, it, vi } from 'vitest'
-import { proseRenders } from './mobile-agent-message-renderer.test-fixture'
+import { proseRenderCount } from './mobile-agent-message-renderer.test-fixture'
 import { MobileNativeChatMessage } from './MobileNativeChatMessage'
 import * as senderSelection from './mobile-agent-message-context'
 import { MobileAgentMessageProvider } from './MobileAgentMessageProvider'
@@ -95,7 +96,11 @@ describe('phone sender provider', () => {
         senders: [
           {
             name: 'Snapshot chat',
-            party: { address: 'orca:visible', orcaSessionId: 'visible', terminalHandle: null }
+            party: {
+              address: 'orca:visible',
+              orcaSessionId: parseOrcaSessionAddress('orca_session_id:visible-chat'),
+              terminalHandle: null
+            }
           }
         ]
       }
@@ -105,19 +110,23 @@ describe('phone sender provider', () => {
           message: { ...userMessage([{ type: 'text', text: 'body' }]), id: 'visible', from: named }
         })
       )
-      const draw = (rows = tabs, records = terminals) =>
-        createElement(
-          MobileAgentMessageProvider,
-          { tabs: rows, terminals: records, scopeKey: 'host/workspace', open },
-          cards
-        )
+      const draw = (rows = tabs, records = terminals) => (
+        <MobileAgentMessageProvider
+          tabs={rows}
+          terminals={records}
+          scopeKey="host/workspace"
+          open={open}
+        >
+          {cards}
+        </MobileAgentMessageProvider>
+      )
       try {
         act(() => {
           renderer = create(draw())
         })
         expect(tabReads).toBe(3 * count)
         expect(identityReads).toBe(count)
-        const bodyRenders = proseRenders.count
+        const bodyRenders = proseRenderCount()
         names.clear()
         avatars.clear()
         tabReads = 0
@@ -180,7 +189,7 @@ describe('phone sender provider', () => {
         const namedTab: MobileSessionTab = {
           type: 'agent-session',
           id: 'visible-tab',
-          sessionId: 'visible',
+          sessionId: 'visible-chat',
           title: 'Current chat',
           agent: 'codex',
           isActive: false
@@ -195,6 +204,11 @@ describe('phone sender provider', () => {
           renderer!.update(draw([...tabs, { ...namedTab, title: 'Renamed chat' }]))
         })
         expect([...names.keys()]).toEqual(['orca:visible'])
+        expect(
+          findAllByHostType(renderer!.root, 'Text').some(
+            (node) => node.props.children === 'Renamed chat'
+          )
+        ).toBe(true)
         expect(avatars.size).toBe(0)
         names.clear()
         avatars.clear()
@@ -230,7 +244,7 @@ describe('phone sender provider', () => {
           renderer!.update(draw(working))
         })
         expect([...avatars.keys()]).toEqual(['term_0'])
-        expect(proseRenders.count).toBe(bodyRenders)
+        expect(proseRenderCount()).toBe(bodyRenders)
         const arrow = findAllByHostType(renderer!.root, 'Pressable').find(
           (node) => node.props.accessibilityRole === 'button' && !node.props.accessibilityState
         )!

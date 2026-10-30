@@ -1,4 +1,4 @@
-import { memo, useContext, useState, useRef } from 'react'
+import { memo, useContext, useState, useRef, useLayoutEffect } from 'react'
 import { Pressable, Text, View } from 'react-native'
 import { ArrowUpRight, Bot } from 'lucide-react-native'
 import type { NativeChatMessage } from '../../../../../src/shared/native-chat-types'
@@ -57,7 +57,9 @@ export const MobileNativeChatAgentMessageCard = memo(function MobileNativeChatAg
   const [width, setWidth] = useState(0)
   const identity = JSON.stringify([text, fontScale, width])
   const currentIdentity = useRef(identity)
-  currentIdentity.current = identity
+  useLayoutEffect(() => {
+    currentIdentity.current = identity
+  }, [identity])
   const height = measurement.identity === identity ? measurement.height : 0
   const lineHeight = markdownStyles.paragraph.lineHeight * CHAT_PROSE_SCALE * fontScale
   const overflows = agentMessageOverflows(height, lineHeight)
@@ -73,7 +75,15 @@ export const MobileNativeChatAgentMessageCard = memo(function MobileNativeChatAg
       <View style={styles.content}>
         <View style={styles.heading}>
           <Text style={styles.meta}>{heading}</Text>
-          <MobileNativeChatMessageTime timestamp={message.timestamp} fontScale={fontScale} />
+          <View style={styles.headerActions}>
+            {agentMessageCanCopy(text) ? (
+              <MobileSourceCopyButton
+                text={text}
+                accessibilityLabel={t('chat.message.copyMessage', 'Copy message')}
+              />
+            ) : null}
+            <MobileNativeChatMessageTime timestamp={message.timestamp} fontScale={fontScale} />
+          </View>
         </View>
         <Senders from={from} />
         {attachments}
@@ -117,30 +127,20 @@ export const MobileNativeChatAgentMessageCard = memo(function MobileNativeChatAg
           </View>
         </View>
         {status}
-        <View style={styles.heading}>
-          {overflows ? (
-            <Pressable
-              hitSlop={8}
-              accessibilityRole="button"
-              accessibilityState={{ expanded: open }}
-              onPress={() => setOpen(!open)}
-            >
-              <Text style={styles.toggle}>
-                {agentMessageFoldLabel(open) === 'expanded'
-                  ? t('chat.nativeChatUserMessageFold.showLess', 'Show less')
-                  : t('chat.agentMessage.showMore', 'Show more')}
-              </Text>
-            </Pressable>
-          ) : (
-            <View />
-          )}
-          {agentMessageCanCopy(text) ? (
-            <MobileSourceCopyButton
-              text={text}
-              accessibilityLabel={t('chat.message.copyMessage', 'Copy message')}
-            />
-          ) : null}
-        </View>
+        {overflows ? (
+          <Pressable
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: open }}
+            onPress={() => setOpen(!open)}
+          >
+            <Text style={styles.toggle}>
+              {agentMessageFoldLabel(open) === 'expanded'
+                ? t('chat.nativeChatUserMessageFold.showLess', 'Show less')
+                : t('chat.agentMessage.showMore', 'Show more')}
+            </Text>
+          </Pressable>
+        ) : null}
       </View>
     </View>
   )
@@ -168,6 +168,7 @@ function Senders({ from }: { from: AgentMessageSource }) {
   const open = useContext(MobileAgentMessageOpenContext)
   const t = useMobileTranslation()
   const { shown, more } = agentMessageSendersShown(from)
+  const occurrences = new Map<string, number>()
   return (
     <View style={styles.senders}>
       {shown.length === 0 ? (
@@ -175,9 +176,14 @@ function Senders({ from }: { from: AgentMessageSource }) {
           {t('session.agentMessageAttribution.unnamedSender', 'an agent')}
         </Text>
       ) : null}
-      {shown.map((sender, index) => (
-        <SenderName key={index} sender={sender} from={from} open={open} />
-      ))}
+      {shown.map((sender) => {
+        const identity = JSON.stringify(sender.party)
+        const occurrence = occurrences.get(identity) ?? 0
+        occurrences.set(identity, occurrence + 1)
+        return (
+          <SenderName key={`${identity}:${occurrence}`} sender={sender} from={from} open={open} />
+        )
+      })}
       {more > 0 ? <Text style={styles.meta}>+{more}</Text> : null}
     </View>
   )
@@ -228,6 +234,7 @@ const styles = themedStyleSheet(() => ({
     justifyContent: 'space-between',
     gap: spacing.sm
   },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   meta: { color: colors.textMuted, fontSize: typography.metaSize, flexShrink: 1 },
   senders: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
   sender: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
