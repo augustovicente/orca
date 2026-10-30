@@ -65,6 +65,8 @@ export type EnqueueTargetedCommandOptions = {
   ensureSession?: boolean
   // Text mutations must not fall back to a global tab from another worktree.
   requireScopedTarget?: boolean
+  // Element arguments that may be snapshot refs.
+  elements?: readonly (string | undefined)[]
 }
 
 export type AgentBrowserBridgeOptions = {
