@@ -1,10 +1,11 @@
-import type { SelectedSourceControlActionRecipe } from '../../../../shared/source-control-action-selection'
+import {
+  canonicalSourceControlActionSelection,
+  type SelectedSourceControlActionRecipe
+} from '../../../../shared/source-control-action-selection'
 import React from 'react'
 import { Info, RefreshCw, RotateCcw, Settings, Sparkles, TriangleAlert } from 'lucide-react'
 import { AgentLaunchPicker } from '@/components/agent/AgentLaunchPicker'
 import { sourceControlPickerDraft } from '../settings/source-control-agent-launch-picker'
-import { canonicalSourceControlActionSelection } from '../../../../shared/source-control-action-selection'
-import type { UseSourceControlAgentActionDialogResult } from './source-control-agent-action-dialog-result'
 import { Button } from '@/components/ui/button'
 import { DialogFooter } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
@@ -24,7 +25,10 @@ import type { Repo } from '../../../../shared/repo-types'
 import type { TuiAgent } from '../../../../shared/tui-agent'
 import { SourceControlActionVariableChips } from '../source-control/SourceControlActionVariableChips'
 import { sourceControlActionRecipeSaveMatchesTarget } from './source-control-action-recipe-match'
-import type { SourceControlAgentScopeNote } from './source-control-agent-action-dialog-result'
+import type {
+  SourceControlAgentScopeNote,
+  UseSourceControlAgentActionDialogResult
+} from './source-control-agent-action-dialog-result'
 import { translate } from '@/i18n/i18n'
 
 /** Expose only delivery errors the user can fix before launch. */
