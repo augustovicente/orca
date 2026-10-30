@@ -9395,7 +9395,6 @@
           "previous": "Anterior",
           "updated": "Atualizado",
           "license": "Licença",
-          "homepage": "Site",
           "whatsNew": "Novidades"
         },
         "PluginFilterPopover": {
@@ -19441,6 +19440,13 @@
           "password": "Senha",
           "confirm": "Entrar",
           "cancel": "Cancelar"
+        },
+        "javaScriptDialog": {
+          "title": "{{origin}} diz",
+          "anonymousTitle": "Esta página diz",
+          "confirm": "OK",
+          "cancel": "Cancelar",
+          "answer": "Resposta"
         },
         "sitePermission": {
           "label": {

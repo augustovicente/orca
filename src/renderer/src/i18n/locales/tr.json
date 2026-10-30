@@ -13002,7 +13002,6 @@
           "previous": "Önceki",
           "updated": "Güncellendi",
           "license": "Lisans",
-          "homepage": "Web sitesi",
           "whatsNew": "Yenilikler"
         },
         "PluginDetailPage": {
@@ -18384,6 +18383,13 @@
           "password": "Parola",
           "confirm": "Oturum aç",
           "cancel": "İptal"
+        },
+        "javaScriptDialog": {
+          "title": "{{origin}} diyor ki",
+          "anonymousTitle": "Bu sayfa diyor ki",
+          "confirm": "Tamam",
+          "cancel": "İptal",
+          "answer": "Yanıt"
         },
         "sitePermission": {
           "label": {

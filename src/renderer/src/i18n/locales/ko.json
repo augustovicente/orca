@@ -12545,7 +12545,6 @@
           "previous": "이전 버전",
           "updated": "업데이트",
           "license": "라이선스",
-          "homepage": "홈페이지",
           "whatsNew": "새로운 기능",
           "hashCopied": "콘텐츠 해시를 복사했습니다",
           "hashCopyFailed": "해시를 복사할 수 없습니다."
@@ -17903,6 +17902,13 @@
           "description": "{{origin}}이(가) 사용자 이름과 비밀번호를 요청하고 있습니다.",
           "password": "비밀번호",
           "retry": "사용자 이름 또는 비밀번호가 올바르지 않습니다."
+        },
+        "javaScriptDialog": {
+          "title": "{{origin}} 내용:",
+          "anonymousTitle": "이 페이지 내용:",
+          "confirm": "확인",
+          "cancel": "취소",
+          "answer": "답변"
         },
         "sitePermission": {
           "label": {

@@ -12839,7 +12839,6 @@
           "previous": "上一版",
           "updated": "更新時間",
           "license": "授權",
-          "homepage": "首頁",
           "whatsNew": "新功能"
         },
         "PluginDetailPage": {
@@ -18145,6 +18144,13 @@
           "password": "密碼",
           "confirm": "登入",
           "cancel": "取消"
+        },
+        "javaScriptDialog": {
+          "title": "{{origin}} 顯示",
+          "anonymousTitle": "此網頁顯示",
+          "confirm": "確定",
+          "cancel": "取消",
+          "answer": "回答"
         },
         "sitePermission": {
           "label": {

@@ -13378,7 +13378,6 @@
           "previous": "Предыдущая",
           "updated": "Обновлено",
           "license": "Лицензия",
-          "homepage": "Сайт",
           "whatsNew": "Что нового"
         },
         "PluginDetailPage": {
@@ -18956,6 +18955,13 @@
           "password": "Пароль",
           "confirm": "Войти",
           "cancel": "Отмена"
+        },
+        "javaScriptDialog": {
+          "title": "{{origin}} сообщает",
+          "anonymousTitle": "Эта страница сообщает",
+          "confirm": "ОК",
+          "cancel": "Отмена",
+          "answer": "Ответ"
         },
         "sitePermission": {
           "label": {
