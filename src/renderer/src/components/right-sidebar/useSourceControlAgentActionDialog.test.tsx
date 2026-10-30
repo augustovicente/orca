@@ -271,8 +271,8 @@ it.each([
     }
     expect(
       projectSourceControlActionLaunch(f.controller.recipe, 'claude', { basePrompt: 'fix' })
-        .sessionOptions?.effort
-    ).toBe('high')
+        .sessionOptions
+    ).toMatchObject({ effort: 'high' })
     if (model) {
       expect(
         projectSourceControlActionLaunch(f.controller.recipe, 'claude', { basePrompt: 'fix' })
@@ -305,8 +305,8 @@ it.each([
     const reopened = f.mount()
     expect(
       projectSourceControlActionLaunch(f.controller.recipe, 'claude', { basePrompt: 'fix' })
-        .sessionOptions?.effort
-    ).toBe('high')
+        .sessionOptions
+    ).toMatchObject({ effort: 'high' })
     reopened.unmount()
   }
 )

@@ -19956,7 +19956,8 @@
     },
     "newWorkspace": {
       "agentOptional": "Ajan [İsteğe bağlı]",
-      "createDescription": "Projeyi ve çalışma alanı adını seçin. Bir ajan başlatmak istiyorsanız ajan seçin."
+      "createDescription": "Projeyi ve çalışma alanı adını seçin. Bir ajan başlatmak istiyorsanız ajan seçin.",
+      "setupOnly": "Yalnızca kurulum"
     },
     "JiraIssueWorkspace": {
       "pendingChange": "Başka bir sorun değişikliği devam ediyor."

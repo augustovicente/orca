@@ -20474,7 +20474,8 @@
     },
     "newWorkspace": {
       "agentOptional": "Agent [Optional]",
-      "createDescription": "Choose the project and workspace name. Select an agent if you want to start one."
+      "createDescription": "Choose the project and workspace name. Select an agent if you want to start one.",
+      "setupOnly": "Setup only"
     },
     "JiraIssueWorkspace": {
       "pendingChange": "Another issue change is in progress."

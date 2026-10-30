@@ -102,7 +102,7 @@ describe('Source Control shared picker projection', () => {
       agentArgs: '--verbose',
       sessionOptions: { model: 'sonnet', permissionMode: 'ask' }
     })
-    expect(project(next).sessionOptions?.effort).toBeUndefined()
+    expect(project(next).sessionOptions).not.toHaveProperty('effort')
     expect(sourceControlPickerDraft(next, entry).choices.model).toBe('sonnet')
     expect(next.current.argumentChoices?.nodes.map((node) => node.text)).toEqual(['--model sonnet'])
   })

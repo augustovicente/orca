@@ -20135,7 +20135,8 @@
     },
     "newWorkspace": {
       "agentOptional": "Agente [Opcional]",
-      "createDescription": "Elige el proyecto y el nombre del espacio de trabajo. Selecciona un agente si quieres iniciar uno."
+      "createDescription": "Elige el proyecto y el nombre del espacio de trabajo. Selecciona un agente si quieres iniciar uno.",
+      "setupOnly": "Solo configuración"
     },
     "JiraIssueWorkspace": {
       "pendingChange": "Ya hay otro cambio de incidencia en curso."

@@ -117,7 +117,7 @@ it('edits launch arguments in the common setup and keeps the recipe when chat av
   const input = screen.getByRole('textbox', { name: 'Arguments' })
   expect(input).toHaveProperty('value', '--saved')
   fireEvent.change(input, { target: { value: '--draft' } })
-  fireEvent.click(screen.getByRole('button', { name: 'Use', exact: true }))
+  fireEvent.click(screen.getByRole('button', { name: 'Use' }))
   act(() => configure({ experimentalNativeChat: true }))
   expect(screen.queryByRole('textbox', { name: 'Arguments' })).toBeNull()
   act(() => configure({ experimentalNativeChat: false }))

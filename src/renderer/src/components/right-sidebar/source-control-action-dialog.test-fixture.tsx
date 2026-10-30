@@ -154,7 +154,7 @@ export async function pickDialogAgent(label: string, terminal: boolean) {
     throw new Error(`Missing agent row ${label}`)
   }
   fireEvent.click(row)
-  const toggle = screen.queryByRole('radio', { name: terminal ? 'Terminal' : 'Chat', exact: true })
+  const toggle = screen.queryByRole('radio', { name: terminal ? 'Terminal' : 'Chat' })
   if (toggle) {
     fireEvent.click(toggle)
   }

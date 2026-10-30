@@ -64,14 +64,12 @@ it.each(['claude', 'codex'] as const)(
     await waitFor(() => expect(trigger.hasAttribute('disabled')).toBe(false))
     await user.click(trigger)
     await user.click(screen.getByRole('button', { name: `Configure ${label}` }))
-    await user.click(screen.getByRole('option', { name: model, exact: true }))
-    await user.click(screen.getByRole('radio', { name: 'Low', exact: true }))
+    await user.click(screen.getByRole('option', { name: model }))
+    await user.click(screen.getByRole('radio', { name: 'Low' }))
     await user.click(screen.getByRole('button', { name: `${label} permissions` }))
     await user.click(screen.getByRole('menuitemradio', { name: /^Full access/ }))
     await user.click(
-      agent === 'claude'
-        ? screen.getByRole('switch')
-        : screen.getByRole('radio', { name: 'Fast', exact: true })
+      agent === 'claude' ? screen.getByRole('switch') : screen.getByRole('radio', { name: 'Fast' })
     )
     const text = screen.queryByRole('textbox', { name: 'Arguments' })
     if (!text) {
@@ -80,7 +78,7 @@ it.each(['claude', 'codex'] as const)(
     fireEvent.change(screen.getByRole('textbox', { name: 'Arguments' }), {
       target: { value: '--add-dir docs' }
     })
-    await user.click(screen.getByRole('button', { name: 'Use', exact: true }))
+    await user.click(screen.getByRole('button', { name: 'Use' }))
     await waitFor(() => expect(screen.queryByRole('textbox', { name: 'Arguments' })).toBeNull())
     await act(async () =>
       fireEvent.click(screen.getByRole('button', { name: 'Save & start agent' }))

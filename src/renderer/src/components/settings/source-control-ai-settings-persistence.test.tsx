@@ -203,7 +203,7 @@ it('global owner: bounded controlled edits, failed/same selection and no-op save
     )
   }
   fireEvent.change(input, { target: { value: '--dangerously-skip-permissions --verbose' } })
-  fireEvent.click(screen.getByRole('button', { name: 'Use', exact: true }))
+  fireEvent.click(screen.getByRole('button', { name: 'Use' }))
   let reject = (_error: Error): void => {}
   persist.mockImplementationOnce(
     () =>
@@ -220,7 +220,7 @@ it('global owner: bounded controlled edits, failed/same selection and no-op save
   // Actual global writer publishes only after success; failed selection must retain this later edit.
   input = await openSetup()
   fireEvent.change(input, { target: { value: '--verbose newer' } })
-  fireEvent.click(screen.getByRole('button', { name: 'Use', exact: true }))
+  fireEvent.click(screen.getByRole('button', { name: 'Use' }))
   await act(async () => reject(new Error('disk unavailable')))
   await waitFor(() =>
     expect(console.error).toHaveBeenCalledWith(
