@@ -60,7 +60,7 @@ export function ClientFirstRunWizard(): React.JSX.Element | null {
     }
   }, [persistedUIReady, firstRun])
 
-  // Hide this dialog while Add Project runs, then continue on the next step once a client exists.
+  // Hide this dialog while Add Project runs.
   useEffect(() => {
     if (!addFlowOpen) {
       return
@@ -74,10 +74,14 @@ export function ClientFirstRunWizard(): React.JSX.Element | null {
     }
     sawAddRepoModalRef.current = false
     setAddFlowOpen(false)
-    if (clients.length > 0 && step === 0) {
+  }, [activeModal, addFlowOpen])
+
+  // A new client can land just after the add dialog closes; advance once it is visible.
+  useEffect(() => {
+    if (step === 0 && clients.length > 0) {
       setStep(1)
     }
-  }, [activeModal, addFlowOpen, clients.length, step])
+  }, [clients.length, step])
 
   // Settings owns the screen while the user connects the assistant; resume on "Pronto".
   useEffect(() => {
