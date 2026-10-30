@@ -109,8 +109,9 @@ export type RpcContext = {
   caller?: RpcCallerIdentity
   // Only phones receive truncated payloads; undefined in-process callers remain unclipped.
   clientKind?: 'mobile' | 'runtime'
-  // Trust socket-negotiated capabilities, never destructive request assertions.
+  // Long-lived streams project with .current; clientCapabilities is the request-time snapshot (admission, wire contracts).
   capabilitySource?: RuntimeClientCapabilities
+  // Trust socket-negotiated capabilities, never destructive request assertions.
   clientCapabilities?: readonly RuntimeCapability[]
   // Capability upgrades mutate only the authenticated socket after exact-key v2 auth.
   updateClientCapabilities?: (capabilities: readonly RuntimeCapability[]) => void

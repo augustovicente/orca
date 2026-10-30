@@ -1,11 +1,13 @@
-import { SESSION_TABS_RETIREMENT_PROOF_DELTA_RUNTIME_CAPABILITY } from '../../../../shared/protocol-version'
 import { RuntimeClientCapabilities } from '../runtime-client-capabilities'
 import { RUNTIME_CLIENT_CAPABILITY_METHODS } from './runtime-client-capabilities'
 import { visibleSnapshot } from './session-tabs-snapshot.test-fixture'
 import '../unused-default-rpc-methods.test-fixture'
 import { describe, expect, it, vi } from 'vitest'
 import type { OrcaRuntimeService } from '../../orca-runtime'
-import { SESSION_TABS_TAB_DELTA_RUNTIME_CAPABILITY } from '../../../../shared/protocol-version'
+import {
+  SESSION_TABS_RETIREMENT_PROOF_DELTA_RUNTIME_CAPABILITY,
+  SESSION_TABS_TAB_DELTA_RUNTIME_CAPABILITY
+} from '../../../../shared/protocol-version'
 import type { RuntimeMobileSessionTabsResult } from '../../../../shared/runtime-types'
 import { createSessionTabsTabDeltaDecoder } from '../../../../shared/session-tabs-tab-delta'
 import { RpcDispatcher } from '../dispatcher'
@@ -295,14 +297,14 @@ describe.each(['session.tabs.subscribe', 'session.tabs.subscribeAll'] as const)(
           SESSION_TABS_TAB_DELTA_RUNTIME_CAPABILITY,
           SESSION_TABS_RETIREMENT_PROOF_DELTA_RUNTIME_CAPABILITY
         ]
+        // A capability the projection ignores sends no frame; the next real change still decodes.
+        await update([...source.current, 'unrelated.test.v1'])
+        expect(messages).toHaveLength(1)
         await update(structured)
         expect(siblingMessages).toHaveLength(1)
         expect(messages).toHaveLength(2)
         const recovered = decode(messages[1]!)
         expect(JSON.stringify(recovered)).toContain('Claude chat')
-        // A capability the projection ignores sends no frame.
-        await update([...structured, 'unrelated.test.v1'])
-        expect(messages).toHaveLength(2)
         const proofState = { retiredTerminalSurfaces: delta ? [] : initial.retiredTerminalSurfaces }
         expect(recovered).toMatchObject(proofState)
         if (!delta) {

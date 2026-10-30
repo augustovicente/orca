@@ -128,8 +128,8 @@ export const SESSION_TAB_METHODS = [
       let released = false
       let endOnRelease = true
       let stopListening = (): void => {}
-      // Safe without a version check: any other release of this key runs our cleanup first, which latches `released`.
       let stopCapabilities = (): void => {}
+      // Safe without a version check: any other release of this key runs our cleanup first, which latches `released`.
       const release = (): void => {
         if (!released && subscriptionId) {
           runtime.cleanupSubscription(subscriptionId)
