@@ -4,6 +4,10 @@ import {
   LOCAL_EXECUTION_HOST_ID,
   parseExecutionHostId
 } from '../../../shared/execution-host'
+import {
+  selectWorktreesByRepo,
+  selectDetectedWorktreesByRepo
+} from '@/store/workspace-record-selectors'
 import { getRepoIdFromWorktreeId } from '@/store/slices/worktree-helpers'
 import { addRoute, resolveExactWorktreeRoute, routeForOwner } from './worktree-owner-route'
 import {
@@ -41,8 +45,8 @@ export function resolveExplicitWorktreeOperationRouteResult(
   state: WorktreeOperationRouteState,
   worktreeId: string
 ): WorktreeOperationRouteResolution {
-  const known = findIndexedWorktrees(state.worktreesByRepo, worktreeId)
-  const detected = findIndexedDetectedWorktrees(state.detectedWorktreesByRepo, worktreeId)
+  const known = findIndexedWorktrees(selectWorktreesByRepo(state), worktreeId)
+  const detected = findIndexedDetectedWorktrees(selectDetectedWorktreesByRepo(state), worktreeId)
   const rows = known.length ? known : detected
   const cached = rows.length ? explicitRouteIndexes.get(rows) : undefined
   if (
@@ -67,7 +71,7 @@ function resolveCatalogRoute(
 ): WorktreeOperationRouteResolution {
   const exactRoutes = new Map<string, WorktreeOperationRoute>()
   const exactRepoIds = new Set<string>()
-  const indexedWorktree = resolveIndexedWorktreeOwner(state.worktreesByRepo, worktreeId)
+  const indexedWorktree = resolveIndexedWorktreeOwner(selectWorktreesByRepo(state), worktreeId)
   if (indexedWorktree.kind === 'ambiguous') {
     return { kind: 'ambiguous' }
   }

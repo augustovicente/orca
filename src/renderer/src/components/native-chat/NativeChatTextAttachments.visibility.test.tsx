@@ -5,6 +5,8 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { useAppStore } from '@/store'
 import { registerTabGroupBody } from '../tab-group/tab-group-body-geometry'
 import { useTerminalKeyboardShortcuts } from '../use-terminal-keyboard-shortcuts'
+import { useTerminalWorkspaceFoundation } from '../use-terminal-workspace-foundation'
+import type { TerminalActivationController } from '../use-terminal-activation-actions'
 import StructuredAgentSessionPaneOverlayLayer from './StructuredAgentSessionPaneOverlayLayer'
 import {
   NativeChatTextAttachmentScope,
@@ -85,17 +87,95 @@ function Host() {
   const visible = useAppStore(
     (state) => state.activeWorktreeId === ws && state.activeView === 'terminal'
   )
-  useTerminalKeyboardShortcuts({
+  const controller: TerminalActivationController = {
+    ...useAppStore.getState(),
+    ...useTerminalWorkspaceFoundation(),
     activeWorktreeId: ws,
     keybindings: {},
     mobileEmulatorEnabled: false,
     terminalShortcutPolicy: 'orca-first',
+    tabBarOrder: undefined,
+    activityTerminalPortals: [],
+    foregroundTerminalTabIds: [],
+    tabs: [],
+    titlebarTabsTarget: null,
+    worktreeFiles: [],
+    worktreeBrowserTabs: [],
+    worktreeClientHostedBrowserRows: [],
+    getEffectiveLayoutForWorktree: vi.fn(),
+    effectiveActiveLayout: undefined,
+    activeWorktreeBrowserTabIdsKey: '',
+    hasSplitTerminalPane: false,
+    terminalProviderSnapshotCapabilityRevision: 0,
+    saveDialogFileId: null,
+    setSaveDialogFileId: vi.fn(),
+    saveDialogFile: null,
+    pendingEditorCloseQueueRef: { current: [] },
+    closedReactionsRef: { current: new Map() },
+    inFlightSaveFileIdRef: { current: null },
+    isClosingRef: { current: false },
+    closeDialogDebounceTimersRef: { current: new Set() },
+    releaseCloseDialogGuardAfterDebounce: vi.fn(),
+    windowCloseDialogOpen: false,
+    setWindowCloseDialogOpen: vi.fn(),
+    windowCloseDialogKind: 'running',
+    windowCloseAfterDirtyRef: { current: null },
+    confirmNativeWindowClose: vi.fn(),
+    proceedToNativeWindowClose: vi.fn(),
+    waitForFileClosed: vi.fn(),
+    settleQueuedClose: vi.fn(),
+    getNextQueuedEditorClose: vi.fn(),
+    advanceEditorCloseQueue: vi.fn(),
+    queueEditorCloseRequests: vi.fn(),
+    handleCloseFile: vi.fn(),
+    handleSaveDialogSave: vi.fn(),
+    handleSaveDialogDiscard: vi.fn(),
+    handleSaveDialogCancel: vi.fn(),
+    measurableBackgroundWorktreeTimersRef: { current: new Map() },
+    backgroundMountRevision: 0,
+    setBackgroundMountRevision: vi.fn(),
+    terminalParkingRevision: 0,
+    setTerminalParkingRevision: vi.fn(),
+    browserGuestRetentionRevision: 0,
+    setBrowserGuestRetentionRevision: vi.fn(),
+    parkedTerminalWorktreeIds: new Set(),
+    setParkedTerminalWorktreeIds: vi.fn(),
+    manuallyParkedTerminalWorktreeIds: new Set(),
+    effectiveParkedTerminalWorktreeIds: new Set(),
+    forceParkedTerminalWorktreeIds: new Set(),
+    setForceParkedTerminalWorktreeIds: vi.fn(),
+    evictionExemptTerminalTabIds: new Set(),
+    setEvictionExemptTerminalTabIds: vi.fn(),
+    parkedCaptureDoneRef: { current: new Set() },
+    backgroundMountTabIdsByWorktreeRef: { current: new Map() },
+    activationDeferredMountTabIdsByWorktreeRef: { current: new Map() },
+    lastActivationWorktreeIdRef: { current: null },
+    prewarmLeasesRef: { current: new Map() },
+    startupTerminalTabHoldRef: { current: null },
+    activationDeferralPlanRevisionRef: { current: 0 },
+    anyMountedWorktreeHasLayout: false,
+    activationDeferralPlanRevision: 0,
+    startupTerminalTabHold: null,
+    handleCloseTab: vi.fn(),
+    handleCloseBrowserTab: vi.fn(),
+    handlePtyExit: vi.fn(),
+    closeTabBarTabs: vi.fn(),
+    handleCloseOthers: vi.fn(),
+    handleCloseTabsToRight: vi.fn(),
+    handleCloseTabsToLeft: vi.fn(),
     handleCloseAllFiles: vi.fn(),
     handleNewBrowserTab: vi.fn(),
+    handleNewBrowserTabSplitRight: vi.fn(),
     handleNewFile: vi.fn(),
     handleNewSimulatorTab: vi.fn(),
-    handleNewTab: vi.fn()
-  })
+    handleNewTab: vi.fn(),
+    handleOpenEntry: vi.fn(),
+    handleDuplicateBrowserTab: vi.fn(),
+    handleActivateTab: vi.fn(),
+    handleTogglePaneExpand: vi.fn(),
+    handleActivateBrowserTab: vi.fn()
+  }
+  useTerminalKeyboardShortcuts(controller)
   return <StructuredAgentSessionPaneOverlayLayer worktreeId={ws} isWorktreeActive={visible} />
 }
 beforeEach(() => {

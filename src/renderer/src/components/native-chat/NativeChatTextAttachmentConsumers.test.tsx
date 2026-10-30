@@ -220,6 +220,7 @@ it.each(['save', 'cancel', 'escape', 'unmount'] as const)(
       'ResizeObserver',
       class {
         observe() {}
+        unobserve() {}
         disconnect() {}
       }
     )

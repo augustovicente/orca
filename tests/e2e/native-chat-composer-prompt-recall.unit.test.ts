@@ -1,42 +1,46 @@
-import { projectStructuredItemToNativeChat } from '../../../../shared/structured-agent-session-projection'
+import { projectStructuredItemToNativeChat } from '../../src/shared/structured-agent-session-projection'
 import { mkdtemp, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createRef } from 'react'
-import { NativeChatPromptEditor } from './NativeChatPromptEditor'
-import type { NativeChatComposerInput } from './native-chat-composer-input'
-import { NativeChatTextAttachmentOpener } from './NativeChatTextAttachments'
-import { NativeChatUserMessageRow } from './NativeChatUserMessageRow'
+import { createElement, createRef } from 'react'
+import { NativeChatPromptEditor } from '@/components/native-chat/NativeChatPromptEditor'
+import type { NativeChatComposerInput } from '@/components/native-chat/native-chat-composer-input'
+import { NativeChatTextAttachmentOpener } from '@/components/native-chat/NativeChatTextAttachments'
+import { NativeChatUserMessageRow } from '@/components/native-chat/NativeChatUserMessageRow'
 import { TooltipProvider } from '@/components/ui/tooltip'
-import { createChatAttachmentReader } from './native-chat-text-attachment-read'
-import { AttachmentTextSource } from '../../../../shared/attachment-text-source'
-import { AgentSessionAttachmentStore } from '../../../../main/native-chat/agent-session-attachments/agent-session-attachment-store'
-import { sanitizeAgentSessionAttachmentName } from '../../../../shared/agent-session-attachments'
-import { formatNativeChatFileReference } from '../../../../shared/agent-image-paste'
-import { structuredAgentSessionSendBody } from '../../../../shared/structured-agent-session-send-mutation'
-import { deriveNativeChatRowContent } from '../../../../shared/native-chat-row-content'
-import { changePrompt, promptEditor, promptValue } from './native-chat-prompt-editor.test-support'
+import { createChatAttachmentReader } from '@/components/native-chat/native-chat-text-attachment-read'
+import { AttachmentTextSource } from '../../src/shared/attachment-text-source'
+import { AgentSessionAttachmentStore } from '../../src/main/native-chat/agent-session-attachments/agent-session-attachment-store'
+import { sanitizeAgentSessionAttachmentName } from '../../src/shared/agent-session-attachments'
+import { formatNativeChatFileReference } from '../../src/shared/agent-image-paste'
+import { structuredAgentSessionSendBody } from '../../src/shared/structured-agent-session-send-mutation'
+import { deriveNativeChatRowContent } from '../../src/shared/native-chat-row-content'
+import {
+  changePrompt,
+  promptEditor,
+  promptValue
+} from '@/components/native-chat/native-chat-prompt-editor.test-support'
 // @vitest-environment happy-dom
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { NativeChatMessage } from '../../../../shared/native-chat-types'
-import type * as nativeChatAgentProfiles from '../../../../shared/native-chat-agent-profiles'
-import type * as RemoteRuntimePtyIdModule from '../../../../shared/remote-runtime/remote-runtime-pty-id'
+import type { NativeChatMessage } from '../../src/shared/native-chat-types'
+import type * as nativeChatAgentProfiles from '../../src/shared/native-chat-agent-profiles'
+import type * as RemoteRuntimePtyIdModule from '../../src/shared/remote-runtime/remote-runtime-pty-id'
 
 vi.mock('@/i18n/i18n', () => ({
   i18n: { language: 'en' },
   getIntlLocale: () => 'en-US',
   translate: (_key: string, fallback: string) => fallback
 }))
-vi.mock('./NativeChatComposerActions', () => ({
-  NativeChatComposerActions: () => <div data-testid="composer-actions" />
+vi.mock('@/components/native-chat/NativeChatComposerActions', () => ({
+  NativeChatComposerActions: () => createElement('div', { 'data-testid': 'composer-actions' })
 }))
-vi.mock('./NativeChatAutocompleteMenus', () => ({
+vi.mock('@/components/native-chat/NativeChatAutocompleteMenus', () => ({
   NativeChatMentionHint: () => null,
   NativeChatPickerMenu: () => null
 }))
-vi.mock('../../store', () => {
+vi.mock('@/store', () => {
   const state = {
     dictationState: 'idle',
     settings: { voice: { enabled: false }, nativeChatSessionOptions: {} },
@@ -52,24 +56,24 @@ vi.mock('../../store', () => {
 vi.mock('@/runtime/runtime-terminal-inspection', () => ({
   sendRuntimePtyInput: vi.fn()
 }))
-vi.mock('../../../../shared/remote-runtime/remote-runtime-pty-id', async (importOriginal) => ({
+vi.mock('../../src/shared/remote-runtime/remote-runtime-pty-id', async (importOriginal) => ({
   ...(await importOriginal<typeof RemoteRuntimePtyIdModule>()),
   isRemoteRuntimePtyId: () => false
 }))
-vi.mock('./native-chat-runtime-send', () => ({
+vi.mock('@/components/native-chat/native-chat-runtime-send', () => ({
   sendNativeChatMessage: vi.fn(),
   sendNativeChatTypedCommand: vi.fn(),
   sendNativeChatMessageVerified: vi.fn(),
   typeNativeChatCommand: vi.fn(),
   submitNativeChatPrompt: vi.fn()
 }))
-vi.mock('./native-chat-runtime-image-send', () => ({
+vi.mock('@/components/native-chat/native-chat-runtime-image-send', () => ({
   sendNativeChatMessageWithImageAttachments: vi.fn()
 }))
-vi.mock('./claude-model-switch-confirmation', () => ({
+vi.mock('@/components/native-chat/claude-model-switch-confirmation', () => ({
   createClaudeModelSwitchConfirmationObserver: vi.fn()
 }))
-vi.mock('../../../../shared/native-chat-agent-profiles', async (importOriginal) => ({
+vi.mock('../../src/shared/native-chat-agent-profiles', async (importOriginal) => ({
   ...(await importOriginal<typeof nativeChatAgentProfiles>()),
   getVerifiedNativeChatCommands: () => []
 }))
@@ -79,23 +83,23 @@ vi.mock('@/lib/native-chat-telemetry', () => ({
   emitNativeChatPickerOpened: vi.fn(),
   emitNativeChatSendClassified: vi.fn()
 }))
-vi.mock('./use-native-chat-skills', () => ({
+vi.mock('@/components/native-chat/use-native-chat-skills', () => ({
   useNativeChatSkills: () => ({ status: 'ready', skills: [], error: null, retry: () => {} })
 }))
-vi.mock('../dictation/dictation-control-events', () => ({
+vi.mock('@/components/dictation/dictation-control-events', () => ({
   dispatchDictationControl: vi.fn()
 }))
 
-vi.mock('./native-chat-image-runtime-context', () => ({
+vi.mock('@/components/native-chat/native-chat-image-runtime-context', () => ({
   useNativeChatImageRuntimeContext: () => null
 }))
-vi.mock('./native-chat-visual-markdown-extension', () => ({
+vi.mock('@/components/native-chat/native-chat-visual-markdown-extension', () => ({
   useNativeChatVisualMarkdownExtension: () => undefined
 }))
-vi.mock('./use-native-chat-file-link-existence', () => ({
+vi.mock('@/components/native-chat/use-native-chat-file-link-existence', () => ({
   useNativeChatFileLinkExists: () => undefined
 }))
-import { NativeChatComposer } from './NativeChatComposer'
+import { NativeChatComposer } from '@/components/native-chat/NativeChatComposer'
 
 const sent = (id: string, text: string): NativeChatMessage => ({
   id,
@@ -112,12 +116,12 @@ let paneCounter = 0
 function renderComposer(prompts: string[]): HTMLElement {
   paneCounter += 1
   render(
-    <NativeChatComposer
-      terminalTabId={`tab-${paneCounter}`}
-      paneKey={`tab-${paneCounter}:recall`}
-      targetPtyId={null}
-      agent="codex"
-      structuredTransport={{
+    createElement(NativeChatComposer, {
+      terminalTabId: `tab-${paneCounter}`,
+      paneKey: `tab-${paneCounter}:recall`,
+      targetPtyId: null,
+      agent: 'codex',
+      structuredTransport: {
         capturePresentation: () => () => true,
         send,
         dispatchCommand: vi.fn(async () => ({ handled: false, accepted: false, error: null })),
@@ -132,9 +136,9 @@ function renderComposer(prompts: string[]): HTMLElement {
         runtime: 'local',
         sessionId: `session-${paneCounter}`,
         runtimeEnvironmentId: null
-      }}
-      recallSource={{ messages: prompts.map((text, index) => sent(`sent-${index}`, text)) }}
-    />
+      },
+      recallSource: { messages: prompts.map((text, index) => sent(`sent-${index}`, text)) }
+    })
   )
   return screen.getByRole('textbox')
 }
@@ -264,19 +268,21 @@ it.each([
         )
       })
       const picked = render(
-        <NativeChatTextAttachmentOpener.Provider value={openDraft}>
-          <NativeChatPromptEditor
-            scopeKey="pick35636"
-            inputRef={ref}
-            initialValue={initialValue}
-            disabled={false}
-            placeholder="Message"
-            onChange={(current) => {
+        createElement(
+          NativeChatTextAttachmentOpener.Provider,
+          { value: openDraft },
+          createElement(NativeChatPromptEditor, {
+            scopeKey: 'pick35636',
+            inputRef: ref,
+            initialValue,
+            disabled: false,
+            placeholder: 'Message',
+            onChange: (current) => {
               value = current.value
-            }}
-            onSelect={() => {}}
-          />
-        </NativeChatTextAttachmentOpener.Provider>
+            },
+            onSelect: () => {}
+          })
+        )
       )
       act(() => {
         const editor = promptEditor(screen.getByRole('textbox'))
@@ -333,19 +339,23 @@ it.each([
         )
       })
       render(
-        <TooltipProvider>
-          <NativeChatTextAttachmentOpener.Provider value={openSent}>
-            <NativeChatUserMessageRow
-              message={message}
-              markdown={derived.markdown}
-              prose={derived.prose}
-              rowRef={createRef()}
-              onRefolded={() => {}}
-              structuredAttachments
-              allowFileUriLinks={false}
-            />
-          </NativeChatTextAttachmentOpener.Provider>
-        </TooltipProvider>
+        createElement(
+          TooltipProvider,
+          null,
+          createElement(
+            NativeChatTextAttachmentOpener.Provider,
+            { value: openSent },
+            createElement(NativeChatUserMessageRow, {
+              message,
+              markdown: derived.markdown,
+              prose: derived.prose,
+              rowRef: createRef(),
+              onRefolded: () => {},
+              structuredAttachments: true,
+              allowFileUriLinks: false
+            })
+          )
+        )
       )
       for (const name of names) {
         fireEvent.click(screen.getByRole('button', { name }))
