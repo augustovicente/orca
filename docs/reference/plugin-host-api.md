@@ -14,7 +14,7 @@ Every call is checked against the capabilities the user approved, and params are
 | [`terminal.sendText`](#terminalsendtext) | `terminal:send` | worker | yes | 1.0 | Types text into one terminal named by id, optionally pressing Enter. |
 | [`notifications.show`](#notificationsshow) | `notifications:show` | worker, panel, editor | yes | 1.0 | Shows a desktop notification. |
 | [`storage.get`](#storageget) | `storage:own` | worker, panel, editor | no | 1.0 | Reads a JSON value from the plugin's private store; null when absent. |
-| [`storage.compareAndSet`](#storagecompareandset) | `storage:own` | worker, panel, editor | yes | 1.1 | Atomically writes a private JSON value only if it still matches expected; null expects an absent key. |
+| [`storage.compareAndSet`](#storagecompareandset) | `storage:own` | worker, panel, editor | yes | 1.1 | Atomically writes a private JSON value only if it still matches expected; absent keys compare as null. |
 | [`storage.set`](#storageset) | `storage:own` | worker | yes | 1.0 | Writes a JSON value to the plugin's private store. |
 | [`storage.delete`](#storagedelete) | `storage:own` | worker | yes | 1.0 | Removes a key from the plugin's private store. |
 | [`storage.keys`](#storagekeys) | `storage:own` | worker | no | 1.0 | Lists the keys in the plugin's private store. |
@@ -58,7 +58,7 @@ Reads a JSON value from the plugin's private store; null when absent.
 
 ### `storage.compareAndSet`
 
-Atomically writes a private JSON value only if it still matches expected; null expects an absent key.
+Atomically writes a private JSON value only if it still matches expected; absent keys compare as null.
 
 ```ts
 (params: { key: string; expected: JSON; value: JSON }) => { swapped: boolean }

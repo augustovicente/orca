@@ -30,14 +30,14 @@ describe('panel private storage', () => {
     let value: string | null = null
     const services = createServices(
       vi.fn<PluginHostServices['storage']['set']>((_pluginId, _key, next) => {
-        value = String(next)
+        value = typeof next === 'string' ? next : null
         return { ok: true }
       })
     )
     vi.mocked(services.storage.get).mockImplementation(() => value)
     const request = (
       expected: null,
-      next: string,
+      next: string | null,
       capabilities: 'storage:own'[] = ['storage:own']
     ) =>
       executePluginHostCall({
@@ -51,6 +51,7 @@ describe('panel private storage', () => {
       })
     expect(await request(null, 'denied', [])).toMatchObject({ ok: false })
     expect(value).toBeNull()
+    expect(await request(null, null)).toEqual({ ok: true, value: { swapped: true } })
     const results = await Promise.all([request(null, 'first'), request(null, 'second')])
     expect(results).toContainEqual({ ok: true, value: { swapped: true } })
     expect(results).toContainEqual({ ok: true, value: { swapped: false } })

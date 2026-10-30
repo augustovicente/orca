@@ -165,7 +165,7 @@ export const PLUGIN_HOST_API = {
   }),
   'storage.compareAndSet': spec({
     summary:
-      'Atomically writes a private JSON value only if it still matches expected; null expects an absent key.',
+      'Atomically writes a private JSON value only if it still matches expected; absent keys compare as null.',
     since: 1,
     scope: 'plugin-private',
     capability: 'storage:own',
