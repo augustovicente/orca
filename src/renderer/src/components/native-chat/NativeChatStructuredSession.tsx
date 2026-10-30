@@ -51,11 +51,10 @@ import { chatApprovalFromJournal } from '../../../../shared/native-chat-interact
 import { useAppStore } from '../../store'
 import { structuredAgentLabel } from '@/lib/structured-agent-session-launch-label'
 import { useNativeChatStructuredComposerTransport } from './use-native-chat-structured-composer-transport'
-import { NativeChatStructuredGoalStrip } from './NativeChatStructuredGoalStrip'
+import { NativeChatStructuredComposerTabStrips } from './NativeChatStructuredComposerTabStrips'
 import { nativeChatPaneHeader } from './NativeChatPaneHeader'
 import { structuredAgentSessionReadFailureNotice } from './structured-agent-session-read-failure-notice'
 import { useStructuredAgentSessionDeliveryNotices } from './use-structured-agent-session-delivery-notices'
-import { useNativeChatWorkerAutoCloseNotice } from './use-native-chat-worker-auto-close-notice'
 import { dispatchWasWithdrawn } from '../../../../shared/structured-agent-session-dispatch-rejection'
 import { useNativeChatHostOutage } from './use-native-chat-host-outage'
 import { useNativeChatHostOutageNotice } from './use-native-chat-host-outage-notice'
@@ -261,8 +260,9 @@ export function NativeChatStructuredSession(
     availability,
     hostPermission: hostSendGate.notice
   })
-  const workerNotice = useNativeChatWorkerAutoCloseNotice(transport, props.isVisible)
-  notices.push(...[hostNotice, workerNotice].filter((notice) => notice !== null))
+  if (hostNotice) {
+    notices.push(hostNotice)
+  }
   return (
     <div
       ref={rootRef}
@@ -351,7 +351,7 @@ export function NativeChatStructuredSession(
             stopBackgroundTask={controller.stopBackgroundTask}
           />
           {prompt ? null : (
-            <NativeChatStructuredGoalStrip
+            <NativeChatStructuredComposerTabStrips
               sessionId={props.sessionId}
               threadGoal={controller.threadGoal}
               transport={transport}

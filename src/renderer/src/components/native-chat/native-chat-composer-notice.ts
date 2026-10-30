@@ -16,10 +16,7 @@ export type NativeChatComposerNotice = NativeChatComposerNoticeContent & {
   key: string
   action?: { label: string; onClick: () => void; disabled?: boolean }
   onDismiss?: () => void
-} & (
-    | { kind: 'error' | 'attachment' | 'device' | 'worker' }
-    | { kind: 'host'; tone: 'warning' | 'muted' }
-  )
+} & ({ kind: 'error' | 'attachment' | 'device' } | { kind: 'host'; tone: 'warning' | 'muted' })
 
 /** Keep external errors apart from headline; localErrorIsOrcaWords identifies already-worded renderer errors. */
 export function nativeChatNoticeFromError(
@@ -62,7 +59,5 @@ export function setNativeChatPasteFailure(
     setNotice(readIpcErrorDetail(error) ?? headline)
     return
   }
-  setNativeChatNoticeFromError(setNotice, error, headline, {
-    localErrorIsOrcaWords: true
-  })
+  setNativeChatNoticeFromError(setNotice, error, headline, { localErrorIsOrcaWords: true })
 }

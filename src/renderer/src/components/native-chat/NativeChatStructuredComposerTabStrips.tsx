@@ -1,8 +1,30 @@
 import { NativeChatThreadGoalBanner } from './NativeChatThreadGoalBanner'
+import { NativeChatStructuredWorkerLifetimeStrip } from './NativeChatStructuredWorkerLifetimeStrip'
 import type { NativeChatStructuredComposerTransport } from './native-chat-composer-types'
 import type { StructuredAgentSessionThreadGoal } from './use-structured-agent-session-thread-goal'
 
-export function NativeChatStructuredGoalStrip(props: {
+/** The strips on the composer's top edge: the thread goal, then a temporary worker's lifetime. */
+export function NativeChatStructuredComposerTabStrips(props: {
+  sessionId: string
+  threadGoal: StructuredAgentSessionThreadGoal | null | undefined
+  transport: NativeChatStructuredComposerTransport
+  isWorking: boolean
+  isVisible: boolean
+  turnId: string | null
+  workingStartedAt: number | null | undefined
+}): React.JSX.Element {
+  return (
+    <>
+      <NativeChatStructuredGoalStrip {...props} />
+      <NativeChatStructuredWorkerLifetimeStrip
+        transport={props.transport}
+        isVisible={props.isVisible}
+      />
+    </>
+  )
+}
+
+function NativeChatStructuredGoalStrip(props: {
   sessionId: string
   threadGoal: StructuredAgentSessionThreadGoal | null | undefined
   transport: NativeChatStructuredComposerTransport
