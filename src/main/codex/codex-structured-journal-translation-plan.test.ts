@@ -458,6 +458,9 @@ it.each([10, 100])(
       control.append('control', prefix)
       expect(control.snapshot('control')?.text).toBe(prefix)
       expect(joins).toBeGreaterThan(0)
+      expect([...new Set(['meter-plan-control'])]).toEqual(['meter-plan-control'])
+      expect(visits).toBeGreaterThan(0)
+      visits = 0
       control.dispose()
       joins = 0
       for (let n = 0; n < count; n++) {
