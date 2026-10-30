@@ -125,8 +125,7 @@ export function MobileNativeChatNoticeRow({
           </Pressable>
           {expanded ? (
             <MobileNativeChatOwnedScrollView
-              rootIdentity={detailId}
-              positionKey="permission-notice"
+              positionKey={detailId}
               style={[toolStyles.codeBox, toolStyles.codeScroll]}
               nestedScrollEnabled
               keyboardShouldPersistTaps="handled"

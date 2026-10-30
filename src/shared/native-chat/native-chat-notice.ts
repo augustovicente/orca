@@ -69,7 +69,7 @@ export function nativeChatNoticeLook(block: NativeChatTextBlock): NativeChatNoti
   if (presentation === AGENT_SESSION_ORCA_STOP_PRESENTATION) {
     return { kind: 'line', tone: 'notice' }
   }
-  // Declared notification kinds describe settled decisions; prose and nested failures do not.
+  // Declared notification kinds select disclosure; prose and nested failures do not.
   if (presentation === undefined && !block.failure && !block.orcaStop) {
     const frame = block.providerFrame
     if (frame?.provider === 'codex' && frame.kind === 'notification:guardianWarning') {
