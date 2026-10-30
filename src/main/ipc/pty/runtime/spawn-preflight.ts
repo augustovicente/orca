@@ -14,7 +14,7 @@ import {
   ptySessionIdForAgentCreateOperation
 } from '../../../daemon/pty-session-id'
 import { resolvePathEnvKey } from '../../../pty/windows-environment-path'
-import type { RuntimePtySpawnState } from './spawn-state'
+import { isRuntimeWslBackgroundStart, type RuntimePtySpawnState } from './spawn-state'
 import { localPtySpawnCwd } from '../host-env/spawn-cwd'
 import { resolvePtySpawnStartupTarget } from '../spawn-startup-target'
 import { resolvePtySpawnHostEnv } from '../spawn-host-env'
@@ -85,10 +85,10 @@ export async function prepareRuntimePtySpawn(
     getSettings: ctx.deps.getSettings,
     resolveStartupCwd: (id, cwd, fallback) =>
       ctx.deps.resolvePtySpawnStartupCwd(id, cwd, fallback, args.connectionId),
-    // Default-deny, as spawn-options' `wslBackgroundStart`: held before the cwd probe and any provider.
-    ...(args.wslUserAct === true
-      ? {}
-      : { wslStartHold: { wslBackgroundStart: true, sessionId: ctx.sessionId } })
+    // The same verdict as spawn-options' `wslBackgroundStart`, held before the cwd probe and any provider.
+    ...(isRuntimeWslBackgroundStart(ctx)
+      ? { wslStartHold: { wslBackgroundStart: true, sessionId: ctx.sessionId } }
+      : {})
   })
   ctx.cwd = target.cwd
   ctx.requestedCwd = target.requestedCwd
