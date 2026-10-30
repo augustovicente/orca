@@ -11,7 +11,6 @@ import type {
   PluginHostCallOutcome,
   PluginSurface
 } from '../../shared/plugins/frames/plugin-protocol'
-import { createPluginExtensionRegistry } from '../../shared/plugins/contributions/plugin-extension-registry'
 import {
   discoverPlugins,
   getPluginsDataDir,
@@ -19,7 +18,7 @@ import {
   type DiscoveredPlugin,
   type ValidDiscoveredPlugin
 } from './plugin-discovery'
-import { PluginAuditLog } from './plugin-audit-log'
+import { PluginAuditLog, type PluginAuditEntry } from './plugin-audit-log'
 import { executePluginHostCallRequest } from './workers/plugin-host-call-adapter'
 import { PluginContentVerifier } from './plugin-content-integrity'
 import {
@@ -50,7 +49,6 @@ import { PluginInstallationState } from './installation/plugin-installation-stat
 
 export class PluginService {
   readonly options: PluginServiceOptions
-  private readonly registry = createPluginExtensionRegistry()
   private readonly audit: PluginAuditLog
   private readonly workerController: PluginWorkerController
   private readonly contentVerifier = new PluginContentVerifier()
@@ -89,12 +87,10 @@ export class PluginService {
       maxActive: options.maxActiveWorkers,
       idleReapMs: options.idleReapMs,
       workerFactory: options.workerFactory,
-      registry: this.registry,
       contentVerifier: this.contentVerifier,
       capabilities: (pluginKey) => this.getGrantedCapabilities(pluginKey),
       isCurrentApproved: (spec) => isApprovedWorkerSpec(spec, resolveApproved(spec.pluginKey)),
       isApprovalKept: (spec) => isApprovedWorkerSpec(spec, resolveApproved(spec.pluginKey, true)),
-      invokeCommand: (pluginKey, commandId, args) => this.invokeCommand(pluginKey, commandId, args),
       executeHostCall: (pluginKey, method, params) =>
         this.executeHostCall(pluginKey, method, params, 'worker'),
       log: (pluginKey) => this.installed.logs.capture(pluginKey),
@@ -152,7 +148,6 @@ export class PluginService {
       return
     }
     this.contentPacksReady = false
-    this.contentVerifier.clear()
     if (!enabled) {
       this.panels.revokeAll()
     }
@@ -192,6 +187,10 @@ export class PluginService {
 
   getDiscovered(): readonly DiscoveredPlugin[] {
     return this.installed.discovered
+  }
+
+  recordApprovalAudit(entry: PluginAuditEntry): Promise<void> {
+    return this.audit.record(entry)
   }
 
   getLogs(pluginKey: string) {

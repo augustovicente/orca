@@ -15,6 +15,7 @@ import {
 } from '../../issue-work-item-details'
 import {
   fetchIssueWorkItem,
+  fetchWorkItemPreview,
   fetchPullRequestWorkItem,
   fetchPullRequestWorkItemFromCandidates
 } from './work-item-fetch'
@@ -149,7 +150,8 @@ export async function getWorkItemByOwnerRepo(
   number: number,
   type: 'issue' | 'pr',
   connectionId?: string | null,
-  localGitOptions: LocalGitExecOptions = {}
+  localGitOptions: LocalGitExecOptions = {},
+  options: { preview?: boolean } = {}
 ): Promise<MainWorkItem | null> {
   return withGitHubRepoExecution(repoPath, connectionId, localGitOptions, async () => {
     const requestedHost = ownerRepo.host?.trim().toLowerCase()
@@ -174,6 +176,16 @@ export async function getWorkItemByOwnerRepo(
     }
     await acquire()
     try {
+      if (options.preview) {
+        return await fetchWorkItemPreview(
+          repoPath,
+          matchedRepository,
+          number,
+          type,
+          connectionId,
+          localGitOptions
+        )
+      }
       if (type === 'issue') {
         return await fetchIssueWorkItem(
           repoPath,

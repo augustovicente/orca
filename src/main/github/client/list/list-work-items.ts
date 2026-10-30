@@ -8,6 +8,7 @@ import { resolveIssueGitHubApiRepositorySource } from '../../github-api-reposito
 import type { MainWorkItem } from './../map/work-item-field-coercion'
 import { normalizeWorkItemPage, resolvePrWorkItemSource } from './work-item-list-request'
 import { listRecentWorkItems, listQueriedWorkItems } from './work-item-pages'
+import { isTaskRepositoryIneligible } from '../../../git/task-repository-eligibility'
 export async function listWorkItems(
   repoPath: string,
   limit = 24,
@@ -38,6 +39,10 @@ export async function listWorkItems(
     ])
     const issueOwnerRepo = issueResolved.source
     const prOwnerRepo = prResolved.source
+    const ineligible =
+      !issueOwnerRepo &&
+      !prOwnerRepo &&
+      (await isTaskRepositoryIneligible(repoPath, 'github', connectionId, localGitOptions))
     await acquire()
     try {
       // Preserve fetch failures for IPC; an empty fallback would hide per-repo outages.
@@ -77,7 +82,8 @@ export async function listWorkItems(
           issues: issueOwnerRepo,
           prs: prOwnerRepo,
           originCandidate: prResolved.originCandidate,
-          upstreamCandidate: prResolved.upstreamCandidate
+          upstreamCandidate: prResolved.upstreamCandidate,
+          ...(ineligible ? { ineligible: true as const } : {})
         },
         ...(errors ? { errors } : {}),
         ...(issueResolved.fellBack ? { issueSourceFellBack: true } : {})

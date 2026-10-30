@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { safePluginDisplayText } from '../manifest/plugin-display-text'
 import { pluginIdSchema, pluginRelativePathSchema } from '../manifest/plugin-manifest-fields'
 import {
   pluginFieldDoc,
@@ -11,7 +12,6 @@ import { PLUGIN_ICON_RULE_TEXT } from '../images/plugin-image-fields'
 export const PLUGIN_CUSTOM_EDITOR_LIMIT = 16
 
 export const PLUGIN_CUSTOM_EDITOR_PRIORITIES = ['default', 'option'] as const
-export type PluginCustomEditorPriority = (typeof PLUGIN_CUSTOM_EDITOR_PRIORITIES)[number]
 
 /** What the editor frame receives: the file's text, or its raw bytes. */
 export const PLUGIN_CUSTOM_EDITOR_CONTENT_KINDS = ['text', 'bytes'] as const
@@ -26,17 +26,13 @@ export const pluginCustomEditorContributionSchema = z
         ['excalidraw']
       )
     ),
-    title: z
-      .string()
-      .min(1)
-      .max(64)
-      .meta(
-        pluginFieldDoc(
-          "Name shown in the editor's view toggle beside Source, and on the tab of a file it opens.",
-          PLUGIN_MANIFEST_V2_SINCE,
-          ['Excalidraw']
-        )
-      ),
+    title: safePluginDisplayText(z.string().min(1).max(64)).meta(
+      pluginFieldDoc(
+        "Name shown in the editor's view toggle beside Source, and on the tab of a file it opens.",
+        PLUGIN_MANIFEST_V2_SINCE,
+        ['Excalidraw']
+      )
+    ),
     icon: pluginRelativePathSchema
       .optional()
       .meta(
@@ -52,7 +48,7 @@ export const pluginCustomEditorContributionSchema = z
     }),
     entry: pluginRelativePathSchema.meta(
       pluginPathFieldDoc(
-        'HTML file rendered inside a sandboxed editor frame, like a panel. It receives the open document and posts edits back; it never gets a file path or file system. It is trusted code: install editors you trust.',
+        'HTML file rendered inside an editor frame, like a panel. It receives the open document and posts edits back; it never gets a file path or file system. It is trusted code: install editors you trust.',
         PLUGIN_MANIFEST_V2_SINCE,
         ['editor/index.html']
       )
@@ -84,8 +80,6 @@ export const pluginCustomEditorContributionSchema = z
     description:
       'An editor for the listed files, shown in the editor tab beside Source. It must list at least one extension or file name. Requires the `sandboxed-ui` execution profile or higher.'
   })
-
-export type PluginCustomEditorContribution = z.infer<typeof pluginCustomEditorContributionSchema>
 
 export function customEditorContentKind(editor: {
   contentKind?: PluginCustomEditorContentKind
