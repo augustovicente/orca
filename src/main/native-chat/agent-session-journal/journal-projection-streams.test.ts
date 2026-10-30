@@ -19,9 +19,10 @@ import {
   createTrackedJournalOpener,
   openTestJournalHostDatabase
 } from './journal-host-database-test-support'
-import { readJournalSavedState } from './journal-saved-state'
+import { clearJournalSavedState, readJournalSavedState } from './journal-saved-state'
 import { renderJournalState } from './journal-reducer'
-import { expectProjectionMatches } from './journal-projection-test-support'
+import { JournalProjectionCatchUp } from './journal-projection-catch-up'
+import { expectProjectionMatches, replayedPrefixCoverage } from './journal-projection-test-support'
 import type { JournalHostDatabase } from './journal-host-database'
 
 const sessionId = 'session-1'
@@ -205,6 +206,19 @@ it.each(['claude', 'codex'] as const)(
         'stop-settlement'
       )
     ).toBe(true)
+
+    // Catch the same history up from no saved view, one row per page: every committed prefix and
+    // its tail fold to the full replay, through aliases, settlements and per-row timestamps.
+    database.transaction((db) => clearJournalSavedState(db, sessionId))
+    const catchUp = new JournalProjectionCatchUp(database, sessionId, journal.epoch, 1)
+    expect(await catchUp.load(async () => true)).toBe(true)
+    const prefixes: (number | null)[] = []
+    while (catchUp.page() === 'advanced') {
+      prefixes.push(replayedPrefixCoverage(database, sessionId))
+    }
+    expect(prefixes).toStrictEqual(
+      Array.from({ length: journal.cursor().sequence }, (_, index) => index + 1)
+    )
 
     // Count actual SQLite writes on a revision after many entities already exist.
     database.db.exec(`CREATE TEMP TABLE projection_bytes (field TEXT, bytes INTEGER);

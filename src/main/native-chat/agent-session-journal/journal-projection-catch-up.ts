@@ -44,7 +44,9 @@ export class JournalProjectionCatchUp {
   constructor(
     private readonly database: JournalHostDatabase,
     readonly sessionId: string,
-    readonly epoch: string
+    readonly epoch: string,
+    /** Tests page single rows to check every prefix. */
+    private readonly pageRows = PAGE_ROWS
   ) {}
 
   /** The private prefix's coverage, which the saved view holds after each committed page. */
@@ -59,7 +61,7 @@ export class JournalProjectionCatchUp {
     }
     const { database, sessionId, epoch } = this
     const stamp = readJournalSavedStamp(database.db, sessionId)
-    const pages = readJournalSavedStatePages(() => database.db, sessionId, epoch, PAGE_ROWS)
+    const pages = readJournalSavedStatePages(() => database.db, sessionId, epoch, this.pageRows)
     for (let step = pages.next(); ; step = pages.next()) {
       if (step.done) {
         if (database.isClosed) {
@@ -101,7 +103,7 @@ export class JournalProjectionCatchUp {
             sessionId,
             epoch,
             after === 0 ? Number.MIN_SAFE_INTEGER : after,
-            PAGE_ROWS
+            this.pageRows
           )
           if (rows.length === 0) {
             return 'current'
