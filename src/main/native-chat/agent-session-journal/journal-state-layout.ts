@@ -59,9 +59,15 @@ export function journalStateScalars(state: JournalReducerState): string {
 
 export function journalStateCollections(state: JournalReducerState): Collection[] {
   return Object.entries(state).flatMap<Collection>(([path, value]) => {
-    if (value instanceof Map) return [{ path, entries: value }]
-    if (value instanceof Set) return [{ path, entries: value.entries() }]
-    if (path === 'queue') return [{ path: 'queue.cards', entries: state.queue.cards }]
+    if (value instanceof Map) {
+      return [{ path, entries: value }]
+    }
+    if (value instanceof Set) {
+      return [{ path, entries: value.entries() }]
+    }
+    if (path === 'queue') {
+      return [{ path: 'queue.cards', entries: state.queue.cards }]
+    }
     return []
   })
 }
@@ -83,12 +89,18 @@ export function assembleJournalState(
   const fields: Record<string, unknown> = { ...scalars }
   const collections = new Map<string, { kind: 'map' | 'set'; values: unknown[] }>()
   for (const [path, kind] of Object.entries(journalStateLayout)) {
-    if (kind === 'map' || kind === 'set') collections.set(path, { kind, values: [] })
-    if (kind === 'queue') collections.set('queue.cards', { kind: 'map', values: [] })
+    if (kind === 'map' || kind === 'set') {
+      collections.set(path, { kind, values: [] })
+    }
+    if (kind === 'queue') {
+      collections.set('queue.cards', { kind: 'map', values: [] })
+    }
   }
   for (const { path, entryJson } of entries) {
     const collection = collections.get(path)
-    if (!collection) throw new Error('unknown saved journal collection')
+    if (!collection) {
+      throw new Error('unknown saved journal collection')
+    }
     const entry: unknown = JSON.parse(entryJson)
     if (!Array.isArray(entry) || entry.length < 1 || entry.length > 2) {
       throw new Error('invalid saved journal entry')

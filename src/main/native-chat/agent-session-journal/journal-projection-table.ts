@@ -51,7 +51,9 @@ export function publishJournalProjection(db: Database.Database, state: JournalRe
   const insertEntry = db.prepare(`INSERT INTO journal_entries
     (session_id, epoch, field, entry_key, ordinal, entry_json) VALUES (?, ?, ?, ?, ?, ?)`)
   for (const { path, entries } of journalStateCollections(state)) {
-    if (path === 'items') continue
+    if (path === 'items') {
+      continue
+    }
     ordinal = 0
     for (const [key, value] of entries) {
       insertEntry.run(
@@ -97,7 +99,9 @@ function writeEntry(
       `DELETE FROM ${table} WHERE session_id = ? AND epoch = ?${field} AND ${keyColumn} = ?`
     ).run(...prefix, key)
   }
-  if (entry.deleted) return
+  if (entry.deleted) {
+    return
+  }
   const json = item ? JSON.stringify(entry.value) : journalEntryJson(entry.key, entry.value)
   const columns = item ? '' : ', field'
   const placeholders = item ? '' : ', ?'

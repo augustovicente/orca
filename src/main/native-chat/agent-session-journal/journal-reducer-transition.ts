@@ -23,14 +23,18 @@ class JournalDraft {
   readonly access: JournalDraftAccess = {
     wrap: (value, changed, path) => this.wrap(value, changed, path),
     assign: (value) => {
-      if (typeof value === 'object' && value !== null) this.assigned.add(value)
+      if (typeof value === 'object' && value !== null) {
+        this.assigned.add(value)
+      }
     },
     finish: (value) => this.finish(value),
     defer: (apply) => this.pending.push(apply)
   }
 
   wrap<T>(value: T, changed: () => void, path: string): T {
-    if (typeof value !== 'object' || value === null) return value
+    if (typeof value !== 'object' || value === null) {
+      return value
+    }
     const previous = this.proxies.get(value) ?? this.originals.get(value)
     if (previous) {
       previous.listen(changed)
@@ -42,7 +46,15 @@ class JournalDraft {
     const mark = (): void => {
       if (!dirty) {
         dirty = true
-        for (const notify of listeners) notify()
+        for (const notify of listeners) {
+          notify()
+        }
+      }
+    }
+    const listen = (notify: () => void): void => {
+      listeners.add(notify)
+      if (dirty) {
+        notify()
       }
     }
     let node: DraftNode
@@ -52,24 +64,12 @@ class JournalDraft {
           ? new JournalDraftMap(value, this.access, mark, path)
           : new JournalDraftSet(value, this.access, mark, path)
       this.collections.push(collection)
-      node = {
-        value: collection,
-        finish: () => collection.finish(),
-        listen: (notify) => {
-          listeners.add(notify)
-          if (dirty) notify()
-        }
-      }
+      node = { value: collection, finish: () => collection.finish(), listen }
     } else {
       let copy: object | undefined
       const current = (): object => copy ?? value
       const writable = (): object => {
-        if (!copy) {
-          const cloned: object = Array.isArray(value)
-            ? [...value]
-            : Object.assign(Object.create(Object.getPrototypeOf(value)), value)
-          copy = cloned
-        }
+        copy ??= shallowCopy(value)
         return copy
       }
       const assignedKeys = new Set<PropertyKey>()
@@ -77,6 +77,7 @@ class JournalDraft {
       const proxy = new Proxy(target, {
         get: (_target, key, receiver) =>
           this.wrap(
+            // oxlint-disable-next-line anti-slop/no-reflect-get -- Proxy `get` trap: only Reflect.get forwards a raw string|symbol key with the proxy receiver.
             Reflect.get(current(), key, receiver),
             mark,
             path ? `${path}.${String(key)}` : String(key)
@@ -90,7 +91,8 @@ class JournalDraft {
           )
         },
         set: (_target, key, next) => {
-          if (!Object.is(Reflect.get(current(), key), next) || !Object.hasOwn(current(), key)) {
+          const before = Reflect.getOwnPropertyDescriptor(current(), key)
+          if (!before || !Object.is(before.value, next)) {
             this.access.assign(next)
             assignedKeys.add(key)
             Reflect.set(writable(), key, next)
@@ -116,26 +118,21 @@ class JournalDraft {
       node = {
         value: proxy,
         finish: () => {
-          if (!dirty && !this.assigned.has(value)) return value
+          if (!dirty && !this.assigned.has(value)) {
+            return value
+          }
           const result = writable()
           for (const key of Reflect.ownKeys(result)) {
-            const child = Reflect.get(result, key)
-            if (
-              assignedKeys.has(key) ||
-              this.assigned.has(value) ||
-              (typeof child === 'object' &&
-                child !== null &&
-                (this.originals.has(child) || this.proxies.has(child)))
-            ) {
+            const child = ownValue(result, key)
+            if (assignedKeys.has(key) || this.assigned.has(value) || this.tracks(child)) {
               Reflect.set(result, key, this.finish(child))
             }
           }
-          return result
+          // Holders of reducer objects across commits keep reading the live object.
+          restoreInPlace(value, result)
+          return value
         },
-        listen: (notify) => {
-          listeners.add(notify)
-          if (dirty) notify()
-        }
+        listen
       }
     }
     this.originals.set(value, node)
@@ -151,14 +148,28 @@ class JournalDraft {
   adopt<T>(value: T): T {
     // SAFETY: finalization removes tracking wrappers without changing the reducer's shape.
     const result = this.finish(value) as T
-    for (const apply of this.pending) apply()
+    for (const apply of this.pending) {
+      apply()
+    }
     return result
   }
 
+  private tracks(value: unknown): boolean {
+    return (
+      typeof value === 'object' &&
+      value !== null &&
+      (this.originals.has(value) || this.proxies.has(value))
+    )
+  }
+
   private finish(value: unknown): unknown {
-    if (typeof value !== 'object' || value === null) return value
+    if (typeof value !== 'object' || value === null) {
+      return value
+    }
     const previous = this.resolved.get(value)
-    if (previous) return previous
+    if (previous) {
+      return previous
+    }
     const node = this.proxies.get(value) ?? this.originals.get(value)
     if (node) {
       const result = node.finish()
@@ -166,16 +177,44 @@ class JournalDraft {
       this.resolved.set(node.value, result)
       return result
     }
-    if (value instanceof Map || value instanceof Set) return value
-    // Newly assigned objects may contain drafts introduced by spread or destructuring.
-    const copy: object = Array.isArray(value)
-      ? [...value]
-      : Object.assign(Object.create(Object.getPrototypeOf(value)), value)
-    this.resolved.set(value, copy)
-    for (const key of Reflect.ownKeys(copy)) {
-      Reflect.set(copy, key, this.finish(Reflect.get(copy, key)))
+    this.resolved.set(value, value)
+    if (value instanceof Map || value instanceof Set) {
+      return value
     }
-    return copy
+    // Values created during the fold may hold drafts introduced by spread or destructuring.
+    for (const key of Reflect.ownKeys(value)) {
+      const child = ownValue(value, key)
+      const finished = this.finish(child)
+      if (finished !== child) {
+        Reflect.set(value, key, finished)
+      }
+    }
+    return value
+  }
+}
+
+function shallowCopy(value: object): object {
+  return Array.isArray(value)
+    ? [...value]
+    : Object.assign(Object.create(Object.getPrototypeOf(value)), value)
+}
+
+function ownValue(value: object, key: PropertyKey): unknown {
+  return Reflect.getOwnPropertyDescriptor(value, key)?.value
+}
+
+/** Apply a committed copy to its original, keeping the key order in-place mutation would leave. */
+function restoreInPlace(target: object, source: object): void {
+  const keys = Reflect.ownKeys(source)
+  const previous = Reflect.ownKeys(target)
+  const reordered = !Array.isArray(target) && previous.some((key, index) => key !== keys[index])
+  for (const key of previous) {
+    if (reordered || !Object.hasOwn(source, key)) {
+      Reflect.deleteProperty(target, key)
+    }
+  }
+  for (const key of keys) {
+    Reflect.set(target, key, ownValue(source, key))
   }
 }
 
@@ -190,6 +229,8 @@ export function isolateJournalTransition(
 } {
   const draft = new JournalDraft()
   const candidate = draft.wrap(state, () => undefined, '')
-  for (const row of rows) applyJournalRow(candidate, row, savedAt)
+  for (const row of rows) {
+    applyJournalRow(candidate, row, savedAt)
+  }
   return { state: candidate, changes: () => draft.changes(), adopt: () => draft.adopt(candidate) }
 }

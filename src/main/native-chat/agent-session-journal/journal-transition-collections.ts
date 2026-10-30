@@ -39,7 +39,9 @@ export class JournalDraftMap<K, V> extends Map<K, V> {
   }
 
   override get(key: K): V | undefined {
-    if (!this.has(key)) return undefined
+    if (!this.has(key)) {
+      return undefined
+    }
     const value = this.writes.has(key) ? this.writes.get(key) : this.source.get(key)
     return this.access.wrap(value, () => this.touch(key), `${this.path}.*`)
   }
@@ -56,8 +58,12 @@ export class JournalDraftMap<K, V> extends Map<K, V> {
   }
 
   override delete(key: K): boolean {
-    if (!this.has(key)) return false
-    if (this.source.has(key)) this.removed.add(key)
+    if (!this.has(key)) {
+      return false
+    }
+    if (this.source.has(key)) {
+      this.removed.add(key)
+    }
     this.inserted.delete(key)
     this.writes.delete(key)
     this.touch(key)
@@ -65,12 +71,16 @@ export class JournalDraftMap<K, V> extends Map<K, V> {
   }
 
   override clear(): void {
-    for (const key of this.keys()) this.delete(key)
+    for (const key of this.keys()) {
+      this.delete(key)
+    }
   }
 
   override *keys(): MapIterator<K> {
     for (const key of this.source.keys()) {
-      if (!this.removed.has(key)) yield key
+      if (!this.removed.has(key)) {
+        yield key
+      }
     }
     yield* this.inserted
   }
@@ -94,7 +104,9 @@ export class JournalDraftMap<K, V> extends Map<K, V> {
   }
 
   override forEach(callback: (value: V, key: K, map: Map<K, V>) => void, thisArg?: unknown): void {
-    for (const [key, value] of this) callback.call(thisArg, value, key, this)
+    for (const [key, value] of this) {
+      callback.call(thisArg, value, key, this)
+    }
   }
 
   changes(): JournalEntryChange[] {
@@ -117,8 +129,12 @@ export class JournalDraftMap<K, V> extends Map<K, V> {
     }))
     this.access.defer(() => {
       for (const entry of changes) {
-        if (entry.deleted || entry.reinsert) this.source.delete(entry.key)
-        if (!entry.deleted) this.source.set(entry.key, entry.value)
+        if (entry.deleted || entry.reinsert) {
+          this.source.delete(entry.key)
+        }
+        if (!entry.deleted) {
+          this.source.set(entry.key, entry.value)
+        }
       }
     })
     return this.source
@@ -160,31 +176,45 @@ export class JournalDraftSet<T> extends Set<T> {
     return this
   }
   override delete(value: T): boolean {
-    if (!this.has(value)) return false
-    if (this.source.has(value)) this.removed.add(value)
+    if (!this.has(value)) {
+      return false
+    }
+    if (this.source.has(value)) {
+      this.removed.add(value)
+    }
     this.inserted.delete(value)
     this.touched.add(value)
     this.changed()
     return true
   }
   override clear(): void {
-    for (const value of this) this.delete(value)
+    for (const value of this) {
+      this.delete(value)
+    }
   }
   override *values(): SetIterator<T> {
-    for (const value of this.source) if (!this.removed.has(value)) yield value
+    for (const value of this.source) {
+      if (!this.removed.has(value)) {
+        yield value
+      }
+    }
     yield* this.inserted
   }
   override keys(): SetIterator<T> {
     return this.values()
   }
   override *entries(): SetIterator<[T, T]> {
-    for (const value of this.values()) yield [value, value]
+    for (const value of this.values()) {
+      yield [value, value]
+    }
   }
   override [Symbol.iterator](): SetIterator<T> {
     return this.values()
   }
   override forEach(callback: (value: T, key: T, set: Set<T>) => void, thisArg?: unknown): void {
-    for (const value of this) callback.call(thisArg, value, value, this)
+    for (const value of this) {
+      callback.call(thisArg, value, value, this)
+    }
   }
   changes(): JournalEntryChange[] {
     return [...this.touched].map((key) => ({
@@ -201,8 +231,12 @@ export class JournalDraftSet<T> extends Set<T> {
       for (const entry of changes) {
         // SAFETY: changes() returns keys from this set.
         const value = entry.key as T
-        if (entry.deleted || entry.reinsert) this.source.delete(value)
-        if (!entry.deleted) this.source.add(value)
+        if (entry.deleted || entry.reinsert) {
+          this.source.delete(value)
+        }
+        if (!entry.deleted) {
+          this.source.add(value)
+        }
       }
     })
     return this.source
