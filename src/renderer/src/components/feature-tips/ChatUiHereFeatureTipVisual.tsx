@@ -33,13 +33,13 @@ function Row({ on, children }: { on: boolean; children: ReactNode }): JSX.Elemen
   )
 }
 
-/** Boxes size to their labels; the arrows share what is left of the row. */
-function FlowDiagram({
+/** Boxes size to their labels; the arrows share what is left of the row. Also drawn still in Settings. */
+export function FlowDiagram({
   flow,
   frame
 }: {
   flow: ChatDemoCopy['flow']
-  frame: ChatDemoFrame
+  frame: Pick<ChatDemoFrame, 'nodes' | 'arrows'>
 }): JSX.Element {
   return (
     <div className="flex items-end pt-[14px] pb-[10px]">

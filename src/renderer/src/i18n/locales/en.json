@@ -850,7 +850,21 @@
       "installCliForTerminal": "Install the {{value0}} CLI to open it in a terminal.",
       "chatRuntime": "Chat runtime",
       "chatChoiceTitle": "Open as chat or CLI",
-      "chatChoiceDescription": "Choose whether each agent opens as a chat or in its CLI."
+      "chatChoiceDescription": "Choose whether each agent opens as a chat or in its CLI.",
+      "defaultSurfaceTitle": "Open agents as",
+      "defaultSurfaceDescription": "The default for agents on this computer.",
+      "defaultSurfaceChatDescription": "Rich messages, visuals and images.",
+      "defaultSurfaceTerminal": "Terminal",
+      "defaultSurfaceTerminalDescription": "Each agent’s own CLI.",
+      "defaultSurfacePerAgent": "Choose per agent",
+      "defaultSurfaceNowChat": "Agents now open as chats",
+      "defaultSurfaceNowTerminal": "Agents now open in the terminal",
+      "defaultSurfaceKeptTerminal_one": "{{agents}} stays in the terminal, as you set.",
+      "defaultSurfaceKeptTerminal_other": "{{agents}} stay in the terminal, as you set.",
+      "defaultSurfaceKeptChat_one": "{{agents}} stays as a chat, as you set.",
+      "defaultSurfaceKeptChat_other": "{{agents}} stay as chats, as you set.",
+      "defaultSurfaceSetAllChat": "Set all to Chat",
+      "defaultSurfaceSetAllTerminal": "Set all to Terminal"
     },
     "followSymlinkedDirectoriesKeywords": {
       "symlink": "symlink",
