@@ -37,7 +37,6 @@ export function isSessionSearchFeatureTipCompleted(
 
 /** Unseen tips whose feature the user has not already set up, in display order. */
 export function getPendingFeatureTips(args: {
-  macos12SupportNoticeEligible?: boolean
   seenTipIds: readonly FeatureTipId[]
   cliInstalled: boolean
   featureInteractions: FeatureInteractionState
@@ -47,7 +46,6 @@ export function getPendingFeatureTips(args: {
   return getOrderedUnseenFeatureTips({
     seenTipIds: new Set(args.seenTipIds),
     completedTipIds: getCompletedFeatureTipIds({
-      macos12SupportNoticeEligible: !args.webClient && args.macos12SupportNoticeEligible === true,
       cliInstalled: args.cliInstalled,
       voiceDictationEnabled: args.settings?.voice?.enabled === true,
       sessionSearchTipCompleted: isSessionSearchFeatureTipCompleted(args.settings, args.webClient),
@@ -57,7 +55,6 @@ export function getPendingFeatureTips(args: {
 }
 
 export function getFeatureTipsAppOpenDecision(args: {
-  macos12SupportNoticeEligible?: boolean
   activeModal: string
   cliInstalled: boolean | null
   featureTipsSeenIds: readonly FeatureTipId[]
@@ -87,7 +84,6 @@ export function getFeatureTipsAppOpenDecision(args: {
   }
 
   const nextTip = getPendingFeatureTips({
-    macos12SupportNoticeEligible: args.macos12SupportNoticeEligible,
     seenTipIds: args.featureTipsSeenIds,
     cliInstalled: args.cliInstalled,
     featureInteractions: args.featureInteractions,

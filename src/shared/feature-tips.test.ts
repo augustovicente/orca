@@ -11,7 +11,6 @@ describe('feature tips', () => {
     const tips = getOrderedUnseenFeatureTips({ seenTipIds: new Set<FeatureTipId>() })
 
     expect(tips.map((tip) => tip.id)).toEqual([
-      'macos-12-support',
       'agent-session-search',
       'orca-cli',
       'cmd-j-palette',
@@ -22,7 +21,6 @@ describe('feature tips', () => {
   it('skips tips the user has already seen', () => {
     const tips = getOrderedUnseenFeatureTips({
       seenTipIds: new Set<FeatureTipId>([
-        'macos-12-support',
         'voice-dictation',
         'orca-cli',
         'cmd-j-palette',
