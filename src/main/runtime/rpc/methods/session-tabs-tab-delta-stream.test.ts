@@ -216,7 +216,7 @@ describe.each(['session.tabs.subscribe', 'session.tabs.subscribeAll'] as const)(
             }
           ]
         }
-        // SAFETY: these are the runtime operations exercised by these real RPC handlers.
+        // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: these real RPC handlers reach only the runtime members stubbed here.
         const runtime = {
           getRuntimeId: () => 'runtime',
           getClientSettings: () => ({}),
