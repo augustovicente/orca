@@ -19,7 +19,11 @@ describe('shouldRetryTerminate', () => {
       { file: 'C:\\Windows\\System32\\wsl.exe', args: ['-d', 'Ubuntu', '--exec', 'sh'] }
     ],
     ['a running-list read', { file: 'wsl.exe', args: ['--list', '--running', '--quiet'] }],
-    ['a UNC touch', { file: 'fs', args: ['stat', '\\\\wsl.localhost\\Ubuntu\\tmp'] }]
+    ['a UNC touch', { file: 'fs', args: ['stat', '\\\\wsl.localhost\\Ubuntu\\tmp'] }],
+    [
+      'a terminal spawn',
+      { file: 'pty', args: ['[pty:history] worktreeId=wt::\\\\wsl.localhost\\Ubuntu shell=bash'] }
+    ]
   ])('fails instead of retrying after %s, which could be the boot', (_label, spawn) => {
     expect(shouldRetryTerminate({ ...stillListed, spawnsSinceTerminate: [spawn] })).toBe(false)
   })
