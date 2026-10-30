@@ -75,6 +75,44 @@ describe('the relay’s foreground group as proof of a launched agent', () => {
     ).resolves.toBe('shell')
   })
 
+  function unverifiable(reason: string): RemoteForegroundEvidence {
+    return {
+      verdict: 'unverifiable',
+      reason,
+      authorityGeneration: 'gen-1',
+      observationEpoch: 1,
+      capturedAgeMs: 0,
+      ptyId: 'pty-1',
+      ptyIncarnationId: 'inc-1'
+    }
+  }
+
+  it.each([
+    // npm Codex (`node …/codex.js` spawning native `codex`) and Gemini relaunching itself both put two agent rows in the group.
+    ['ambiguous_foreground_group', 'codex'],
+    ['multiplexer_boundary', 'codex']
+  ] as const)('keeps the relay’s agent name when the group is %s', async (reason, name) => {
+    const controller = {
+      ...controllerAnswering(async () => unverifiable(reason)),
+      getForegroundProcess: async () => name
+    }
+
+    await expect(readLaunchedAgentForeground(controller, POSIX_SSH, 'pty-1', name)).resolves.toBe(
+      'agent'
+    )
+  })
+
+  it('refuses a withheld foreground argv, which could be a root shell, whatever the cached name', async () => {
+    const controller = {
+      ...controllerAnswering(async () => unverifiable('argv_unreadable')),
+      getForegroundProcess: async () => 'claude'
+    }
+
+    await expect(
+      readLaunchedAgentForeground(controller, POSIX_SSH, 'pty-1', 'claude')
+    ).resolves.toBe('unknown')
+  })
+
   it('refuses a stale capture without letting the cached display name restore authority', async () => {
     // zsh → su → root bash → Claude: the tracker cached `claude` just before Claude exited to the root bash.
     const controller = {

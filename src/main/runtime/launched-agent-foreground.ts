@@ -89,8 +89,12 @@ export async function readLaunchedAgentForeground(
     ) {
       return 'shell'
     }
-    // The name may be the tracker's display cache: it can refuse a write the evidence declined, never authorize it.
-    return evidence ? 'unknown' : 'agent'
+    // The name may be the tracker's display cache, so it cannot overrule evidence that saw the group (stale, or no
+    // agent in it) or a withheld argv (a root `su` shell). Structural refusals (two agent rows, tmux) keep the name.
+    const declined =
+      evidence?.verdict === 'live' ||
+      (evidence?.verdict === 'unverifiable' && evidence.reason === 'argv_unreadable')
+    return declined ? 'unknown' : 'agent'
   } catch {
     return 'unknown'
   }
