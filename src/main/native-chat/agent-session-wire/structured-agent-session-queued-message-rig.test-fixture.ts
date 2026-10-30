@@ -16,7 +16,7 @@ import { AgentSessionRecoveryCapsule } from '../../runtime/agent-session-recover
 import { StructuredAgentSessionHost } from './structured-agent-session-host'
 import {
   HOST_TEST_NOW as NOW,
-  HOST_TEST_SESSION as SESSION,
+  HOST_TEST_SESSION as DEFAULT_SESSION,
   HOST_TEST_THREAD as THREAD,
   hostTestAttachParams,
   hostTestMessage,
@@ -32,17 +32,12 @@ import { createStructuredAgentSessionLogger } from './structured-agent-session-l
 import { createQueuedRigProvider } from './structured-agent-session-queued-message-rig-provider.test-fixture'
 import { claudeAndCodexDeclared } from './structured-agent-session-adapter-router-test-support'
 import type { AgentJournalSubmission } from '../../../shared/agent-session-journal-types'
-import type { AgentSessionExecutionLocation } from '../../../shared/agent-session-record'
-import type { AgentMessageSource } from '../../../shared/agent-session/agent-session-message-source'
-import type { StructuredAgentSessionHostDeps } from './structured-agent-session-host'
-import type { QueuedRigProviderOptions } from './structured-agent-session-queued-message-rig-provider.test-fixture'
+import type {
+  QueuedMessageRigOptions,
+  RigSendOptions
+} from './structured-agent-session-queued-message-rig-types.test-fixture'
 
 export const QUEUED_RIG_CALLER = { callerKey: 'client-1' }
-type RigSendOptions = {
-  internal?: true
-  from?: AgentMessageSource
-  carried?: Readonly<Record<string, string>>
-}
 
 export function eventually(assertion: () => void | Promise<void>): Promise<void> {
   return vi.waitFor(assertion, { timeout: 10_000 })
@@ -50,18 +45,8 @@ export function eventually(assertion: () => void | Promise<void>): Promise<void>
 
 export type QueuedMessageTestRig = Awaited<ReturnType<typeof createQueuedMessageTestRig>>
 
-export async function createQueuedMessageTestRig(
-  options: QueuedRigProviderOptions & {
-    scopedOwnership?: true
-    idleSweep?: { idleMs: number; intervalMs: number }
-    now?: () => number
-    /** Teardown records its restart offers, which `restartOffers` lists. */
-    recoveryCapsule?: true
-    location?: AgentSessionExecutionLocation
-    /** Defaults to indeterminate. */
-    probeOwner?: StructuredAgentSessionHostDeps['probeOwner']
-  } = {}
-) {
+export async function createQueuedMessageTestRig(options: QueuedMessageRigOptions = {}) {
+  const SESSION = options.sessionId ?? DEFAULT_SESSION
   const root = await mkdtemp(join(tmpdir(), 'orca-queued-messages-'))
   const journals = options.scopedOwnership ? createTrackedJournalOpener({ scoped: true }) : null
   journals?.ownRoot(root)
@@ -118,10 +103,23 @@ export async function createQueuedMessageTestRig(
       )
     }
     let host = makeHost()
-    const firstAttach = hostTestAttachParams(
-      null,
-      options.location ? { location: options.location } : {}
-    )
+    const firstAttach = hostTestAttachParams(null, {
+      ...(options.location ? { location: options.location } : {}),
+      envelope: {
+        sessionId: SESSION,
+        clientOperationId: hostTestOperationId(),
+        expectedRuntimeFence: null,
+        payloadFingerprint: ''
+      },
+      ...(options.agent === 'claude'
+        ? ({
+            provider: 'claude',
+            agent: 'claude',
+            providerHandle: { kind: 'claude', sessionId: THREAD, leafUuid: null },
+            accountHome: { variable: 'CLAUDE_CONFIG_DIR', path: '/private-fixture/claude' }
+          } as const)
+        : {})
+    })
     expect(await host.attach(QUEUED_RIG_CALLER, firstAttach)).toMatchObject({ ok: true })
 
     function envelope(
@@ -166,7 +164,8 @@ export async function createQueuedMessageTestRig(
     const { sendNow, deleteQueued, resume, drafts, queuePause } = queuedMessageRigQueueOperations(
       () => host,
       envelope,
-      QUEUED_RIG_CALLER
+      QUEUED_RIG_CALLER,
+      SESSION
     )
 
     async function submission(id: string): Promise<AgentJournalSubmission | undefined> {

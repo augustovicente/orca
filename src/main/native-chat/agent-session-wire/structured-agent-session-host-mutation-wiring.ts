@@ -1,4 +1,3 @@
-import { createRestartReconciler } from './structured-agent-session-restart-reconcile'
 import type { StructuredAgentSessionEventRecovery } from './structured-agent-session-event-recovery'
 import type { StructuredAgentSessionLifetimeContext } from './structured-agent-session-host-lifetime'
 import * as agentStart from './structured-agent-session-agent-start'
@@ -23,6 +22,9 @@ type Inputs = {
   runtimeState: StructuredAgentSessionHostRuntimeState
   attachContext: () => StructuredAgentSessionAttachContext
   serialize: StructuredAgentSessionMutationContext['serialize']
+  trackProviderOperation: NonNullable<
+    StructuredAgentSessionMutationContext['trackProviderOperation']
+  >
   now: () => number
 }
 
@@ -54,6 +56,7 @@ export function createStructuredAgentSessionHostMutationContext(
     startFlights: input.runtimeState.startFlights,
     startupAttempts: input.runtimeState.startupAttempts,
     deliveryOrder: input.runtimeState.deliveryOrder,
+    trackProviderOperation: input.trackProviderOperation,
     joinChildClose: (sessionId) =>
       agentStart.joinClosingStructuredAgentSessionChild(input.attachContext(), sessionId),
     wakeDelivery: (sessionId) => input.conversationDelivery.loop.wake(sessionId),
@@ -82,17 +85,4 @@ export function createStructuredAgentSessionLifetimeContext(
     wakeDelivery: (sessionId: string) => input.conversationDelivery.loop.wake(sessionId),
     endExitedChild: input.eventRecovery.endExitedChildUnderSerialize
   } satisfies StructuredAgentSessionLifetimeContext
-}
-
-export function createHostRestartReconciler(
-  deps: StructuredAgentSessionHostDeps,
-  runtimeState: StructuredAgentSessionHostRuntimeState,
-  now: () => number
-) {
-  return createRestartReconciler({
-    store: deps.store,
-    probe: (record) => runtimeState.probeRecord(record),
-    ...(deps.probeOwners ? { probeMany: deps.probeOwners } : {}),
-    now
-  })
 }

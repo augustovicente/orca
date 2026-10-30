@@ -21,7 +21,7 @@ export type ClaudeResultJournalContext = Pick<
   | 'providerFallback'
   | 'corrections'
   | 'turn'
-  | 'authenticationFailures'
+  | 'assistantFailures'
   | 'usageLimits'
   | 'threadGoal'
 > & {
@@ -40,7 +40,7 @@ export function journalClaudeResult(
     turn,
     prompts,
     context,
-    authenticationFailures,
+    assistantFailures,
     usageLimits,
     threadGoal,
     goalBackgroundWork
@@ -71,7 +71,7 @@ export function journalClaudeResult(
   if (usageLimit && endedTurnIdentity) {
     writeClaudeTerminalFailure(sink, endedTurnIdentity, usageLimit)
   }
-  const alreadyShown = authenticationFailures.resultAlreadyShown(message)
+  const alreadyShown = assistantFailures.resultAlreadyShown(message)
   let transientFailure: ReturnType<typeof claudeTransientFailure>
   if (
     settlesTurn &&

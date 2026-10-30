@@ -52,6 +52,7 @@ import type { AgentSessionPromptRequest } from './structured-agent-session-turns
 import type { StructuredAgentSessionMutationContext } from './structured-agent-session-mutation-context'
 import type { MutationPlan } from './structured-agent-session-mutation-plans'
 import type { StructuredAgentSessionCaller } from './structured-agent-session-host-types'
+import { confirmIdleStructuredAgentSessionOption } from './structured-agent-session-idle-option'
 import type { StructuredAgentSessionOptionsReader } from './structured-agent-session-options-read'
 
 // Share mutation admission/planning/publication. Conversation writes need no child lease;
@@ -69,6 +70,7 @@ export function sendStructuredAgentSessionTurn(
     delivery?: 'queue-if-active'
     queuedImageCards?: boolean
     options?: Readonly<Record<string, string>>
+    selection?: Readonly<Record<string, string>>
     usageLimitContinuationOfTurnItemId?: string
     /** Client send RPCs set origin=client for recovery; host mail/continuations/launch sends omit it. */
     userSend?: true
@@ -241,7 +243,13 @@ export async function setStructuredAgentSessionOption(
     {
       ...plan,
       conversationWrite: true,
-      run: (ctx) => recordStructuredAgentSessionOptionIntent(context.deps, ctx, params)
+      run: async (ctx) => {
+        const picked = await recordStructuredAgentSessionOptionIntent(context.deps, ctx, params)
+        if (picked.ok) {
+          confirmIdleStructuredAgentSessionOption(context, ctx, params)
+        }
+        return picked
+      }
     },
     openForWrite(context, params.envelope)
   )

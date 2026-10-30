@@ -486,6 +486,7 @@ describe('import failures', () => {
         type: 'user',
         uuid: `${index}-${longId}`,
         sessionId: CLAUDE_SESSION,
+        cwd: index === 0 ? '/foreign-source' : root,
         message: { role: 'user', content: 'small' }
       })
     )
@@ -508,6 +509,14 @@ describe('import failures', () => {
       provider: 'claude',
       uuid: `249-${longId}`
     })
+    // Pruning away the first row cannot erase its authoritative source cwd.
+    expect(
+      await prepareLegacyTranscriptImport({
+        agent: 'claude',
+        sessionId: CLAUDE_SESSION,
+        options: { filePath, source: { providerSessionId: CLAUDE_SESSION, workspaceCwd: root } }
+      })
+    ).toMatchObject({ ok: false, error: 'This conversation belongs to another directory.' })
   })
 
   it('imports a source past 16 MiB, keeping its newest messages', async () => {

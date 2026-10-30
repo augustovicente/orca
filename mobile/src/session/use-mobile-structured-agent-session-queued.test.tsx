@@ -42,6 +42,21 @@ const asyncStorage = vi.hoisted(() => ({
 
 vi.mock('@react-native-async-storage/async-storage', () => ({ default: asyncStorage }))
 
+function normalReply(method: string): RpcResponse {
+  if (method === 'agentSession.options') {
+    return ok({ models: [], current: {} })
+  }
+  if (method === 'agentSession.modelCatalog') {
+    return {
+      id: 'catalog',
+      ok: false,
+      error: { code: 'method_not_found', message: 'Unknown method' },
+      _meta: { runtimeId: 'runtime-1' }
+    }
+  }
+  return ok({})
+}
+
 describe('mobile structured queued messages', () => {
   let renderer: ReactTestRenderer | null = null
   let hook: ReturnType<typeof useMobileStructuredAgentSession> | null = null
@@ -92,17 +107,17 @@ describe('mobile structured queued messages', () => {
     event: AgentSessionSubscribeEvent = snapshotEvent(),
     sessionId?: string
   ): Promise<void> {
-    act(() => {
+    await act(async () => {
       renderer = create(
         createElement(Harness, { hostSupport, ...(sessionId ? { sessionId } : {}) })
       )
     })
     await vi.waitFor(() => expect(listener).toEqual(expect.any(Function)))
-    act(() => listener?.(event))
+    await act(async () => listener?.(event))
   }
 
-  function unmountSession(): void {
-    act(() => renderer?.unmount())
+  async function unmountSession(): Promise<void> {
+    await act(async () => renderer?.unmount())
     renderer = null
     hook = null
     listener = null
@@ -134,14 +149,12 @@ describe('mobile structured queued messages', () => {
     asyncStorage.removeItem.mockImplementation(async (key: string) => {
       stored.delete(key)
     })
-    sendRequest.mockImplementation(async (method) =>
-      method === 'agentSession.options' ? ok({ models: [], current: {} }) : ok({})
-    )
+    sendRequest.mockImplementation(async (method) => normalReply(method))
   })
 
-  afterEach(() => {
+  afterEach(async () => {
     vi.useRealTimers()
-    unmountSession()
+    await unmountSession()
   })
 
   it('reverts an optimistic relative move when the host reports a changed queue', async () => {
@@ -158,17 +171,19 @@ describe('mobile structured queued messages', () => {
     await mountSession(CAPABLE, snapshotEvent({ queuedMessages: messages }))
     expect(hook!.queued.move).toBeUndefined()
     expect(calls('agentSession.queuedMessageMove')).toHaveLength(0)
-    unmountSession()
+    await unmountSession()
     await mountSession(
       { ...CAPABLE, queuedMessageReorder: true },
       snapshotEvent({ queuedMessages: messages })
     )
     let finish: (response: RpcResponse) => void = () => {}
-    sendRequest.mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          finish = resolve
-        })
+    const otherMethods = sendRequest.getMockImplementation()!
+    sendRequest.mockImplementation((method, params) =>
+      method === 'agentSession.queuedMessageMove'
+        ? new Promise((resolve) => {
+            finish = resolve
+          })
+        : otherMethods(method, params)
     )
     let moving!: Promise<boolean>
     await act(async () => {
@@ -274,7 +289,7 @@ describe('mobile structured queued messages', () => {
             queued: { messageId: 'client-1', position: 1, state: 'waiting' }
           })
         }
-        return method === 'agentSession.options' ? ok({ models: [], current: {} }) : ok({})
+        return normalReply(method)
       })
       await mountSession(CAPABLE)
       await act(async () => {
@@ -303,7 +318,7 @@ describe('mobile structured queued messages', () => {
             submission: acceptedSubmission('client-1')
           })
         }
-        return method === 'agentSession.options' ? ok({ models: [], current: {} }) : ok({})
+        return normalReply(method)
       })
       await mountSession(CAPABLE)
       await vi.waitFor(() =>
@@ -333,7 +348,7 @@ describe('mobile structured queued messages', () => {
             }
           })
         }
-        return method === 'agentSession.options' ? ok({ models: [], current: {} }) : ok({})
+        return normalReply(method)
       })
       await mountSession(LEGACY)
       await act(async () => {
@@ -354,7 +369,7 @@ describe('mobile structured queued messages', () => {
       let attempts = 0
       sendRequest.mockImplementation(async (method, params) => {
         if (method !== 'agentSession.send') {
-          return ok({ models: [], current: {} })
+          return normalReply(method)
         }
         if (++attempts === 1) {
           throw markRpcDeliveryUnknown(new Error('Connection closed'))
@@ -366,7 +381,7 @@ describe('mobile structured queued messages', () => {
       await act(async () => {
         expect(await hook!.sendWithOutcome('again')).toBe('unknown')
       })
-      unmountSession()
+      await unmountSession()
       await mountSession(LEGACY)
       await act(async () => {
         expect(await hook!.sendWithOutcome('again')).toBe('accepted')
@@ -383,7 +398,7 @@ describe('mobile structured queued messages', () => {
     let attempts = 0
     sendRequest.mockImplementation(async (method, params) => {
       if (method !== 'agentSession.send') {
-        return ok({ models: [], current: {} })
+        return normalReply(method)
       }
       if (++attempts === 1) {
         throw markRpcDeliveryUnknown(new Error('Connection closed'))
@@ -525,7 +540,7 @@ describe('mobile structured queued messages', () => {
             }
           })
         }
-        return method === 'agentSession.options' ? ok({ models: [], current: {} }) : ok({})
+        return normalReply(method)
       })
       await mountSession(CAPABLE)
       await act(async () => {
@@ -539,9 +554,7 @@ describe('mobile structured queued messages', () => {
       sendRequest.mockImplementation(async (method) =>
         method === 'agentSession.queuedMessageSend' || method === 'agentSession.queuedMessageDelete'
           ? held.promise
-          : method === 'agentSession.options'
-            ? ok({ models: [], current: {} })
-            : ok({})
+          : normalReply(method)
       )
       await mountSession(CAPABLE)
       const presses: Promise<boolean>[] = []
@@ -565,7 +578,7 @@ describe('mobile structured queued messages', () => {
         if (method === 'agentSession.queuedMessageDelete') {
           return mutationOk({ deleted: false, messageId: 'draft-1', disposition: 'dispatched' })
         }
-        return method === 'agentSession.options' ? ok({ models: [], current: {} }) : ok({})
+        return normalReply(method)
       })
       await mountSession(CAPABLE)
       await act(async () => {
@@ -581,9 +594,7 @@ describe('mobile structured queued messages', () => {
           ? fieldsOf(params).messageId === 'draft-1'
             ? mutationOk({ deleted: true, messageId: 'draft-1' })
             : mutationOk({ deleted: false, messageId: 'draft-2', disposition: 'missing' })
-          : method === 'agentSession.options'
-            ? ok({ models: [], current: {} })
-            : ok({})
+          : normalReply(method)
       )
       await mountSession(
         LEGACY,
@@ -600,7 +611,7 @@ describe('mobile structured queued messages', () => {
         if (method === 'agentSession.queuedMessageDelete') {
           return mutationOk({ deleted: true, messageId: 'draft-1' })
         }
-        return method === 'agentSession.options' ? ok({ models: [], current: {} }) : ok({})
+        return normalReply(method)
       })
       await mountSession(
         LEGACY,
@@ -623,7 +634,7 @@ describe('mobile structured queued messages', () => {
         if (method === 'agentSession.queuedMessageDelete') {
           return { id: 'request-1', ok: false, error: { code: 'runtime_error', message: 'boom' } }
         }
-        return method === 'agentSession.options' ? ok({ models: [], current: {} }) : ok({})
+        return normalReply(method)
       })
       await mountSession(
         LEGACY,
@@ -642,7 +653,7 @@ describe('mobile structured queued messages', () => {
         if (method === 'agentSession.queuedMessageDelete') {
           return mutationOk({ deleted: false, messageId: 'draft-1', disposition: 'dispatched' })
         }
-        return method === 'agentSession.options' ? ok({ models: [], current: {} }) : ok({})
+        return normalReply(method)
       })
       await mountSession(
         LEGACY,
@@ -657,9 +668,7 @@ describe('mobile structured queued messages', () => {
     })
 
     it('Edit that copied nothing deletes nothing and does not report a copy', async () => {
-      sendRequest.mockImplementation(async (method) =>
-        method === 'agentSession.options' ? ok({ models: [], current: {} }) : ok({})
-      )
+      sendRequest.mockImplementation(async (method) => normalReply(method))
       await mountSession(
         LEGACY,
         snapshotEvent({ queuedMessages: [queuedDraft({ messageId: 'draft-1' })] })
@@ -682,7 +691,7 @@ describe('mobile structured queued messages', () => {
         if (method === 'agentSession.cancel') {
           return mutationOk({ cancelled: true, turnId: 'turn-1' })
         }
-        return method === 'agentSession.options' ? ok({ models: [], current: {} }) : ok({})
+        return normalReply(method)
       })
       await mountSession(
         CAPABLE,
@@ -739,7 +748,7 @@ describe('mobile structured queued messages', () => {
               })
             : mutationOk({ resumed: true })
         }
-        return method === 'agentSession.options' ? ok({ models: [], current: {} }) : ok({})
+        return normalReply(method)
       })
       await mountSession(
         CAPABLE,
@@ -763,7 +772,7 @@ describe('mobile structured queued messages', () => {
         if (method === 'agentSession.cancel') {
           return mutationOk({ cancelled: true, turnId: 'turn-1' })
         }
-        return method === 'agentSession.options' ? ok({ models: [], current: {} }) : ok({})
+        return normalReply(method)
       })
       await mountSession(LEGACY, snapshotEvent({ runningTurn: true }))
       await act(async () => {

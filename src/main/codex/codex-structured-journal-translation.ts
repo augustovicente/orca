@@ -56,8 +56,10 @@ export function createCodexJournalTranslator(
     goals,
     prompts
   } = createCodexJournalTranslatorWriters(deps)
-  const flushStreams = (): CodexJournalTranslationAdmission =>
-    items.streams.flush() ? CODEX_JOURNAL_ADMITTED : { accepted: false, reason: 'backpressure' }
+  const flushStreams = (threadId?: string): CodexJournalTranslationAdmission =>
+    items.streams.flush(threadId)
+      ? CODEX_JOURNAL_ADMITTED
+      : { accepted: false, reason: 'backpressure' }
   const transientFailures = new CodexTransientTurnFailures()
   let readActivity = createCodexProviderActivityReader()
   const resetActivity = (threadId: string): void => {
@@ -195,7 +197,7 @@ export function createCodexJournalTranslator(
           return publishActivity(event, streamResult.admission)
         }
       }
-      const streamAdmission = flushStreams()
+      const streamAdmission = flushStreams('threadId' in event ? event.threadId : undefined)
       if (!streamAdmission.accepted) {
         return streamAdmission
       }
