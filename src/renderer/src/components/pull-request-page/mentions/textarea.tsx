@@ -119,7 +119,9 @@ export function MentionTextarea({
         role="combobox"
         aria-expanded={showSuggestions}
         aria-controls={showSuggestions ? listboxId : undefined}
-        aria-activedescendant={showSuggestions ? `${listboxId}-${activeIndex}` : undefined}
+        aria-activedescendant={
+          showSuggestions && suggestions.length > 0 ? `${listboxId}-${activeIndex}` : undefined
+        }
         value={value}
         onChange={(event) => {
           onValueChange(event.target.value)
@@ -133,7 +135,7 @@ export function MentionTextarea({
         }}
         onBlur={() => setMentionQuery(null)}
         onKeyDown={(event) => {
-          if (showSuggestions) {
+          if (showSuggestions && (suggestions.length > 0 || event.key === 'Escape')) {
             if (event.key === 'ArrowDown') {
               event.preventDefault()
               setActiveIndex((current) => (current + 1) % suggestions.length)
