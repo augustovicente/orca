@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { agentSessionHostStatusBody } from '../../shared/agent-session-host-status-rows'
 import { agentSessionFailureFact } from '../../shared/agent-session-failure'
+import { agentSessionFailureWords } from '../../shared/agent-session-failure-words'
 import * as historyBoundary from './acp-history-boundary'
 import * as historyBatch from '../native-chat/agent-session-wire/structured-agent-session-history-catch-up'
 import { journalLifecycleMutationItemId } from '../native-chat/agent-session-journal/journal-lifecycle-mutation'
@@ -281,7 +282,10 @@ describe('ACP recovered history boundaries', () => {
     const rig = fixture.rig
     await chatSend(fixture, 'retained', 'keep')
     for (const body of [
-      { kind: 'status', text: 'Native failure', failure: agentSessionFailureFact('hostFault') },
+      {
+        kind: 'status',
+        ...agentSessionFailureWords(agentSessionFailureFact('hostFault'), { surface: 'row' })
+      },
       { kind: 'tool-call', name: 'native-tool', input: {}, state: 'completed' }
     ] as const) {
       await rig.journal.appendItem(

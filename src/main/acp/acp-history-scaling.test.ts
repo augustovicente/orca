@@ -311,7 +311,10 @@ it('bounds composed fresh/held content and old dividers at 20 and 200', async ()
   for (const boundary of [agentSessionHostStatusBody('history-loaded'), null]) {
     const seam = vi.spyOn(historyBoundary, 'acpHistoryBoundary').mockReturnValue(boundary)
     try {
-      const populations = []
+      const populations: {
+        first: Awaited<ReturnType<typeof measureCatchUp>>
+        unchanged: Awaited<ReturnType<typeof measureCatchUp>>
+      }[] = []
       for (const n of [20, 200]) {
         const rig = await openProviderTimelineRig()
         for (let i = 0; i < n; i++) {
