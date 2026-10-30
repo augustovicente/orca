@@ -31,6 +31,7 @@ let stateDirectory: string
 function location(directory = stateDirectory) {
   return {
     stateDirectory: directory,
+    legacySessionTabIds: [],
     hostId: HOST_ID,
     logger: createStructuredAgentSessionLogger()
   }
