@@ -87,7 +87,7 @@ function resolver(record: AgentSessionRecord, readJournal: () => JournalLoad | n
 }
 
 describe('ACP launch resolution', () => {
-  it('preserves resume and loss-warning decisions through a checkpoint and an unreadable tail', async () => {
+  it('preserves resume and loss-warning decisions through saved state and an unreadable tail', async () => {
     const root = mkdtempSync(join(tmpdir(), 'orca-acp-saved-read-'))
     const database = openTestJournalHostDatabase(root)
     try {

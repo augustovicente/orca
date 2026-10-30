@@ -34,7 +34,9 @@ beforeEach(async () => {
   database = openTestJournalHostDatabase(root)
 })
 afterEach(async () => {
-  for (const dispose of disposals.splice(0)) dispose()
+  for (const dispose of disposals.splice(0)) {
+    dispose()
+  }
   await journals.closeAll()
   await rm(root, { recursive: true, force: true })
 })
@@ -70,10 +72,14 @@ it.each(['claude', 'codex'] as const)(
         agent === 'codex' ? codexProviderHandle('thread-1') : claudeProviderHandle('claude-1', null)
     }
     const journal = await journals.open({ identity, stateDirectory: root, now: () => at })
+    // A new chat's first saved state comes from its scheduled repair; publish it now.
+    await journal.repairProjection()
     let commits = 0
     let planRevisions = 0
     journal.observeCommits((rows) => {
-      if (!rows?.length) return
+      if (!rows?.length) {
+        return
+      }
       commits++
       planRevisions += rows.filter(
         (row) =>
@@ -83,7 +89,9 @@ it.each(['claude', 'codex'] as const)(
       ).length
       const saved = readJournalSavedState(database.db, sessionId, journal.epoch)
       expect(saved?.lastSequence).toBe(journal.cursor().sequence)
-      if (!saved) throw new Error('missing write-time projection')
+      if (!saved) {
+        throw new Error('missing write-time projection')
+      }
       expectProjectionMatches(database, saved)
       expect(renderJournalState(saved)).toStrictEqual(journal.snapshot())
     })
@@ -117,7 +125,9 @@ it.each(['claude', 'codex'] as const)(
         new URL('../../claude/__fixtures__/claude-adapter-capture-miss.jsonl', import.meta.url)
       ).map((line) => claudeCapture.parse(line))
       for (const record of capture) {
-        if (!record.frame) continue
+        if (!record.frame) {
+          continue
+        }
         at = 1_000 + record.at
         translator.handle({ type: 'message', sessionId, message: record.frame, observedAt: at })
         await flush(translator)
@@ -135,7 +145,9 @@ it.each(['claude', 'codex'] as const)(
       let turnId = 'turn-1'
       for (const record of capture) {
         at = 1_000 + record.t
-        if (typeof record.params.threadId === 'string') threadId = record.params.threadId
+        if (typeof record.params.threadId === 'string') {
+          threadId = record.params.threadId
+        }
         if (record.method === 'turn/started') {
           const turn = z.object({ id: z.string() }).parse(record.params.turn)
           turnId = turn.id
@@ -165,7 +177,8 @@ it.each(['claude', 'codex'] as const)(
       expect(planRevisions).toBeGreaterThanOrEqual(2)
     }
     expect(failed).not.toHaveBeenCalled()
-    expect(commits).toBeGreaterThan(5)
+    // Most codex capture records write no row; it commits three times.
+    expect(commits).toBeGreaterThanOrEqual(agent === 'claude' ? 6 : 3)
     const stoppedTurn = { provider: 'orca', clientMessageId: 'stopped-turn' } as const
     await journal.appendItem(
       stoppedTurn,

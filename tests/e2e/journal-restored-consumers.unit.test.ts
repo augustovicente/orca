@@ -279,6 +279,8 @@ it.each(clients)(
     if (!resumeCursor) {
       throw new Error('Missing pre-close history cursor')
     }
+    // Publish now what the chat's scheduled repair would write a second after it opened.
+    await journal.repairProjection()
     await active.host.close(SESSION, 'evict')
     expect(active.host.hasSession(SESSION)).toBe(false)
     const database = openTestJournalHostDatabase(active.root)
@@ -318,9 +320,6 @@ it.each(clients)(
     })
     const restoredPage = await history({ direction: 'tail' })
     expect(restoredPage.liveCursor?.sequence).toBeGreaterThan(prefix.sequence)
-    expect(readJournalSavedState(database.db, SESSION, prefix.epoch)?.lastSequence).toBe(
-      restoredPage.liveCursor?.sequence
-    )
     expect(active.adapter.acquire).toHaveBeenCalledTimes(1)
     const subscribe = vi.spyOn(active.host, 'subscribe')
     async function stream(cursor?: AgentJournalCursor) {

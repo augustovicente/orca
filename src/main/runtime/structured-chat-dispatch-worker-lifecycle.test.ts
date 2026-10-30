@@ -300,6 +300,8 @@ describe("a chat assignee's liveness, stop and close", () => {
     if (!journal) {
       throw new Error('Worker conversation was not opened')
     }
+    // Publish now what the chat's scheduled repair would write a second after it opened.
+    await journal.repairProjection()
     const prefix = journal.cursor()
     await host.close(PEER_CHAT, 'evict')
     expect(host.hasSession(PEER_CHAT)).toBe(false)

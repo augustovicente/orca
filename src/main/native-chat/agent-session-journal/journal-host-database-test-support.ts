@@ -157,7 +157,7 @@ export function deleteTestJournalRow(db: Database.Database, sessionId: string, s
   )
 }
 
-/** Fixture history edits need a fresh replay of their edited prefix, rather than its older checkpoint. */
+/** Fixture history edits need a fresh replay of their edited prefix, not the saved state covering it. */
 function invalidateEditedJournalPrefix(
   db: Database.Database,
   sessionId: string,

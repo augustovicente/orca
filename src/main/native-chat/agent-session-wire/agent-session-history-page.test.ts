@@ -33,6 +33,7 @@ import type {
   JournalTombstoneRow
 } from '../agent-session-journal/journal-row-schema'
 import type { AgentSessionJournal } from '../agent-session-journal/journal-store'
+import { clearJournalSavedState } from '../agent-session-journal/journal-saved-state'
 import { projectJournalBatch } from './agent-session-journal-batch'
 import { hostTestMessage } from './structured-agent-session-host-test-data'
 import {
@@ -129,11 +130,12 @@ describe('readAgentSessionHistory', () => {
       ok: true,
       page: { items: [{ body: { state: 'running' } }], latestTurn: { turn: { state: 'running' } } }
     })
-    openTestJournalHostDatabase(root)
-      .db.prepare(
-        "UPDATE journal_rows SET row_json = json_set(row_json, '$.body.state', 'completed') WHERE session_id = ? AND epoch = ? AND seq = ?"
-      )
-      .run(IDENTITY.sessionId, cursor.epoch, cursor.sequence)
+    const { db } = openTestJournalHostDatabase(root)
+    db.prepare(
+      "UPDATE journal_rows SET row_json = json_set(row_json, '$.body.state', 'completed') WHERE session_id = ? AND epoch = ? AND seq = ?"
+    ).run(IDENTITY.sessionId, cursor.epoch, cursor.sequence)
+    // The saved state covers the edited row; without it the reload replays the edit.
+    clearJournalSavedState(db, IDENTITY.sessionId)
     await journal.open()
     expect(journal.cursor()).toEqual(cursor)
     expect(read(request)).toMatchObject({
