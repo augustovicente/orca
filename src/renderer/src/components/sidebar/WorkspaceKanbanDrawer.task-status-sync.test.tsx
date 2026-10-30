@@ -8,10 +8,11 @@ import type { Repo } from '../../../../shared/repo-types'
 import type { Worktree } from '../../../../shared/worktree/types'
 import WorkspaceKanbanDrawer from './WorkspaceKanbanDrawer'
 import type * as WorkspaceBoardTaskStatusSync from './workspace-board-task-status-sync'
+import { getWorktreeHostIdentity } from '../../../../shared/worktree/host-qualified-identity'
 
 type PointerDragParams = {
   onDropWorktreesInStatus: (args: {
-    worktreeIds: readonly string[]
+    worktreeKeys: readonly string[]
     status: string
     dropIndex: number
   }) => void
@@ -347,7 +348,7 @@ describe('WorkspaceKanbanDrawer task status sync wiring', () => {
 
     act(() => {
       pointerDragState.current?.onDropWorktreesInStatus({
-        worktreeIds: [item.id],
+        worktreeKeys: [getWorktreeHostIdentity(item)],
         status: 'in-review',
         dropIndex: 0
       })
@@ -367,7 +368,7 @@ describe('WorkspaceKanbanDrawer task status sync wiring', () => {
 
     act(() => {
       pointerDragState.current?.onDropWorktreesInStatus({
-        worktreeIds: [item.id],
+        worktreeKeys: [getWorktreeHostIdentity(item)],
         status: 'in-review',
         dropIndex: 0
       })

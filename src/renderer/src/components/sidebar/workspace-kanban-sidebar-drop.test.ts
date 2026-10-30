@@ -552,7 +552,9 @@ describe('workspace kanban sidebar drop DOM bridge', () => {
 })
 
 function rowsFrom(byId: ReadonlyMap<string, Worktree>) {
-  const byKey = new Map([...byId.values()].map((row) => [getWorktreeHostIdentity(row), [row]]))
+  const byKey = new Map<string, Worktree[]>(
+    [...byId.values()].map((row) => [getWorktreeHostIdentity(row), [row]])
+  )
   return {
     status: (worktreeId: string): Worktree[] => {
       const row = byId.get(worktreeId)
