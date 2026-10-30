@@ -9,6 +9,7 @@ import {
   type AgentMessageSource
 } from '../../agent-session/agent-session-message-source'
 import { nativeChatAskDismissKey } from '../../native-chat-ask-dismiss-key'
+import { projectStructuredItemToNativeChat } from '../../structured-agent-session-projection'
 import {
   extractPendingAsk,
   extractPendingMessageReplyAsk,
@@ -18,6 +19,7 @@ import {
   scanPendingAsks,
   createPendingAskScanner,
   isDeliveredNativeChatUserMessage,
+  parseAskFromStatus,
   resolveNativeChatAsk
 } from './native-chat-ask'
 
@@ -56,6 +58,144 @@ function toolTurn(id: string): NativeChatMessage {
 const QUESTIONS_INPUT = {
   questions: [{ question: 'Deploy?', options: [{ label: 'Yes' }, { label: 'No' }] }]
 }
+
+describe('blocking abandonment boundary', () => {
+  it('keeps Codex blocking on its live-status path (positive control)', () => {
+    // Source-shaped Codex hook payload: agent-hook-listener-hermes-codex-droid.test.ts:161.
+    const liveAsk = parseAskFromStatus(
+      JSON.stringify({
+        questions: [
+          {
+            id: 'color_preference',
+            header: 'Color',
+            question: 'Which color do you prefer: red or blue?',
+            options: [{ label: 'Blue', description: 'Choose blue.' }]
+          }
+        ]
+      }),
+      'request_user_input'
+    )
+    expect(liveAsk?.questions[0]?.header).toBe('Color')
+    expect(resolveNativeChatAsk({ liveAsk, messages: [], transcriptSettled: false })).toBe(liveAsk)
+  })
+  // Mixed-source scanner contract: Claude-shaped calls/results plus projected journal notices, not a live capture.
+  const notice = projectStructuredItemToNativeChat({
+    itemId: 'notice',
+    sequence: 2,
+    revision: 1,
+    observedAt: 2,
+    body: {
+      kind: 'message',
+      role: 'user',
+      blocks: [{ type: 'text', text: 'You have 1 orchestration message.' }],
+      from: {
+        kind: 'agent',
+        senders: [],
+        orchestration: {
+          message: 'mail-notice',
+          mailbox: 'term_b',
+          dispatchId: null,
+          messages: [{ messageId: 'mail-1', runId: 'run-1', from: 'term_a' }]
+        }
+      }
+    }
+  })!
+  const boundaries = [
+    notice,
+    {
+      ...notice,
+      from: readAgentMessageSource({ kind: 'agent', senders: null, orchestration: null })
+    },
+    {
+      ...notice,
+      from: readAgentMessageSource({
+        kind: 'agent',
+        senders: [],
+        orchestration: { message: 'future-notice' }
+      })
+    },
+    ...(
+      ['queued', 'unsent', 'stoppedBeforeStart', 'awaitsRetry', 'sentWhileStopping'] as const
+    ).map((flag) => ({ ...notice, from: undefined, [flag]: true }))
+  ]
+  it.each(boundaries)('preserves blocking FIFO across non-answer row %#', (boundary) => {
+    const rows = [
+      message('ordinary', [call('Bash', { command: 'ls' })]),
+      message('ask', [call('AskUserQuestion', QUESTIONS_INPUT)]),
+      boundary,
+      toolTurn('ordinary-result'),
+      toolTurn('ask-result')
+    ]
+    const scanner = createPendingAskScanner()
+    const replay: NativeChatMessage[] = []
+    for (const row of rows) {
+      replay.push(row)
+      scanner.append(row)
+      expect(scanner.current()).toEqual(scanPendingAsks(replay))
+      if (replay.length >= 2 && replay.length < rows.length) {
+        expect(scanner.current().blocking?.questions[0]?.question).toBe('Deploy?')
+      }
+    }
+    expect(scanner.current().blocking).toBeNull()
+    expect(
+      scanPendingAsks([
+        rows[0]!,
+        rows[1]!,
+        {
+          ...boundary,
+          from: undefined,
+          queued: false,
+          unsent: false,
+          stoppedBeforeStart: false,
+          awaitsRetry: false,
+          sentWhileStopping: false
+        }
+      ]).blocking
+    ).toBeNull()
+  })
+
+  // Normalized source-shaped inputs: OMP toolCall.arguments and OpenCode pending state.input; no decoder imports.
+  // Grok question definition copied from src/main/acp/fixtures/s5-plan-approved.jsonl:6 (recorded ACP, not terminal delivery).
+  it.each([
+    ['OMP', 'ask', QUESTIONS_INPUT],
+    ['OpenCode family', 'question', QUESTIONS_INPUT],
+    [
+      'Grok',
+      'ask_user_question',
+      {
+        questions: [
+          {
+            question: 'Which test approach do you want for the subtract function?',
+            options: [
+              {
+                label: 'node:test (Recommended)',
+                description:
+                  "A math.test.js file using Node's built-in test runner. Run it with node --test. No new dependencies or package.json."
+              },
+              {
+                label: 'Plain assert script',
+                description:
+                  'A small math.test.js that uses node:assert and exits non-zero on failure. Run it with node math.test.js. No test framework.'
+              },
+              {
+                label: 'Add a package.json and a test script',
+                description:
+                  'Add package.json with a test script that runs the same Node built-in tests, so npm test works.'
+              }
+            ],
+            multiSelect: null
+          }
+        ]
+      }
+    ]
+  ])('retains %s normalized blocking input across a projected notice', (_agent, name, input) => {
+    const asked = message('ask', [call(String(name), input)])
+    const pending = scanPendingAsks([asked]).blocking
+    expect(pending).not.toBeNull()
+    expect(scanPendingAsks([asked, notice]).blocking).toEqual(pending)
+    expect(scanPendingAsks([asked, notice, toolTurn('answered')]).blocking).toBeNull()
+  })
+})
 
 describe('extractPendingAsk', () => {
   it('recognizes an unregistered tool whose input matches the canonical questions shape', () => {
@@ -335,7 +475,7 @@ describe('async questions', () => {
     expect(isDeliveredNativeChatUserMessage(notice)).toBe(false)
     scanner.append(notice)
     expect(scanner.current().contributors).toBe(pending)
-    expect(scanner.current().blocking).toBeNull()
+    expect(scanner.current().blocking).not.toBeNull()
     expect(scanner.append(message('replay', [asyncCall('same-call', 'duplicate')]))).toEqual([])
     scanner.append({ ...notice, id: 'legacy-human', from: undefined })
     expect(scanner.current().contributors).toEqual([])
