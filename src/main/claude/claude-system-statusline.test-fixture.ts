@@ -62,8 +62,10 @@ vi.mock('../agent-hooks/local-agent-cli-presence', () => ({
 }))
 vi.mock('../../cli/runtime-client', () => ({
   RuntimeClient: class {
-    getCliStatus = async () => ({
-      result: { runtime: { reachable: seam.online }, app: { running: seam.online } }
+    getOfflineRuntimeAdmission = async () => ({
+      reachable: seam.online,
+      legacyPidRunning: seam.online,
+      pid: seam.online ? process.pid : null
     })
     call = async () => ({ result: { settings: {} } })
   },
@@ -181,9 +183,7 @@ export async function applyAgentStatusHooksEnabled(...args: Parameters<typeof Ap
     await import('../agent-hooks/managed-agent-hook-controls')
   ).applyAgentStatusHooksEnabled(...args)
 }
-export async function main(args: string[]) {
-  return await (await import('../../cli/index')).main(args)
-}
+export const main = async (args: string[]) => await (await import('../../cli/index')).main(args)
 export function slot(config: Parameters<typeof getStatusLineSlotState>[0]) {
   return getStatusLineSlotState(config)
 }
