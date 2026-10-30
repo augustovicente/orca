@@ -3,6 +3,7 @@ import type * as ProcessHostModule from '@orca/process-host'
 import { EventEmitter } from 'node:events'
 import { existsSync } from 'node:fs'
 import { delimiter } from 'node:path'
+import { PassThrough } from 'node:stream'
 import type * as NodeFs from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -74,9 +75,10 @@ import {
 } from '../../shared/account-runtime-capabilities'
 
 function helpChild(stdout: string): EventEmitter {
-  const child = Object.assign(new EventEmitter(), { stdout: new EventEmitter() })
+  const child = Object.assign(new EventEmitter(), { stdout: new PassThrough() })
   queueMicrotask(() => {
-    child.stdout.emit('data', stdout)
+    child.stdout.write(stdout)
+    child.emit('exit', 0)
     child.emit('close', 0)
   })
   return child

@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { once } from 'node:events'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -16,7 +17,10 @@ const eventSchema = z.object({
   dataHome: z.string(),
   configHome: z.string(),
   database: z.string(),
-  kind: z.enum(['probe', 'login', 'stopped', 'survived']),
+  kind: z.enum(['probe', 'login', 'stopped', 'survived', 'owned', 'escaped', 'stopping']),
+  pid: z.number(),
+  started: z.string(),
+  at: z.number(),
   dataHomeExists: z.boolean()
 })
 
@@ -91,18 +95,37 @@ async function accountFixture() {
     writeFileSync(
       script,
       `const fs = require('node:fs');
+const cp = require('node:child_process');
 const mode = JSON.parse(fs.readFileSync(${JSON.stringify(modePath)}, 'utf8'));
 const name = ${JSON.stringify(name)};
 const args = process.argv.slice(2);
 const probe = args.includes('--help');
 fs.mkdirSync(process.env.XDG_DATA_HOME, {recursive:true});
 const record = kind => fs.appendFileSync(${JSON.stringify(eventsPath)}, JSON.stringify({
-  name, args, kind, dataHome:process.env.XDG_DATA_HOME,
+  name, args, kind, pid:process.pid, at:Date.now(),
+  started:process.platform === 'win32' ? '' : cp.execFileSync('/bin/ps', ['-p', String(process.pid), '-o', 'lstart='], {encoding:'utf8'}).trim(),
+  dataHome:process.env.XDG_DATA_HOME,
   configHome:process.env.XDG_CONFIG_HOME, database:process.env.OPENCODE_DB,
   dataHomeExists:fs.existsSync(process.env.XDG_DATA_HOME)
 }) + '\\n');
+if (args[0] === 'owned' || args[0] === 'escaped') {
+  record(args[0]);
+  process.on('SIGTERM', () => {});
+  // Adversarial output arrives after the execution deadline; it must never grant support.
+  if (args[0] === 'escaped') setTimeout(() => console.log('--standalone'), 10500);
+  setTimeout(() => process.exit(0), 60000);
+  return;
+}
 record(probe ? 'probe' : 'login');
-if (probe && mode.hold) {
+if (probe && name === 'opencode2' && mode.lifecycle) {
+  if (mode.lifecycle !== 'natural') cp.spawn(process.execPath, [__filename, 'owned'], {stdio:['ignore', 1, 2]});
+  cp.spawn(process.execPath, [__filename, 'escaped'], {stdio:['ignore', 1, 2], detached:true});
+  process.on('SIGTERM', () => {record('stopping'); process.exit(0)});
+  if (mode.lifecycle === 'natural') {
+    console.log('usage: auth login');
+    setTimeout(() => process.stderr.write('--standalone  private server\\n', () => process.exit(0)), 200);
+  } else setTimeout(() => process.exit(0), 60000);
+} else if (probe && mode.hold) {
   process.on('SIGTERM', () => {record('stopped'); process.exit(0)});
   setTimeout(() => {record('survived'); process.exit(0)}, 3000);
 } else if (probe) {
@@ -165,6 +188,13 @@ if (probe && mode.hold) {
       requests.length = 0
     },
     async close() {
+      if (process.platform !== 'win32') {
+        for (const event of events().toReversed()) {
+          if (fixtureProcessAlive(event)) {
+            process.kill(event.pid, 'SIGKILL')
+          }
+        }
+      }
       await new Promise<void>((done) => server.close(() => done()))
       rmSync(root, { recursive: true, force: true })
     }
@@ -248,4 +278,106 @@ it.skipIf(process.platform === 'win32')(
   },
   // Allows the 10-second probe-start wait plus child termination and fixture cleanup.
   20_000
+)
+
+// Identity checks make fixture cleanup safe even after a wrapper or descendant has exited.
+function fixtureProcessAlive(event: { pid: number; started: string }): boolean {
+  if (!Number.isInteger(event.pid) || event.pid <= 0 || !event.started) {
+    throw new Error('Missing owned fixture process identity')
+  }
+  try {
+    const started = execFileSync('/bin/ps', ['-p', String(event.pid), '-o', 'lstart='], {
+      encoding: 'utf8'
+    }).trim()
+    const state = execFileSync('/bin/ps', ['-p', String(event.pid), '-o', 'state='], {
+      encoding: 'utf8'
+    }).trim()
+    return started === event.started && !state.startsWith('Z')
+  } catch {
+    return false
+  }
+}
+
+function within<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`CLI did not exit within ${ms}ms`)), ms)
+    })
+  ]).finally(() => clearTimeout(timer))
+}
+
+it.skipIf(process.platform === 'win32').each(['timeout', 'natural', 'cancel'])(
+  'real CLI %s probe settles with held pipes, owned descendants and private cleanup',
+  async (lifecycle) => {
+    const fixture = await accountFixture()
+    fixture.mode({ lifecycle, supported: lifecycle === 'natural' ? 'opencode2' : 'opencode' })
+    const child = spawnProcess(fixture.spec)
+    const exited = once(child, 'close')
+    let stdout = ''
+    let stderr = ''
+    child.stdout?.on('data', (chunk) => {
+      stdout += chunk
+    })
+    child.stderr?.on('data', (chunk) => {
+      stderr += chunk
+    })
+    try {
+      await expect
+        .poll(() => fixture.events().some(({ kind }) => kind === 'escaped'), { timeout: 10_000 })
+        .toBe(true)
+      const escaped = fixture.events().find(({ kind }) => kind === 'escaped')!
+      if (lifecycle === 'cancel') {
+        await expect
+          .poll(() => fixture.events().some(({ kind }) => kind === 'stopping'), { timeout: 15_000 })
+          .toBe(true)
+        child.kill('SIGTERM')
+      }
+      // Real 10s execution + 5s graceful stop + 2s group verification, plus startup/drain slack.
+      expect(
+        await within(exited, lifecycle === 'natural' ? 5_000 : 24_000),
+        stdout + stderr
+      ).toEqual([lifecycle === 'cancel' ? 143 : 0, null])
+      expect(fixtureProcessAlive(escaped)).toBe(true)
+      const events = fixture.events()
+      console.info('probe scope evidence', {
+        lifecycle,
+        elapsedMs: Date.now() - events[0].at,
+        escapedAlive: fixtureProcessAlive(escaped)
+      })
+      const owned = events.find(({ kind }) => kind === 'owned')
+      if (lifecycle !== 'natural') {
+        expect(owned).toBeDefined()
+        if (owned) {
+          expect(fixtureProcessAlive(owned)).toBe(false)
+        }
+      }
+      if (lifecycle === 'cancel') {
+        expect(events.find(({ kind }) => kind === 'stopping')?.dataHomeExists).toBe(true)
+      }
+      expect(events.every(({ dataHome }) => !existsSync(dirname(dataHome)))).toBe(true)
+      expect(events.filter(({ kind }) => kind === 'probe').map(({ name }) => name)).toEqual(
+        lifecycle === 'timeout' ? ['opencode2', 'opencode'] : ['opencode2']
+      )
+      expect(events.filter(({ kind }) => kind === 'login').map(({ name }) => name)).toEqual(
+        lifecycle === 'cancel' ? [] : [lifecycle === 'natural' ? 'opencode2' : 'opencode']
+      )
+      expect(fixture.requests.map(({ method }) => method)).toEqual(
+        lifecycle === 'cancel' ? ['status.get'] : ['status.get', 'accounts.addDataFromHome']
+      )
+      if (lifecycle !== 'cancel') {
+        expect(JSON.parse(stdout)).toMatchObject({ ok: true })
+      }
+    } finally {
+      // Only recorded fixture identities and this test's own CLI handle may be stopped.
+      await fixture.close()
+      if (child.exitCode === null && child.signalCode === null) {
+        child.kill('SIGTERM')
+        await within(exited, 10_000)
+      }
+    }
+  },
+  // Includes startup observation, the real deadline, bounded termination and failure cleanup.
+  50_000
 )
