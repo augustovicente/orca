@@ -9,9 +9,20 @@ import { RpcDispatcher } from '../../src/main/runtime/rpc/dispatcher'
 import { runtimeApi } from '../../src/preload/api/runtime-bridge'
 
 type DesktopListener = (_event: unknown, response: RuntimeRpcResponse<unknown>) => void
+type DesktopIpcEvent = {
+  sender: {
+    id: number
+    mainFrame: unknown
+    on: ReturnType<typeof vi.fn>
+    once: ReturnType<typeof vi.fn>
+    isDestroyed: () => boolean
+    send: (channel: string, response: RuntimeRpcResponse<unknown>) => void
+  }
+  senderFrame: unknown
+}
 const desktopIpc = vi.hoisted(() => ({
-  handlers: new Map<string, (event: object, args: unknown) => unknown>(),
-  events: new Map<string, (event: object, args: unknown) => void>(),
+  handlers: new Map<string, (event: DesktopIpcEvent, args: unknown) => unknown>(),
+  events: new Map<string, (event: DesktopIpcEvent, args: unknown) => void>(),
   listeners: new Map<string, Set<DesktopListener>>(),
   invoke: vi.fn(),
   send: vi.fn()
@@ -19,9 +30,9 @@ const desktopIpc = vi.hoisted(() => ({
 vi.mock('electron', () => ({
   BrowserWindow: {},
   ipcMain: {
-    handle: (channel: string, handler: (event: object, args: unknown) => unknown) =>
+    handle: (channel: string, handler: (event: DesktopIpcEvent, args: unknown) => unknown) =>
       desktopIpc.handlers.set(channel, handler),
-    on: (channel: string, handler: (event: object, args: unknown) => void) =>
+    on: (channel: string, handler: (event: DesktopIpcEvent, args: unknown) => void) =>
       desktopIpc.events.set(channel, handler),
     removeHandler: (channel: string) => desktopIpc.handlers.delete(channel),
     removeAllListeners: (channel: string) => desktopIpc.events.delete(channel)
