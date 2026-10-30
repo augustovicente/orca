@@ -229,9 +229,7 @@ export function fakeClaude(
 }
 
 /** Direct adapter fixtures await the host-owned open after process publication. */
-export function adapterFor(
-  ...args: Parameters<typeof adapterAtPublishFor>
-): ClaudeStructuredSessionAdapter {
+export function adapterFor(...args: Parameters<typeof adapterAtPublishFor>) {
   const adapter = adapterAtPublishFor(...args)
   const acquire = adapter.acquire
   adapter.acquire = async (input) => {

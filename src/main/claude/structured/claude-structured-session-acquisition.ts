@@ -22,7 +22,7 @@ import {
   createClaudeSessionPublication,
   reportClaudeOptions
 } from './claude-structured-session-publication'
-import * as sessionState from './claude-structured-session-state'
+import type * as sessionState from './claude-structured-session-state'
 import { resolveClaudeAcquisitionError } from '../claude-structured-session-close'
 import { withObservedProviderExit } from '../../native-chat/agent-session-wire/structured-agent-session-failure-text'
 import { readClaudeTranscriptEntryUuid } from '../claude-transcript-entry-uuid'

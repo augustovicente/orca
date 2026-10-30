@@ -63,7 +63,7 @@ it.each([10, 100])('coalesces %i saved renames into two ordered pushes', async (
       getRecord: () => record,
       compareAndSetConversationName: async () => record,
       setUserConversationName: async (_id, name, write) => {
-        const result = setAgentSessionRecordUserName(record, name, write, Date.now())
+        const result = setAgentSessionRecordUserName(record, name, write, 1_700_000_000_000)
         record = result.record
         return result
       }

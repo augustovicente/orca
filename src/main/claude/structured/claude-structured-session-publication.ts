@@ -9,7 +9,8 @@ import type { ClaudeJournalTranslator } from '../claude-journal-translator-contr
 import type {
   ClaudeSession,
   ClaudeAcquisitionAttempt,
-  ClaudeAcquireCallbacks
+  ClaudeAcquireCallbacks,
+  ClaudeStructuredSessionEvent
 } from './claude-structured-session-state'
 import { ClaudeBackgroundTaskTracker } from '../claude-background-task-tracker'
 import { ClaudeChildWorkDecoder } from '../claude-child-work-decoder'
@@ -29,7 +30,7 @@ function claudeSessionInitialization(input: {
   contextActivity: number
   onLateRefusal: ClaudeSession['initialization']['onLateRefusal']
   connection: ClaudeSession['connection']
-  emit: (event: import('./claude-structured-session-state').ClaudeStructuredSessionEvent) => void
+  emit: (event: ClaudeStructuredSessionEvent) => void
   naming: ClaudeNamingGeneration | undefined
   requestTimeoutMs: number | undefined
 }): ClaudeSession['initialization'] {

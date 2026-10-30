@@ -106,7 +106,7 @@ export async function renameCodexProviderSession(input: {
   }
   const codexHome = requireLegacyAgentSessionAccountHome(record.accountHome).path
   const cwd = await renameCwd(record, invocation)
-  const { command, environment } = await resolveCodexStructuredInvocation({
+  const { command, prefixArgs, environment } = await resolveCodexStructuredInvocation({
     ...invocation,
     resolveWorkingDirectory: () => cwd
   })
@@ -119,7 +119,7 @@ export async function renameCodexProviderSession(input: {
   await runCodexAppServerSession(
     {
       command,
-      args: [...args, ...CODEX_SHORT_LIVED_PROBE_APP_SERVER_ARGS],
+      args: [...prefixArgs, ...args, ...CODEX_SHORT_LIVED_PROBE_APP_SERVER_ARGS],
       cwd,
       cliPath: command,
       env: { ...env, CODEX_HOME: codexHome },

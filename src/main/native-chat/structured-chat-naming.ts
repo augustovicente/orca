@@ -190,11 +190,10 @@ export function createStructuredChatNamingHandler(deps: StructuredChatNamingDeps
   }
 
   async function setName(store: NamingStore, record: AgentSessionRecord, name: string) {
-    const expected = record.conversationName ?? null
     const named = await store.compareAndSetConversationName(
       record.sessionId,
       name,
-      expected,
+      record.conversationName ?? null,
       contextId(record)
     )
     if (named) {

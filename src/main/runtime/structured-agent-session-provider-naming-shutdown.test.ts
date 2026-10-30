@@ -90,7 +90,7 @@ it('stops naming admission and joins native helper finalization before runtime c
     claimKeyId: 'key-1',
     logger: createStructuredAgentSessionLogger(),
     resolveWorkspacePath: async () => root,
-    resolveCodexCommand: () => process.execPath,
+    resolveCodexCommand: () => ({ command: process.execPath, prefixArgs: [] }),
     resolveEnvironment: async () => ({}),
     resolveLaunchArgs,
     resolveClaudeAuthPolicy: () => ({ account: 'managed' })

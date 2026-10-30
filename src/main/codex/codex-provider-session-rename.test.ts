@@ -54,10 +54,12 @@ afterEach(async () => {
 
 it('resolves idle metadata independently of chat admission, preserving configured context and errors', async () => {
   root = await fs.mkdtemp(join(tmpdir(), 'orca-codex-rename-'))
-  const program = join(root, 'cx.cmd')
-  await fs.writeFile(program, '', { mode: 0o755 })
+  const program = process.execPath
+  const entrypoint = join(root, 'codex entry.mjs')
+  await fs.writeFile(entrypoint, '')
+  const prefix = ['--no-warnings', entrypoint]
   const settings = {
-    agentCmdOverrides: { codex: `"${program}"` },
+    agentCmdOverrides: { codex: `"${program}" --no-warnings "${entrypoint}"` },
     agentDefaultArgs: { codex: '-c model_provider=first --no-daemon' }
   }
   let overlay: Record<string, string> = { PATH: 'bin', CODEX_HOME: '/current', CUSTOM: 'first' }
@@ -103,7 +105,13 @@ it('resolves idle metadata independently of chat admission, preserving configure
       cwd: candidate === root ? root : resolveHiddenProbeCwd(),
       timeoutMs: 15_000
     })
-    expect(invocation.args).toEqual(['-c', 'model_provider=first', '--no-daemon', ...tail])
+    expect(invocation.args).toEqual([
+      ...prefix,
+      '-c',
+      'model_provider=first',
+      '--no-daemon',
+      ...tail
+    ])
     const stale = { ORCA_CHAT_SCRATCH_DIR: 'old', ORCA_CHAT_VISUALS_DIR: 'old' }
     const child = resolveProviderChildEnv(invocation, stale)
     expect(child).toMatchObject({ CODEX_HOME: '/saved/account', CUSTOM: 'first', PATH: 'bin' })
@@ -118,7 +126,7 @@ it('resolves idle metadata independently of chat admission, preserving configure
   await rename()
   expect(run.mock.lastCall![0].command).toBe(process.execPath)
   expect(run.mock.lastCall![0].env?.CODEX_HOME).toBe('/saved/account')
-  expect(run.mock.lastCall![0].args.slice(0, 2)).toEqual(['-c', 'model_provider=second'])
+  expect(run.mock.lastCall![0].args).toEqual(['-c', 'model_provider=second', ...tail])
   expect(run.mock.lastCall![0].env).not.toHaveProperty('CUSTOM')
   await fs.mkdir(join(root, 'bin'))
   await fs.writeFile(join(root, 'bin', process.platform === 'win32' ? 'codex.exe' : 'codex'), '', {
@@ -139,9 +147,12 @@ it('resolves idle metadata independently of chat admission, preserving configure
   settings.agentCmdOverrides.codex = join(root, 'missing-command')
   await expect(rename()).rejects.toThrow('Command setting is not a runnable program')
   expect(run).toHaveBeenCalledTimes(6)
+  expect(request).toHaveBeenCalledTimes(6)
   settings.agentCmdOverrides.codex = `"${program}"`
   request.mockRejectedValueOnce(new Error('thread not found'))
   await expect(rename()).rejects.toThrow('thread not found')
+  expect(run).toHaveBeenCalledTimes(7)
+  expect(request).toHaveBeenCalledTimes(7)
   expect(request).toHaveBeenLastCalledWith(
     'thread/name/set',
     { threadId: 'thread-1', name: 'Release notes' },

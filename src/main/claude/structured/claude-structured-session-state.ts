@@ -24,6 +24,9 @@ import type { ClaudeSlashCommandCatalog } from '../claude-slash-command-catalog'
 import type { ClaudeAtRestCommandCatalog } from '../claude-at-rest-commands'
 import type { ClaudeInitProof } from './claude-structured-init-proof'
 import type { AgentSessionProviderHandleLink } from '../../../shared/agent-session-provider-handle'
+import type { AgentSessionRecord } from '../../../shared/agent-session-record'
+import type { ClaudeNamingInputs } from '../claude-naming-invocation'
+import type { ClaudeInitializeFacts } from './claude-structured-session-startup'
 
 export type ClaudeAuthDiagnostic = {
   apiKeySourceConfigured: boolean
@@ -89,12 +92,8 @@ export type ClaudeLateDispatchOutcome =
   | { clientMessageId: string; state: 'unknown'; reason: string }
 
 export type ClaudeStructuredSessionAdapterDeps = {
-  namingInputs?: (
-    record: import('../../../shared/agent-session-record').AgentSessionRecord
-  ) => Promise<import('../claude-naming-invocation').ClaudeNamingInputs>
-  namingRecord?: (
-    sessionId: string
-  ) => import('../../../shared/agent-session-record').AgentSessionRecord | null | undefined
+  namingInputs?: (record: AgentSessionRecord) => Promise<ClaudeNamingInputs>
+  namingRecord?: (sessionId: string) => AgentSessionRecord | null | undefined
   atRestCommands?: ClaudeAtRestCommandCatalog
   resolveLaunch: (input: StructuredLaunchRequest) => Promise<ClaudeStructuredLaunch>
   onEvent?: (event: ClaudeStructuredSessionEvent) => void
@@ -225,7 +224,7 @@ export type ClaudeSession = {
   /** Provider identity and initialize proof retained for the host-awaited open. */
   link: AgentSessionProviderHandleLink
   initialization: {
-    facts?: Promise<import('./claude-structured-session-startup').ClaudeInitializeFacts>
+    facts?: Promise<ClaudeInitializeFacts>
     proof: ClaudeInitProof
     account: ClaudeStructuredLaunch['account']
     resumesTranscript: boolean
@@ -237,9 +236,8 @@ export type ClaudeSession = {
   }
 }
 
-export function mintClaudeAcquisitionGeneration(deps: ClaudeStructuredSessionAdapterDeps): string {
-  return deps.mintAcquisitionGeneration?.() ?? randomUUID()
-}
+export const mintClaudeAcquisitionGeneration = (deps: ClaudeStructuredSessionAdapterDeps) =>
+  deps.mintAcquisitionGeneration?.() ?? randomUUID()
 
 /** Retain observed exits until settlement so delayed acquisition cleanup can find their proof. */
 export type ClaudeSessionExit = {

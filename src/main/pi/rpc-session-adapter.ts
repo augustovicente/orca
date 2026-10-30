@@ -230,12 +230,8 @@ export class PiRpcSessionAdapter implements StructuredAgentSessionAdapter {
         await session.connection.request('set_session_name', { name }, { timeoutMs: 5_000 })
       }
     }
-  holdsDispatch(id: string): boolean {
-    return this.sessions.get(id)?.turns.holdsDispatch ?? false
-  }
-  heldSends(id: string): ReadonlySet<string> | undefined {
-    return this.sessions.get(id)?.heldSends
-  }
+  holdsDispatch = (id: string): boolean => this.sessions.get(id)?.turns.holdsDispatch ?? false
+  heldSends = (id: string): ReadonlySet<string> | undefined => this.sessions.get(id)?.heldSends
   holdsLiveProviderProcess(id: string, generation: string): boolean {
     const session = this.sessions.get(id)
     return session?.generation === generation && !session.connection.closed
@@ -271,9 +267,7 @@ export class PiRpcSessionAdapter implements StructuredAgentSessionAdapter {
     this.sessions.get(id)?.fail(new Error('Pi event sink failed'))
     return this.close(id, false)
   }
-  disposeSession(id: string): Promise<boolean> {
-    return this.closeSession(id)
-  }
+  disposeSession: NonNullable<StructuredAgentSessionAdapter['disposeSession']> = this.closeSession
   acknowledgeSessionRelease(id: string): void {
     const session = this.sessions.get(id)
     if (

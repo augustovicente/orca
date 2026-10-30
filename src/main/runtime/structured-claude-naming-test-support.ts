@@ -108,7 +108,7 @@ export async function createClaudeNamingRuntime(
       claimKeyId: 'naming-test',
       logger,
       resolveWorkspacePath: async () => root,
-      resolveClaudeCommand: () => process.execPath,
+      resolveClaudeCommand: () => ({ command: process.execPath, prefixArgs: [] }),
       resolveLaunchArgs: () => [],
       resolveClaudeAuthPolicy: () => ({ account: 'system' }),
       resolveEnvironment: async () => ({
