@@ -2,6 +2,7 @@ import { ipcMain } from 'electron'
 import { appStarSourceSchema } from '../../shared/gh-star-source'
 import { resolveGhAccountRequiredHost } from '../github/account-binding-required-host'
 import { diagnoseGhAuth } from '../github/auth-diagnose'
+import { runAsDefaultWslCliUserAct } from '../git/command-runner/default-wsl-cli-fallback'
 import { checkOrcaStarred, getAuthenticatedViewer, starOrca } from '../github/client'
 import {
   listGhAccountBindingInventory,
@@ -32,8 +33,9 @@ export function registerGitHubAccountHandlers(store: Store): void {
     getRateLimit(args?.force ? { force: true } : undefined)
   )
 
+  // Shown for an auth error the user hit; may start the stopped distro its gh lives in (E9).
   ipcMain.handle('gh:diagnoseAuth', (_event, args?: { host?: string }) =>
-    diagnoseGhAuth(args?.host)
+    runAsDefaultWslCliUserAct(() => diagnoseGhAuth(args?.host))
   )
 
   ipcMain.handle(

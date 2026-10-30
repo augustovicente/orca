@@ -1,4 +1,5 @@
 import { ipcMain } from 'electron'
+import { runAsDefaultWslCliUserAct } from '../git/command-runner/default-wsl-cli-fallback'
 import type {
   AddIssueCommentBySlugArgs,
   ClearProjectItemFieldArgs,
@@ -36,43 +37,46 @@ import {
   updatePullRequestBySlug
 } from '../github/project-view'
 
+// Picking a board, opening an item and editing are clicks: E9 lets them start a stopped default
+// distro whose gh they need. The board table also reloads unprompted (restore), so it stays gated.
 export function registerGitHubProjectViewHandlers(): void {
   ipcMain.handle('gh:listAccessibleProjects', (_event, args?: ListAccessibleProjectsArgs) =>
-    listAccessibleProjects(args)
+    runAsDefaultWslCliUserAct(() => listAccessibleProjects(args))
   )
   ipcMain.handle('gh:resolveProjectRef', (_event, args: ResolveProjectRefArgs) =>
-    resolveProjectRef(args)
+    runAsDefaultWslCliUserAct(() => resolveProjectRef(args))
   )
   ipcMain.handle('gh:listProjectViews', (_event, args: ListProjectViewsArgs) =>
-    listProjectViews(args)
+    runAsDefaultWslCliUserAct(() => listProjectViews(args))
   )
   ipcMain.handle('gh:getProjectViewTable', (_event, args: GetProjectViewTableArgs) =>
     getProjectViewTable(args)
   )
   ipcMain.handle(
     'gh:projectWorkItemDetailsBySlug',
-    (_event, args: ProjectWorkItemDetailsBySlugArgs) => getWorkItemDetailsBySlug(args)
+    (_event, args: ProjectWorkItemDetailsBySlugArgs) =>
+      runAsDefaultWslCliUserAct(() => getWorkItemDetailsBySlug(args))
   )
   ipcMain.handle('gh:updateProjectItemField', (_event, args: UpdateProjectItemFieldArgs) =>
-    updateProjectItemFieldValue(args)
+    runAsDefaultWslCliUserAct(() => updateProjectItemFieldValue(args))
   )
   ipcMain.handle('gh:clearProjectItemField', (_event, args: ClearProjectItemFieldArgs) =>
-    clearProjectItemFieldValue(args)
+    runAsDefaultWslCliUserAct(() => clearProjectItemFieldValue(args))
   )
   ipcMain.handle('gh:updateIssueBySlug', (_event, args: UpdateIssueBySlugArgs) =>
-    updateIssueBySlug(args)
+    runAsDefaultWslCliUserAct(() => updateIssueBySlug(args))
   )
   ipcMain.handle('gh:updatePullRequestBySlug', (_event, args: UpdatePullRequestBySlugArgs) =>
-    updatePullRequestBySlug(args)
+    runAsDefaultWslCliUserAct(() => updatePullRequestBySlug(args))
   )
   ipcMain.handle('gh:addIssueCommentBySlug', (_event, args: AddIssueCommentBySlugArgs) =>
-    addIssueCommentBySlug(args)
+    runAsDefaultWslCliUserAct(() => addIssueCommentBySlug(args))
   )
   ipcMain.handle('gh:updateIssueCommentBySlug', (_event, args: UpdateIssueCommentBySlugArgs) =>
-    updateIssueCommentBySlug(args)
+    runAsDefaultWslCliUserAct(() => updateIssueCommentBySlug(args))
   )
   ipcMain.handle('gh:deleteIssueCommentBySlug', (_event, args: DeleteIssueCommentBySlugArgs) =>
-    deleteIssueCommentBySlug(args)
+    runAsDefaultWslCliUserAct(() => deleteIssueCommentBySlug(args))
   )
   ipcMain.handle('gh:listLabelsBySlug', (_event, args: ListLabelsBySlugArgs) =>
     listLabelsBySlug(args)
@@ -84,6 +88,6 @@ export function registerGitHubProjectViewHandlers(): void {
     listIssueTypesBySlug(args)
   )
   ipcMain.handle('gh:updateIssueTypeBySlug', (_event, args: UpdateIssueTypeBySlugArgs) =>
-    updateIssueTypeBySlug(args)
+    runAsDefaultWslCliUserAct(() => updateIssueTypeBySlug(args))
   )
 }
