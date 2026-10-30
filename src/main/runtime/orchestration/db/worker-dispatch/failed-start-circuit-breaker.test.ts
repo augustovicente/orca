@@ -124,6 +124,7 @@ describe('failed worker starts and the circuit breaker', () => {
     const [, , third] = failedStarts(taskId, 3)
     expect(() => start(taskId, third)).toThrow(/will not retry it again/)
     db.updateTaskStatus(taskId, 'ready')
+    expect(() => start(taskId, third)).toThrow(/will not retry it again/)
 
     expect(db.getDispatchContextById(start(taskId))).toMatchObject({
       task_id: taskId,

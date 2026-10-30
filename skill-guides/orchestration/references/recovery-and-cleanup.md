@@ -135,8 +135,19 @@ ORCA orchestration worker-show --dispatch <dispatch_id> --json
 ORCA orchestration worker-read --dispatch <dispatch_id> --json
 ```
 
-Settle any live or unknown worker ownership with `worker-stop` or `worker-abandon`
-as appropriate; a startup timeout is not proof that the agent stopped. Then:
+For unsettled Dispatch ownership, use `worker-stop` or `worker-abandon` under
+the rules below and [positive-evidence rules](#stall-needs-positive-evidence);
+a startup timeout is not proof that the agent stopped.
+
+An already-failed start is settled even if its owned terminal remains live;
+stop/abandon does not close that terminal. When replacing it, request
+`worker-release` for reclaimable failed-attempt terminals under
+[Retain and release](#retain-and-release), following the receipt's exact recovery
+action for `release_pending` or `release_unknown`. Retain the selected, proven
+reusable agent under those rules; preserve user-taken-over and unproven terminals.
+A fresh start without `--retry-of` does not clean up predecessor terminals.
+
+Reopen and start the same Task:
 
 ```text
 ORCA orchestration task-update --id <task_id> --status ready --run <owning_run_id> --json
@@ -145,7 +156,17 @@ ORCA orchestration worker-start --task <task_id> --worktree <explicit_placement>
 
 The fresh start omits `--retry-of` and starts its failure count at zero. To use a
 proven existing agent whose previous work is settled, replace that `worker-start`
-with `ORCA orchestration worker-start --task <task_id> --terminal <agent_terminal_handle> --json`.
+with:
+
+```text
+ORCA orchestration worker-start --task <task_id> --worktree <exact_existing_workspace> --terminal <agent_terminal_handle> --json
+```
+
+Use that terminal's exact existing workspace; omit `--agent`, `--model`,
+`--effort`, and new-worktree creation. For either start, follow
+[Placement and remote execution](placement-and-remote.md), including execution-host
+selection.
+
 Never chain `--retry-of` past the breaker or reset it, including on restart;
 the broken attempt and its failure count remain history.
 
