@@ -1,3 +1,4 @@
+import { observeTranscriptPaneLifetime } from './helpers/native-chat-transcript-fixture'
 import { randomUUID } from 'node:crypto'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
@@ -118,6 +119,11 @@ test('keeps named output owners and accepted tasks while retaining a standalone 
   const scratchDir = mkdtempSync(path.join(os.tmpdir(), 'orca-e2e-tool-pairing-'))
   const transcriptPath = path.join(scratchDir, `${sessionId}.jsonl`)
 
+  const finishLifetime = await observeTranscriptPaneLifetime(orcaPage, {
+    tabId,
+    worktreeId: descriptor.worktreeId,
+    paneKey: descriptor.paneKey
+  })
   try {
     writeFileSync(transcriptPath, pairingTranscript(sessionId))
     await seedClaudeProviderSession(orcaPage, {
@@ -216,6 +222,10 @@ test('keeps named output owners and accepted tasks while retaining a standalone 
       )
     ).toBe(true)
   } finally {
+    await testInfo.attach('transcript-pane-lifetime', {
+      body: JSON.stringify(await finishLifetime()),
+      contentType: 'application/json'
+    })
     rmSync(scratchDir, { recursive: true, force: true })
   }
 })
